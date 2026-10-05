@@ -17,8 +17,8 @@
 
   <div class="p-header-actions">
     <a href="{% url 'products:add' %}" class="p-btn p-btn-primary">
-      <span>+ افزودن محصول جدید</span>
-      <span aria-hidden="true">✦</span>
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>افزودن محصول جدید</span>
     </a>
   </div>
 </div>
@@ -47,7 +47,7 @@
       value="{{ query|default:'' }}" 
       class="catalog-search-input" 
       placeholder="جستجوی عنوان محصول...">
-    <button type="submit" class="catalog-search-btn">
+    <button type="submit" class="catalog-search-btn" aria-label="جستجو">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="8"></circle>
         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -66,15 +66,22 @@
             <a href="{% url 'products:detail' prod.pk %}" style="display: block; width: 100%; height: 100%;">
               <img src="{{ prod.main_image.image.url }}" alt="{{ prod.name }}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
             </a>
-            <div style="position: absolute; bottom: 8px; left: 8px; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(6px); color: #ffffff; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px;">
-              📷 {{ prod.images_count }} عکس
+            <div style="position: absolute; bottom: 8px; left: 8px; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(6px); color: #ffffff; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              <span>{{ prod.images_count }} تصویر</span>
             </div>
           </div>
         {% endif %}
 
         <div class="product-card-top">
           <div class="product-type-pill {% if prod.product_type == 'PHYSICAL' %}pill-physical{% else %}pill-service{% endif %}">
-            {% if prod.product_type == 'PHYSICAL' %}📦 کالایی{% else %}🛠 خدماتی{% endif %}
+            {% if prod.product_type == 'PHYSICAL' %}
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+              <span>کالایی</span>
+            {% else %}
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+              <span>خدماتی</span>
+            {% endif %}
           </div>
           <span class="product-status-dot" title="فعال برای کشف هوشمند"></span>
         </div>
@@ -86,7 +93,9 @@
         <!-- Hierarchical Category Breadcrumb -->
         {% if prod.category %}
           <div class="product-category-path" title="شاخه‌بندی سلسله‌مراتبی">
-            <span class="path-icon">📂</span>
+            <span class="path-icon">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            </span>
             <span>{{ prod.category.get_full_path }}</span>
           </div>
         {% else %}
@@ -118,8 +127,8 @@
             <a href="{% url 'products:detail' prod.pk %}" class="card-btn-view" title="مشاهده جزئیات">
               مشاهده ساختار دانش
             </a>
-            <a href="{% url 'products:edit' prod.pk %}" class="card-btn-icon" title="ویرایش">
-              ✏
+            <a href="{% url 'products:edit' prod.pk %}" class="card-btn-icon" title="ویرایش" aria-label="ویرایش">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             </a>
           </div>
         </div>
@@ -128,11 +137,14 @@
   </div>
 {% else %}
   <div class="p-empty-state">
-    <div class="p-empty-icon">📦</div>
+    <div class="p-empty-icon">
+      <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+    </div>
     <h3 class="p-empty-title">هیچ محصولی یافت نشد</h3>
     <p class="p-empty-desc">هنوز محصولی ثبت نشده است یا با عبارت جستجوی شما مطابقت ندارد. با افزودن محصول، ایجنت کشف مشتری را تغذیه کنید.</p>
     <a href="{% url 'products:add' %}" class="p-btn p-btn-primary" style="margin-top: 10px;">
-      + افزودن اولین محصول
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>افزودن اولین محصول</span>
     </a>
   </div>
 {% endif %}

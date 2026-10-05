@@ -544,8 +544,6 @@
   min-width: 0;
   background: transparent;
 }
-  50% { opacity: 0.45; transform: scale(0.85); }
-}
 
 /* Quick Start Discovery Button in Topbar */
 .topbar-discovery-btn {
@@ -1667,3 +1665,53 @@
 }
 
 
+
+
+/* Tier Indicator Dots */
+.tier-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 6px;
+}
+.tier-dot-high {
+  background: var(--p-success, #10b981);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+.tier-dot-medium {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+.tier-dot-low {
+  background: #64748b;
+}
+
+/* Platform Badges */
+.platform-icon-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.platform-x {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--panel-text-main);
+}
+.platform-telegram {
+  background: rgba(36, 161, 222, 0.15);
+  color: #24a1de;
+}
+.platform-instagram {
+  background: rgba(225, 48, 108, 0.15);
+  color: #e1306c;
+}
+
+.p-btn-success {
+  background: var(--p-success, #10b981) !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}

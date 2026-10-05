@@ -44,7 +44,9 @@
         <div class="console-brand-section">
           <a href="{% url 'accounts:dashboard' %}" style="display: flex; align-items: center; gap: 12px; text-decoration: none;">
             <div class="console-brand-logo">
-              ⚡
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
             </div>
             <div class="console-brand-meta">
               <span class="console-brand-name">مشتـــری‌یاب</span>
@@ -81,18 +83,22 @@
           </div>
         </div>
 
-        <!-- Left: System Status, Live Temperature, Theme & Profile -->
+        <!-- Left: System Status, Theme & Profile -->
         <div class="console-actions-section">
           <!-- Live Agent Status Chip -->
           <div class="console-status-chip" title="وضعیت ایجنت هوشمند">
             <span class="console-pulse-beacon"></span>
-            <span>۲۶° ایجنت آنلاین</span>
+            <span>ایجنت فعال</span>
           </div>
 
           <!-- 3-State Theme Switcher -->
           <div class="theme-switch-pill" role="group" aria-label="تغییر پوسته">
-            <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن">☀️</button>
-            <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره">🌙</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            </button>
+            <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
             <button type="button" class="theme-opt-btn" data-theme-set="system" title="خودکار">خودکار</button>
           </div>
 
@@ -151,7 +157,7 @@
             </span>
             <span>کشف مشتری</span>
           </div>
-          <span class="discovery-sparkle">✦</span>
+          <span class="p-badge p-badge-purple" style="font-size: 0.65rem; padding: 2px 7px;">AI</span>
         </a>
 
         <!-- 3. فرصت‌ها -->
@@ -243,8 +249,12 @@
         <div class="sidebar-actions-row">
           <!-- 3-State Theme Switcher -->
           <div class="theme-switch-pill" role="group" aria-label="تغییر تم">
-            <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن">☀️</button>
-            <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره">🌙</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن" aria-label="روشن">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            </button>
+            <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره" aria-label="تیره">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
             <button type="button" class="theme-opt-btn" data-theme-set="system" title="پوسته خودکار">خودکار</button>
           </div>
 
@@ -291,8 +301,8 @@
 
           <!-- Quick Discovery Button -->
           <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="topbar-discovery-btn">
-            <span>+ کشف مشتری</span>
-            <span aria-hidden="true">✦</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>کشف مشتری جدید</span>
           </a>
         </div>
       </header>
@@ -313,18 +323,18 @@
        ====================================================================== -->
   <nav class="panel-mobile-bottom-nav" aria-label="ناوبری موبایل">
     <a href="{% url 'accounts:dashboard' %}" class="bottom-nav-item">
-      <span>🏠</span>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
       <span>خانه</span>
     </a>
     <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="bottom-nav-item bottom-nav-discovery" title="شروع کشف مشتری">
-      <span style="font-size: 1.2rem;">✦</span>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><path d="M11 8v6M8 11h6"></path></svg>
     </a>
     <a href="{% url 'accounts:dashboard' %}#فرصت-ها" class="bottom-nav-item">
-      <span>🎯</span>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
       <span>فرصت‌ها</span>
     </a>
     <a href="{% url 'products:list' %}" class="bottom-nav-item">
-      <span>📦</span>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
       <span>محصولات</span>
     </a>
   </nav>

@@ -14,7 +14,7 @@
   <div class="p-header-titles">
     <div style="display: flex; align-items: center; gap: 8px;">
       <h1 class="p-page-title">{% if is_edit %}ویرایش مشخصات محصول{% else %}معرفی محصول یا خدمت جدید{% endif %}</h1>
-      <span class="p-badge p-badge-purple">✦ پایگاه دانش ایجنت</span>
+      <span class="p-badge p-badge-purple">پایگاه دانش ایجنت</span>
     </div>
     <p class="p-page-subtitle">
       اطلاعات و ویژگی‌های وارد شده به عنوان پایگاه دانش مستقیم ایجنت کشف مشتری برای رصد و تطبیق با خریداران بالقوه استفاده می‌شود.
@@ -63,7 +63,7 @@
         <label class="type-radio-label" style="flex: 1; cursor: pointer;">
           <input type="radio" name="product_type" value="PHYSICAL" id="type_physical" {% if not product or product.product_type == 'PHYSICAL' %}checked{% endif %}>
           <div class="type-radio-card" style="text-align: center; padding: 14px; border-radius: 14px;">
-            <strong>📦 کالایی (Physical Goods)</strong>
+            <strong>کالایی (Physical Goods)</strong>
             <small style="display: block; margin-top: 4px; color: var(--panel-text-muted);">پوشاک، لوازم دیجیتال، ابزار، کالا</small>
           </div>
         </label>
@@ -71,7 +71,7 @@
         <label class="type-radio-label" style="flex: 1; cursor: pointer;">
           <input type="radio" name="product_type" value="SERVICE" id="type_service" {% if product.product_type == 'SERVICE' %}checked{% endif %}>
           <div class="type-radio-card" style="text-align: center; padding: 14px; border-radius: 14px;">
-            <strong>🛠 خدماتی (Services)</strong>
+            <strong>خدماتی (Services)</strong>
             <small style="display: block; margin-top: 4px; color: var(--panel-text-muted);">آموزش، مشاوره، سئو، برنامه‌نویسی</small>
           </div>
         </label>
@@ -82,7 +82,7 @@
     <div class="ai-suggestion-box" id="ai-suggestion-box" style="display: none;">
       <div class="ai-suggestion-header">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="ai-sparkle">✦</span>
+          <span class="console-pulse-beacon" style="display: inline-block; width: 8px; height: 8px;"></span>
           <strong style="color: var(--panel-text-main);">دسته‌بندی پیشنهادی ایجنت هوشمند</strong>
         </div>
         <span class="confidence-badge" id="ai-confidence">۹۶٪ دقت</span>
@@ -99,7 +99,7 @@
 
       <div class="ai-suggestion-actions">
         <button type="button" class="ai-btn-accept" id="btn-accept-ai">
-          <span>✓ تأیید پیشنهاد ایجنت</span>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>تأیید پیشنهاد ایجنت</span>
         </button>
         <button type="button" class="ai-btn-manual" id="btn-manual-ai">
           <span>تغییر و انتخاب دستی از لیست</span>
@@ -169,7 +169,7 @@
     <div class="form-group" style="margin-bottom: 24px; border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
         <label class="form-label" style="margin-bottom: 0; font-size: 0.95rem;">
-          <span>🖼️ تصاویر محصول</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg><span>تصاویر محصول</span>
           <small style="color: var(--panel-text-muted); font-weight: normal;">(حداکثر ۱۰ تصویر؛ امکان انتخاب عکس اصلی و حذف)</small>
         </label>
         <span class="p-badge p-badge-purple" id="images-counter-badge">
@@ -190,7 +190,7 @@
                 
                 {% if img.is_main %}
                   <div style="position: absolute; top: 6px; right: 6px; background: var(--brand-purple); color: #fff; font-size: 0.68rem; font-weight: 800; padding: 3px 8px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.35);">
-                    ★ تصویر اصلی
+                    تصویر اصلی کاتالوگ
                   </div>
                 {% endif %}
 
@@ -201,12 +201,12 @@
                     </button>
                   {% else %}
                     <span style="text-align: center; font-size: 0.72rem; color: var(--brand-purple); font-weight: 750; padding: 5px 0;">
-                      ✓ عکس شاخص کاتالوگ
+                      عکس شاخص کاتالوگ
                     </span>
                   {% endif %}
 
                   <button type="submit" form="delete-img-form-{{ img.id }}" class="p-btn p-btn-ghost p-btn-sm" style="width: 100%; font-size: 0.72rem; padding: 5px 6px; color: var(--p-danger);" onclick="return confirm('آیا از حذف این تصویر اطمینان دارید؟');">
-                    🗑️ حذف تصویر
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> حذف تصویر
                   </button>
                 </div>
               </div>
@@ -240,7 +240,7 @@
         </div>
       {% else %}
         <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px; font-size: 0.84rem; color: var(--p-success); text-align: center;">
-          ✓ حداکثر ظرفیت گالری این محصول (۱۰ تصویر) تکمیل شده است. برای افزودن تصویر جدید، ابتدا یکی از تصاویر بالا را حذف کنید.
+          حداکثر ظرفیت گالری این محصول (۱۰ تصویر) تکمیل شده است. برای افزودن تصویر جدید، ابتدا یکی از تصاویر بالا را حذف کنید.
         </div>
       {% endif %}
     </div>
@@ -296,7 +296,7 @@
     <div style="display: flex; gap: 12px; align-items: center;">
       <button type="submit" class="p-btn p-btn-primary" style="padding: 12px 28px; font-size: 0.95rem;">
         <span>{% if is_edit %}ذخیره تغییرات محصول{% else %}ثبت و ذخیره در پایگاه دانش ایجنت{% endif %}</span>
-        <span aria-hidden="true">✦</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
       </button>
 
       <a href="{% url 'products:list' %}" class="p-btn p-btn-secondary">
@@ -450,7 +450,7 @@
             <img src="${e.target.result}" style="width: 100%; height: 95px; object-fit: cover; display: block;">
             <div style="padding: 5px; font-size: 0.72rem; color: var(--panel-text-muted); background: var(--panel-surface-elevated);">
               <span class="preview-badge" style="font-weight: 700; color: ${index === 0 ? 'var(--brand-purple)' : 'inherit'};">
-                ${index === 0 ? '★ عکس اصلی انتخابی' : 'انتخاب به عنوان اصلی'}
+                ${index === 0 ? 'عکس اصلی انتخابی' : 'انتخاب به عنوان اصلی'}
               </span>
             </div>
           `;
@@ -461,7 +461,7 @@
               if (i === index) {
                 d.style.borderColor = 'var(--brand-purple)';
                 if (badge) {
-                  badge.textContent = '★ عکس اصلی انتخابی';
+                  badge.textContent = 'عکس اصلی انتخابی';
                   badge.style.color = 'var(--brand-purple)';
                 }
               } else {

@@ -6,23 +6,24 @@
 {% block nav_home %}active{% endblock %}
 
 {% block panel_content %}
-<!-- Welcome & Header -->
+<!-- Page Header -->
 <div class="p-page-header">
   <div class="p-header-titles">
     <div style="display: flex; align-items: center; gap: 10px;">
       <h1 class="p-page-title">کنسول هوشمند فروش و کشف مشتری</h1>
       <span class="p-badge p-badge-purple">ایجنت اختصاصی فروش</span>
     </div>
-    <p class="p-page-subtitle">به ما بگویید چه چیزی می‌فروشید؛ ایجنت کشف می‌کند چه کسانی در شبکه‌ها به آن نیاز دارند.</p>
+    <p class="p-page-subtitle">محصولات خود را مشخص کنید؛ ایجنت هوشمند خریداران متناسب را در شبکه‌ها شناسایی و آماده ارتباط می‌کند.</p>
   </div>
 
   <div class="p-header-actions">
     <a href="{% url 'products:add' %}" class="p-btn p-btn-secondary">
-      <span>+ افزودن محصول جدید</span>
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>افزودن محصول جدید</span>
     </a>
     <a href="{% url 'products:list' %}" class="p-btn p-btn-primary">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
       <span>کاتالوگ محصولات ({{ business.products.count }})</span>
-      <span aria-hidden="true">✦</span>
     </a>
   </div>
 </div>
@@ -36,31 +37,36 @@
 {% endif %}
 
 <!-- ========================================================================
-     Step 1: Product-Driven Discovery Selector (کشف مشتری بر اساس محصول انتخابی)
+     Step 1: Product Scope Selector (تمرکز کشف بر اساس کالا)
      ======================================================================== -->
-<div class="p-card" style="padding: 18px 24px; margin-bottom: 22px;">
+<div class="p-card" style="padding: 18px 24px; margin-bottom: 20px;">
   <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
     <div style="display: flex; align-items: center; gap: 10px;">
-      <span style="font-size: 1.25rem;">🎯</span>
+      <span class="p-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: rgba(0, 242, 254, 0.1); color: var(--obsidian-cyan); display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line></svg>
+      </span>
       <div>
-        <strong style="font-size: 0.95rem; color: var(--panel-text-main); display: block;">جستجوی مشتری بر اساس محصول:</strong>
-        <span style="font-size: 0.76rem; color: var(--stone-text-muted);">می‌توانید کل کاتالوگ را پایش کنید یا جستجو را به یک محصول مشخص محدود نمایید.</span>
+        <strong style="font-size: 0.92rem; color: var(--panel-text-main); display: block;">تمرکز جستجوی ایجنت بر اساس کالا:</strong>
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted);">پایش سراسری کاتالوگ یا تمرکز روی یک محصول مشخص برای یافتن مشتریان مستقیم.</span>
       </div>
     </div>
 
     <!-- Product Selection Pills -->
     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" id="product-filter-container">
       <button type="button" class="prod-selector-btn active" data-prod-id="all">
-        <span>🌐 همه محصولات (تحلیل جامع)</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+        <span>همه محصولات (تحلیل کل کاتالوگ)</span>
       </button>
 
       {% for prod in business.products.all %}
         <button type="button" class="prod-selector-btn" data-prod-id="{{ prod.id }}">
-          <span>📦 {{ prod.name|truncatewords:4 }}</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>{{ prod.name|truncatewords:4 }}</span>
         </button>
       {% empty %}
-        <a href="{% url 'products:add' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.75rem;">
-          <span>+ هنوز محصولی ثبت نشده (افزودن)</span>
+        <a href="{% url 'products:add' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.78rem;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>هنوز محصولی ثبت نشده (افزودن)</span>
         </a>
       {% endfor %}
     </div>
@@ -68,29 +74,34 @@
 </div>
 
 <!-- ========================================================================
-     Step 2: Agent Business & ICP Understanding (فهم ایجنت از کسب‌وکار شما)
+     Step 2: Business & ICP Understanding (شناخت ایجنت از پرسونای مشتری)
      ======================================================================== -->
 <div class="p-card" style="padding: 22px 26px; margin-bottom: 24px;">
   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-    <div style="display: flex; align-items: center; gap: 8px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
       <span class="console-pulse-beacon"></span>
       <h2 style="font-size: 1.05rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">
-        شناخت ایجنت از کسب‌وکار و محصولات شما (ICP)
+        شناخت ایجنت از پرسونای خریدار و کسب‌وکار شما (ICP)
       </h2>
     </div>
     
     <div style="display: flex; align-items: center; gap: 10px;">
-      <span class="p-badge p-badge-success" id="icp-status-badge">استخراج‌شده از کاتالوگ ✓</span>
+      <span class="p-badge p-badge-success" id="icp-status-badge">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span>استخراج خودکار از کاتالوگ</span>
+      </span>
       <button type="button" class="p-btn p-btn-sm p-btn-stone" id="btn-confirm-icp">
-        <span>تأیید شناخت ایجنت ✓</span>
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span>تأیید شناخت ایجنت</span>
       </button>
-      <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-edit-target" title="شخصی‌سازی محدوده سن، شهر یا صنف">
+      <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-edit-target" title="تنظیم اختیاری محدودیت‌های سنی، جغرافیایی یا شبکه">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
         <span>تنظیم دستی هدف‌گذاری</span>
       </button>
     </div>
   </div>
 
-  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px; border-radius: 18px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 20px; border-radius: 16px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
     <div>
       <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">حوزه و صنعت:</span>
       <strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ business.business_domain|default:"سبک زندگی دیجیتال و فناوری" }}</strong>
@@ -98,7 +109,7 @@
 
     <div>
       <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">ارزش پیشنهادی اصلی:</span>
-      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">کاهش خستگی مفرط و ارتقای بازدهی کاری</strong>
+      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">کاهش خستگی مفرط و ارتقای تمرکز کاری</strong>
     </div>
 
     <div>
@@ -107,24 +118,24 @@
     </div>
 
     <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">محرک‌های خرید (Purchase Triggers):</span>
+      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">محرک‌های تصمیم‌گیری:</span>
       <strong style="font-size: 0.88rem; color: var(--obsidian-cyan);">کار طولانی با مانیتور، سوزش چشم، ارتقای ابزار</strong>
     </div>
   </div>
 
-  <!-- Manual Targeting Accordion (Hidden by default, simple & optional) -->
+  <!-- Manual Targeting Drawer (Optional & Clean) -->
   <div id="target-settings-drawer" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border-subtle);">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-      <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری (Target Constraints):</span>
-      <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">★ حالت پیش‌فرض: انتخاب خودکار توسط هوش مصنوعی بر اساس کاتالوگ</span>
+      <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری اختیاری (Target Constraints):</span>
+      <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">حالت پیش‌فرض: تشخیص خودکار هوش مصنوعی بر پایه کاتالوگ</span>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
       <div>
         <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی</label>
         <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>سراسر کشور (پیش‌فرض AI)</option>
-          <option>تهران و کرج</option>
+          <option selected>سراسر کشور (پیش‌فرض هوشمند)</option>
+          <option>تهران و البرز</option>
           <option>اصفهان و شیراز</option>
           <option>مشهد و تبریز</option>
         </select>
@@ -133,7 +144,7 @@
       <div>
         <label class="form-label" style="font-size: 0.75rem;">بازه سنی مخاطب</label>
         <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>۲۰ تا ۳۵ سال (تشخیص خودکار AI)</option>
+          <option selected>۲۰ تا ۳۵ سال (تشخیص خودکار)</option>
           <option>۱۸ تا ۲۵ سال (دانشجویان)</option>
           <option>۲۵ تا ۴۵ سال (شاغلین)</option>
         </select>
@@ -142,9 +153,9 @@
       <div>
         <label class="form-label" style="font-size: 0.75rem;">شبکه مورد پایش</label>
         <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>همه شبکه‌ها (تلگرام + توییتر/X + اینستاگرام)</option>
-          <option>فقط گروه‌های تخصصی تلگرام</option>
-          <option>فقط گفتگوهای توییتر/X</option>
+          <option selected>همه کانال‌ها (تلگرام + توییتر/X + اینستاگرام)</option>
+          <option>فقط کانال‌ها و سوپرگروه‌های تلگرام</option>
+          <option>فقط گفتگوهای عمومی توییتر / X</option>
         </select>
       </div>
 
@@ -152,8 +163,8 @@
         <label class="form-label" style="font-size: 0.75rem;">مرحله نیت خرید (Intent)</label>
         <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
           <option selected>آماده خرید + درخواست پیشنهاد (پیش‌فرض)</option>
-          <option>ابراز نیاز و درد روزمره (Problem-aware)</option>
-          <option>در حال مقایسه محصولات (Comparing)</option>
+          <option>ابراز نیاز و چالش روزمره</option>
+          <option>در حال مقایسه و ارزیابی گزینه‌ها</option>
         </select>
       </div>
     </div>
@@ -161,44 +172,57 @@
 </div>
 
 <!-- ========================================================================
-     Step 3: Today's Opportunities Tabs (فرصت‌های کشف‌شده امروز)
+     Step 3: Opportunities Feed Header & Clean Segmented Filter
      ======================================================================== -->
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;">
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;" id="فرصت-ها">
   <div>
-    <h2 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">فرصت‌های کشف‌شده در شبکه‌های آنلاین</h2>
-    <span style="font-size: 0.78rem; color: var(--stone-text-muted);">تحلیل پیام‌های عمومی در تلگرام، توییتر/X و اینستاگرام بر اساس سیگنال‌های نیت خرید</span>
+    <h2 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">خریداران و فرصت‌های کشف‌شده</h2>
+    <span style="font-size: 0.78rem; color: var(--stone-text-muted);">تحلیل پیام‌های عمومی در شبکه‌های اجتماعی بر پایه نیاز و سیگنال‌های نیت خرید</span>
   </div>
 
-  <!-- Minimal 3-Tier Filter Pills (Hot / Warm / Monitor) -->
+  <!-- Sleek Segmented Control (High Priority / Evaluating / Early Stage) -->
   <div class="filter-tabs-group">
     <button type="button" class="filter-tab active" data-tier="hot">
-      <span>🔥 ۱۲ فرصت داغ (نیت قطعی)</span>
+      <span class="tier-dot tier-dot-high"></span>
+      <span>اولویت بالا (۱۲)</span>
     </button>
     <button type="button" class="filter-tab" data-tier="warm">
-      <span>🟡 ۳۷ فرصت گرم (در حال جستجو)</span>
+      <span class="tier-dot tier-dot-medium"></span>
+      <span>در حال ارزیابی (۳۷)</span>
     </button>
     <button type="button" class="filter-tab" data-tier="monitor">
-      <span>👀 ۸۴ نیازمند رصد (نیاز اولیه)</span>
+      <span class="tier-dot tier-dot-low"></span>
+      <span>نیاز اولیه (۸۴)</span>
     </button>
   </div>
 </div>
 
 <!-- ========================================================================
-     Step 4: Lead Inspector Workspace (فهرست مخاطبان راست + بررسی عمیق چپ)
+     Step 4: Two-Column Workspace (فهرست راست + بررسی عمیق و پیام چپ)
      ======================================================================== -->
-<div style="display: grid; grid-template-columns: 0.9fr 1.3fr; gap: 24px; align-items: start;">
+<div style="display: grid; grid-template-columns: 0.95fr 1.35fr; gap: 24px; align-items: start;">
 
-  <!-- Right: Discovered Leads List (فهرست تمیز و خوانا) -->
-  <div style="display: flex; flex-direction: column; gap: 12px;" id="leads-list-container">
+  <!-- Right: Discovered Leads Stream -->
+  <div style="display: flex; flex-direction: column; gap: 14px;" id="leads-list-container">
 
-    <!-- Lead 1: Sara A. (Eyewear/Comfort target) -->
+    <!-- Lead 1: Sara Amiri (X/Twitter) -->
     <div class="lead-item-card active" data-lead-id="1">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
           <div class="lead-avatar-circle">س</div>
           <div>
-            <strong style="font-size: 0.88rem; color: var(--panel-text-main);">سارا امیری (@sara_dev)</strong>
-            <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block;">توییتر / X • تهران • حوزه نرم‌افزار</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 0.9rem; color: var(--panel-text-main);">سارا امیری</strong>
+              <span style="font-size: 0.74rem; color: var(--stone-text-muted);">(@sara_dev)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
+              <span class="platform-icon-pill platform-x">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                <span>توییتر / X</span>
+              </span>
+              <span>•</span>
+              <span>تهران • نرم‌افزار</span>
+            </div>
           </div>
         </div>
         <span class="p-score-badge">امتیاز: ۹۴ / ۱۰۰</span>
@@ -208,20 +232,36 @@
         «امروز بعد از ۱۰ ساعت کار مدام با سیستم چشمام داره می‌سوزه، کسی عینک مخصوص مانیتور باکیفیت سراغ داره که واقعاً جواب داده باشه؟ قصد خرید فوری دارم.»
       </div>
 
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.72rem;">
-        <span style="color: var(--obsidian-cyan); font-weight: 750;">محصول منطبق: عینک بلوکات Pro (۹۴٪)</span>
-        <span style="color: var(--p-success); font-weight: 700;">آماده برای ارتباط فوری ⚡</span>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 0.74rem;">
+        <span style="color: var(--obsidian-cyan); font-weight: 750; display: inline-flex; align-items: center; gap: 5px;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>عینک بلوکات Pro (۹۴٪)</span>
+        </span>
+        <span style="color: var(--p-success); font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <span>آماده برای ارتباط فوری</span>
+        </span>
       </div>
     </div>
 
-    <!-- Lead 2: Ali Rezaei (Programming/Courses) -->
+    <!-- Lead 2: Ali Rezaei (Telegram) -->
     <div class="lead-item-card" data-lead-id="2">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
           <div class="lead-avatar-circle">ع</div>
           <div>
-            <strong style="font-size: 0.88rem; color: var(--panel-text-main);">علی رضایی (@ali_code)</strong>
-            <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block;">گروه تلگرام توسعه‌دهندگان • شیراز</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 0.9rem; color: var(--panel-text-main);">علی رضایی</strong>
+              <span style="font-size: 0.74rem; color: var(--stone-text-muted);">(@ali_code)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
+              <span class="platform-icon-pill platform-telegram">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+                <span>گروه تلگرام</span>
+              </span>
+              <span>•</span>
+              <span>شیراز • متقاضی IT</span>
+            </div>
           </div>
         </div>
         <span class="p-score-badge">امتیاز: ۹۱ / ۱۰۰</span>
@@ -231,20 +271,33 @@
         «سلام بچه‌ها، می‌خوام تا هفته بعد یادگیری پروژه‌محور جنگو و طراحی وب رو شروع کنم. دوره با پشتیبانی مستقیم می‌خوام، بودجه‌م هم مشخصه، چه پیشنهادی دارید؟»
       </div>
 
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.72rem;">
-        <span style="color: var(--obsidian-cyan); font-weight: 750;">محصول منطبق: دوره جامع پایتون (۹۲٪)</span>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 0.74rem;">
+        <span style="color: var(--obsidian-cyan); font-weight: 750; display: inline-flex; align-items: center; gap: 5px;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>دوره جامع پایتون (۹۲٪)</span>
+        </span>
         <span style="color: var(--p-success); font-weight: 700;">درخواست پیشنهاد خرید</span>
       </div>
     </div>
 
-    <!-- Lead 3: Mohsen K. (Ecommerce/Consulting) -->
+    <!-- Lead 3: Mohsen Karimi (Instagram) -->
     <div class="lead-item-card" data-lead-id="3">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
           <div class="lead-avatar-circle">م</div>
           <div>
-            <strong style="font-size: 0.88rem; color: var(--panel-text-main);">محسن کریمی (@mohsen_biz)</strong>
-            <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block;">دایرکت اینستاگرام • مشهد • فروشگاه آنلاین</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 0.9rem; color: var(--panel-text-main);">محسن کریمی</strong>
+              <span style="font-size: 0.74rem; color: var(--stone-text-muted);">(@mohsen_biz)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
+              <span class="platform-icon-pill platform-instagram">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                <span>اینستاگرام</span>
+              </span>
+              <span>•</span>
+              <span>مشهد • فروشگاه آنلاین</span>
+            </div>
           </div>
         </div>
         <span class="p-score-badge">امتیاز: ۸۸ / ۱۰۰</span>
@@ -254,21 +307,24 @@
         «ما دنبال یک ابزار مطمئن برای جذب خریداران واقعی بدون تبلیغات فیک در اینستاگرام و سوشال هستیم. کسی تیم یا محصول مطمئنی می‌شناسه معرفی کنه؟»
       </div>
 
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.72rem;">
-        <span style="color: var(--obsidian-cyan); font-weight: 750;">محصول منطبق: پکیج مشاوره کشف مشتری (۸۹٪)</span>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 0.74rem;">
+        <span style="color: var(--obsidian-cyan); font-weight: 750; display: inline-flex; align-items: center; gap: 5px;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>مشاوره کشف مشتری (۸۹٪)</span>
+        </span>
         <span style="color: var(--stone-text-muted); font-weight: 700;">مقایسه و ارزیابی</span>
       </div>
     </div>
 
   </div>
 
-  <!-- Left: Deep Opportunity Inspector Card (بررسی عمیق فرصت و تحلیل چندبعدی) -->
+  <!-- Left: Opportunity Deep Inspector Card -->
   <div class="p-card" style="padding: 26px;" id="lead-inspector-card">
 
-    <!-- Inspector Header: Identity, Channel & Overall Fit -->
+    <!-- Inspector Header -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle);">
       <div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
           <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);" id="insp-name">
             سارا امیری (@sara_dev)
           </h3>
@@ -283,14 +339,14 @@
         <div style="font-size: 1.6rem; font-weight: 900; color: var(--obsidian-cyan); line-height: 1;" id="insp-total-score">
           ۹۴ <span style="font-size: 0.85rem; color: var(--stone-text-muted);">/ ۱۰۰</span>
         </div>
-        <span style="font-size: 0.7rem; color: var(--p-success); font-weight: 700;">فرصت طلایی (High Priority)</span>
+        <span style="font-size: 0.72rem; color: var(--p-success); font-weight: 700;">فرصت طلایی (High Priority)</span>
       </div>
     </div>
 
-    <!-- Multi-Dimensional Score Breakdown (امتیازدهی چندبعدی بر اساس درخواست شما) -->
+    <!-- Multi-Dimensional Score Breakdown -->
     <div style="margin-bottom: 22px;">
       <span style="font-size: 0.76rem; font-weight: 800; color: var(--stone-text-faint); text-transform: uppercase; display: block; margin-bottom: 10px;">
-        تفکیک ابعاد امتیاز شایستگی (Opportunity Factors):
+        تفکیک ابعاد شایستگی و انطباق (Opportunity Factors):
       </span>
 
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
@@ -328,7 +384,7 @@
 
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>تطابق با تارگت</span>
+            <span>تطابق با پرسونای تارگت</span>
             <strong id="factor-target">۹۷٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 97%;" id="bar-target"></div></div>
@@ -337,31 +393,35 @@
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
             <span>سلامت لحن گفتگو</span>
-            <strong id="factor-safety" style="color: var(--p-success);">۹۲٪ ✓</strong>
+            <strong id="factor-safety" style="color: var(--p-success);">۹۲٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 92%; background: var(--p-success);" id="bar-safety"></div></div>
         </div>
       </div>
     </div>
 
-    <!-- Section: Why should I contact this person? (شواهد و دلایل عینی) -->
+    <!-- Section: Why should I contact this person? -->
     <div style="margin-bottom: 20px;">
-      <span style="font-size: 0.78rem; font-weight: 850; color: var(--panel-text-main); display: block; margin-bottom: 8px;">
-        💡 چرا باید با این شخص ارتباط بگیرید؟ (شواهد ایجنت)
+      <span style="font-size: 0.8rem; font-weight: 850; color: var(--panel-text-main); display: flex; align-items: center; gap: 7px; margin-bottom: 8px;">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>شواهد و دلایل انتخاب ایجنت (Why Contact):</span>
       </span>
       <div style="padding: 12px 16px; border-radius: 14px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset); font-size: 0.82rem; color: var(--panel-text-main); line-height: 1.65;" id="insp-evidence">
         «این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»
       </div>
     </div>
 
-    <!-- Section: Recommended Product (برای این آدم کدام محصول؟) -->
-    <div style="margin-bottom: 20px; padding: 14px 18px; border-radius: 18px; background: var(--stone-surface); box-shadow: var(--stone-shadow-sm); border: 1.5px solid rgba(0, 242, 254, 0.35);">
+    <!-- Section: Recommended Product -->
+    <div style="margin-bottom: 20px; padding: 14px 18px; border-radius: 16px; background: var(--stone-surface); box-shadow: var(--stone-shadow-sm); border: 1.5px solid rgba(0, 242, 254, 0.35);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 800;">محصول منتخب پیشنهادی ایجنت (#1 Best Match):</span>
+        <span style="font-size: 0.76rem; color: var(--obsidian-cyan); font-weight: 800; display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>محصول منتخب کاتالوگ شما (Best Match):</span>
+        </span>
         <span class="p-badge p-badge-success" id="insp-match-percent">۹۴٪ تطابق</span>
       </div>
 
-      <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
         <div>
           <strong style="font-size: 0.95rem; color: var(--panel-text-main); display: block;" id="insp-prod-name">عینک کامپیوتر و بلوکات Pro</strong>
           <span style="font-size: 0.76rem; color: var(--stone-text-muted);" id="insp-prod-reason">دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی</span>
@@ -370,18 +430,19 @@
       </div>
     </div>
 
-    <!-- Section: Preferred Channel & Personalized Outreach (پیش‌نویس پیام طبیعی) -->
-    <div style="margin-bottom: 20px;">
+    <!-- Section: Personalized Outreach -->
+    <div style="margin-bottom: 10px;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-        <span style="font-size: 0.78rem; font-weight: 850; color: var(--panel-text-main);">
-          ✉ پیش‌نویس پیام متناسب با لحن کاربر (بدون لحن اسپم تبلیغاتی):
+        <span style="font-size: 0.8rem; font-weight: 850; color: var(--panel-text-main); display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <span>پیش‌نویس پیام هوشمند متناسب با لحن گفتگو:</span>
         </span>
         <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="insp-channel-tag">
           بهترین کانال: <strong>دایرکت توییتر / اینستاگرام</strong> (اطمینان ۸۶٪)
         </span>
       </div>
 
-      <div style="background: rgba(0, 242, 254, 0.06); border: 1.5px solid rgba(0, 242, 254, 0.25); border-radius: 16px; padding: 14px 18px; margin-bottom: 12px;">
+      <div style="background: rgba(0, 242, 254, 0.05); border: 1.5px solid rgba(0, 242, 254, 0.22); border-radius: 16px; padding: 14px 18px; margin-bottom: 14px;">
         <p style="font-size: 0.85rem; color: var(--panel-text-main); margin: 0; line-height: 1.65;" id="insp-outreach-text">
           «سلام سارا جان، دیدم درباره کار مداوم با سیستم و سوزش چشم پرسیده بودی. ما دقیقا یک مدل فریم سبک TR90 با عدسی فیلتر نور آبی داریم که برای کار مداوم جلوی مانیتور طراحی شده و فکر می‌کنم دقیقاً همون چیزیه که دنبالش بودی. اگه مایل باشی برات اطلاعات بیشتر و نظرات خریداران رو بفرستم؟»
         </p>
@@ -390,10 +451,12 @@
       <!-- Action Buttons -->
       <div style="display: flex; gap: 10px;">
         <button type="button" class="p-btn p-btn-primary" style="flex: 1;" id="btn-copy-outreach">
-          <span>کپی متن پیام 📋</span>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span id="btn-copy-label">کپی متن پیام</span>
         </button>
         <a href="{% url 'products:list' %}" class="p-btn p-btn-stone" style="flex: 1;" id="btn-view-prod-card">
-          <span>مشاهده مشخصات کالا 📦</span>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          <span>مشاهده مشخصات کالا</span>
         </a>
       </div>
     </div>
@@ -417,7 +480,7 @@
         fit: "۹۵%",
         urgency: "۸۹%",
         target: "۹۷%",
-        safety: "۹۲% ✓",
+        safety: "۹۲%",
         evidence: "«این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»",
         prodName: "عینک کامپیوتر و بلوکات Pro",
         prodReason: "دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی",
@@ -436,7 +499,7 @@
         fit: "۹۱%",
         urgency: "۸۶%",
         target: "۹۴%",
-        safety: "۹۶% ✓",
+        safety: "۹۶%",
         evidence: "«کاربر در گروه تلگرام برنامه‌نویسان پایتون صراحتاً تقاضای دوره پروژه‌محور با رفع اشکال برای ورود به بازار کار داشته و بودجه مشخص خود را اعلام کرده است.»",
         prodName: "دوره جامع آموزش پایتون و جنگو",
         prodReason: "دلیل پیشنهاد: همپوشانی ۱۰۰٪ سرفصل‌ها با نیاز بازار کار و پشتیبانی مربی",
@@ -455,7 +518,7 @@
         fit: "۸۸%",
         urgency: "۸۰%",
         target: "۹۱%",
-        safety: "۹۰% ✓",
+        safety: "۹۰%",
         evidence: "«مدیر یک کسب‌وکار اینستاگرامی که در کامنت‌ها دنبال سرویس‌های هوشمند برای کشف خریداران واقعی بدون تقلب بوده است.»",
         prodName: "پکیج خدمات کشف مشتریان B2B",
         prodReason: "دلیل پیشنهاد: منطبق بر مدل کسب‌وکار آنلاین و هدف افزایش فروش ارگانیک",
@@ -467,36 +530,37 @@
     };
 
     // Selecting Leads
-    const leadCards = document.querySelectorAll('.lead-item-card');
-    const inspName = document.getElementById('insp-name');
-    const inspNetwork = document.getElementById('insp-network');
-    const inspMeta = document.getElementById('insp-meta');
-    const inspTotalScore = document.getElementById('insp-total-score');
-    const factorNeed = document.getElementById('factor-need');
-    const factorIntent = document.getElementById('factor-intent');
-    const factorFit = document.getElementById('factor-fit');
-    const factorUrgency = document.getElementById('factor-urgency');
-    const factorTarget = document.getElementById('factor-target');
-    const factorSafety = document.getElementById('factor-safety');
-    const barNeed = document.getElementById('bar-need');
-    const barIntent = document.getElementById('bar-intent');
-    const barFit = document.getElementById('bar-fit');
-    const barUrgency = document.getElementById('bar-urgency');
-    const barTarget = document.getElementById('bar-target');
-    const barSafety = document.getElementById('bar-safety');
-    const inspEvidence = document.getElementById('insp-evidence');
-    const inspProdName = document.getElementById('insp-prod-name');
-    const inspProdReason = document.getElementById('insp-prod-reason');
-    const inspProdPrice = document.getElementById('insp-prod-price');
-    const inspMatchPercent = document.getElementById('insp-match-percent');
-    const inspChannelTag = document.getElementById('insp-channel-tag');
-    const inspOutreachText = document.getElementById('insp-outreach-text');
-    const btnCopy = document.getElementById('btn-copy-outreach');
+    const leadCards = document.querySelectorAll(".lead-item-card");
+    const inspName = document.getElementById("insp-name");
+    const inspNetwork = document.getElementById("insp-network");
+    const inspMeta = document.getElementById("insp-meta");
+    const inspTotalScore = document.getElementById("insp-total-score");
+    const factorNeed = document.getElementById("factor-need");
+    const factorIntent = document.getElementById("factor-intent");
+    const factorFit = document.getElementById("factor-fit");
+    const factorUrgency = document.getElementById("factor-urgency");
+    const factorTarget = document.getElementById("factor-target");
+    const factorSafety = document.getElementById("factor-safety");
+    const barNeed = document.getElementById("bar-need");
+    const barIntent = document.getElementById("bar-intent");
+    const barFit = document.getElementById("bar-fit");
+    const barUrgency = document.getElementById("bar-urgency");
+    const barTarget = document.getElementById("bar-target");
+    const barSafety = document.getElementById("bar-safety");
+    const inspEvidence = document.getElementById("insp-evidence");
+    const inspProdName = document.getElementById("insp-prod-name");
+    const inspProdReason = document.getElementById("insp-prod-reason");
+    const inspProdPrice = document.getElementById("insp-prod-price");
+    const inspMatchPercent = document.getElementById("insp-match-percent");
+    const inspChannelTag = document.getElementById("insp-channel-tag");
+    const inspOutreachText = document.getElementById("insp-outreach-text");
+    const btnCopy = document.getElementById("btn-copy-outreach");
+    const btnCopyLabel = document.getElementById("btn-copy-label");
 
     leadCards.forEach(card => {
-      card.addEventListener('click', () => {
-        leadCards.forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
+      card.addEventListener("click", () => {
+        leadCards.forEach(c => c.classList.remove("active"));
+        card.classList.add("active");
         const id = card.dataset.leadId;
         const d = leadsData[id];
         if (d) {
@@ -515,7 +579,7 @@
           barFit.style.width = d.fit;
           barUrgency.style.width = d.urgency;
           barTarget.style.width = d.target;
-          barSafety.style.width = d.safety.replace(' ✓', '');
+          barSafety.style.width = d.safety;
           inspEvidence.textContent = d.evidence;
           inspProdName.textContent = d.prodName;
           inspProdReason.textContent = d.prodReason;
@@ -527,73 +591,76 @@
       });
     });
 
-    // Copy Outreach Message
+    // Copy Outreach Message with Feedback
     if (btnCopy) {
-      btnCopy.addEventListener('click', () => {
+      btnCopy.addEventListener("click", () => {
         if (inspOutreachText) {
           navigator.clipboard.writeText(inspOutreachText.textContent.trim()).then(() => {
-            const oldHtml = btnCopy.innerHTML;
-            btnCopy.innerHTML = '<span>متن کپی شد ✓</span>';
-            setTimeout(() => { btnCopy.innerHTML = oldHtml; }, 2000);
+            const oldText = btnCopyLabel.textContent;
+            btnCopyLabel.textContent = "متن پیام کپی شد";
+            btnCopy.classList.add("p-btn-success");
+            setTimeout(() => {
+              btnCopyLabel.textContent = oldText;
+              btnCopy.classList.remove("p-btn-success");
+            }, 2000);
           });
         }
       });
     }
 
     // Product Filter Buttons
-    const prodButtons = document.querySelectorAll('.prod-selector-btn');
+    const prodButtons = document.querySelectorAll(".prod-selector-btn");
     prodButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        prodButtons.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        // Visual indicator that discovery is filtering for this product
+      btn.addEventListener("click", () => {
+        prodButtons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
         const prodId = btn.dataset.prodId;
-        if (prodId !== 'all') {
-          // highlight lead 1 or lead 2 depending on category
+        if (prodId !== "all") {
           leadCards.forEach((c, idx) => {
-            c.style.display = (idx === 0) ? 'block' : 'none';
+            c.style.display = (idx === 0) ? "block" : "none";
           });
           leadCards[0].click();
         } else {
-          leadCards.forEach(c => c.style.display = 'block');
+          leadCards.forEach(c => c.style.display = "block");
         }
       });
     });
 
     // ICP Confirm Button
-    const btnConfirm = document.getElementById('btn-confirm-icp');
-    const icpStatusBadge = document.getElementById('icp-status-badge');
+    const btnConfirm = document.getElementById("btn-confirm-icp");
+    const icpStatusBadge = document.getElementById("icp-status-badge");
     if (btnConfirm) {
-      btnConfirm.addEventListener('click', () => {
-        btnConfirm.textContent = 'تأیید شد ✓';
-        btnConfirm.style.background = 'var(--p-success)';
-        btnConfirm.style.color = '#fff';
+      btnConfirm.addEventListener("click", () => {
+        btnConfirm.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>تأیید شد</span>`;
+        btnConfirm.style.background = "var(--p-success)";
+        btnConfirm.style.color = "#fff";
         if (icpStatusBadge) {
-          icpStatusBadge.textContent = 'تأیید شده توسط فروشنده ✓';
+          icpStatusBadge.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>تأیید شده توسط فروشنده</span>`;
         }
       });
     }
 
     // Toggle Manual Targeting Drawer
-    const btnEditTarget = document.getElementById('btn-edit-target');
-    const targetDrawer = document.getElementById('target-settings-drawer');
+    const btnEditTarget = document.getElementById("btn-edit-target");
+    const targetDrawer = document.getElementById("target-settings-drawer");
     if (btnEditTarget && targetDrawer) {
-      btnEditTarget.addEventListener('click', () => {
-        const isHidden = targetDrawer.style.display === 'none';
-        targetDrawer.style.display = isHidden ? 'block' : 'none';
-        btnEditTarget.textContent = isHidden ? 'بستن تنظیمات هدف‌گذاری' : 'تنظیم دستی هدف‌گذاری';
+      btnEditTarget.addEventListener("click", () => {
+        const isHidden = targetDrawer.style.display === "none";
+        targetDrawer.style.display = isHidden ? "block" : "none";
+        btnEditTarget.innerHTML = isHidden 
+          ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>بستن تنظیمات</span>` 
+          : `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg><span>تنظیم دستی هدف‌گذاری</span>`;
       });
     }
 
-    // Tier Filter Buttons (Hot / Warm / Monitor)
-    const tierButtons = document.querySelectorAll('.filter-tab[data-tier]');
+    // Tier Filter Buttons
+    const tierButtons = document.querySelectorAll(".filter-tab[data-tier]");
     tierButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        tierButtons.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+      btn.addEventListener("click", () => {
+        tierButtons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
       });
     });
   })();
 </script>
-
 {% endblock %}
