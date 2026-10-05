@@ -1,0 +1,647 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block body %}
+<!-- ==========================================================================
+     Cosmic Hero Section (Matching Reference Image)
+     ========================================================================== -->
+<header class="hero-wrapper" id="بالا">
+  <div class="hero-stars" aria-hidden="true"></div>
+  <div class="celestial-star" aria-hidden="true"></div>
+
+  <!-- Navigation Bar -->
+  <nav class="navbar" aria-label="ناوبری اصلی">
+    <a class="brand" href="#بالا" aria-label="مشتری‌یاب، صفحه‌ی اصلی">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          <path d="M11 8v6M8 11h6"></path>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">مشتری‌یاب</span>
+        <span class="brand-tagline">ایجنت هوشمند کشف مشتری</span>
+      </div>
+    </a>
+
+    <ul class="nav-menu" id="main-nav-menu">
+      <li><a class="nav-link" href="#روش-کار">روش کار</a></li>
+      <li><a class="nav-link" href="#فرصت-ها">فرصت هوشمند</a></li>
+      <li><a class="nav-link" href="#هوش-محصول">هوش محصول</a></li>
+      <li><a class="nav-link" href="#مسیر-ایجنت">معماری ایجنت</a></li>
+      <li><a class="nav-link" href="#منابع">کانال‌ها</a></li>
+    </ul>
+
+    <div class="nav-actions">
+      <!-- Light / Dark / System Mode Toggle -->
+      <button class="theme-toggle-btn" type="button" data-theme-toggle aria-label="تغییر پوسته" title="تغییر حالت روشن و تیره">
+        <svg data-theme-icon viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path>
+        </svg>
+        <span data-theme-label>خودکار</span>
+      </button>
+
+      {% if user.is_authenticated %}
+        <a class="nav-cta-btn" href="{% url 'accounts:dashboard' %}">
+          <span>پیشخوان ({{ user.first_name|default:'کسب‌وکار' }})</span>
+          <span aria-hidden="true">←</span>
+        </a>
+      {% else %}
+        <a class="hero-link-btn" href="{% url 'accounts:login' %}" style="color: rgba(255,255,255,0.85); font-weight: 600; padding: 6px 12px;">
+          ورود
+        </a>
+        <a class="nav-cta-btn" href="{% url 'accounts:signup' %}">
+          <span>ثبت‌نام و شروع</span>
+          <span aria-hidden="true">←</span>
+        </a>
+      {% endif %}
+
+      <button class="mobile-menu-btn" type="button" aria-expanded="false" aria-label="منوی موبایل">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero Content Body -->
+  <div class="hero-body">
+    <div class="hero-copy">
+      <div class="hero-badge">
+        <span class="hero-badge-sparkle">✦</span>
+        <span>هوش مصنوعی کشف تقاضا در گفتگوهای آنلاین</span>
+      </div>
+
+      <h1 class="hero-title">
+        مشتری‌های بالقوه‌ات رو<br>
+        <span class="gradient-text">پیدا کن.</span>
+      </h1>
+
+      <p class="hero-desc">
+        کسب‌وکارت و محصولت رو معرفی کن؛ ایجنت هوشمند ما بین گفتگوهای آنلاین در شبکه‌های اجتماعی دنبال افرادی می‌گرده که واقعاً به چیزی که می‌فروشی نیاز دارن.
+      </p>
+
+      <!-- Capsule Search / Action Bar (Directly Inspired by Reference Image) -->
+      <form class="hero-search-capsule" id="hero-search-form" action="#فرصت-ها">
+        <div class="search-input-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </div>
+        <input 
+          type="text" 
+          class="hero-search-input" 
+          id="hero-product-input" 
+          placeholder="مثلاً: دوره جامع پایتون یا شلوار جین مردانه..." 
+          aria-label="نام یا شرح محصول شما">
+        <button type="submit" class="hero-search-btn">
+          <span>پیدا کردن مشتری</span>
+          <span aria-hidden="true">✦</span>
+        </button>
+      </form>
+
+      <div class="hero-aux-actions">
+        <a class="hero-link-btn" href="#روش-کار">
+          <span>ببین چطور کار می‌کنه</span>
+          <span aria-hidden="true">↓</span>
+        </a>
+        <div class="hero-metric-pill">
+          <span class="metric-dot"></span>
+          <span>۹۴٪ دقت در سنجش قصد خرید | بدون جستجوی دستی</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hero Visual Area: Floating Astronaut Reaching for the Celestial Star -->
+    <div class="hero-visual" aria-hidden="true">
+      <div class="signal-waves"></div>
+      <div class="floating-explorer">
+        <img src="{% static 'images/astronaut.svg' %}" alt="کاوشگر کیهانی کشف مشتری" width="440" height="480">
+      </div>
+
+      <!-- Live Signal Bubble -->
+      <aside class="live-signal-bubble">
+        <div class="bubble-header">
+          <span>سیگنال خرید جدید · تلگرام</span>
+          <span>همین الان</span>
+        </div>
+        <p class="bubble-text">
+          «کسی دوره پروژه محور پایتون با پشتیبانی فعال سراغ داره؟ می‌خوام سریع شروع کنم.»
+        </p>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Organic Wave Divider to Content -->
+  <div class="hero-wave-divider" aria-hidden="true">
+    <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
+      <path d="M0,32L60,42.7C120,53,240,75,360,74.7C480,75,600,53,720,48C840,43,960,53,1080,64C1200,75,1320,85,1380,90.7L1440,96L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"></path>
+    </svg>
+  </div>
+</header>
+
+<main>
+  <!-- ==========================================================================
+       Section: 4 Circular Step Badges with Radiant Glowing Halo
+       Directly Recreating the Reference Image
+       ========================================================================== -->
+  <section class="section-steps" id="روش-کار">
+    <div class="section-tag">
+      <span>✦</span>
+      <span>مسیر ساده و هوشمند</span>
+    </div>
+    <h2 class="section-heading">چند قدم تا پیدا کردن خریداران واقعی</h2>
+    <p class="section-lead">
+      یک مسیر خودکار و شفاف از ثبت محصول تا شروع ارتباط؛ بدون سرچ دستی و بدون نیاز به تحلیل صدها پیام نامربوط.
+    </p>
+
+    <div class="steps-grid">
+      <!-- Step 1 -->
+      <article class="step-card">
+        <div class="step-halo-circle">
+          <span class="step-num-badge">۱</span>
+          <svg class="step-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </div>
+        <h3 class="step-title">معرفی محصول</h3>
+        <p class="step-desc">نام و مشخصات محصول یا خدمتت رو وارد کن تا ایجنت ویژگی‌ها و مخاطب هدف رو بشناسه.</p>
+      </article>
+
+      <!-- Step 2 -->
+      <article class="step-card">
+        <div class="step-halo-circle">
+          <span class="step-num-badge">۲</span>
+          <svg class="step-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <path d="M11 8v6M8 11h6"></path>
+          </svg>
+        </div>
+        <h3 class="step-title">اسکن گفتگوها</h3>
+        <p class="step-desc">ایجنت بین پیام‌های شبکه‌ها و انجمن‌های مرتبط به دنبال گفتگوهای حاوی نیاز می‌گرده.</p>
+      </article>
+
+      <!-- Step 3 -->
+      <article class="step-card">
+        <div class="step-halo-circle">
+          <span class="step-num-badge">۳</span>
+          <svg class="step-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+        </div>
+        <h3 class="step-title">سنجش نیت خرید</h3>
+        <p class="step-desc">تفکیک لایک ساده از نیاز واقعی به خرید با تحلیل دقیق کانتکست و امتیازدهی چندبعدی.</p>
+      </article>
+
+      <!-- Step 4 -->
+      <article class="step-card">
+        <div class="step-halo-circle">
+          <span class="step-num-badge">۴</span>
+          <svg class="step-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path>
+            <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path>
+            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path>
+            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path>
+          </svg>
+        </div>
+        <h3 class="step-title">پیشنهاد ارتباط</h3>
+        <p class="step-desc">ایجنت متن پیام متناسب و غیر‌اسپم پیشنهاد میده؛ پیام فقط و فقط با تأیید نهایی شما ارسال میشه.</p>
+      </article>
+    </div>
+
+    <!-- Centered Promise Callout (Directly Replicating Reference Image Text) -->
+    <div class="promise-callout">
+      <svg class="promise-callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+      </svg>
+      <span>ما اینجاییم تا زحمت جستجو، خواندن صدها پست و حدس زدن نیت خرید را از دوش شما برداریم.</span>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Section: Realistic Qualified Opportunity Lead Card
+       Live Demonstration of Agent Analysis & Opportunity Score
+       ========================================================================== -->
+  <section class="section-opportunity" id="فرصت-ها">
+    <div class="opportunity-container">
+      <div class="opportunity-info">
+        <div class="opportunity-intro-tag">
+          <span>✦ نمونه واقعی لید تاییدشده</span>
+        </div>
+        <h2 class="opportunity-title">
+          نیاز را می‌بیند،<br>
+          دلیلش را هم مستند می‌گوید.
+        </h2>
+        <p class="opportunity-desc">
+          تعامل و لایک بالا به معنای قصد خرید نیست. ایجنت هوشمند ما کانتکست پیرامون پیام را می‌خواند، شدت نیاز را می‌سنجد و لید را به یک محصول مشخص در کسب‌وکار شما متصل می‌کند.
+        </p>
+
+        <ul class="opportunity-features-list">
+          <li class="opportunity-feature-item">
+            <span class="feature-check">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </span>
+            <span>امتیاز شایستگی چندبعدی بر اساس نیاز، نیت خرید، تناسب محصول و فوریت</span>
+          </li>
+          <li class="opportunity-feature-item">
+            <span class="feature-check">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </span>
+            <span>توضیح کوتاه و شفاف به زبان ساده: چرا این شخص خریدار بالقوه شماست؟</span>
+          </li>
+          <li class="opportunity-feature-item">
+            <span class="feature-check">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </span>
+            <span>پیش‌نویس پیام محترمانه، طبیعی و شخصی‌سازی‌شده، آماده بازبینی فروشنده</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Live Lead Card Widget -->
+      <article class="lead-card">
+        <div class="lead-card-header">
+          <div class="lead-source-badge">
+            <span class="platform-icon-pill">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+              </svg>
+              <span>تلگرام</span>
+            </span>
+            <span class="platform-community">گروه برنامه‌نویسان پایتون ایران</span>
+          </div>
+
+          <div class="lead-score-badge" title="امتیاز کلی فرصت">
+            <span class="score-star">★</span>
+            <span>۹۴ / ۱۰۰</span>
+          </div>
+        </div>
+
+        <!-- Real Conversation Excerpt -->
+        <div class="lead-conversation-box">
+          <div class="conversation-author">
+            <div class="author-avatar">ع</div>
+            <div class="author-info">
+              <span class="author-name">علیرضا ک.</span>
+              <span class="post-time">۲ ساعت پیش در تلگرام</span>
+            </div>
+          </div>
+          <p class="conversation-text">
+            «سلام دوستان، کسی دوره پایتون پروژه‌محور و کاربردی سراغ داره که تمرین عملی و پشتیبانی داشته باشه؟ می‌خوام تا دو ماه دیگه آماده مصاحبه کاری بشم.»
+          </p>
+        </div>
+
+        <!-- Evidence & Contextual Reasoning -->
+        <div class="agent-analysis-box">
+          <div class="analysis-header">
+            <span>✦ تحلیل و شواهد ایجنت</span>
+          </div>
+          <div class="analysis-reason">
+            این کاربر مستقیماً به دنبال دوره پایتون پروژه‌محور با هدف ورود سریع به بازار کار است و از اعضای گروه راهنمایی خواسته. فوریت و قصد خرید بسیار بالاست.
+          </div>
+
+          <!-- Multi-dimensional Score Breakdown -->
+          <div class="score-breakdown-grid">
+            <div class="metric-bar-item">
+              <div class="metric-bar-header">
+                <span>نیاز واقعی</span>
+                <span>۹۵٪</span>
+              </div>
+              <div class="metric-progress">
+                <div class="metric-progress-fill" style="width: 95%;"></div>
+              </div>
+            </div>
+            <div class="metric-bar-item">
+              <div class="metric-bar-header">
+                <span>نیت خرید</span>
+                <span>۹۱٪</span>
+              </div>
+              <div class="metric-progress">
+                <div class="metric-progress-fill" style="width: 91%;"></div>
+              </div>
+            </div>
+            <div class="metric-bar-item">
+              <div class="metric-bar-header">
+                <span>تناسب محصول</span>
+                <span>۹۶٪</span>
+              </div>
+              <div class="metric-progress">
+                <div class="metric-progress-fill" style="width: 96%;"></div>
+              </div>
+            </div>
+            <div class="metric-bar-item">
+              <div class="metric-bar-header">
+                <span>فوریت</span>
+                <span>۸۷٪</span>
+              </div>
+              <div class="metric-progress">
+                <div class="metric-progress-fill" style="width: 87%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recommended Matched Product -->
+        <div class="lead-matched-product">
+          <div>
+            <span class="matched-label">محصول منطبق شده:</span>
+            <div class="matched-title" id="demo-matched-product">دوره جامع پایتون پروژه‌محور با منتورینگ</div>
+          </div>
+          <span class="node-chip">خدمات آموزشی</span>
+        </div>
+
+        <!-- Outreach Draft Snippet -->
+        <div class="lead-conversation-box" style="margin-bottom: 20px; border-right: 3px solid var(--success);">
+          <div class="conversation-author" style="margin-bottom: 4px;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--success);">پیش‌نویس پیام پیشنهادی ایجنت (غیر اسپم):</span>
+          </div>
+          <p class="conversation-text" id="outreach-draft-text" style="font-size: 0.88rem; color: var(--text-muted);">
+            «سلام علیرضا جان، پیامت رو توی گروه پایتون دیدم. دوره پروژه‌محور ما دقیقاً روی ساخت ۵ پروژه واقعی برای رزومه و آمادگی مصاحبه تمرکز داره و منتورینگ خصوصی داره. اگه مایل باشی می‌تونم سرفصل‌ها و نمونه پروژه‌ها رو برات بفرستم.»
+          </p>
+        </div>
+
+        <!-- Lead Action Row -->
+        <div class="lead-action-row">
+          <button class="lead-btn-primary" type="button" id="btn-copy-outreach">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span>تأیید و کپی متن پیام</span>
+          </button>
+          <a class="lead-btn-secondary" href="#روش-کار">
+            <span>مشاهده گفتگو در منبع</span>
+          </a>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Section: Product Intelligence & Hierarchical Taxonomy
+       ========================================================================== -->
+  <section class="section-intelligence" id="هوش-محصول">
+    <div class="intelligence-grid">
+      <div class="intelligence-copy">
+        <div class="section-tag">
+          <span>✦ ساختار دانش محصول</span>
+        </div>
+        <h2 class="section-heading">درک عمیق محصول و دسته‌بندی سلسله‌مراتبی</h2>
+        <p class="section-lead" style="text-align: right; margin-inline: 0;">
+          محصولات شما فقط یک رکورد متنی ساده نیستند؛ آن‌ها پایگاه دانش ایجنت برای کشف مشتری هستند. ایجنت با درک دسته‌بندی درختی و ویژگی‌های خاص هر حوزه، دقیقاً می‌داند دنبال چه کلیدواژه‌ها و چه سیگنال‌هایی بگردد.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div class="feature-check" style="margin-top: 3px;">✓</div>
+            <div>
+              <strong style="color: var(--text-main); font-size: 0.95rem;">پیشنهاد هوشمند دسته با هوش مصنوعی</strong>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">با وارد کردن نام و شرح محصول، ایجنت درخت دسته‌بندی دقیق را پیشنهاد می‌کند.</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div class="feature-check" style="margin-top: 3px;">✓</div>
+            <div>
+              <strong style="color: var(--text-main); font-size: 0.95rem;">ویژگی‌های پویا و مختص هر دسته (JSONField)</strong>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">پوشاک ویژگی‌هایی مثل سایز، جنس و برند دارد؛ لپ‌تاپ CPU و RAM دارد؛ و خدمات، نوع و مدت زمان.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive Taxonomy Tree Visual Card -->
+      <div class="taxonomy-interactive-card">
+        <div class="taxonomy-card-title">
+          <span>نمونه درخت دسته‌بندی و ویژگی‌ها</span>
+          <span class="node-chip" style="color: var(--brand-primary); font-weight: 700;">پیشنهاد خودکار ایجنت</span>
+        </div>
+
+        <div class="taxonomy-tree">
+          <div class="tree-node">
+            <span>کالایی (Physical Goods)</span>
+            <span class="node-chip">سطح ریشه</span>
+          </div>
+          <div class="tree-node tree-indent-1">
+            <span>↳ پوشاک و مد</span>
+            <span class="node-chip">دسته والد</span>
+          </div>
+          <div class="tree-node tree-indent-2">
+            <span>↳ مردانه</span>
+            <span class="node-chip">زیردسته</span>
+          </div>
+          <div class="tree-node tree-indent-3 active-leaf">
+            <span>↳ شلوار جین لی مردانه</span>
+            <span class="node-chip" style="background: var(--brand-primary); color: #fff;">شاخه نهایی (منطبق)</span>
+          </div>
+        </div>
+
+        <!-- Dynamic Category Attributes -->
+        <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-main);">ویژگی‌های استخراج‌شده برای تطبیق سیگنال خرید:</span>
+        <div class="attributes-pills-wrap">
+          <span class="attr-pill highlight">جنس: دنیم پنبه‌ای</span>
+          <span class="attr-pill highlight">مدل: راسته کلاسیک</span>
+          <span class="attr-pill">سایز: ۳۱ تا ۳۸</span>
+          <span class="attr-pill">رنگ: سرمه‌ای تیره</span>
+          <span class="attr-pill highlight">مخاطب: آقایان ۲۰ تا ۴۰ سال</span>
+          <span class="attr-pill">فصل: چهارفصل</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Section: Agent Workflow Pipeline (LangGraph)
+       ========================================================================== -->
+  <section class="section-pipeline" id="مسیر-ایجنت">
+    <div style="text-align: center;">
+      <div class="section-tag">
+        <span>✦ معماری LangGraph</span>
+      </div>
+      <h2 class="section-heading">موتور کاوش خودکار چگونه کار می‌کند؟</h2>
+      <p class="section-lead">
+        جریان داده بدون وابستگی به جعبه‌های سیاه؛ خط تولید کشف هوشمند مشتری از گره ورودی تا خروجی ساختاریافته.
+      </p>
+    </div>
+
+    <div class="pipeline-diagram">
+      <div class="pipeline-node">
+        <div class="node-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        </div>
+        <h3 class="node-title">۱. تحلیل محصول</h3>
+        <p class="node-desc">استخراج پرسونای خریدار ایده‌آل (ICP) و تعیین نشانه‌های نیاز.</p>
+      </div>
+
+      <div class="pipeline-node">
+        <div class="node-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <h3 class="node-title">۲. راهبرد جستجو</h3>
+        <p class="node-desc">تولید کوئری‌های معنایی و انتخاب انجمن‌ها و گروه‌های مرتبط.</p>
+      </div>
+
+      <div class="pipeline-node">
+        <div class="node-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </div>
+        <h3 class="node-title">۳. اسکن منابع</h3>
+        <p class="node-desc">پایش گفتگوهای زنده در X، تلگرام، اینستاگرام و دیوار.</p>
+      </div>
+
+      <div class="pipeline-node">
+        <div class="node-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+        </div>
+        <h3 class="node-title">۴. اعتبارسنجی لید</h3>
+        <p class="node-desc">سنجش شدت نیاز، نیت خرید، تطابق کالا و فوریت تصمیم‌گیری.</p>
+      </div>
+
+      <div class="pipeline-node">
+        <div class="node-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </div>
+        <h3 class="node-title">۵. پیش‌نویس پیام</h3>
+        <p class="node-desc">تولید متن شخصی‌سازی‌شده و ارائه به فروشنده جهت بازبینی و ارسال.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Section: Multi-Source Channels
+       ========================================================================== -->
+  <section class="section-sources" id="منابع">
+    <div class="sources-inner">
+      <div class="section-tag">
+        <span>✦ کانال‌های پشتیبانی‌شده</span>
+      </div>
+      <h2 class="section-heading">در جای درست به دنبال مشتری می‌گردیم</h2>
+      <p class="section-lead">
+        معماری ماژولار آداپتورها اجازه می‌دهد نتایج شبکه‌های مختلف در قالبی یکپارچه و تمیز تحلیل و نرمال‌سازی شوند.
+      </p>
+
+      <div class="sources-grid">
+        <div class="source-channel-card">
+          <div class="source-icon-wrap icon-x">𝕏</div>
+          <h3 class="source-name">ایکس (توییتر)</h3>
+          <p class="source-desc">جستجوی هوشمند در پست‌ها، کوت‌ها و گفتگوهای کاربران بر اساس مفاهیم و سیگنال‌های خرید.</p>
+          <span class="source-badge">آداپتور فعال · جستجوی انطباقی</span>
+        </div>
+
+        <div class="source-channel-card">
+          <div class="source-icon-wrap icon-telegram">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+            </svg>
+          </div>
+          <h3 class="source-name">تلگرام</h3>
+          <p class="source-desc">پایش رجیستری سوپرگروه‌ها و کانال‌های تخصصی مرتبط با دسته‌بندی محصول و کشف نیازمندان.</p>
+          <span class="source-badge">Community Registry هوشمند</span>
+        </div>
+
+        <div class="source-channel-card">
+          <div class="source-icon-wrap icon-instagram">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
+              <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+            </svg>
+          </div>
+          <h3 class="source-name">اینستاگرام</h3>
+          <p class="source-desc">شناسایی کامنت‌های متقاضیان زیر پست‌های مرتبط با دسته‌بندی و پیج‌های رقیب یا مکمل.</p>
+          <span class="source-badge">تحلیل کامنت‌های با قصد خرید</span>
+        </div>
+
+        <div class="source-channel-card">
+          <div class="source-icon-wrap icon-divar">د</div>
+          <h3 class="source-name">دیوار</h3>
+          <p class="source-desc">پایش آگهی‌های تقاضا و درخواست خرید کاربران در شهر و محدوده جغرافیایی هدف شما.</p>
+          <span class="source-badge">کشف تقاضای محلی و شهری</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Section: Conversion CTA (Cosmic Card)
+       ========================================================================== -->
+  <section class="section-cta-wrap">
+    <div class="cta-cosmic-card">
+      <div class="cta-content">
+        <h2 class="cta-heading">
+          مشتری بعدی‌ات ممکنه همین الان<br>
+          <span class="glow-span">درباره محصولت حرف زده باشه.</span>
+        </h2>
+        <p class="cta-subtext">
+          همین حالا محصولت رو ثبت کن و اجازه بده ایجنت کشف مشتری، گفتگوهای آنلاین رو برای پیدا کردن خریداران واقعی اسکن کنه.
+        </p>
+        <a class="cta-btn-main" href="{% url 'accounts:signup' %}">
+          <span>شروع کشف مشتریان</span>
+          <span aria-hidden="true">✦</span>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ==========================================================================
+     Footer
+     ========================================================================== -->
+<footer class="footer-wrap">
+  <div class="footer-inner">
+    <div class="footer-brand-side">
+      <div class="brand-icon" style="width: 32px; height: 32px;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </div>
+      <span style="font-weight: 800; font-size: 1.05rem;">مشتری‌یاب</span>
+      <span style="color: var(--text-faint); font-size: 0.82rem;">| از گفتگوی واقعی تا مشتری واقعی</span>
+    </div>
+
+    <ul class="footer-nav">
+      <li><a href="#روش-کار">روش کار</a></li>
+      <li><a href="#فرصت-ها">فرصت‌ها</a></li>
+      <li><a href="#هوش-محصول">هوش محصول</a></li>
+      <li><a href="#منابع">منابع</a></li>
+      <li><a href="#بالا">بازگشت به بالا ↑</a></li>
+    </ul>
+
+    <div class="footer-copy">
+      © ۱۴۰۵ تمامی حقوق برای پلتفرم هوشمند «مشتری‌یاب» محفوظ است · طراحی‌شده برای مسابقه ملی هوش مصنوعی
+    </div>
+  </div>
+</footer>
+{% endblock %}

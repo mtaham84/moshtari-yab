@@ -1,0 +1,28 @@
+{% load static %}
+<!doctype html>
+<html lang="fa" dir="rtl" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111210">
+  <meta name="description" content="مشتری‌یاب، دستیار هوشمند شما برای پیدا کردن مشتری‌های بالقوه در گفتگوهای آنلاین.">
+  <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+  <title>{% block title %}مشتری‌یاب | دستیار هوشمند کشف مشتری در گفتگوهای آنلاین{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem('moshtari-yab-theme') || 'system';
+        document.documentElement.dataset.theme = saved;
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="{% static 'css/site.css' %}">
+  <script src="{% static 'js/site.js' %}" defer></script>
+</head>
+<body>
+  {% block body %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,139 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}مدیریت محصولات و خدمات | مشتری‌یاب{% endblock %}
+{% block breadcrumb %}محصولات و خدمات{% endblock %}
+{% block nav_products %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header">
+  <div class="p-header-titles">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <h1 class="p-page-title">محصولات و خدمات</h1>
+      <span class="p-badge p-badge-purple">{{ stats.total }} آیتم در پایگاه دانش</span>
+    </div>
+    <p class="p-page-subtitle">محصولات و دسته‌بندی‌های سلسله‌مراتبی شما، نقشه راه ایجنت برای کشف خریداران بالقوه هستند.</p>
+  </div>
+
+  <div class="p-header-actions">
+    <a href="{% url 'products:add' %}" class="p-btn p-btn-primary">
+      <span>+ افزودن محصول جدید</span>
+      <span aria-hidden="true">✦</span>
+    </a>
+  </div>
+</div>
+
+{% if messages %}
+  <div class="auth-messages" style="margin-bottom: 24px;">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<!-- Filter & Search Toolbar -->
+<div class="catalog-toolbar">
+  <div class="filter-tabs-group">
+    <a href="{% url 'products:list' %}" class="filter-tab {% if not type_filter %}active{% endif %}">همه ({{ stats.total }})</a>
+    <a href="{% url 'products:list' %}?type=PHYSICAL" class="filter-tab {% if type_filter == 'PHYSICAL' %}active{% endif %}">فقط کالایی ({{ stats.physical }})</a>
+    <a href="{% url 'products:list' %}?type=SERVICE" class="filter-tab {% if type_filter == 'SERVICE' %}active{% endif %}">فقط خدماتی ({{ stats.service }})</a>
+  </div>
+
+  <form method="GET" action="{% url 'products:list' %}" class="catalog-search-form">
+    {% if type_filter %}<input type="hidden" name="type" value="{{ type_filter }}">{% endif %}
+    <input 
+      type="text" 
+      name="q" 
+      value="{{ query|default:'' }}" 
+      class="catalog-search-input" 
+      placeholder="جستجوی عنوان محصول...">
+    <button type="submit" class="catalog-search-btn">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+    </button>
+  </form>
+</div>
+
+<!-- Products Grid -->
+{% if products %}
+  <div class="products-grid">
+    {% for prod in products %}
+      <article class="product-card">
+        {% if prod.main_image %}
+          <div style="position: relative; height: 160px; margin: -24px -24px 16px -24px; border-radius: 19px 19px 0 0; overflow: hidden; background: var(--panel-hover);">
+            <a href="{% url 'products:detail' prod.pk %}" style="display: block; width: 100%; height: 100%;">
+              <img src="{{ prod.main_image.image.url }}" alt="{{ prod.name }}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+            </a>
+            <div style="position: absolute; bottom: 8px; left: 8px; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(6px); color: #ffffff; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px;">
+              📷 {{ prod.images_count }} عکس
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="product-card-top">
+          <div class="product-type-pill {% if prod.product_type == 'PHYSICAL' %}pill-physical{% else %}pill-service{% endif %}">
+            {% if prod.product_type == 'PHYSICAL' %}📦 کالایی{% else %}🛠 خدماتی{% endif %}
+          </div>
+          <span class="product-status-dot" title="فعال برای کشف هوشمند"></span>
+        </div>
+
+        <h2 class="product-card-title">
+          <a href="{% url 'products:detail' prod.pk %}">{{ prod.name }}</a>
+        </h2>
+
+        <!-- Hierarchical Category Breadcrumb -->
+        {% if prod.category %}
+          <div class="product-category-path" title="شاخه‌بندی سلسله‌مراتبی">
+            <span class="path-icon">📂</span>
+            <span>{{ prod.category.get_full_path }}</span>
+          </div>
+        {% else %}
+          <div class="product-category-path" style="color: var(--panel-text-faint);">
+            <span>دسته‌بندی تعیین نشده</span>
+          </div>
+        {% endif %}
+
+        <p class="product-card-desc">
+          {{ prod.description|truncatewords:20 }}
+        </p>
+
+        <!-- Dynamic Attribute Badges -->
+        {% if prod.attributes %}
+          <div class="product-attrs-preview">
+            {% for k, v in prod.attributes.items %}
+              <span class="attr-chip-sm"><strong>{{ k }}:</strong> {{ v }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="product-card-footer">
+          <div class="product-price-box">
+            <span class="price-label">قیمت:</span>
+            <strong class="price-val">{{ prod.formatted_price }}</strong>
+          </div>
+
+          <div class="product-card-actions">
+            <a href="{% url 'products:detail' prod.pk %}" class="card-btn-view" title="مشاهده جزئیات">
+              مشاهده ساختار دانش
+            </a>
+            <a href="{% url 'products:edit' prod.pk %}" class="card-btn-icon" title="ویرایش">
+              ✏
+            </a>
+          </div>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="p-empty-state">
+    <div class="p-empty-icon">📦</div>
+    <h3 class="p-empty-title">هیچ محصولی یافت نشد</h3>
+    <p class="p-empty-desc">هنوز محصولی ثبت نشده است یا با عبارت جستجوی شما مطابقت ندارد. با افزودن محصول، ایجنت کشف مشتری را تغذیه کنید.</p>
+    <a href="{% url 'products:add' %}" class="p-btn p-btn-primary" style="margin-top: 10px;">
+      + افزودن اولین محصول
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,1550 @@
+/* ==========================================================================
+   مشتری‌یاب | Moshtari-Yab Seller Panel Design System
+   Stone Neumorphism & Obsidian High-Tech Theme (buildX Competition Edition)
+   Inspired by Reference Console: Architectural Ribbed Canvas + Floating Chassis
+   ========================================================================== */
+
+:root {
+  /* Typography */
+  --font-vazir: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Stone Architecture Canvas (Ribbed background) */
+  --stone-canvas: #dbe2ea;
+  --stone-canvas-rib: rgba(255, 255, 255, 0.42);
+  --stone-chassis-bg: linear-gradient(135deg, #f4f8fc 0%, #e6edf5 100%);
+  --stone-chassis-border: rgba(255, 255, 255, 0.85);
+
+  /* Stone Surfaces & Neumorphism Tokens - Light Mode */
+  --panel-bg: #dbe2ea;
+  --panel-surface: #edf3f8;
+  --panel-surface-elevated: #f7fafe;
+  --panel-surface-sunken: #e2eaf2;
+  --panel-sidebar: #e8f0f7;
+  --panel-topbar: rgba(237, 243, 248, 0.94);
+  --panel-border: rgba(160, 175, 195, 0.35);
+  --panel-border-subtle: rgba(160, 175, 195, 0.2);
+  --panel-divider: #d9e3ed;
+
+  --panel-text-main: #141a24;
+  --panel-text-muted: #536479;
+  --panel-text-faint: #8a9bb0;
+  --panel-hover: rgba(160, 175, 195, 0.18);
+  --panel-active-bg: rgba(0, 242, 254, 0.12);
+
+  /* Dual Neumorphic Shadows (Tactile Embossed / Inset) */
+  --chassis-shadow: 24px 36px 70px rgba(150, 168, 190, 0.65), -18px -18px 45px rgba(255, 255, 255, 0.95);
+  --stone-shadow-raised: 8px 12px 24px rgba(160, 175, 195, 0.45), -6px -6px 18px rgba(255, 255, 255, 0.95);
+  --stone-shadow-hover: 12px 18px 30px rgba(160, 175, 195, 0.55), -8px -8px 22px rgba(255, 255, 255, 1);
+  --stone-shadow-inset: inset 3px 3px 6px rgba(160, 175, 195, 0.5), inset -3px -3px 6px rgba(255, 255, 255, 0.95);
+  --stone-shadow-sm: 4px 6px 14px rgba(160, 175, 195, 0.35), -3px -3px 10px rgba(255, 255, 255, 0.9);
+  --stone-shadow-pill: 5px 7px 14px rgba(160, 175, 195, 0.4), -4px -4px 10px rgba(255, 255, 255, 0.9);
+
+  /* High-Tech Obsidian Module Tokens */
+  --obsidian-bg: #111420;
+  --obsidian-surface: #171b29;
+  --obsidian-surface-soft: #1d2234;
+  --obsidian-border: rgba(255, 255, 255, 0.08);
+  --obsidian-text: #f3f6fc;
+  --obsidian-text-muted: #8b9bb4;
+  --obsidian-cyan: #00f2fe;
+  --obsidian-cyan-glow: 0 0 16px rgba(0, 242, 254, 0.45);
+  --obsidian-green: #00f59b;
+  --obsidian-purple: #9d4edd;
+
+  /* Brand Accents */
+  --brand-purple: #7928ca;
+  --brand-magenta: #e8268e;
+  --brand-gradient: linear-gradient(135deg, #00f2fe 0%, #4facfe 50%, #7928ca 100%);
+  --discovery-glow: 0 6px 20px rgba(0, 242, 254, 0.35);
+
+  /* Status Tokens */
+  --p-success: #10b981;
+  --p-success-bg: rgba(16, 185, 129, 0.12);
+  --p-warning: #f59e0b;
+  --p-info: #0284c7;
+  --p-danger: #ef4444;
+
+  /* Layout Sizing */
+  --sidebar-width: 256px;
+  --topbar-height: 72px;
+}
+
+:root[data-theme="dark"] {
+  --stone-canvas: #07090e;
+  --stone-canvas-rib: rgba(255, 255, 255, 0.02);
+  --stone-chassis-bg: linear-gradient(135deg, #151824 0%, #0c0e16 100%);
+  --stone-chassis-border: rgba(255, 255, 255, 0.08);
+
+  --panel-bg: #07090e;
+  --panel-surface: #131722;
+  --panel-surface-elevated: #1a1f2e;
+  --panel-surface-sunken: #0c0e15;
+  --panel-sidebar: #0f121d;
+  --panel-topbar: rgba(15, 18, 29, 0.94);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-border-subtle: rgba(255, 255, 255, 0.04);
+  --panel-divider: rgba(255, 255, 255, 0.07);
+
+  --panel-text-main: #f8fafc;
+  --panel-text-muted: #94a3b8;
+  --panel-text-faint: #64748b;
+  --panel-hover: rgba(255, 255, 255, 0.05);
+  --panel-active-bg: rgba(0, 242, 254, 0.15);
+
+  --chassis-shadow: 20px 28px 60px rgba(0, 0, 0, 0.75), -8px -8px 25px rgba(255, 255, 255, 0.02);
+  --stone-shadow-raised: 8px 12px 24px rgba(0, 0, 0, 0.5), -4px -4px 14px rgba(255, 255, 255, 0.03);
+  --stone-shadow-hover: 10px 16px 28px rgba(0, 0, 0, 0.6), -5px -5px 18px rgba(255, 255, 255, 0.05);
+  --stone-shadow-inset: inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -2px -2px 5px rgba(255, 255, 255, 0.04);
+  --stone-shadow-sm: 4px 6px 14px rgba(0, 0, 0, 0.4), -2px -2px 8px rgba(255, 255, 255, 0.02);
+  --stone-shadow-pill: 5px 7px 14px rgba(0, 0, 0, 0.45), -3px -3px 8px rgba(255, 255, 255, 0.03);
+
+  --discovery-glow: 0 6px 24px rgba(0, 242, 254, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --stone-canvas: #07090e;
+    --stone-canvas-rib: rgba(255, 255, 255, 0.02);
+    --stone-chassis-bg: linear-gradient(135deg, #151824 0%, #0c0e16 100%);
+    --stone-chassis-border: rgba(255, 255, 255, 0.08);
+
+    --panel-bg: #07090e;
+    --panel-surface: #131722;
+    --panel-surface-elevated: #1a1f2e;
+    --panel-surface-sunken: #0c0e15;
+    --panel-sidebar: #0f121d;
+    --panel-topbar: rgba(15, 18, 29, 0.94);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --panel-border-subtle: rgba(255, 255, 255, 0.04);
+    --panel-divider: rgba(255, 255, 255, 0.07);
+
+    --panel-text-main: #f8fafc;
+    --panel-text-muted: #94a3b8;
+    --panel-text-faint: #64748b;
+    --panel-hover: rgba(255, 255, 255, 0.05);
+    --panel-active-bg: rgba(0, 242, 254, 0.15);
+
+    --chassis-shadow: 20px 28px 60px rgba(0, 0, 0, 0.75), -8px -8px 25px rgba(255, 255, 255, 0.02);
+    --stone-shadow-raised: 8px 12px 24px rgba(0, 0, 0, 0.5), -4px -4px 14px rgba(255, 255, 255, 0.03);
+    --stone-shadow-hover: 10px 16px 28px rgba(0, 0, 0, 0.6), -5px -5px 18px rgba(255, 255, 255, 0.05);
+    --stone-shadow-inset: inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -2px -2px 5px rgba(255, 255, 255, 0.04);
+    --stone-shadow-sm: 4px 6px 14px rgba(0, 0, 0, 0.4), -2px -2px 8px rgba(255, 255, 255, 0.02);
+    --stone-shadow-pill: 5px 7px 14px rgba(0, 0, 0, 0.45), -3px -3px 8px rgba(255, 255, 255, 0.03);
+
+    --discovery-glow: 0 6px 24px rgba(0, 242, 254, 0.45);
+  }
+}
+
+/* ==========================================================================
+   Panel App Layout Shell: Architectural Ribbed Canvas + Floating Stone Chassis
+   ========================================================================== */
+.panel-app-container {
+  min-height: 100vh;
+  background-color: var(--stone-canvas);
+  background-image: repeating-linear-gradient(45deg, var(--stone-canvas-rib) 0px, var(--stone-canvas-rib) 14px, transparent 14px, transparent 28px);
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  direction: rtl;
+  box-sizing: border-box;
+  font-family: var(--font-vazir);
+  transition: background-color 0.25s ease;
+}
+
+/* Floating Stone Chassis (Inspired by reference console) */
+.stone-chassis {
+  width: 100%;
+  max-width: 1600px;
+  background: var(--stone-chassis-bg);
+  border-radius: 38px;
+  box-shadow: var(--chassis-shadow);
+  border: 1.5px solid var(--stone-chassis-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+/* ==========================================================================
+   Upper Stone Console Header (Brand, Pipeline Stepper, Status & Theme)
+   ========================================================================== */
+.stone-console-header {
+  height: var(--topbar-height);
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1.5px solid var(--panel-border-subtle);
+  background: var(--panel-topbar);
+  backdrop-filter: blur(16px);
+  z-index: 30;
+  gap: 16px;
+}
+
+/* Right Side: Brand Logo & Title */
+.console-brand-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.console-brand-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--panel-surface);
+  box-shadow: var(--stone-shadow-sm);
+  display: grid;
+  place-items: center;
+  color: var(--obsidian-cyan);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  font-weight: 900;
+  font-size: 1.25rem;
+}
+
+.console-brand-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.console-brand-name {
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  color: var(--panel-text-main);
+  line-height: 1.2;
+}
+
+.console-brand-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--stone-text-muted);
+}
+
+/* Center: Connected Pipeline Stepper Rail Track (Direct from Reference Image) */
+.pipeline-stepper-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.pipeline-stepper-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  position: relative;
+  padding: 6px 16px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  border-radius: 9999px;
+}
+
+.stepper-rail-line {
+  position: absolute;
+  top: 50%;
+  right: 32px;
+  left: 32px;
+  height: 3px;
+  background: rgba(160, 175, 195, 0.35);
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.stepper-node {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-pill);
+  color: var(--stone-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.stepper-node:hover {
+  color: var(--panel-text-main);
+  transform: translateY(-1px);
+}
+
+.stepper-node.active {
+  background: var(--obsidian-bg);
+  color: var(--obsidian-cyan);
+  box-shadow: 0 4px 14px rgba(0, 242, 254, 0.35);
+  border-color: rgba(0, 242, 254, 0.4);
+}
+
+.stepper-node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stone-text-faint);
+  transition: all 0.2s ease;
+}
+
+.stepper-node.active .stepper-node-dot {
+  background: var(--obsidian-cyan);
+  box-shadow: 0 0 8px var(--obsidian-cyan);
+}
+
+/* Left Side: System Status, Theme Switch & Profile Controls */
+.console-actions-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.console-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-pill);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--stone-text-main);
+}
+
+.console-pulse-beacon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--p-success);
+  box-shadow: 0 0 10px var(--p-success);
+  animation: pulse-beacon 2s infinite;
+}
+
+@keyframes pulse-beacon {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Minimal 3-state Theme Switcher */
+.theme-switch-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  border-radius: 9999px;
+  padding: 4px 6px;
+}
+
+.theme-opt-btn {
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  color: var(--stone-text-muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.theme-opt-btn:hover {
+  color: var(--stone-text-main);
+}
+
+.theme-opt-btn.active {
+  background: var(--stone-surface-raised);
+  color: var(--panel-text-main);
+  box-shadow: var(--stone-shadow-sm);
+  font-weight: 800;
+}
+
+.console-profile-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 8px;
+  border-radius: 9999px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-sm);
+  text-decoration: none;
+  color: var(--stone-text-main);
+  font-size: 0.8rem;
+  font-weight: 750;
+  transition: transform 0.15s ease;
+}
+
+.console-profile-btn:hover {
+  transform: translateY(-1px);
+}
+
+.console-avatar-ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--obsidian-bg);
+  color: var(--obsidian-cyan);
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 0.75rem;
+}
+
+.logout-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--stone-text-muted);
+  transition: all 0.18s ease;
+  text-decoration: none;
+}
+
+.logout-icon-btn:hover {
+  color: var(--p-danger);
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   Chassis Inner Structure: Sidebar + Main Content
+   ========================================================================== */
+.stone-chassis-body {
+  display: flex;
+  flex: 1;
+  min-height: calc(100vh - 120px);
+}
+
+/* Tactile Stone Sidebar */
+.panel-sidebar {
+  width: var(--sidebar-width);
+  background: transparent;
+  border-left: 1.5px solid var(--panel-border-subtle);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 16px 14px;
+  user-select: none;
+  transition: transform 0.25s ease;
+}
+
+.sidebar-nav-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-section-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--stone-text-faint);
+  text-transform: uppercase;
+  padding: 12px 14px 4px;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 14px;
+  color: var(--stone-text-muted);
+  font-size: 0.88rem;
+  font-weight: 650;
+  transition: all 0.18s ease;
+  position: relative;
+  text-decoration: none;
+}
+
+.sidebar-link-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-link-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--stone-text-faint);
+  transition: color 0.18s ease;
+}
+
+.sidebar-link:hover {
+  background: var(--stone-surface-raised);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--panel-text-main);
+}
+
+.sidebar-link:hover .sidebar-link-icon {
+  color: var(--panel-text-main);
+}
+
+.sidebar-link.active {
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  color: var(--panel-text-main);
+  font-weight: 800;
+}
+
+.sidebar-link.active .sidebar-link-icon {
+  color: var(--obsidian-cyan);
+}
+
+.sidebar-link-discovery {
+  margin: 6px 0 10px;
+  background: var(--obsidian-bg) !important;
+  color: var(--obsidian-cyan) !important;
+  box-shadow: 0 4px 18px rgba(0, 242, 254, 0.3) !important;
+  font-weight: 850 !important;
+  border: 1px solid rgba(0, 242, 254, 0.3);
+}
+
+.sidebar-link-discovery .sidebar-link-icon {
+  color: var(--obsidian-cyan) !important;
+}
+
+.sidebar-link-discovery:hover {
+  box-shadow: 0 6px 24px rgba(0, 242, 254, 0.5) !important;
+  transform: translateY(-1px);
+}
+
+.sidebar-badge {
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  color: var(--stone-text-muted);
+}
+
+/* Main Content Workspace Column */
+.panel-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: transparent;
+}
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+/* Quick Start Discovery Button in Topbar */
+.topbar-discovery-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border-radius: 9999px;
+  background: var(--brand-gradient);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 750;
+  box-shadow: var(--discovery-glow);
+  text-decoration: none;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+
+.topbar-discovery-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(232, 38, 142, 0.45);
+}
+
+.mobile-menu-trigger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--panel-text-main);
+  padding: 8px;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Panel Content Container
+   ========================================================================== */
+.panel-content-area {
+  flex: 1;
+  max-width: 1360px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 32px 80px;
+}
+
+/* ==========================================================================
+   Reusable UI Components (Section 43)
+   ========================================================================== */
+/* Page Header */
+.p-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.p-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.p-page-title {
+  font-size: clamp(1.4rem, 2.2vw, 1.85rem);
+  font-weight: 850;
+  color: var(--panel-text-main);
+  line-height: 1.3;
+}
+
+.p-page-subtitle {
+  font-size: 0.9rem;
+  color: var(--panel-text-muted);
+}
+
+.p-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   Reusable UI Components: Stone Neumorphism & Tactile Surfaces
+   ========================================================================== */
+/* Page Header */
+.p-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.p-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.p-page-title {
+  font-size: clamp(1.4rem, 2.2vw, 1.85rem);
+  font-weight: 850;
+  color: var(--panel-text-main);
+  line-height: 1.3;
+}
+
+.p-page-subtitle {
+  font-size: 0.9rem;
+  color: var(--panel-text-muted);
+}
+
+.p-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Surface Cards: Stone Neumorphic Finish */
+.p-card {
+  background: var(--panel-surface);
+  border-radius: 26px;
+  padding: 24px;
+  box-shadow: var(--stone-shadow-raised);
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+}
+
+.p-card:hover {
+  box-shadow: var(--stone-shadow-hover);
+}
+
+.p-card-sunken {
+  background: var(--panel-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border-radius: 20px;
+  padding: 20px;
+  border: 1px solid rgba(160, 175, 195, 0.25);
+}
+
+/* Stone Stat Feature Cards (Direct from Reference Image: CAR MODEL / KWH / LEVEL) */
+.stone-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.stone-stat-card {
+  background: var(--panel-surface);
+  border-radius: 24px;
+  padding: 22px;
+  box-shadow: var(--stone-shadow-raised);
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 190px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.stone-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--stone-shadow-hover);
+}
+
+.stat-card-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--stone-text-faint);
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.stat-card-title {
+  font-size: 1.25rem;
+  font-weight: 850;
+  color: var(--panel-text-main);
+  margin-bottom: 12px;
+}
+
+.stat-card-figure {
+  font-size: 1.85rem;
+  font-weight: 900;
+  color: var(--panel-text-main);
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.stat-card-unit {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--stone-text-muted);
+}
+
+/* Waveform Graph Line (Simulated from reference image KWH wave) */
+.signal-wave-container {
+  width: 100%;
+  height: 48px;
+  margin: 10px 0;
+  display: flex;
+  align-items: center;
+}
+
+.signal-wave-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Level Indicator Bar (Simulated from reference LEVEL 3 bar) */
+.level-gauge-wrap {
+  margin: 12px 0;
+}
+
+.level-gauge-bar {
+  display: flex;
+  gap: 4px;
+  height: 8px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  padding: 2px;
+}
+
+.level-gauge-segment {
+  flex: 1;
+  border-radius: 9999px;
+  background: rgba(160, 175, 195, 0.3);
+  transition: all 0.25s ease;
+}
+
+.level-gauge-segment.filled {
+  background: linear-gradient(90deg, #00f2fe, #4facfe);
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.6);
+}
+
+/* Tactical Reusable Buttons */
+.p-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 14px;
+  font-size: 0.88rem;
+  font-weight: 750;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  font-family: var(--font-vazir);
+  box-sizing: border-box;
+}
+
+.p-btn:active {
+  transform: translateY(1px);
+}
+
+/* Raised Stone Button */
+.p-btn-stone {
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--panel-text-main);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+.p-btn-stone:hover {
+  background: var(--stone-surface-raised);
+  box-shadow: var(--stone-shadow-pill);
+}
+
+.p-btn-stone:active {
+  box-shadow: var(--stone-shadow-inset);
+}
+
+/* High-Tech Obsidian Button (Primary CTA) */
+.p-btn-primary,
+.p-btn-obsidian {
+  background: var(--obsidian-bg);
+  color: var(--obsidian-cyan);
+  box-shadow: 0 4px 18px rgba(0, 242, 254, 0.32);
+  border: 1px solid rgba(0, 242, 254, 0.35);
+  font-weight: 800;
+}
+
+.p-btn-primary:hover,
+.p-btn-obsidian:hover {
+  box-shadow: 0 6px 24px rgba(0, 242, 254, 0.55);
+  transform: translateY(-1px);
+  color: #ffffff;
+}
+
+.p-btn-secondary {
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--panel-text-main);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.p-btn-secondary:hover {
+  box-shadow: var(--stone-shadow-pill);
+}
+
+.p-btn-ghost {
+  background: transparent;
+  color: var(--panel-text-muted);
+}
+
+.p-btn-ghost:hover {
+  background: var(--stone-surface-raised);
+  color: var(--panel-text-main);
+}
+
+.p-btn-sm {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  border-radius: 10px;
+}
+
+/* Reusable Badges */
+.p-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  box-shadow: var(--stone-shadow-sm);
+  background: var(--stone-surface);
+}
+
+.p-badge-purple {
+  color: var(--brand-purple);
+  border: 1px solid rgba(121, 40, 202, 0.3);
+}
+
+.p-badge-success {
+  color: var(--p-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.p-badge-warning {
+  color: var(--p-warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.p-badge-info {
+  color: var(--p-info);
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+/* Score Badge */
+.p-score-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  background: var(--obsidian-bg);
+  border: 1px solid var(--obsidian-green);
+  color: var(--obsidian-green);
+  font-weight: 850;
+  font-size: 0.88rem;
+  box-shadow: 0 0 10px rgba(0, 245, 155, 0.25);
+}
+
+/* ==========================================================================
+   Obsidian Live Discovery Radar & Tactical Control Center (Right Module in Ref)
+   ========================================================================== */
+.obsidian-radar-module {
+  background: var(--obsidian-bg);
+  border-radius: 34px;
+  border: 1.5px solid var(--obsidian-border);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.5);
+  padding: 24px;
+  color: var(--obsidian-text);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Live Audio & Agent Activity Ticker Bar */
+.radar-audio-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--obsidian-surface);
+  border: 1px solid var(--obsidian-border);
+  border-radius: 9999px;
+  padding: 8px 18px;
+  gap: 14px;
+}
+
+.radar-audio-disc {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffe066 10%, #111 70%);
+  border: 2px solid #ffe066;
+  box-shadow: 0 0 10px rgba(255, 224, 102, 0.4);
+  animation: spin-disc 6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin-disc {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.radar-audio-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.radar-audio-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.radar-audio-sub {
+  font-size: 0.68rem;
+  color: var(--obsidian-cyan);
+}
+
+.radar-audio-waveform {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+
+.audio-bar-stick {
+  width: 3px;
+  background: var(--obsidian-cyan);
+  border-radius: 2px;
+  animation: bounce-stick 1.2s ease-in-out infinite;
+}
+
+.audio-bar-stick:nth-child(2) { animation-delay: 0.2s; height: 12px; }
+.audio-bar-stick:nth-child(3) { animation-delay: 0.4s; height: 16px; }
+.audio-bar-stick:nth-child(4) { animation-delay: 0.1s; height: 8px; }
+.audio-bar-stick:nth-child(5) { animation-delay: 0.3s; height: 14px; }
+
+@keyframes bounce-stick {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+/* Radar Screen Grid & Pulse Targets */
+.radar-map-screen {
+  background: radial-gradient(circle at center, #181d2e 0%, #0e111a 100%);
+  border-radius: 26px;
+  height: 310px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radar-concentric-circle {
+  position: absolute;
+  border: 1px dashed rgba(0, 242, 254, 0.18);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.radar-circle-1 { width: 90px; height: 90px; }
+.radar-circle-2 { width: 180px; height: 180px; }
+.radar-circle-3 { width: 270px; height: 270px; }
+
+.radar-sweep-beam {
+  position: absolute;
+  width: 135px;
+  height: 135px;
+  top: 50%;
+  right: 50%;
+  transform-origin: top right;
+  background: conic-gradient(from 0deg, rgba(0, 242, 254, 0.25) 0deg, transparent 60deg);
+  border-radius: 100% 0 0 0;
+  animation: sweep 4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Radar Pings (Detected Potential Customers) */
+.radar-ping-node {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(17, 20, 32, 0.85);
+  border: 2px solid var(--obsidian-cyan);
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  color: var(--obsidian-cyan);
+  cursor: pointer;
+  box-shadow: 0 0 14px rgba(0, 242, 254, 0.5);
+  transition: transform 0.2s, box-shadow 0.2s;
+  z-index: 5;
+}
+
+.radar-ping-node:hover,
+.radar-ping-node.active {
+  transform: scale(1.2);
+  box-shadow: 0 0 22px rgba(0, 242, 254, 0.85);
+  background: var(--obsidian-cyan);
+  color: #000000;
+}
+
+.radar-ping-ripple {
+  position: absolute;
+  inset: -6px;
+  border: 2px solid var(--obsidian-cyan);
+  border-radius: 50%;
+  animation: ping-wave 2s infinite;
+  pointer-events: none;
+}
+
+@keyframes ping-wave {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* Tactical Vertical Action Dock (Exact Stacked Buttons from Ref Image) */
+.tactical-action-dock {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10;
+}
+
+.tactical-dock-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--obsidian-surface);
+  border: 1px solid var(--obsidian-border);
+  color: var(--obsidian-text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.tactical-dock-btn:hover,
+.tactical-dock-btn.active {
+  background: var(--obsidian-cyan);
+  color: #090b10;
+  box-shadow: 0 0 16px rgba(0, 242, 254, 0.6);
+  transform: scale(1.08);
+}
+
+/* Radar Opportunity Preview Card */
+.radar-opportunity-card {
+  background: var(--obsidian-surface);
+  border: 1px solid var(--obsidian-border);
+  border-radius: 20px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+
+.radar-opp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.radar-opp-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.radar-user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 242, 254, 0.2);
+  color: var(--obsidian-cyan);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.75rem;
+}
+
+.radar-user-name {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.radar-source-tag {
+  font-size: 0.7rem;
+  color: var(--obsidian-text-muted);
+}
+
+.radar-opp-snippet {
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--obsidian-text);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 12px;
+  padding: 10px 12px;
+  border-right: 3px solid var(--obsidian-cyan);
+}
+
+.radar-opp-metrics {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--obsidian-text-muted);
+}
+
+/* ==========================================================================
+   Lower Obsidian Controller Bar (Direct from Reference: ELECTRIC CAR Console)
+   ========================================================================== */
+.obsidian-control-bar {
+  background: var(--obsidian-bg);
+  border: 1.5px solid var(--obsidian-border);
+  border-radius: 26px;
+  padding: 16px 24px;
+  color: var(--obsidian-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  margin-top: 10px;
+}
+
+.ctrl-brand-title {
+  font-size: 0.92rem;
+  font-weight: 850;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--obsidian-surface);
+  border-radius: 9999px;
+  padding: 4px;
+  border: 1px solid var(--obsidian-border);
+}
+
+.ctrl-mode-btn {
+  padding: 5px 14px;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  color: var(--obsidian-text-muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.ctrl-mode-btn.active {
+  background: var(--obsidian-cyan);
+  color: #0b0e16;
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.45);
+}
+
+.ctrl-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ctrl-slider-label {
+  font-size: 0.72rem;
+  color: var(--obsidian-text-muted);
+  font-weight: 700;
+}
+
+.ctrl-slider-track {
+  width: 120px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.ctrl-slider-fill {
+  height: 100%;
+  width: 72%;
+  background: linear-gradient(90deg, #00f2fe, #00f59b);
+  border-radius: 9999px;
+}
+
+.ctrl-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--obsidian-surface);
+  border: 1px solid var(--obsidian-border);
+  color: var(--obsidian-text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 0.85rem;
+}
+
+.ctrl-action-btn:hover {
+  background: var(--obsidian-surface-soft);
+  color: var(--obsidian-cyan);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+}
+
+/* ==========================================================================
+   Panel Form Control Styles: Tactile Debossed Inset Finish
+   ========================================================================== */
+.panel-app-container .form-label {
+  color: var(--panel-text-main);
+  font-weight: 800;
+  font-size: 0.88rem;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.panel-app-container .form-label .req {
+  color: var(--brand-magenta);
+}
+
+.panel-app-container .form-input,
+.panel-app-container select.form-input,
+.panel-app-container textarea.form-input {
+  background-color: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border: 1px solid rgba(160, 175, 195, 0.25);
+  color: var(--panel-text-main);
+  border-radius: 16px;
+  padding: 12px 18px;
+  font-family: var(--font-vazir);
+  font-size: 0.92rem;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.panel-app-container .form-input:focus,
+.panel-app-container select.form-input:focus,
+.panel-app-container textarea.form-input:focus {
+  border-color: var(--obsidian-cyan);
+  box-shadow: var(--stone-shadow-inset), 0 0 0 3px rgba(0, 242, 254, 0.25);
+  outline: none;
+}
+
+.panel-app-container .type-radio-card {
+  background: var(--stone-surface);
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--panel-text-main);
+  border-radius: 18px;
+  transition: all 0.2s ease;
+  display: block;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.panel-app-container .type-radio-label input:checked + .type-radio-card {
+  border-color: var(--obsidian-cyan);
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+}
+
+.panel-app-container .ai-suggestion-box {
+  background: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border: 1.5px solid rgba(0, 242, 254, 0.4);
+  border-radius: 20px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+
+/* Empty State */
+.p-empty-state {
+  background: var(--panel-surface);
+  box-shadow: var(--stone-shadow-raised);
+  border: 1.5px dashed rgba(160, 175, 195, 0.4);
+  border-radius: 26px;
+  padding: 60px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.p-empty-icon {
+  font-size: 2.8rem;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.p-empty-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--panel-text-main);
+}
+
+.p-empty-desc {
+  font-size: 0.88rem;
+  color: var(--panel-text-muted);
+  max-width: 420px;
+  line-height: 1.65;
+}
+
+/* Mobile Bottom Navigation Bar (Thumb zone) */
+.panel-mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  height: 64px;
+  background-color: var(--panel-topbar);
+  backdrop-filter: blur(16px);
+  border-top: 1.5px solid var(--panel-border-subtle);
+  z-index: 50;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 10px;
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--panel-text-faint);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-decoration: none;
+  flex: 1;
+  height: 100%;
+}
+
+.bottom-nav-item.active {
+  color: var(--obsidian-cyan);
+  font-weight: 750;
+}
+
+.bottom-nav-discovery {
+  position: relative;
+  top: -12px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--obsidian-bg);
+  border: 1.5px solid var(--obsidian-cyan);
+  color: var(--obsidian-cyan) !important;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 18px rgba(0, 242, 254, 0.4);
+}
+
+/* Responsive Adaptations */
+@media (max-width: 1200px) {
+  .pipeline-stepper-wrap {
+    display: none;
+  }
+  .stone-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .panel-app-container {
+    padding: 10px;
+  }
+  .stone-chassis {
+    border-radius: 24px;
+  }
+  .panel-sidebar {
+    display: none;
+  }
+  .panel-mobile-bottom-nav {
+    display: flex;
+  }
+  .obsidian-control-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ==========================================================================
+   Stone Neumorphic Overrides for Product Management & Discovery Views
+   ========================================================================== */
+.panel-app-container .product-card {
+  background: var(--panel-surface);
+  border-radius: 26px;
+  padding: 24px;
+  box-shadow: var(--stone-shadow-raised);
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.panel-app-container .product-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--stone-shadow-hover);
+}
+
+.panel-app-container .filter-tabs-group {
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  border-radius: 9999px;
+  padding: 4px;
+  border: 1px solid rgba(160, 175, 195, 0.2);
+}
+
+.panel-app-container .filter-tab {
+  padding: 7px 16px;
+  border-radius: 9999px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  color: var(--stone-text-muted);
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.panel-app-container .filter-tab.active {
+  background: var(--obsidian-bg);
+  color: var(--obsidian-cyan);
+  box-shadow: 0 3px 12px rgba(0, 242, 254, 0.35);
+}
+
+.panel-app-container .catalog-search-input {
+  background: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border: 1px solid rgba(160, 175, 195, 0.25);
+  border-radius: 9999px;
+  color: var(--panel-text-main);
+  font-family: var(--font-vazir);
+}
+
+.panel-app-container .catalog-search-input:focus {
+  border-color: var(--obsidian-cyan);
+  box-shadow: var(--stone-shadow-inset), 0 0 0 3px rgba(0, 242, 254, 0.25);
+}
+
+/* Gallery Upload Inset Dropzone */
+.panel-app-container .gallery-dropzone {
+  background: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border: 2px dashed rgba(0, 242, 254, 0.35);
+  border-radius: 20px;
+  padding: 28px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.panel-app-container .gallery-dropzone:hover {
+  border-color: var(--obsidian-cyan);
+}
+

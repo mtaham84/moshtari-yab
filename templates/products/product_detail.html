@@ -1,0 +1,215 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}{{ product.name }} | پایگاه دانش محصول{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'products:list' %}">محصولات</a>
+  <span class="sep">/</span>
+  <span class="current">{{ product.name }}</span>
+{% endblock %}
+{% block nav_products %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header">
+  <div class="p-header-titles">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <h1 class="p-page-title">{{ product.name }}</h1>
+      <span class="p-badge {% if product.product_type == 'PHYSICAL' %}p-badge-info{% else %}p-badge-purple{% endif %}">
+        {% if product.product_type == 'PHYSICAL' %}📦 کالایی{% else %}🛠 خدماتی{% endif %}
+      </span>
+      {% if product.status == 'ACTIVE' %}
+        <span class="p-badge p-badge-success">● فعال برای کشف</span>
+      {% else %}
+        <span class="p-badge" style="background: rgba(148, 163, 184, 0.15); color: var(--panel-text-faint);">غیرفعال</span>
+      {% endif %}
+    </div>
+    <p class="p-page-subtitle">مشاهده جزئیات ساختاریافته محصول و راهنمای هدایت ایجنت هوشمند برای این کالا یا خدمت.</p>
+  </div>
+
+  <div class="p-header-actions">
+    <a href="{% url 'products:list' %}" class="p-btn p-btn-secondary">
+      <span>← لیست محصولات</span>
+    </a>
+    <a href="{% url 'products:edit' product.pk %}" class="p-btn p-btn-primary">
+      <span>ویرایش مشخصات</span>
+      <span>✏</span>
+    </a>
+  </div>
+</div>
+
+{% if messages %}
+  <div class="auth-messages" style="margin-bottom: 24px;">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<!-- Top Knowledge Overview Card -->
+<div class="p-card" style="padding: 32px; margin-bottom: 24px;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 300px;">
+      {% if product.category %}
+        <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--panel-hover); border-radius: 8px; font-size: 0.86rem; color: var(--panel-text-muted); margin-bottom: 14px;">
+          <span>📂</span>
+          <strong>{{ product.category.get_full_path }}</strong>
+        </div>
+      {% endif %}
+
+      <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 12px;">
+        شرح محصول
+      </h2>
+      <p style="font-size: 0.98rem; line-height: 1.85; color: var(--panel-text-muted); margin: 0; white-space: pre-line;">
+        {{ product.description }}
+      </p>
+    </div>
+
+    <!-- Commercial Value / Price Box -->
+    <div style="background: var(--panel-hover); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px 26px; min-width: 240px; text-align: center;">
+      <span style="font-size: 0.8rem; color: var(--panel-text-faint); font-weight: 600;">ارزش تجاری ثبت‌شده</span>
+      <div style="font-size: 1.6rem; font-weight: 850; color: var(--brand-purple); margin: 8px 0;">
+        {{ product.formatted_price }}
+      </div>
+
+      {% if product.url %}
+        <a href="{{ product.url }}" target="_blank" rel="noopener" class="p-btn p-btn-secondary p-btn-sm" style="width: 100%; margin-top: 10px; font-size: 0.82rem;">
+          <span>مشاهده لینک اصلی کالا</span>
+          <span>↗</span>
+        </a>
+      {% endif %}
+
+      <div style="margin-top: 14px; border-top: 1px solid var(--panel-border-subtle); padding-top: 12px;">
+        <form method="POST" action="{% url 'products:delete' product.pk %}" onsubmit="return confirm('آیا از حذف این محصول اطمینان دارید؟ تمام داده‌های مرتبط از پایگاه دانش ایجنت حذف خواهد شد.');">
+          {% csrf_token %}
+          <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color: var(--p-danger); width: 100%; font-size: 0.82rem;">
+            <span>حذف از پایگاه دانش</span>
+          </button>
+        </form>
+      </div>
+  </div>
+</div>
+
+<!-- Product Image Gallery Card -->
+<div class="p-card" style="padding: 26px; margin-bottom: 24px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+    <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--panel-text-main); margin: 0; display: flex; align-items: center; gap: 8px;">
+      <span>🖼️</span>
+      <span>گالری تصاویر محصول</span>
+    </h3>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span class="p-badge p-badge-purple">{{ product.images_count }} از ۱۰ تصویر</span>
+      <a href="{% url 'products:edit' product.pk %}" class="p-btn p-btn-secondary p-btn-sm">
+        <span>مدیریت و حذف عکس‌ها</span>
+        <span>✏</span>
+      </a>
+    </div>
+  </div>
+
+  {% if product.images.exists %}
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <!-- Main Display Viewport -->
+      <div style="width: 100%; max-height: 420px; height: 380px; border-radius: 16px; overflow: hidden; background: var(--panel-hover); border: 1px solid var(--panel-border); position: relative; text-align: center;">
+        <img 
+          id="gallery-main-view" 
+          src="{{ product.main_image.image.url }}" 
+          alt="{{ product.name }}" 
+          style="width: 100%; height: 100%; object-fit: contain; display: block; margin: 0 auto;">
+        <span 
+          id="gallery-main-badge" 
+          style="position: absolute; top: 12px; right: 12px; background: var(--brand-purple); color: #fff; font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.35);">
+          ★ تصویر اصلی
+        </span>
+      </div>
+
+      <!-- Thumbnail Carousel Strip -->
+      <div style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;">
+        {% for img in product.images.all %}
+          <div 
+            class="gallery-thumb-item {% if img == product.main_image %}active-thumb{% endif %}" 
+            data-url="{{ img.image.url }}" 
+            data-is-main="{{ img.is_main|yesno:'true,false' }}"
+            style="width: 80px; height: 80px; border-radius: 12px; overflow: hidden; border: 2px solid {% if img == product.main_image %}var(--brand-purple){% else %}var(--panel-border){% endif %}; cursor: pointer; flex-shrink: 0; transition: all 0.2s;"
+            onclick="selectGalleryImage(this)">
+            <img src="{{ img.image.url }}" alt="تصویر {{ forloop.counter }}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div style="text-align: center; padding: 36px 16px; background: var(--panel-hover); border-radius: 14px; border: 1.5px dashed var(--panel-border);">
+      <span style="font-size: 2.2rem; display: block; margin-bottom: 8px;">📷</span>
+      <strong style="color: var(--panel-text-main); font-size: 0.95rem; display: block; margin-bottom: 4px;">هنوز تصویری برای این کالا افزوده نشده است</strong>
+      <p style="color: var(--panel-text-faint); font-size: 0.85rem; margin: 0 0 14px 0;">افزودن تصویر به ایجنت و خریداران کمک می‌کند کالا را بهتر شناسایی کنند (حداکثر ۱۰ تصویر).</p>
+      <a href="{% url 'products:edit' product.pk %}" class="p-btn p-btn-primary p-btn-sm">
+        + بارگذاری تصویر در مشخصات
+      </a>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  function selectGalleryImage(el) {
+    const mainView = document.getElementById('gallery-main-view');
+    const mainBadge = document.getElementById('gallery-main-badge');
+    const url = el.dataset.url;
+    const isMain = el.dataset.isMain === 'true';
+
+    if (mainView && url) {
+      mainView.src = url;
+    }
+    if (mainBadge) {
+      mainBadge.style.display = isMain ? 'block' : 'none';
+    }
+
+    document.querySelectorAll('.gallery-thumb-item').forEach(thumb => {
+      thumb.style.borderColor = (thumb === el) ? 'var(--brand-purple)' : 'var(--panel-border)';
+    });
+  }
+</script>
+
+<!-- Structured Knowledge Details (2 Columns) -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;">
+  <!-- Dynamic Attributes Card -->
+  <div class="p-card" style="padding: 26px;">
+    <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+      <span>🏷</span>
+      <span>ویژگی‌های ساختاریافته (Attributes)</span>
+    </h3>
+
+    {% if product.attributes %}
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        {% for k, v in product.attributes.items %}
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 10px; background: var(--panel-hover); border: 1px solid var(--panel-border-subtle);">
+            <strong style="font-size: 0.88rem; color: var(--panel-text-muted);">{{ k }}:</strong>
+            <span style="font-size: 0.92rem; font-weight: 700; color: var(--panel-text-main);">{{ v }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p style="color: var(--panel-text-faint); font-size: 0.9rem; margin: 0;">
+        ویژگی اختصاصی برای این محصول ثبت نشده است. با ویرایش محصول می‌توانید ویژگی‌های کلیدی را به پایگاه دانش بیفزایید.
+      </p>
+    {% endif %}
+  </div>
+
+  <!-- Target Customer Persona (ICP) -->
+  <div class="p-card" style="padding: 26px;">
+    <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+      <span>🎯</span>
+      <span>مخاطب هدف و پرسونای خریدار (ICP)</span>
+    </h3>
+
+    {% if product.target_customer %}
+      <div style="background: rgba(121, 40, 202, 0.05); border-right: 3px solid var(--brand-purple); padding: 16px; border-radius: 4px 12px 12px 4px;">
+        <p style="margin: 0; font-size: 0.94rem; line-height: 1.8; color: var(--panel-text-main);">
+          {{ product.target_customer }}
+        </p>
+      </div>
+    {% else %}
+      <p style="color: var(--panel-text-faint); font-size: 0.9rem; margin: 0;">
+        شرح مخاطب هدف تعریف نشده است. ایجنت هوشمند از توضیحات عمومی محصول برای شناسایی نیاز کاربران استفاده خواهد کرد.
+      </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

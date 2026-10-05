@@ -1,0 +1,373 @@
+{% load static %}
+<!doctype html>
+<html lang="fa" dir="rtl" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090a12">
+  <meta name="description" content="فضای کاری کشف هوشمند مشتری در گفتگوهای آنلاین - مشتری‌یاب">
+  <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+  <title>{% block title %}فضای کاری کشف مشتری | مشتری‌یاب{% endblock %}</title>
+
+  <!-- Persian Typography (Vazirmatn) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Immediate Theme Check to avoid flash -->
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem('moshtari-yab-theme') || 'system';
+        document.documentElement.dataset.theme = saved;
+      } catch (_) {}
+    })();
+  </script>
+
+  <!-- Global Base Styles & Seller Panel Stylesheet -->
+  <link rel="stylesheet" href="{% static 'css/site.css' %}">
+  <link rel="stylesheet" href="{% static 'css/panel.css' %}">
+</head>
+<body>
+  <div class="panel-app-container">
+
+    <!-- ======================================================================
+         Floating Stone Chassis (Master Neumorphic Console from Reference Image)
+         ====================================================================== -->
+    <div class="stone-chassis">
+
+      <!-- ====================================================================
+           Upper Stone Console Header (Brand, Pipeline Stepper Rail & Controls)
+           ==================================================================== -->
+      <header class="stone-console-header">
+        <!-- Right: Futuristic Brand Logo & Identification -->
+        <div class="console-brand-section">
+          <a href="{% url 'accounts:dashboard' %}" style="display: flex; align-items: center; gap: 12px; text-decoration: none;">
+            <div class="console-brand-logo">
+              ⚡
+            </div>
+            <div class="console-brand-meta">
+              <span class="console-brand-name">مشتـــری‌یاب</span>
+              <span class="console-brand-badge">سامانه کشف هوشمند مشتری (buildX)</span>
+            </div>
+          </a>
+        </div>
+
+        <!-- Center: Connected Pipeline Stepper Rail (Direct from Reference Image) -->
+        <div class="pipeline-stepper-wrap" aria-label="مراحل فرآیند ایجنتیک کشف مشتری">
+          <div class="pipeline-stepper-track">
+            <div class="stepper-rail-line"></div>
+            
+            <a href="{% url 'accounts:dashboard' %}#جوامع" class="stepper-node active" title="مرحله ۱: رصد مداوم پیام‌های جوامع آنلاین">
+              <span class="stepper-node-dot"></span>
+              <span>۱. رصد جوامع</span>
+            </a>
+            <a href="{% url 'accounts:dashboard' %}#فیلتر" class="stepper-node" title="مرحله ۲: فیلتر نیت و شناسایی نیاز مخاطب">
+              <span class="stepper-node-dot"></span>
+              <span>۲. فیلتر نیاز</span>
+            </a>
+            <a href="{% url 'products:list' %}" class="stepper-node" title="مرحله ۳: تطبیق هوشمند با کاتالوگ فروشنده">
+              <span class="stepper-node-dot"></span>
+              <span>۳. تطبیق کالا</span>
+            </a>
+            <a href="{% url 'accounts:dashboard' %}#کیفیت" class="stepper-node" title="مرحله ۴: محاسبه امتیاز کیفیت و هزینه دلاری/تومانی">
+              <span class="stepper-node-dot"></span>
+              <span>۴. کیفیت و هزینه</span>
+            </a>
+            <a href="{% url 'accounts:dashboard' %}#فرصت-ها" class="stepper-node" title="مرحله ۵: تولید پیش‌نویس پیام متناسب">
+              <span class="stepper-node-dot"></span>
+              <span>۵. پیش‌نویس ارتباط</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Left: System Status, Live Temperature, Theme & Profile -->
+        <div class="console-actions-section">
+          <!-- Live Agent Status Chip -->
+          <div class="console-status-chip" title="وضعیت ایجنت هوشمند">
+            <span class="console-pulse-beacon"></span>
+            <span>۲۶° ایجنت آنلاین</span>
+          </div>
+
+          <!-- 3-State Theme Switcher -->
+          <div class="theme-switch-pill" role="group" aria-label="تغییر پوسته">
+            <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن">☀️</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره">🌙</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="system" title="خودکار">خودکار</button>
+          </div>
+
+          <!-- Business Profile Pill -->
+          <a href="{% url 'accounts:dashboard' %}" class="console-profile-btn" title="پروفایل کسب‌وکار">
+            <div class="console-avatar-ring">
+              {{ user.business.name|slice:":1"|default:"ف" }}
+            </div>
+            <span>{{ user.business.name|truncatechars:14|default:"فروشنده" }}</span>
+          </a>
+
+          <!-- Logout Button -->
+          <a href="{% url 'accounts:logout' %}" class="logout-icon-btn" title="خروج از حساب">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </a>
+        </div>
+      </header>
+
+      <!-- ====================================================================
+           Stone Chassis Body (Sidebar + Main Workspace)
+           ==================================================================== -->
+      <div class="stone-chassis-body">
+
+        <!-- RTL Sidebar (Tactile Stone Navigation) -->
+        <aside class="panel-sidebar" id="panel-sidebar" aria-label="ناوبری اصلی پنل فروشنده">
+          <!-- Navigation Links -->
+          <nav class="sidebar-nav-wrap">
+        <span class="sidebar-section-label">منوی اصلی</span>
+
+        <!-- 1. خانه (Command Center) -->
+        <a href="{% url 'accounts:dashboard' %}" class="sidebar-link {% block nav_home %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+            </span>
+            <span>خانه</span>
+          </div>
+        </a>
+
+        <!-- 2. کشف مشتری (PRIMARY VISUAL EMPHASIS) -->
+        <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="sidebar-link sidebar-link-discovery {% block nav_discovery %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                <path d="M11 8v6M8 11h6"></path>
+              </svg>
+            </span>
+            <span>کشف مشتری</span>
+          </div>
+          <span class="discovery-sparkle">✦</span>
+        </a>
+
+        <!-- 3. فرصت‌ها -->
+        <a href="{% url 'accounts:dashboard' %}#فرصت-ها" class="sidebar-link {% block nav_opportunities %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="6"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+              </svg>
+            </span>
+            <span>فرصت‌ها</span>
+          </div>
+          <span class="sidebar-badge">جدید</span>
+        </a>
+
+        <!-- 4. محصولات -->
+        <a href="{% url 'products:list' %}" class="sidebar-link {% block nav_products %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+            </span>
+            <span>محصولات</span>
+          </div>
+          <span class="sidebar-badge">{{ user.business.products.count|default:"0" }}</span>
+        </a>
+
+        <span class="sidebar-section-label" style="margin-top: 10px;">شبکه و منابع</span>
+
+        <!-- 5. جوامع -->
+        <a href="{% url 'accounts:dashboard' %}#جوامع" class="sidebar-link {% block nav_communities %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+            </span>
+            <span>جوامع آنلاین</span>
+          </div>
+        </a>
+
+        <!-- 6. منابع -->
+        <a href="{% url 'accounts:dashboard' %}#منابع" class="sidebar-link {% block nav_sources %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="2"></circle>
+                <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path>
+              </svg>
+            </span>
+            <span>منابع (X، تلگرام...)</span>
+          </div>
+        </a>
+
+        <!-- 7. تنظیمات -->
+        <a href="{% url 'accounts:dashboard' %}#تنظیمات" class="sidebar-link {% block nav_settings %}{% endblock %}">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </span>
+            <span>تنظیمات</span>
+          </div>
+        </a>
+      </nav>
+
+      <!-- Sidebar Footer (Business Profile, Theme & Logout) -->
+      <div class="sidebar-footer">
+        <div class="business-profile-card">
+          <div class="biz-avatar">
+            {{ user.business.name|slice:":1"|default:"ک" }}
+          </div>
+          <div class="biz-info">
+            <span class="biz-name">{{ user.business.name|default:"کسب‌وکار من" }}</span>
+            <span class="biz-domain">{{ user.business.business_domain|default:"پروفایل فعال" }}</span>
+          </div>
+        </div>
+
+        <div class="sidebar-actions-row">
+          <!-- 3-State Theme Switcher -->
+          <div class="theme-switch-pill" role="group" aria-label="تغییر تم">
+            <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن">☀️</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره">🌙</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="system" title="پوسته خودکار">خودکار</button>
+          </div>
+
+          <!-- Logout Button -->
+          <a href="{% url 'accounts:logout' %}" class="logout-icon-btn" title="خروج از حساب کاربری">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </a>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ======================================================================
+         Main Workspace Column & Topbar
+         ====================================================================== -->
+    <div class="panel-main-area">
+      <!-- Workspace Topbar -->
+      <header class="panel-topbar">
+        <div class="topbar-left">
+          <button type="button" class="mobile-menu-trigger" id="mobile-sidebar-toggle" aria-label="باز کردن منو">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <nav class="topbar-breadcrumb" aria-label="مسیر جاری">
+            <a href="{% url 'accounts:dashboard' %}">پنل فروشنده</a>
+            <span class="sep">/</span>
+            <span class="current">{% block breadcrumb %}پیشخوان اصلی{% endblock %}</span>
+          </nav>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Active Agent Status Indicator -->
+          <div class="agent-status-pill" title="وضعیت ایجنت هوشمند">
+            <span class="agent-dot-pulse"></span>
+            <span>ایجنت: آماده کاوش</span>
+          </div>
+
+          <!-- Quick Discovery Button -->
+          <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="topbar-discovery-btn">
+            <span>+ کشف مشتری</span>
+            <span aria-hidden="true">✦</span>
+          </a>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <main class="panel-content-area">
+        {% block panel_content %}{% endblock %}
+      </main>
+    </div> <!-- /.panel-main-area -->
+
+      </div> <!-- /.stone-chassis-body -->
+    </div> <!-- /.stone-chassis -->
+
+  </div> <!-- /.panel-app-container -->
+
+  <!-- ======================================================================
+       Mobile Thumb-Friendly Bottom Navigation
+       ====================================================================== -->
+  <nav class="panel-mobile-bottom-nav" aria-label="ناوبری موبایل">
+    <a href="{% url 'accounts:dashboard' %}" class="bottom-nav-item">
+      <span>🏠</span>
+      <span>خانه</span>
+    </a>
+    <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="bottom-nav-item bottom-nav-discovery" title="شروع کشف مشتری">
+      <span style="font-size: 1.2rem;">✦</span>
+    </a>
+    <a href="{% url 'accounts:dashboard' %}#فرصت-ها" class="bottom-nav-item">
+      <span>🎯</span>
+      <span>فرصت‌ها</span>
+    </a>
+    <a href="{% url 'products:list' %}" class="bottom-nav-item">
+      <span>📦</span>
+      <span>محصولات</span>
+    </a>
+  </nav>
+
+  <!-- Panel Interactive Scripts -->
+  <script>
+    (() => {
+      // 3-State Theme Switcher
+      const root = document.documentElement;
+      const themeButtons = document.querySelectorAll('[data-theme-set]');
+      
+      const applyTheme = (theme) => {
+        root.dataset.theme = theme;
+        try { localStorage.setItem('moshtari-yab-theme', theme); } catch (_) {}
+        themeButtons.forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.themeSet === theme);
+        });
+      };
+
+      const currentTheme = root.dataset.theme || 'system';
+      themeButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.themeSet === currentTheme);
+        btn.addEventListener('click', () => applyTheme(btn.dataset.themeSet));
+      });
+
+      // Mobile Sidebar Drawer Toggle
+      const mobileToggle = document.getElementById('mobile-sidebar-toggle');
+      const sidebarClose = document.getElementById('sidebar-close-btn');
+      const sidebar = document.getElementById('panel-sidebar');
+
+      if (mobileToggle && sidebar) {
+        mobileToggle.addEventListener('click', () => {
+          sidebar.classList.add('is-open');
+          if (sidebarClose) sidebarClose.style.display = 'block';
+        });
+      }
+
+      if (sidebarClose && sidebar) {
+        sidebarClose.addEventListener('click', () => {
+          sidebar.classList.remove('is-open');
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

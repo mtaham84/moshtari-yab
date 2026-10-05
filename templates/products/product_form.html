@@ -1,0 +1,484 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}{% if is_edit %}ویرایش محصول{% else %}افزودن محصول جدید{% endif %} | مشتری‌یاب{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'products:list' %}">محصولات</a>
+  <span class="sep">/</span>
+  <span class="current">{% if is_edit %}ویرایش «{{ product.name }}»{% else %}ثبت محصول جدید{% endif %}</span>
+{% endblock %}
+{% block nav_products %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header">
+  <div class="p-header-titles">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <h1 class="p-page-title">{% if is_edit %}ویرایش مشخصات محصول{% else %}معرفی محصول یا خدمت جدید{% endif %}</h1>
+      <span class="p-badge p-badge-purple">✦ پایگاه دانش ایجنت</span>
+    </div>
+    <p class="p-page-subtitle">
+      اطلاعات و ویژگی‌های وارد شده به عنوان پایگاه دانش مستقیم ایجنت کشف مشتری برای رصد و تطبیق با خریداران بالقوه استفاده می‌شود.
+    </p>
+  </div>
+
+  <div class="p-header-actions">
+    <a href="{% url 'products:list' %}" class="p-btn p-btn-secondary">
+      <span>← بازگشت به لیست محصولات</span>
+    </a>
+  </div>
+</div>
+
+{% if messages %}
+  <div class="auth-messages" style="margin-bottom: 24px;">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div class="p-card" style="max-width: 860px; margin: 0 auto; padding: 32px;">
+  <form method="POST" id="product-form" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+
+    <!-- Product Name -->
+    <div class="form-group" style="margin-bottom: 20px;">
+      <label for="prod_name" class="form-label">
+        نام محصول یا خدمت <span class="req">*</span>
+      </label>
+      <input 
+        type="text" 
+        name="name" 
+        id="prod_name" 
+        class="form-input" 
+        placeholder="مثال: شلوار جین لی مردانه راسته یا دوره جامع آموزش پایتون" 
+        value="{{ product.name|default:'' }}" 
+        required 
+        autofocus>
+    </div>
+
+    <!-- Product Type Selection -->
+    <div class="form-group" style="margin-bottom: 20px;">
+      <label class="form-label">نوع ماهیتی <span class="req">*</span></label>
+      <div style="display: flex; gap: 16px;">
+        <label class="type-radio-label" style="flex: 1; cursor: pointer;">
+          <input type="radio" name="product_type" value="PHYSICAL" id="type_physical" {% if not product or product.product_type == 'PHYSICAL' %}checked{% endif %}>
+          <div class="type-radio-card" style="text-align: center; padding: 14px; border-radius: 14px;">
+            <strong>📦 کالایی (Physical Goods)</strong>
+            <small style="display: block; margin-top: 4px; color: var(--panel-text-muted);">پوشاک، لوازم دیجیتال، ابزار، کالا</small>
+          </div>
+        </label>
+
+        <label class="type-radio-label" style="flex: 1; cursor: pointer;">
+          <input type="radio" name="product_type" value="SERVICE" id="type_service" {% if product.product_type == 'SERVICE' %}checked{% endif %}>
+          <div class="type-radio-card" style="text-align: center; padding: 14px; border-radius: 14px;">
+            <strong>🛠 خدماتی (Services)</strong>
+            <small style="display: block; margin-top: 4px; color: var(--panel-text-muted);">آموزش، مشاوره، سئو، برنامه‌نویسی</small>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- AI Category Suggestion Box (Dynamic Agent Widget) -->
+    <div class="ai-suggestion-box" id="ai-suggestion-box" style="display: none;">
+      <div class="ai-suggestion-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="ai-sparkle">✦</span>
+          <strong style="color: var(--panel-text-main);">دسته‌بندی پیشنهادی ایجنت هوشمند</strong>
+        </div>
+        <span class="confidence-badge" id="ai-confidence">۹۶٪ دقت</span>
+      </div>
+
+      <div class="ai-suggestion-content">
+        <div class="ai-path-display" id="ai-path-display">
+          پوشاک و مد > پوشاک مردانه > شلوار مردانه > شلوار جین لی مردانه
+        </div>
+        <p class="ai-reason-text" id="ai-reason-text">
+          بر اساس کلیدواژه‌های استخراج‌شده از عنوان و شرح محصول، این شاخه به عنوان دقیق‌ترین دسته‌بندی شناخته شد.
+        </p>
+      </div>
+
+      <div class="ai-suggestion-actions">
+        <button type="button" class="ai-btn-accept" id="btn-accept-ai">
+          <span>✓ تأیید پیشنهاد ایجنت</span>
+        </button>
+        <button type="button" class="ai-btn-manual" id="btn-manual-ai">
+          <span>تغییر و انتخاب دستی از لیست</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Hierarchical Category Dropdown -->
+    <div class="form-group" style="margin-bottom: 20px;">
+      <label for="category_select" class="form-label">
+        دسته‌بندی سلسله‌مراتبی
+        <small style="color: var(--panel-text-faint); font-weight: 400;">(قابل انتخاب دستی یا تأیید با هوش مصنوعی)</small>
+      </label>
+      <select name="category_id" id="category_select" class="form-input" style="height: 48px;">
+        <option value="">-- انتخاب دسته‌بندی از درخت موضوعی --</option>
+        {% for cat in categories %}
+          <option 
+            value="{{ cat.id }}" 
+            data-type="{{ cat.product_type }}"
+            data-attrs='{{ cat.suggested_attributes|json_script|safe }}'
+            {% if product.category_id == cat.id %}selected{% endif %}>
+            {% if cat.parent %}↳ {% if cat.parent.parent %}↳ {% endif %}{% endif %}{{ cat.get_full_path }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Description -->
+    <div class="form-group" style="margin-bottom: 20px;">
+      <label for="prod_desc" class="form-label">
+        شرح ویژگی‌ها و مزایای محصول <span class="req">*</span>
+      </label>
+      <textarea 
+        name="description" 
+        id="prod_desc" 
+        class="form-input" 
+        rows="4" 
+        placeholder="توضیح دهید این محصول چه مشکلی را حل می‌کند و چه مزایایی دارد (ایجنت از این متن برای تطبیق با نیاز کاربران در شبکه‌ها استفاده می‌کند)..." 
+        required>{{ product.description|default:'' }}</textarea>
+    </div>
+
+    <!-- Dynamic Category-Specific Attributes Section -->
+    <div class="form-group" id="attributes-wrapper" style="border: 1px solid var(--panel-border); border-radius: 16px; padding: 20px; background: var(--panel-hover); margin-bottom: 20px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <label class="form-label" style="margin-bottom: 0;">
+          <span>ویژگی‌های اختصاصی دسته</span>
+          <small style="color: var(--panel-text-muted);">(پویا بر اساس دسته انتخابی)</small>
+        </label>
+        <span class="p-badge p-badge-purple">ساختاردهی JSON</span>
+      </div>
+
+      <div id="dynamic-attributes-container" class="form-row-2">
+        {% if product.attributes %}
+          {% for k, v in product.attributes.items %}
+            <div class="form-group">
+              <label class="form-label" style="font-size: 0.82rem;">{{ k }}</label>
+              <input type="text" name="attr_{{ k }}" value="{{ v }}" class="form-input" style="background: var(--panel-surface);">
+            </div>
+          {% endfor %}
+        {% else %}
+          <p style="grid-column: span 2; font-size: 0.85rem; color: var(--panel-text-faint); margin: 0;">
+            با انتخاب دسته‌بندی در بالا، فیلدهای ویژگی مرتبط (مانند سایز، جنس، رم، مدت زمان دوره و...) به صورت خودکار در این بخش ایجاد می‌شوند.
+          </p>
+        {% endif %}
+      </div>
+    <!-- Product Images (Max 10 with Main Image Selection) -->
+    <div class="form-group" style="margin-bottom: 24px; border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+        <label class="form-label" style="margin-bottom: 0; font-size: 0.95rem;">
+          <span>🖼️ تصاویر محصول</span>
+          <small style="color: var(--panel-text-muted); font-weight: normal;">(حداکثر ۱۰ تصویر؛ امکان انتخاب عکس اصلی و حذف)</small>
+        </label>
+        <span class="p-badge p-badge-purple" id="images-counter-badge">
+          {% if product %}{{ product.images_count }} از ۱۰ تصویر ثبت شده{% else %}حداکثر ۱۰ تصویر{% endif %}
+        </span>
+      </div>
+
+      {% if is_edit and product.images.exists %}
+        <!-- Existing Uploaded Images Grid -->
+        <div style="margin-bottom: 20px;">
+          <span style="font-size: 0.82rem; font-weight: 700; color: var(--panel-text-muted); display: block; margin-bottom: 10px;">
+            تصاویر فعلی در پایگاه دانش:
+          </span>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px;">
+            {% for img in product.images.all %}
+              <div style="position: relative; border-radius: 14px; overflow: hidden; background: var(--panel-surface); border: 2px solid {% if img.is_main %}var(--brand-purple){% else %}var(--panel-border){% endif %}; box-shadow: {% if img.is_main %}var(--discovery-glow){% else %}none{% endif %}; transition: all 0.2s;">
+                <img src="{{ img.image.url }}" alt="تصویر {{ product.name }}" style="width: 100%; height: 120px; object-fit: cover; display: block;">
+                
+                {% if img.is_main %}
+                  <div style="position: absolute; top: 6px; right: 6px; background: var(--brand-purple); color: #fff; font-size: 0.68rem; font-weight: 800; padding: 3px 8px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.35);">
+                    ★ تصویر اصلی
+                  </div>
+                {% endif %}
+
+                <div style="padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--panel-surface-elevated);">
+                  {% if not img.is_main %}
+                    <button type="submit" form="set-main-form-{{ img.id }}" class="p-btn p-btn-secondary p-btn-sm" style="width: 100%; font-size: 0.72rem; padding: 5px 6px;">
+                      تعیین به عنوان اصلی
+                    </button>
+                  {% else %}
+                    <span style="text-align: center; font-size: 0.72rem; color: var(--brand-purple); font-weight: 750; padding: 5px 0;">
+                      ✓ عکس شاخص کاتالوگ
+                    </span>
+                  {% endif %}
+
+                  <button type="submit" form="delete-img-form-{{ img.id }}" class="p-btn p-btn-ghost p-btn-sm" style="width: 100%; font-size: 0.72rem; padding: 5px 6px; color: var(--p-danger);" onclick="return confirm('آیا از حذف این تصویر اطمینان دارید؟');">
+                    🗑️ حذف تصویر
+                  </button>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- New Image Files Input (Up to remaining slots) -->
+      {% if not product or product.remaining_image_slots > 0 %}
+        <div>
+          <label for="product_images" class="form-label" style="font-size: 0.85rem;">
+            {% if is_edit %}بارگذاری تصاویر جدید (امکان افزودن تا {{ product.remaining_image_slots }} عکس دیگر):{% else %}انتخاب تصاویر محصول برای بارگذاری:{% endif %}
+          </label>
+          <input 
+            type="file" 
+            name="images" 
+            id="product_images" 
+            class="form-input" 
+            multiple 
+            accept="image/png, image/jpeg, image/webp, image/avif" 
+            style="padding: 10px; background: var(--panel-surface);">
+          <small style="color: var(--panel-text-faint); display: block; margin-top: 6px; font-size: 0.78rem;">
+            فرمت‌های مجاز: JPG, PNG, WEBP. حجم مجاز هر عکس حداکثر ۵ مگابایت. اولین عکس آپلود شده به صورت خودکار عکس اصلی کالا خواهد بود.
+          </small>
+
+          <!-- Client-side Selected Images Live Preview Strip -->
+          <div id="new-images-preview-grid" style="display: none; margin-top: 14px; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px;">
+          </div>
+          <input type="hidden" name="selected_main_index" id="selected_main_index" value="0">
+        </div>
+      {% else %}
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px; font-size: 0.84rem; color: var(--p-success); text-align: center;">
+          ✓ حداکثر ظرفیت گالری این محصول (۱۰ تصویر) تکمیل شده است. برای افزودن تصویر جدید، ابتدا یکی از تصاویر بالا را حذف کنید.
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Price & URL Row -->
+    <div class="form-row-2" style="margin-bottom: 20px;">
+      <div class="form-group">
+        <label for="prod_price" class="form-label">قیمت تقریبی (تومان)</label>
+        <input 
+          type="text" 
+          name="price" 
+          id="prod_price" 
+          class="form-input" 
+          placeholder="مثال: ۳۴۰۰۰۰۰ (اختیاری)" 
+          value="{{ product.price|default:'' }}" 
+          dir="ltr">
+      </div>
+
+      <div class="form-group">
+        <label for="prod_url" class="form-label">لینک صفحه محصول یا وب‌سایت</label>
+        <input 
+          type="url" 
+          name="url" 
+          id="prod_url" 
+          class="form-input" 
+          placeholder="https://yoursite.com/item" 
+          value="{{ product.url|default:'' }}" 
+          dir="ltr">
+      </div>
+    </div>
+
+    <!-- Target Customer (ICP) -->
+    <div class="form-group" style="margin-bottom: 20px;">
+      <label for="target_customer" class="form-label">خریداران ایده‌آل (ICP)</label>
+      <textarea 
+        name="target_customer" 
+        id="target_customer" 
+        class="form-input" 
+        rows="2" 
+        placeholder="چه کسانی بیشترین تمایل یا نیاز را به این محصول دارند؟ (مثلاً: دانشجویان ترم آخر کامپیوتر یا جوانان ۲۰ تا ۳۰ سال...)">{{ product.target_customer|default:'' }}</textarea>
+    </div>
+
+    <!-- Status -->
+    <div class="form-group" style="margin-bottom: 24px;">
+      <label class="form-label">وضعیت در موتور کاوش</label>
+      <select name="status" class="form-input" style="height: 44px; max-width: 250px;">
+        <option value="ACTIVE" {% if not product or product.status == 'ACTIVE' %}selected{% endif %}>فعال برای کشف مشتری</option>
+        <option value="INACTIVE" {% if product.status == 'INACTIVE' %}selected{% endif %}>غیرفعال</option>
+      </select>
+    </div>
+
+    <!-- Submit Button -->
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button type="submit" class="p-btn p-btn-primary" style="padding: 12px 28px; font-size: 0.95rem;">
+        <span>{% if is_edit %}ذخیره تغییرات محصول{% else %}ثبت و ذخیره در پایگاه دانش ایجنت{% endif %}</span>
+        <span aria-hidden="true">✦</span>
+      </button>
+
+      <a href="{% url 'products:list' %}" class="p-btn p-btn-secondary">
+        انصراف
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- Standalone Action Forms for Existing Images -->
+{% if is_edit and product.images.exists %}
+  {% for img in product.images.all %}
+    <form id="set-main-form-{{ img.id }}" method="POST" action="{% url 'products:set_main_image' product.pk img.pk %}" style="display: none;">
+      {% csrf_token %}
+    </form>
+    <form id="delete-img-form-{{ img.id }}" method="POST" action="{% url 'products:delete_image' product.pk img.pk %}" style="display: none;">
+      {% csrf_token %}
+    </form>
+  {% endfor %}
+{% endif %}
+
+<!-- Interactive Client-side Script for AI Suggestion & Dynamic Attributes -->
+<script>
+(() => {
+  const nameInput = document.getElementById('prod_name');
+  const descInput = document.getElementById('prod_desc');
+  const categorySelect = document.getElementById('category_select');
+  const suggestionBox = document.getElementById('ai-suggestion-box');
+  const aiPath = document.getElementById('ai-path-display');
+  const aiReason = document.getElementById('ai-reason-text');
+  const aiConfidence = document.getElementById('ai-confidence');
+  const btnAcceptAi = document.getElementById('btn-accept-ai');
+  const btnManualAi = document.getElementById('btn-manual-ai');
+  const dynamicContainer = document.getElementById('dynamic-attributes-container');
+
+  let currentSuggestedCatId = null;
+  let debounceTimer = null;
+
+  // Real-time AI Category Suggestion
+  function fetchCategorySuggestion() {
+    const name = nameInput?.value.trim() || '';
+    const desc = descInput?.value.trim() || '';
+    if (name.length < 3) {
+      if (suggestionBox) suggestionBox.style.display = 'none';
+      return;
+    }
+
+    const typeRadio = document.querySelector('input[name="product_type"]:checked');
+    const prodType = typeRadio ? typeRadio.value : '';
+
+    fetch(`/products/api/suggest-category/?name=${encodeURIComponent(name)}&description=${encodeURIComponent(desc)}&product_type=${prodType}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success' && data.suggestion) {
+          const s = data.suggestion;
+          currentSuggestedCatId = s.category_id;
+          if (aiPath) aiPath.textContent = s.full_path;
+          if (aiReason) aiReason.textContent = s.reason;
+          if (aiConfidence) aiConfidence.textContent = `${s.confidence}٪ دقت ایجنت`;
+          if (suggestionBox) suggestionBox.style.display = 'block';
+        }
+      })
+      .catch(err => console.log('Suggestion error:', err));
+  }
+
+  nameInput?.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(fetchCategorySuggestion, 500);
+  });
+
+  descInput?.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(fetchCategorySuggestion, 700);
+  });
+
+  // Accept AI suggestion
+  btnAcceptAi?.addEventListener('click', () => {
+    if (currentSuggestedCatId && categorySelect) {
+      categorySelect.value = String(currentSuggestedCatId);
+      loadAttributesForCategory(currentSuggestedCatId);
+      suggestionBox.style.display = 'none';
+      categorySelect.style.borderColor = 'var(--brand-purple)';
+      setTimeout(() => { categorySelect.style.borderColor = ''; }, 1500);
+    }
+  });
+
+  btnManualAi?.addEventListener('click', () => {
+    if (suggestionBox) suggestionBox.style.display = 'none';
+    if (categorySelect) categorySelect.focus();
+  });
+
+  // Dynamic category attributes loader
+  function loadAttributesForCategory(catId) {
+    if (!catId) return;
+    fetch(`/products/api/category-attributes/${catId}/`)
+      .then(res => res.json())
+      .then(data => {
+        const attrs = data.attributes || [];
+        if (attrs.length === 0) {
+          dynamicContainer.innerHTML = '<p style="grid-column: span 2; font-size: 0.85rem; color: var(--panel-text-faint); margin: 0;">این دسته‌بندی ویژگی اختصاصی پیش‌فرضی ندارد. می‌توانید در شرح محصول خصوصیات را ذکر کنید.</p>';
+          return;
+        }
+
+        let html = '';
+        attrs.forEach(a => {
+          html += `
+            <div class="form-group">
+              <label class="form-label" style="font-size: 0.82rem;">${a.label || a.key}</label>
+              <input type="text" name="attr_${a.key}" placeholder="${a.placeholder || ''}" class="form-input" style="background: var(--panel-surface);">
+            </div>
+          `;
+        });
+        dynamicContainer.innerHTML = html;
+      });
+  }
+
+  categorySelect?.addEventListener('change', () => {
+    loadAttributesForCategory(categorySelect.value);
+  });
+
+  // Multi-image client preview & main photo selector
+  const imagesInput = document.getElementById('product_images');
+  const previewGrid = document.getElementById('new-images-preview-grid');
+  const selectedMainIndexInput = document.getElementById('selected_main_index');
+  const maxAllowedSlots = {{ product.remaining_image_slots|default:10 }};
+
+  if (imagesInput && previewGrid) {
+    imagesInput.addEventListener('change', () => {
+      previewGrid.innerHTML = '';
+      const files = Array.from(imagesInput.files);
+      if (files.length === 0) {
+        previewGrid.style.display = 'none';
+        return;
+      }
+
+      if (files.length > maxAllowedSlots) {
+        alert(`حداکثر می‌توانید ${maxAllowedSlots} تصویر انتخاب فرمایید.`);
+        imagesInput.value = '';
+        previewGrid.style.display = 'none';
+        return;
+      }
+
+      previewGrid.style.display = 'grid';
+      files.forEach((file, index) => {
+        if (!file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const item = document.createElement('div');
+          item.style = 'position: relative; border-radius: 12px; overflow: hidden; border: 2px solid ' + (index === 0 ? 'var(--brand-purple)' : 'var(--panel-border)') + '; background: var(--panel-surface); text-align: center; cursor: pointer; transition: all 0.2s;';
+          item.innerHTML = `
+            <img src="${e.target.result}" style="width: 100%; height: 95px; object-fit: cover; display: block;">
+            <div style="padding: 5px; font-size: 0.72rem; color: var(--panel-text-muted); background: var(--panel-surface-elevated);">
+              <span class="preview-badge" style="font-weight: 700; color: ${index === 0 ? 'var(--brand-purple)' : 'inherit'};">
+                ${index === 0 ? '★ عکس اصلی انتخابی' : 'انتخاب به عنوان اصلی'}
+              </span>
+            </div>
+          `;
+          item.addEventListener('click', () => {
+            if (selectedMainIndexInput) selectedMainIndexInput.value = index;
+            previewGrid.querySelectorAll('div').forEach((d, i) => {
+              const badge = d.querySelector('.preview-badge');
+              if (i === index) {
+                d.style.borderColor = 'var(--brand-purple)';
+                if (badge) {
+                  badge.textContent = '★ عکس اصلی انتخابی';
+                  badge.style.color = 'var(--brand-purple)';
+                }
+              } else {
+                d.style.borderColor = 'var(--panel-border)';
+                if (badge) {
+                  badge.textContent = 'انتخاب به عنوان اصلی';
+                  badge.style.color = 'inherit';
+                }
+              }
+            });
+          });
+          previewGrid.appendChild(item);
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}

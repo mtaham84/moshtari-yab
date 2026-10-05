@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}ثبت‌نام و معرفی کسب‌وکار | مشتری‌یاب{% endblock %}
+
+{% block body %}
+<div class="auth-page-wrapper">
+  <div class="hero-stars" aria-hidden="true"></div>
+
+  <!-- Header Brand -->
+  <header class="auth-header">
+    <a class="brand" href="{% url 'core:landing' %}" aria-label="بازگشت به صفحه اصلی">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          <path d="M11 8v6M8 11h6"></path>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">مشتری‌یاب</span>
+        <span class="brand-tagline">ایجنت هوشمند کشف مشتری</span>
+      </div>
+    </a>
+  </header>
+
+  <!-- Auth Card -->
+  <main class="auth-main-container">
+    <div class="auth-card">
+      <div class="auth-card-kicker">
+        <span>✦</span>
+        <span>شروع رایگان و سریع</span>
+      </div>
+
+      <h1 class="auth-title">ثبت‌نام و معرفی کسب‌وکار</h1>
+      <p class="auth-subtitle">
+        اطلاعات کسب‌وکار و ایمیل خود را وارد کنید تا کد احراز هویت اختصاصی برای شما ارسال شود.
+      </p>
+
+      {% if messages %}
+        <div class="auth-messages">
+          {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <form method="POST" action="{% url 'accounts:signup' %}" class="auth-form" novalidate>
+        {% csrf_token %}
+
+        <!-- Name Row (2 columns) -->
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="first_name" class="form-label">نام <span class="req">*</span></label>
+            <input 
+              type="text" 
+              name="first_name" 
+              id="first_name" 
+              class="form-input" 
+              placeholder="مثال: علی" 
+              value="{{ first_name|default:'' }}" 
+              required>
+          </div>
+
+          <div class="form-group">
+            <label for="last_name" class="form-label">نام خانوادگی <span class="req">*</span></label>
+            <input 
+              type="text" 
+              name="last_name" 
+              id="last_name" 
+              class="form-input" 
+              placeholder="مثال: رضایی" 
+              value="{{ last_name|default:'' }}" 
+              required>
+          </div>
+        </div>
+
+        <!-- Email -->
+        <div class="form-group">
+          <label for="email" class="form-label">آدرس ایمیل <span class="req">*</span></label>
+          <div class="input-with-icon">
+            <input 
+              type="email" 
+              name="email" 
+              id="email" 
+              class="form-input" 
+              placeholder="name@example.com" 
+              value="{{ email|default:'' }}" 
+              dir="ltr" 
+              required>
+            <span class="input-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
+              </svg>
+            </span>
+          </div>
+          <span class="form-hint">کد تأیید ۶ رقمی به این آدرس ارسال خواهد شد.</span>
+        </div>
+
+        <!-- Password (Optional for direct future logins) -->
+        <div class="form-group">
+          <label for="password" class="form-label">کلمه عبور اختصاصی (برای ورود مستقیم با رمز)</label>
+          <div class="input-with-icon">
+            <input 
+              type="password" 
+              name="password" 
+              id="password" 
+              class="form-input" 
+              placeholder="حداقل ۶ کاراکتر (اختیاری)" 
+              dir="ltr">
+            <span class="input-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- Business Name -->
+        <div class="form-group">
+          <label for="business_name" class="form-label">نام کسب‌وکار یا فروشگاه <span class="req">*</span></label>
+          <input 
+            type="text" 
+            name="business_name" 
+            id="business_name" 
+            class="form-input" 
+            placeholder="مثال: آکادمی تخصصی پایتون یا بوتیک شیک‌پوش" 
+            value="{{ business_name|default:'' }}" 
+            required>
+        </div>
+
+        <!-- Business Type -->
+        <div class="form-group">
+          <label class="form-label">نوع کسب‌وکار <span class="req">*</span></label>
+          <div class="business-type-grid">
+            <label class="type-radio-label">
+              <input type="radio" name="business_type" value="PHYSICAL" {% if not business_type or business_type == 'PHYSICAL' %}checked{% endif %}>
+              <span class="type-radio-card">
+                <strong>کالایی / فروشگاهی</strong>
+                <small>محصولات فیزیکی، پوشاک، دیجیتال، لوازم و...</small>
+              </span>
+            </label>
+
+            <label class="type-radio-label">
+              <input type="radio" name="business_type" value="SERVICE" {% if business_type == 'SERVICE' %}checked{% endif %}>
+              <span class="type-radio-card">
+                <strong>خدماتی</strong>
+                <small>آموزش، مشاوره، برنامه‌نویسی، طراحی و...</small>
+              </span>
+            </label>
+
+            <label class="type-radio-label">
+              <input type="radio" name="business_type" value="ONLINE" {% if business_type == 'ONLINE' %}checked{% endif %}>
+              <span class="type-radio-card">
+                <strong>آنلاین / محتوایی</strong>
+                <small>فروشگاه اینترنتی، اشتراک آنلاین و ابزارها</small>
+              </span>
+            </label>
+
+            <label class="type-radio-label">
+              <input type="radio" name="business_type" value="HYBRID" {% if business_type == 'HYBRID' %}checked{% endif %}>
+              <span class="type-radio-card">
+                <strong>ترکیبی</strong>
+                <small>ارائه توأمان کالا و خدمات وابسته</small>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Business Domain / Field -->
+        <div class="form-group">
+          <label for="business_domain" class="form-label">حوزه تخصصی فعالیت <span class="req">*</span></label>
+          <input 
+            type="text" 
+            name="business_domain" 
+            id="business_domain" 
+            class="form-input" 
+            placeholder="مثلاً: پوشاک مردانه، آموزش هوش مصنوعی، تجهیزات عکاسی" 
+            value="{{ business_domain|default:'' }}" 
+            required>
+          <div class="domain-quick-chips">
+            <span class="domain-chip" onclick="setDomain('پوشاک و مد')">پوشاک و مد</span>
+            <span class="domain-chip" onclick="setDomain('آموزش و برنامه‌نویسی')">آموزش و برنامه‌نویسی</span>
+            <span class="domain-chip" onclick="setDomain('کالای دیجیتال و موبایل')">کالای دیجیتال</span>
+            <span class="domain-chip" onclick="setDomain('خدمات طراحی و وب')">طراحی و سئو</span>
+            <span class="domain-chip" onclick="setDomain('زیبایی و سلامت')">زیبایی و سلامت</span>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" class="auth-submit-btn">
+          <span>ارسال کد تأیید هویت</span>
+          <span aria-hidden="true">←</span>
+        </button>
+      </form>
+
+      <div class="auth-card-footer">
+        <span>قبلاً ثبت‌نام کرده‌اید؟</span>
+        <a href="{% url 'accounts:login' %}" class="auth-link">ورود به حساب</a>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  function setDomain(val) {
+    const input = document.getElementById('business_domain');
+    if (input) {
+      input.value = val;
+      input.focus();
+    }
+  }
+</script>
+{% endblock %}
