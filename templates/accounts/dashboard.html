@@ -213,7 +213,7 @@
           <div>
             <div style="display: flex; align-items: center; gap: 6px;">
               <strong style="font-size: 0.9rem; color: var(--panel-text-main);">سارا امیری</strong>
-              <span style="font-size: 0.74rem; color: var(--stone-text-muted);">(@sara_dev)</span>
+              <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>@sara_dev</bdi></span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
               <span class="platform-icon-pill platform-x">
@@ -252,7 +252,7 @@
           <div>
             <div style="display: flex; align-items: center; gap: 6px;">
               <strong style="font-size: 0.9rem; color: var(--panel-text-main);">علی رضایی</strong>
-              <span style="font-size: 0.74rem; color: var(--stone-text-muted);">(@ali_code)</span>
+              <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>@ali_code</bdi></span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
               <span class="platform-icon-pill platform-telegram">
@@ -288,7 +288,7 @@
           <div>
             <div style="display: flex; align-items: center; gap: 6px;">
               <strong style="font-size: 0.9rem; color: var(--panel-text-main);">محسن کریمی</strong>
-              <span style="font-size: 0.74rem; color: var(--stone-text-muted);">(@mohsen_biz)</span>
+              <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>@mohsen_biz</bdi></span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
               <span class="platform-icon-pill platform-instagram">
@@ -324,9 +324,10 @@
     <!-- Inspector Header -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle);">
       <div>
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
-          <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);" id="insp-name">
-            سارا امیری (@sara_dev)
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+          <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main); display: flex; align-items: center; gap: 6px;">
+            <span id="insp-name">سارا امیری</span>
+            <span id="insp-handle" dir="ltr" style="font-size: 0.8rem; color: var(--stone-text-muted); font-weight: 600; font-family: monospace;"><bdi>@sara_dev</bdi></span>
           </h3>
           <span class="p-badge p-badge-purple" id="insp-network">توییتر / X</span>
         </div>
@@ -345,14 +346,14 @@
 
     <!-- Multi-Dimensional Score Breakdown -->
     <div style="margin-bottom: 22px;">
-      <span style="font-size: 0.76rem; font-weight: 800; color: var(--stone-text-faint); text-transform: uppercase; display: block; margin-bottom: 10px;">
-        تفکیک ابعاد شایستگی و انطباق (Opportunity Factors):
+      <span style="font-size: 0.76rem; font-weight: 800; color: var(--stone-text-faint); display: block; margin-bottom: 10px;">
+        تفکیک ابعاد شایستگی و انطباق ایجنت:
       </span>
 
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>نیاز مخاطب (Need)</span>
+            <span>نیاز و درد مخاطب</span>
             <strong id="factor-need">۹۶٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 96%;" id="bar-need"></div></div>
@@ -360,7 +361,7 @@
 
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>نیت خرید (Intent)</span>
+            <span>نیت خرید صریح</span>
             <strong id="factor-intent">۹۱٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 91%;" id="bar-intent"></div></div>
@@ -368,7 +369,7 @@
 
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>تطابق با کالا (Fit)</span>
+            <span>تطابق با کالا</span>
             <strong id="factor-fit">۹۵٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 95%;" id="bar-fit"></div></div>
@@ -376,7 +377,7 @@
 
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>فوریت نیاز (Urgency)</span>
+            <span>فوریت نیاز</span>
             <strong id="factor-urgency">۸۹٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 89%;" id="bar-urgency"></div></div>
@@ -384,7 +385,7 @@
 
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>تطابق با پرسونای تارگت</span>
+            <span>انطباق با پرسونای هدف</span>
             <strong id="factor-target">۹۷٪</strong>
           </div>
           <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 97%;" id="bar-target"></div></div>
@@ -404,7 +405,7 @@
     <div style="margin-bottom: 20px;">
       <span style="font-size: 0.8rem; font-weight: 850; color: var(--panel-text-main); display: flex; align-items: center; gap: 7px; margin-bottom: 8px;">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-        <span>شواهد و دلایل انتخاب ایجنت (Why Contact):</span>
+        <span>شواهد و دلایل انتخاب ایجنت:</span>
       </span>
       <div style="padding: 12px 16px; border-radius: 14px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset); font-size: 0.82rem; color: var(--panel-text-main); line-height: 1.65;" id="insp-evidence">
         «این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»
@@ -416,7 +417,7 @@
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
         <span style="font-size: 0.76rem; color: var(--obsidian-cyan); font-weight: 800; display: inline-flex; align-items: center; gap: 6px;">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          <span>محصول منتخب کاتالوگ شما (Best Match):</span>
+          <span>محصول منتخب کاتالوگ شما:</span>
         </span>
         <span class="p-badge p-badge-success" id="insp-match-percent">۹۴٪ تطابق</span>
       </div>
@@ -437,8 +438,8 @@
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
           <span>پیش‌نویس پیام هوشمند متناسب با لحن گفتگو:</span>
         </span>
-        <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="insp-channel-tag">
-          بهترین کانال: <strong>دایرکت توییتر / اینستاگرام</strong> (اطمینان ۸۶٪)
+        <span style="font-size: 0.74rem; color: var(--stone-text-muted);" id="insp-channel-tag">
+          کانال پیشنهادی: <strong style="color: var(--panel-text-main);">دایرکت توییتر / اینستاگرام</strong> (اطمینان ۸۶٪)
         </span>
       </div>
 
@@ -471,7 +472,8 @@
     // Lead Database for Instant Filtering & Inspection
     const leadsData = {
       "1": {
-        name: "سارا امیری (@sara_dev)",
+        name: "سارا امیری",
+        handle: "@sara_dev",
         network: "توییتر / X",
         meta: "موقعیت: تهران • صنعت: توسعه نرم‌افزار • سبک گفتگو: خودمانی (Casual)",
         score: "۹۴",
@@ -486,11 +488,12 @@
         prodReason: "دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی",
         prodPrice: "۲,۴۰۰,۰۰۰ تومان",
         matchPercent: "۹۴٪ تطابق",
-        channel: "بهترین کانال: دایرکت توییتر / اینستاگرام (اطمینان ۸۶٪)",
+        channel: "کانال پیشنهادی: <strong style="color: var(--panel-text-main);">دایرکت توییتر / اینستاگرام</strong> (اطمینان ۸۶٪)",
         outreach: "«سلام سارا جان، دیدم درباره کار مداوم با سیستم و سوزش چشم پرسیده بودی. ما دقیقا یک مدل فریم سبک TR90 با عدسی فیلتر نور آبی داریم که برای کار مداوم جلوی مانیتور طراحی شده و فکر می‌کنم دقیقاً همون چیزیه که دنبالش بودی. اگه مایل باشی برات اطلاعات بیشتر و نظرات خریداران رو بفرستم؟»"
       },
       "2": {
-        name: "علی رضایی (@ali_code)",
+        name: "علی رضایی",
+        handle: "@ali_code",
         network: "تلگرام",
         meta: "موقعیت: شیراز • صنف: متقاضی آموزش IT • سبک گفتگو: مستقیم و محترمانه",
         score: "۹۱",
@@ -505,11 +508,12 @@
         prodReason: "دلیل پیشنهاد: همپوشانی ۱۰۰٪ سرفصل‌ها با نیاز بازار کار و پشتیبانی مربی",
         prodPrice: "۱,۸۰۰,۰۰۰ تومان",
         matchPercent: "۹۲٪ تطابق",
-        channel: "بهترین کانال: پیام مستقیم تلگرام (@ali_code)",
+        channel: "کانال پیشنهادی: <strong style="color: var(--panel-text-main);">پیام مستقیم تلگرام (@ali_code)</strong>",
         outreach: "«سلام علی عزیز، دیدم دنبال دوره پروژه‌محور جنگو با رفع اشکال مستقیم بودی. دوره جدید ما دقیقاً سرفصل‌های ورود به بازار کار رو پوشش میده. سرفصل‌ها و دموی جلسه اول رو برات ارسال کنم؟»"
       },
       "3": {
-        name: "محسن کریمی (@mohsen_biz)",
+        name: "محسن کریمی",
+        handle: "@mohsen_biz",
         network: "اینستاگرام",
         meta: "موقعیت: مشهد • صنف: فروشگاه آنلاین و خرده‌فروشی • سبک گفتگو: حرفه‌ای (Professional)",
         score: "۸۸",
@@ -524,7 +528,7 @@
         prodReason: "دلیل پیشنهاد: منطبق بر مدل کسب‌وکار آنلاین و هدف افزایش فروش ارگانیک",
         prodPrice: "توافقی",
         matchPercent: "۸۹٪ تطابق",
-        channel: "بهترین کانال: دایرکت رسمی اینستاگرام",
+        channel: "کانال پیشنهادی: <strong style="color: var(--panel-text-main);">دایرکت رسمی اینستاگرام</strong>",
         outreach: "«درود جناب کریمی عزیز، با توجه به دغدغه شما در خصوص جذب خریداران واقعی در سوشال مدیا، سیستم مشتری‌یاب دقیقاً با پایش گفتگوهای مرتبط، لیدهای باکیفیت را شناسایی می‌کند. خوشحال می‌شویم یک دموی آزمایشی تقدیم حضورتان کنیم.»"
       }
     };
@@ -532,6 +536,7 @@
     // Selecting Leads
     const leadCards = document.querySelectorAll(".lead-item-card");
     const inspName = document.getElementById("insp-name");
+    const inspHandle = document.getElementById("insp-handle");
     const inspNetwork = document.getElementById("insp-network");
     const inspMeta = document.getElementById("insp-meta");
     const inspTotalScore = document.getElementById("insp-total-score");
@@ -565,6 +570,7 @@
         const d = leadsData[id];
         if (d) {
           inspName.textContent = d.name;
+          if (inspHandle) inspHandle.textContent = d.handle;
           inspNetwork.textContent = d.network;
           inspMeta.textContent = d.meta;
           inspTotalScore.innerHTML = `${d.score} <span style="font-size: 0.85rem; color: var(--stone-text-muted);">/ ۱۰۰</span>`;

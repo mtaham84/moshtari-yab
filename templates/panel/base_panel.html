@@ -236,31 +236,31 @@
 
       <!-- Sidebar Footer (Business Profile, Theme & Logout) -->
       <div class="sidebar-footer">
-        <div class="business-profile-card">
+        <div class="business-profile-card" title="{{ user.business.name|default:'کسب‌وکار من' }} - {{ user.business.business_domain|default:'پروفایل فروشگاه' }}">
           <div class="biz-avatar">
             {{ user.business.name|slice:":1"|default:"ک" }}
           </div>
           <div class="biz-info">
             <span class="biz-name">{{ user.business.name|default:"کسب‌وکار من" }}</span>
-            <span class="biz-domain">{{ user.business.business_domain|default:"پروفایل فعال" }}</span>
+            <span class="biz-domain">{{ user.business.business_domain|default:"فروشنده فعال" }}</span>
           </div>
         </div>
 
         <div class="sidebar-actions-row">
           <!-- 3-State Theme Switcher -->
-          <div class="theme-switch-pill" role="group" aria-label="تغییر تم">
+          <div class="theme-switch-pill" role="group" aria-label="انتخاب پوسته">
             <button type="button" class="theme-opt-btn" data-theme-set="light" title="پوسته روشن" aria-label="روشن">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
             </button>
             <button type="button" class="theme-opt-btn" data-theme-set="dark" title="پوسته تیره" aria-label="تیره">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
             </button>
-            <button type="button" class="theme-opt-btn" data-theme-set="system" title="پوسته خودکار">خودکار</button>
+            <button type="button" class="theme-opt-btn" data-theme-set="system" title="پوسته خودکار سیستم">خودکار</button>
           </div>
 
           <!-- Logout Button -->
-          <a href="{% url 'accounts:logout' %}" class="logout-icon-btn" title="خروج از حساب کاربری">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <a href="{% url 'accounts:logout' %}" class="logout-icon-btn" title="خروج از حساب کاربری" aria-label="خروج از حساب">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
               <polyline points="16 17 21 12 16 7"></polyline>
               <line x1="21" y1="12" x2="9" y2="12"></line>
