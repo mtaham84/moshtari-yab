@@ -13,4 +13,6 @@ urlpatterns = [
     path("<int:pk>/images/<int:image_pk>/delete/", views.delete_image_view, name="delete_image"),
     path("api/suggest-category/", views.api_suggest_category, name="api_suggest_category"),
     path("api/category-attributes/<int:category_id>/", views.api_category_attributes, name="api_category_attributes"),
+    path("categories/api/add/", views.api_create_category, name="api_create_category"),
+    path("categories/api/tree/", views.api_category_tree, name="api_category_tree"),
 ]

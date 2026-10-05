@@ -1,4 +1,6 @@
+import uuid
 from django.db import models
+from django.utils.text import slugify
 from apps.businesses.models import Business
 
 class Category(models.Model):
@@ -7,8 +9,16 @@ class Category(models.Model):
         ("SERVICE", "خدماتی"),
     ]
 
+    business = models.ForeignKey(
+        Business,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="custom_categories",
+        verbose_name="کسب‌وکار صاحب دسته"
+    )
     name = models.CharField(max_length=150, verbose_name="نام دسته")
-    slug = models.SlugField(max_length=160, unique=True, allow_unicode=True, verbose_name="شناسه یکتا (اسلاگ)")
+    slug = models.SlugField(max_length=160, blank=True, allow_unicode=True, verbose_name="شناسه یکتا (اسلاگ)")
     parent = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -37,6 +47,13 @@ class Category(models.Model):
         verbose_name = "دسته‌بندی"
         verbose_name_plural = "دسته‌بندی‌ها"
         ordering = ["product_type", "name"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.name, allow_unicode=True) or "cat"
+            unique_suffix = uuid.uuid4().hex[:6]
+            self.slug = f"{base_slug}-{unique_suffix}"
+        super().save(*args, **kwargs)
 
     def get_ancestors(self):
         """Returns ancestor categories from root down to parent."""
@@ -111,6 +128,24 @@ class Product(models.Model):
         choices=STATUS_CHOICES,
         default="ACTIVE",
         verbose_name="وضعیت"
+    )
+    is_discovery_active = models.BooleanField(
+        default=True,
+        verbose_name="فعال در پایش روزانه هوش مصنوعی",
+        help_text="آیا این کالا در سهمیه جستجوی مشتری بالقوه قرار گیرد؟"
+    )
+    discovery_priority = models.PositiveSmallIntegerField(
+        default=1,
+        verbose_name="اولویت جستجو",
+        help_text="اولویت پایش از ۱ (عادی) تا ۵ (فوری)"
+    )
+    telegram_outreach_enabled = models.BooleanField(
+        default=True,
+        verbose_name="ارتباط از طریق تلگرام"
+    )
+    x_outreach_enabled = models.BooleanField(
+        default=True,
+        verbose_name="ارتباط از طریق X (توییتر)"
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاریخ ایجاد")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")

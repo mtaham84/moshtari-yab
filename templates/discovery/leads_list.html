@@ -1,0 +1,450 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}پایش و کشف مشتریان بالقوه | مشتری‌یاب{% endblock %}
+{% block breadcrumb %}پایش و کشف هوشمند{% endblock %}
+{% block nav_discovery %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header">
+  <div class="p-header-titles">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <h1 class="p-page-title">کشف مشتریان بالقوه در تلگرام و X</h1>
+      <span class="p-badge p-badge-purple">موتور هوش مصنوعی فروش</span>
+    </div>
+    <p class="p-page-subtitle">
+      ایجنت فروش بر اساس درخت‌واره کاتالوگ شما، گفتگوهای عمومی شبکه‌های اجتماعی را تحلیل کرده و مخاطبان با احتمال خرید بالای ۳۰٪ را ثبت می‌کند.
+    </p>
+  </div>
+
+  <div class="p-header-actions">
+    <button type="button" class="p-btn p-btn-secondary" id="btn-toggle-config">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      <span>تنظیمات حساب‌ها و سهمیه</span>
+    </button>
+    <form method="POST" action="{% url 'discovery:trigger_scan' %}" style="margin: 0;">
+      {% csrf_token %}
+      <button type="submit" class="p-btn p-btn-primary">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span>اجرای پایش هوشمند زنده</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+{% if messages %}
+  <div class="auth-messages" style="margin-bottom: 24px;">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<!-- Connected Accounts & Quota Config Drawer -->
+<div id="accounts-config-drawer" class="p-card" style="display: none; padding: 22px; margin-bottom: 24px; border: 1.5px solid rgba(168,85,247,0.3); background: var(--stone-surface);">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 10px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--brand-purple);"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7.5" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+      <strong style="font-size: 0.95rem; color: var(--panel-text-main);">اتصال حساب‌های شخصی فروشنده و سقف پایش</strong>
+    </div>
+    <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پیام‌ها با هویت این حساب‌ها برای مشتریان ارسال می‌شوند</span>
+  </div>
+
+  <form method="POST" action="{% url 'accounts:dashboard' %}">
+    {% csrf_token %}
+    <input type="hidden" name="update_social_config" value="1">
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px;">
+      <div>
+        <label class="form-label" style="font-size: 0.78rem;">شناسه تلگرام فروشنده</label>
+        <input type="text" name="telegram_account_handle" class="form-input" placeholder="@my_telegram" value="{{ business.telegram_account_handle|default:'' }}" dir="ltr" style="font-size: 0.82rem;">
+      </div>
+      <div>
+        <label class="form-label" style="font-size: 0.78rem;">شناسه توییتر / X فروشنده</label>
+        <input type="text" name="x_account_handle" class="form-input" placeholder="@my_x_handle" value="{{ business.x_account_handle|default:'' }}" dir="ltr" style="font-size: 0.82rem;">
+      </div>
+      <div>
+        <label class="form-label" style="font-size: 0.78rem;">نحوه پیش‌فرض ارتباط</label>
+        <select name="preferred_outreach_mode" class="form-input" style="height: 42px; font-size: 0.82rem;">
+          <option value="DIRECT" {% if business.preferred_outreach_mode == 'DIRECT' %}selected{% endif %}>دایرکت خصوصی (پیشنهادی)</option>
+          <option value="COMMENT" {% if business.preferred_outreach_mode == 'COMMENT' %}selected{% endif %}>کامنت و ریپلای عمومی</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" style="font-size: 0.78rem;">سقف کالاهای فعال روزانه</label>
+        <input type="number" name="daily_discovery_limit" min="1" max="50" class="form-input" value="{{ business.daily_discovery_limit }}" style="font-size: 0.82rem;">
+      </div>
+    </div>
+    <div style="display: flex; justify-content: flex-end;">
+      <button type="submit" class="p-btn p-btn-sm p-btn-primary">ذخیره تنظیمات حساب‌ها</button>
+    </div>
+  </form>
+</div>
+
+<!-- Quota & Active Product Selection Shelf -->
+<div class="p-card" style="padding: 18px 24px; margin-bottom: 22px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; margin-bottom: 12px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span class="p-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: rgba(0, 242, 254, 0.1); color: var(--obsidian-cyan); display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+      </span>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <strong style="font-size: 0.92rem; color: var(--panel-text-main);">سهمیه پایش روزانه:</strong>
+          <span class="p-badge p-badge-purple" id="quota-indicator">
+            <span id="active-count-num">{{ stats.active_products_count }}</span> از {{ stats.daily_limit }} محصول فعال
+          </span>
+        </div>
+        <span style="font-size: 0.76rem; color: var(--stone-text-muted);">برای رعایت سقف پایش و تمرکز حداکثری ایجنت، کالاهای هدف را فعال یا غیرفعال کنید:</span>
+      </div>
+    </div>
+
+    <!-- Connected accounts indicators -->
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div style="padding: 6px 12px; border-radius: 8px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle); font-size: 0.74rem;">
+        <span style="color: var(--stone-text-muted);">تلگرام:</span>
+        <strong style="color: var(--panel-text-main);" dir="ltr"><bdi>{{ business.telegram_account_handle|default:"متصل نشده" }}</bdi></strong>
+      </div>
+      <div style="padding: 6px 12px; border-radius: 8px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle); font-size: 0.74rem;">
+        <span style="color: var(--stone-text-muted);">X (توییتر):</span>
+        <strong style="color: var(--panel-text-main);" dir="ltr"><bdi>{{ business.x_account_handle|default:"متصل نشده" }}</bdi></strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product Toggle Badges -->
+  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+    {% for prod in all_products %}
+      <button 
+        type="button" 
+        class="prod-toggle-pill {% if prod.is_discovery_active %}active-pill{% endif %}"
+        data-prod-id="{{ prod.id }}"
+        style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 0.78rem; border: 1px solid {% if prod.is_discovery_active %}var(--obsidian-cyan){% else %}var(--panel-border){% endif %}; background: {% if prod.is_discovery_active %}rgba(0,242,254,0.08){% else %}var(--panel-surface){% endif %}; color: var(--panel-text-main); cursor: pointer; transition: all 0.2s;">
+        <span class="toggle-dot" style="width: 7px; height: 7px; border-radius: 50%; background: {% if prod.is_discovery_active %}var(--obsidian-cyan){% else %}var(--stone-text-faint){% endif %};"></span>
+        <span>{{ prod.name }}</span>
+        <span style="font-size: 0.68rem; color: var(--stone-text-muted);">({% if prod.is_discovery_active %}فعال در پایش{% else %}غیرفعال{% endif %})</span>
+      </button>
+    {% empty %}
+      <span style="font-size: 0.8rem; color: var(--stone-text-muted);">هنوز کالایی ثبت نشده است.</span>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Stats Row -->
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
+  <div class="p-stat-card">
+    <div class="p-stat-header">
+      <span class="p-stat-label">کل سرنخ‌های کشف‌شده</span>
+      <span class="p-badge p-badge-purple">{{ stats.total }}</span>
+    </div>
+    <div class="p-stat-val">{{ stats.total }}</div>
+    <span class="p-stat-help">سیگنال‌های با احتمال بالای ۳۰٪</span>
+  </div>
+
+  <div class="p-stat-card">
+    <div class="p-stat-header">
+      <span class="p-stat-label">سرنخ‌های جدید (بررسی نشده)</span>
+      <span class="p-badge p-badge-cyan">{{ stats.new }}</span>
+    </div>
+    <div class="p-stat-val" style="color: var(--obsidian-cyan);">{{ stats.new }}</div>
+    <span class="p-stat-help">آماده ارسال پیام و ارتباط</span>
+  </div>
+
+  <div class="p-stat-card">
+    <div class="p-stat-header">
+      <span class="p-stat-label">انطباق و نیت خرید بالا</span>
+      <span class="p-badge p-badge-success">{{ stats.high_intent }}</span>
+    </div>
+    <div class="p-stat-val" style="color: var(--p-success);">{{ stats.high_intent }}</div>
+    <span class="p-stat-help">احتمال خرید بالاتر از ۷۰٪</span>
+  </div>
+
+  <div class="p-stat-card">
+    <div class="p-stat-header">
+      <span class="p-stat-label">پیام‌های ارسال‌شده</span>
+      <span class="p-badge p-badge-purple">{{ stats.contacted }}</span>
+    </div>
+    <div class="p-stat-val">{{ stats.contacted }}</div>
+    <span class="p-stat-help">ارتباط موفق از حساب فروشنده</span>
+  </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="p-card" style="padding: 14px 20px; margin-bottom: 20px;">
+  <form method="GET" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 0;">
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <span style="font-size: 0.8rem; font-weight: 800; color: var(--panel-text-main);">فیلتر فرصت‌ها:</span>
+      
+      <select name="channel" class="form-input" style="height: 38px; font-size: 0.8rem; width: 140px;" onchange="this.form.submit()">
+        <option value="">همه کانال‌ها</option>
+        <option value="TELEGRAM" {% if channel_filter == 'TELEGRAM' %}selected{% endif %}>تلگرام</option>
+        <option value="X" {% if channel_filter == 'X' %}selected{% endif %}>X (توییتر)</option>
+      </select>
+
+      <select name="status" class="form-input" style="height: 38px; font-size: 0.8rem; width: 150px;" onchange="this.form.submit()">
+        <option value="">همه وضعیت‌ها</option>
+        <option value="NEW" {% if status_filter == 'NEW' %}selected{% endif %}>جدید</option>
+        <option value="CONTACTED" {% if status_filter == 'CONTACTED' %}selected{% endif %}>پیام ارسال شد</option>
+        <option value="CONVERTED" {% if status_filter == 'CONVERTED' %}selected{% endif %}>مشتری نهایی</option>
+        <option value="IGNORED" {% if status_filter == 'IGNORED' %}selected{% endif %}>نادیده گرفته شده</option>
+      </select>
+
+      <select name="product_id" class="form-input" style="height: 38px; font-size: 0.8rem; width: 180px;" onchange="this.form.submit()">
+        <option value="">همه محصولات</option>
+        {% for p in all_products %}
+          <option value="{{ p.id }}" {% if product_filter == p.id|stringformat:'s' %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span class="p-badge p-badge-success" style="font-size: 0.72rem;">
+        تضمین ثبت: حداقل انطباق ۳۰٪
+      </span>
+      {% if channel_filter or status_filter or product_filter %}
+        <a href="{% url 'discovery:leads_list' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.75rem;">حذف فیلترها</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Leads List Grid -->
+<div style="display: flex; flex-direction: column; gap: 16px;">
+  {% for lead in leads %}
+    <div class="p-card lead-row-card" id="lead-card-{{ lead.id }}" style="padding: 20px 24px; transition: all 0.2s;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 14px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="lead-avatar-circle" style="width: 42px; height: 42px; font-size: 1rem; border-radius: 12px; background: rgba(0,242,254,0.1); color: var(--obsidian-cyan); display: flex; align-items: center; justify-content: center; font-weight: 800;">
+            {{ lead.lead_display_name|slice:":1"|default:lead.lead_handle|slice:":1" }}
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <strong style="font-size: 0.95rem; color: var(--panel-text-main);">{{ lead.lead_display_name|default:lead.lead_handle }}</strong>
+              <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>{{ lead.lead_handle }}</bdi></span>
+              
+              {% if lead.channel == 'TELEGRAM' %}
+                <span class="platform-icon-pill" style="padding: 2px 8px; border-radius: 6px; background: rgba(36,161,222,0.12); color: #24a1de; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+                  <span>تلگرام</span>
+                </span>
+              {% else %}
+                <span class="platform-icon-pill" style="padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,0.08); color: var(--panel-text-main); font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                  <span>X (توییتر)</span>
+                </span>
+              {% endif %}
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 0.74rem;">
+              <span style="color: var(--obsidian-cyan); font-weight: 750;">کالای منطبق: {{ lead.product.name }}</span>
+              <span style="color: var(--stone-text-faint);">•</span>
+              <span style="color: var(--stone-text-muted);">شاخه: {{ lead.matched_branch|default:lead.product.category.get_full_path }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <!-- Intent Score Badge -->
+          <span class="p-score-badge" style="padding: 6px 14px; border-radius: 12px; font-size: 0.85rem; font-weight: 850; background: {% if lead.intent_score >= 70 %}rgba(16,185,129,0.15){% elif lead.intent_score >= 40 %}rgba(0,242,254,0.15){% else %}rgba(255,255,255,0.08){% endif %}; color: {% if lead.intent_score >= 70 %}var(--p-success){% elif lead.intent_score >= 40 %}var(--obsidian-cyan){% else %}var(--panel-text-main){% endif %}; border: 1px solid currentColor;">
+            احتمال خرید: {{ lead.intent_score }}٪
+          </span>
+
+          <!-- Status Badge -->
+          <span class="status-badge" id="status-badge-{{ lead.id }}" style="padding: 5px 12px; border-radius: 8px; font-size: 0.74rem; font-weight: 750; background: var(--stone-surface-sunken);">
+            {{ lead.get_status_display }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Social Post Content -->
+      <div style="padding: 12px 16px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle); margin-bottom: 12px; font-size: 0.84rem; line-height: 1.6; color: var(--panel-text-main);">
+        «{{ lead.content_snippet }}»
+      </div>
+
+      <!-- AI Reasoning -->
+      <div style="font-size: 0.75rem; color: var(--stone-text-muted); margin-bottom: 14px; display: flex; align-items: center; gap: 6px;">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--brand-purple);"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>تحلیل ایجنت: {{ lead.intent_reasoning }}</span>
+      </div>
+
+      <!-- Outreach Draft Box -->
+      <div style="padding: 14px 18px; border-radius: 14px; background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.22); margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 0.75rem; font-weight: 800; color: var(--obsidian-cyan);">
+            پیش‌نویس پیام هوشمند ({% if lead.outreach_mode == 'DIRECT' %}دایرکت خصوصی{% else %}کامنت عمومی{% endif %}):
+          </span>
+          <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="outreach-status-{{ lead.id }}">
+            {% if lead.outreach_status == 'SENT' %}
+              ✓ ارسال شده از حساب: <strong style="color: var(--panel-text-main);" dir="ltr">{{ lead.sent_from_handle }}</strong>
+            {% else %}
+              آماده برای ارسال
+            {% endif %}
+          </span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--panel-text-main); margin: 0; line-height: 1.65; white-space: pre-line;">{{ lead.outreach_message }}</p>
+      </div>
+
+      <!-- Action Footer -->
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button 
+            type="button" 
+            class="p-btn p-btn-sm p-btn-primary btn-send-outreach" 
+            data-lead-id="{{ lead.id }}"
+            {% if lead.outreach_status == 'SENT' %}disabled style="opacity: 0.6;"{% endif %}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            <span>{% if lead.outreach_status == 'SENT' %}پیام ارسال شده{% else %}ارسال پیام از حساب شما{% endif %}</span>
+          </button>
+
+          {% if lead.post_url %}
+            <a href="{{ lead.post_url }}" target="_blank" rel="noopener" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.74rem;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              <span>مشاهده گفت‌وگوی کاربر</span>
+            </a>
+          {% endif %}
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 0.74rem; color: var(--stone-text-muted);">تغییر وضعیت:</span>
+          <select class="form-input lead-status-select" data-lead-id="{{ lead.id }}" style="height: 34px; font-size: 0.74rem; width: 140px;">
+            <option value="NEW" {% if lead.status == 'NEW' %}selected{% endif %}>جدید</option>
+            <option value="CONTACTED" {% if lead.status == 'CONTACTED' %}selected{% endif %}>پیام ارسال شد</option>
+            <option value="CONVERTED" {% if lead.status == 'CONVERTED' %}selected{% endif %}>مشتری نهایی</option>
+            <option value="IGNORED" {% if lead.status == 'IGNORED' %}selected{% endif %}>نادیده گرفته شده</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="p-card" style="padding: 48px; text-align: center;">
+      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--stone-text-faint); margin-bottom: 14px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <h3 style="font-size: 1.05rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 6px;">هنوز سرنخی کشف نشده است</h3>
+      <p style="font-size: 0.84rem; color: var(--stone-text-muted); max-width: 480px; margin: 0 auto 20px;">
+        برای اجرای اولین پایش، دکمه «اجرای پایش هوشمند زنده» در بالای صفحه را بزنید تا خریداران بالقوه در شبکه‌ها شناسایی شوند.
+      </p>
+      <form method="POST" action="{% url 'discovery:trigger_scan' %}">
+        {% csrf_token %}
+        <button type="submit" class="p-btn p-btn-primary">اجرای پایش هوشمند زنده</button>
+      </form>
+    </div>
+  {% endfor %}
+</div>
+
+<script>
+(() => {
+  const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]' )?.value;
+
+  // Toggle Config Drawer
+  const btnToggleConfig = document.getElementById('btn-toggle-config');
+  const configDrawer = document.getElementById('accounts-config-drawer');
+  btnToggleConfig?.addEventListener('click', () => {
+    configDrawer.style.display = configDrawer.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // Toggle Product Discovery in Quota
+  document.querySelectorAll('button.prod-toggle-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const prodId = pill.getAttribute('data-prod-id');
+      fetch(`/discovery/products/${prodId}/toggle-discovery/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          if (data.is_discovery_active) {
+            pill.classList.add('active-pill');
+            pill.style.borderColor = 'var(--obsidian-cyan)';
+            pill.style.background = 'rgba(0,242,254,0.08)';
+            pill.querySelector('span.toggle-dot').style.background = 'var(--obsidian-cyan)';
+            pill.querySelectorAll('span')[2].textContent = '(فعال در پایش)';
+          } else {
+            pill.classList.remove('active-pill');
+            pill.style.borderColor = 'var(--panel-border)';
+            pill.style.background = 'var(--panel-surface)';
+            pill.querySelector('span.toggle-dot').style.background = 'var(--stone-text-faint)';
+            pill.querySelectorAll('span')[2].textContent = '(غیرفعال)';
+          }
+          const counter = document.getElementById('active-count-num');
+          if (counter) counter.textContent = data.active_count;
+        } else {
+          alert(data.message || 'خطا در تغییر وضعیت سهمیه.');
+        }
+      })
+      .catch(err => alert('خطای ارتباط با سرور.'));
+    });
+  });
+
+  // Send Outreach
+  document.querySelectorAll('.btn-send-outreach').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const leadId = btn.getAttribute('data-lead-id');
+      btn.disabled = true;
+      btn.textContent = 'در حال ارسال...';
+      fetch(`/discovery/leads/${leadId}/outreach/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          btn.textContent = 'پیام ارسال شده';
+          btn.style.opacity = '0.6';
+          const statusBadge = document.getElementById(`status-badge-${leadId}`);
+          if (statusBadge) statusBadge.textContent = 'پیام ارسال شد';
+          const outreachStatus = document.getElementById(`outreach-status-${leadId}`);
+          if (outreachStatus) outreachStatus.innerHTML = `✓ ارسال شده از حساب: <strong style="color: var(--panel-text-main);" dir="ltr">${data.sent_from_handle}</strong>`;
+          const select = document.querySelector(`.lead-status-select[data-lead-id="${leadId}"]`);
+          if (select) select.value = 'CONTACTED';
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'ارسال پیام از حساب شما';
+          alert(data.message || 'خطا در ارسال پیام.');
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'ارسال پیام از حساب شما';
+        alert('خطای اتصال به سرور.');
+      });
+    });
+  });
+
+  // Update Status
+  document.querySelectorAll('.lead-status-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const leadId = sel.getAttribute('data-lead-id');
+      const newStatus = sel.value;
+      fetch(`/discovery/leads/${leadId}/status/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify({ status: newStatus })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          const statusBadge = document.getElementById(`status-badge-${leadId}`);
+          if (statusBadge) {
+            const labels = {
+              'NEW': 'جدید',
+              'CONTACTED': 'پیام ارسال شد',
+              'CONVERTED': 'مشتری نهایی',
+              'IGNORED': 'نادیده گرفته شده',
+            };
+            statusBadge.textContent = labels[newStatus] || newStatus;
+          }
+        }
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

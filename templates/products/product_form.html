@@ -107,18 +107,71 @@
       </div>
     </div>
 
-    <!-- Hierarchical Category Dropdown -->
-    <div class="form-group" style="margin-bottom: 20px;">
-      <label for="category_select" class="form-label">
-        دسته‌بندی سلسله‌مراتبی
-        <small style="color: var(--panel-text-faint); font-weight: 400;">(قابل انتخاب دستی یا تأیید با هوش مصنوعی)</small>
-      </label>
-      <select name="category_id" id="category_select" class="form-input" style="height: 48px;">
-        <option value="">-- انتخاب دسته‌بندی از درخت موضوعی --</option>
+    <!-- Hierarchical Dynamic Category Builder -->
+    <div class="form-group" style="margin-bottom: 24px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <label for="category_select" class="form-label" style="margin-bottom: 0;">
+          درخت‌واره دسته‌بندی کالا
+          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منعطف؛ امکان تعریف نامحدود زیرشاخه‌ها)</small>
+        </label>
+        <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-toggle-tree" style="font-size: 0.75rem; padding: 4px 10px;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <span id="btn-tree-text">مشاهده / افزودن زیرشاخه</span>
+        </button>
+      </div>
+
+      <!-- Active Selected Category Display Card -->
+      <div id="active-category-display" style="padding: 12px 16px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1.5px solid var(--panel-border-subtle); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--obsidian-cyan);"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <span style="font-size: 0.82rem; color: var(--stone-text-muted);">شاخه فعال:</span>
+          <strong id="selected-category-text" style="font-size: 0.88rem; color: var(--obsidian-cyan);">
+            {% if product.category %}{{ product.category.get_full_path }}{% else %}هنوز شاخه‌ای انتخاب نشده است{% endif %}
+          </strong>
+        </div>
+        <span class="p-badge p-badge-purple" id="cat-type-badge" style="font-size: 0.7rem;">
+          {% if product.category %}{{ product.category.get_product_type_display }}{% else %}انتخاب کنید{% endif %}
+        </span>
+      </div>
+
+      <!-- Category Tree Interactive Explorer Drawer -->
+      <div id="category-tree-explorer" style="display: none; padding: 18px; border-radius: 14px; background: var(--stone-surface); border: 1px solid var(--panel-border); margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border-subtle);">
+          <div>
+            <strong style="font-size: 0.86rem; color: var(--panel-text-main); display: block;">ساختار درختی دسته‌ها:</strong>
+            <span style="font-size: 0.72rem; color: var(--stone-text-muted);">برای انتخاب کلیک کنید یا با دکمه (+) برای هر دسته زیرشاخه اختصاصی بسازید.</span>
+          </div>
+          <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-add-root-cat" style="font-size: 0.74rem;">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>+ افزودن سرشاخه اصلی</span>
+          </button>
+        </div>
+
+        <!-- Inline Category Creator Form (Populated dynamically) -->
+        <div id="inline-category-creator" style="display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 10px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.25);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 0.78rem; font-weight: 800; color: var(--panel-text-main);" id="creator-parent-label">افزودن شاخه جدید</span>
+            <button type="button" id="btn-cancel-creator" style="background: none; border: none; color: var(--stone-text-muted); cursor: pointer; font-size: 0.75rem;">انصراف</button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="new-cat-name-input" class="form-input" placeholder="نام شاخه (مثلاً: شلوار کارگو)" style="height: 38px; font-size: 0.82rem;">
+            <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-save-inline-cat" style="white-space: nowrap;">ثبت و انتخاب</button>
+          </div>
+        </div>
+
+        <div id="tree-container" style="max-height: 260px; overflow-y: auto; padding-right: 4px;">
+          <!-- Rendered dynamically via JS -->
+        </div>
+      </div>
+
+      <!-- Quick Select Dropdown (Synced with Tree) -->
+      <select name="category_id" id="category_select" class="form-input" style="height: 46px;">
+        <option value="">-- انتخاب مستقیم از لیست دسته‌ها --</option>
         {% for cat in categories %}
           <option 
             value="{{ cat.id }}" 
             data-type="{{ cat.product_type }}"
+            data-fullpath="{{ cat.get_full_path }}"
             data-attrs='{{ cat.suggested_attributes|json_script|safe }}'
             {% if product.category_id == cat.id %}selected{% endif %}>
             {% if cat.parent %}↳ {% if cat.parent.parent %}↳ {% endif %}{% endif %}{{ cat.get_full_path }}
@@ -285,11 +338,60 @@
 
     <!-- Status -->
     <div class="form-group" style="margin-bottom: 24px;">
-      <label class="form-label">وضعیت در موتور کاوش</label>
+      <label class="form-label">وضعیت در کاتالوگ</label>
       <select name="status" class="form-input" style="height: 44px; max-width: 250px;">
-        <option value="ACTIVE" {% if not product or product.status == 'ACTIVE' %}selected{% endif %}>فعال برای کشف مشتری</option>
+        <option value="ACTIVE" {% if not product or product.status == 'ACTIVE' %}selected{% endif %}>فعال و در دسترس</option>
         <option value="INACTIVE" {% if product.status == 'INACTIVE' %}selected{% endif %}>غیرفعال</option>
       </select>
+    </div>
+
+    <!-- AI Sales Discovery & Channel Outreach Settings -->
+    <div class="form-group" style="margin-bottom: 26px; border: 1.5px solid rgba(0, 242, 254, 0.28); border-radius: 16px; padding: 20px; background: rgba(0, 242, 254, 0.03);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="p-icon-box" style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0, 242, 254, 0.1); color: var(--obsidian-cyan); display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+          </span>
+          <div>
+            <strong style="font-size: 0.92rem; color: var(--panel-text-main); display: block;">تنظیمات پایش ایجنت و سهمیه کشف روزانه</strong>
+            <small style="font-size: 0.74rem; color: var(--stone-text-muted);">تعیین وضعیت حضور این کالا در سهمیه جستجوی مشتری بالقوه و ارسال پیام</small>
+          </div>
+        </div>
+        <span class="p-badge p-badge-purple">سهمیه روزانه پایش</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 12px; border-radius: 12px; background: var(--panel-surface); border: 1px solid var(--panel-border);">
+          <input type="checkbox" name="is_discovery_active" value="on" {% if not product or product.is_discovery_active %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--brand-purple);">
+          <div>
+            <strong style="font-size: 0.84rem; color: var(--panel-text-main); display: block;">فعال در پایش روزانه هوش مصنوعی</strong>
+            <small style="font-size: 0.72rem; color: var(--stone-text-muted);">این کالا در جستجوی شبکه‌های اجتماعی رصد شود</small>
+          </div>
+        </label>
+
+        <div>
+          <label class="form-label" style="font-size: 0.78rem;">اولویت بررسی توسط ایجنت (۱ عادی تا ۵ فوری)</label>
+          <select name="discovery_priority" class="form-input" style="height: 42px; font-size: 0.82rem;">
+            <option value="1" {% if product.discovery_priority == 1 %}selected{% endif %}>۱ - عادی (رصد متناوب)</option>
+            <option value="2" {% if product.discovery_priority == 2 %}selected{% endif %}>۲ - متوسط</option>
+            <option value="3" {% if not product or product.discovery_priority == 3 %}selected{% endif %}>۳ - بالا (کالای کلیدی)</option>
+            <option value="4" {% if product.discovery_priority == 4 %}selected{% endif %}>۴ - بسیار بالا</option>
+            <option value="5" {% if product.discovery_priority == 5 %}selected{% endif %}>۵ - فوری (پایش حداکثری)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 20px; flex-wrap: wrap; padding-top: 8px; border-top: 1px dashed var(--panel-border-subtle);">
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer; color: var(--panel-text-main);">
+          <input type="checkbox" name="telegram_outreach_enabled" value="on" {% if not product or product.telegram_outreach_enabled %}checked{% endif %} style="accent-color: var(--obsidian-cyan);">
+          <span>فعال‌سازی پیام‌رسانی در تلگرام</span>
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer; color: var(--panel-text-main);">
+          <input type="checkbox" name="x_outreach_enabled" value="on" {% if not product or product.x_outreach_enabled %}checked{% endif %} style="accent-color: var(--obsidian-cyan);">
+          <span>فعال‌سازی پیام‌رسانی در X (توییتر)</span>
+        </label>
+      </div>
     </div>
 
     <!-- Submit Button -->
@@ -415,6 +517,184 @@
 
   categorySelect?.addEventListener('change', () => {
     loadAttributesForCategory(categorySelect.value);
+  });
+
+  // Dynamic Category Tree Builder Logic
+  const btnToggleTree = document.getElementById('btn-toggle-tree');
+  const btnTreeText = document.getElementById('btn-tree-text');
+  const treeExplorer = document.getElementById('category-tree-explorer');
+  const treeContainer = document.getElementById('tree-container');
+  const selectedCatText = document.getElementById('selected-category-text');
+  const inlineCreator = document.getElementById('inline-category-creator');
+  const creatorLabel = document.getElementById('creator-parent-label');
+  const newCatInput = document.getElementById('new-cat-name-input');
+  const btnSaveInlineCat = document.getElementById('btn-save-inline-cat');
+  const btnCancelCreator = document.getElementById('btn-cancel-creator');
+  const btnAddRootCat = document.getElementById('btn-add-root-cat');
+  const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+
+  let currentParentId = null;
+
+  function fetchAndRenderTree() {
+    if (!treeContainer) return;
+    treeContainer.innerHTML = '<div style="font-size: 0.8rem; color: var(--stone-text-muted); padding: 10px;">در حال بارگذاری درخت دسته‌بندی‌ها...</div>';
+    fetch('/products/categories/api/tree/')
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success' && data.tree) {
+          treeContainer.innerHTML = '';
+          if (data.tree.length === 0) {
+            treeContainer.innerHTML = '<div style="font-size: 0.8rem; color: var(--stone-text-muted); padding: 10px;">هنوز دسته‌ای ایجاد نشده است. با دکمه بالا سرشاخه بسازید.</div>';
+            return;
+          }
+          renderTreeNodes(data.tree, treeContainer, 0);
+        }
+      })
+      .catch(err => {
+        treeContainer.innerHTML = '<div style="font-size: 0.8rem; color: var(--p-danger); padding: 10px;">خطا در دریافت درخت‌واره.</div>';
+      });
+  }
+
+  function renderTreeNodes(nodes, container, depth) {
+    nodes.forEach(node => {
+      const nodeEl = document.createElement('div');
+      nodeEl.style = `margin-right: ${depth * 18}px; margin-bottom: 6px; padding: 6px 10px; border-radius: 8px; background: var(--panel-surface-elevated); border: 1px solid var(--panel-border-subtle); display: flex; align-items: center; justify-content: space-between;`;
+      
+      const isSelected = categorySelect && categorySelect.value === String(node.id);
+      if (isSelected) {
+        nodeEl.style.borderColor = 'var(--brand-purple)';
+        nodeEl.style.background = 'rgba(0, 242, 254, 0.08)';
+      }
+
+      nodeEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+          <span style="font-size: 0.8rem; color: var(--obsidian-cyan); display: inline-flex; align-items: center;">${depth > 0 ? '↳' : '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>'}</span>
+          <span style="font-size: 0.82rem; font-weight: 750; color: var(--panel-text-main);">${node.name}</span>
+          ${node.is_custom ? '<span style="font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; background: rgba(168,85,247,0.15); color: #c084fc;">سفارشی</span>' : ''}
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button type="button" class="p-btn p-btn-sm p-btn-primary btn-select-node" style="font-size: 0.7rem; padding: 3px 8px;">
+            ${isSelected ? '✓ انتخاب شده' : 'انتخاب'}
+          </button>
+          <button type="button" class="p-btn p-btn-sm p-btn-secondary btn-add-sub" title="افزودن زیرشاخه برای این دسته" style="font-size: 0.7rem; padding: 3px 6px;">
+            + زیرشاخه
+          </button>
+        </div>
+      `;
+
+      nodeEl.querySelector('.btn-select-node').addEventListener('click', () => {
+        if (categorySelect) {
+          categorySelect.value = String(node.id);
+          if (selectedCatText) selectedCatText.textContent = node.full_path;
+          loadAttributesForCategory(node.id);
+        }
+        fetchAndRenderTree();
+      });
+
+      nodeEl.querySelector('.btn-add-sub').addEventListener('click', () => {
+        currentParentId = node.id;
+        if (creatorLabel) creatorLabel.textContent = `افزودن زیرشاخه جدید به «${node.name}»:`;
+        if (inlineCreator) inlineCreator.style.display = 'block';
+        if (newCatInput) {
+          newCatInput.value = '';
+          newCatInput.focus();
+        }
+      });
+
+      container.appendChild(nodeEl);
+
+      if (node.children && node.children.length > 0) {
+        renderTreeNodes(node.children, container, depth + 1);
+      }
+    });
+  }
+
+  btnToggleTree?.addEventListener('click', () => {
+    if (treeExplorer.style.display === 'none') {
+      treeExplorer.style.display = 'block';
+      if (btnTreeText) btnTreeText.textContent = 'بستن درخت‌واره';
+      fetchAndRenderTree();
+    } else {
+      treeExplorer.style.display = 'none';
+      if (btnTreeText) btnTreeText.textContent = 'مشاهده / افزودن زیرشاخه';
+    }
+  });
+
+  btnAddRootCat?.addEventListener('click', () => {
+    currentParentId = null;
+    if (creatorLabel) creatorLabel.textContent = 'افزودن سرشاخه اصلی جدید:';
+    if (inlineCreator) inlineCreator.style.display = 'block';
+    if (newCatInput) {
+      newCatInput.value = '';
+      newCatInput.focus();
+    }
+  });
+
+  btnCancelCreator?.addEventListener('click', () => {
+    if (inlineCreator) inlineCreator.style.display = 'none';
+  });
+
+  btnSaveInlineCat?.addEventListener('click', () => {
+    const name = newCatInput?.value.trim() || '';
+    if (!name) {
+      alert('لطفاً نام دسته‌بندی را وارد نمایید.');
+      return;
+    }
+
+    const typeRadio = document.querySelector('input[name="product_type"]:checked');
+    const prodType = typeRadio ? typeRadio.value : 'PHYSICAL';
+
+    btnSaveInlineCat.disabled = true;
+    btnSaveInlineCat.textContent = 'در حال ثبت...';
+
+    fetch('/products/categories/api/add/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken,
+      },
+      body: JSON.stringify({
+        name: name,
+        parent_id: currentParentId,
+        product_type: prodType,
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        btnSaveInlineCat.disabled = false;
+        btnSaveInlineCat.textContent = 'ثبت و انتخاب';
+        if (data.status === 'success' && data.category) {
+          const cat = data.category;
+          // Add to select if not present
+          let opt = categorySelect.querySelector(`option[value="${cat.id}"]`);
+          if (!opt) {
+            opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = `↳ ${cat.full_path}`;
+            opt.setAttribute('data-fullpath', cat.full_path);
+            categorySelect.appendChild(opt);
+          }
+          categorySelect.value = String(cat.id);
+          if (selectedCatText) selectedCatText.textContent = cat.full_path;
+          inlineCreator.style.display = 'none';
+          fetchAndRenderTree();
+          loadAttributesForCategory(cat.id);
+        } else {
+          alert(data.message || 'خطا در ثبت دسته.');
+        }
+      })
+      .catch(err => {
+        btnSaveInlineCat.disabled = false;
+        btnSaveInlineCat.textContent = 'ثبت و انتخاب';
+        alert('خطای اتصال به سرور.');
+      });
+  });
+
+  categorySelect?.addEventListener('change', () => {
+    const selectedOpt = categorySelect.options[categorySelect.selectedIndex];
+    if (selectedOpt && selectedCatText) {
+      selectedCatText.textContent = selectedOpt.getAttribute('data-fullpath') || selectedOpt.text;
+    }
   });
 
   // Multi-image client preview & main photo selector

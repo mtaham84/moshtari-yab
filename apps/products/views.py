@@ -1,6 +1,7 @@
 import json
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from apps.businesses.models import Business
@@ -54,7 +55,10 @@ def product_add_view(request):
             business_domain="عمومی"
         )
 
-    categories = Category.objects.filter(is_active=True).select_related("parent")
+    categories = Category.objects.filter(
+        Q(business__isnull=True) | Q(business=business),
+        is_active=True
+    ).select_related("parent")
 
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
@@ -100,6 +104,12 @@ def product_add_view(request):
         if price_val.isdigit():
             price = int(price_val)
 
+        is_discovery_active = request.POST.get("is_discovery_active") in ["on", "true", "1"]
+        discovery_priority_val = request.POST.get("discovery_priority", "1")
+        discovery_priority = int(discovery_priority_val) if discovery_priority_val.isdigit() else 1
+        telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
+        x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
+
         product = Product.objects.create(
             business=business,
             name=name,
@@ -111,6 +121,10 @@ def product_add_view(request):
             attributes=attributes,
             target_customer=target_customer,
             status=status,
+            is_discovery_active=is_discovery_active,
+            discovery_priority=discovery_priority,
+            telegram_outreach_enabled=telegram_outreach_enabled,
+            x_outreach_enabled=x_outreach_enabled,
         )
 
         # Save uploaded images (up to 10)
@@ -140,7 +154,10 @@ def product_add_view(request):
 def product_edit_view(request, pk):
     business = get_object_or_404(Business, user=request.user)
     product = get_object_or_404(Product, pk=pk, business=business)
-    categories = Category.objects.filter(is_active=True).select_related("parent")
+    categories = Category.objects.filter(
+        Q(business__isnull=True) | Q(business=business),
+        is_active=True
+    ).select_related("parent")
 
     if request.method == "POST":
         new_images = request.FILES.getlist("images")
@@ -164,6 +181,11 @@ def product_edit_view(request, pk):
         product.url = request.POST.get("url", "").strip()
         product.target_customer = request.POST.get("target_customer", "").strip()
         product.status = request.POST.get("status", "ACTIVE").strip()
+        product.is_discovery_active = request.POST.get("is_discovery_active") in ["on", "true", "1"]
+        discovery_priority_val = request.POST.get("discovery_priority", "1")
+        product.discovery_priority = int(discovery_priority_val) if discovery_priority_val.isdigit() else 1
+        product.telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
+        product.x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
 
         attributes = {}
         for key, val in request.POST.items():
@@ -276,3 +298,87 @@ def api_category_attributes(request, category_id):
     if not category:
         return JsonResponse({"attributes": []})
     return JsonResponse({"attributes": category.suggested_attributes or []})
+
+@login_required
+def api_create_category(request):
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "روش نامعتبر است."}, status=405)
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        business = Business.objects.create(
+            user=request.user,
+            name=f"کسب‌وکار {request.user.first_name}",
+            business_type="PHYSICAL",
+            business_domain="عمومی"
+        )
+
+    try:
+        data = json.loads(request.body) if request.body else request.POST
+    except Exception:
+        data = request.POST
+
+    name = data.get("name", "").strip()
+    parent_id = data.get("parent_id")
+    product_type = data.get("product_type", "PHYSICAL").strip()
+
+    if not name:
+        return JsonResponse({"status": "error", "message": "نام دسته‌بندی الزامی است."}, status=400)
+
+    parent = None
+    if parent_id:
+        parent = Category.objects.filter(id=parent_id).first()
+        if parent:
+            product_type = parent.product_type
+
+    category = Category.objects.create(
+        business=business,
+        name=name,
+        parent=parent,
+        product_type=product_type,
+        is_active=True
+    )
+
+    return JsonResponse({
+        "status": "success",
+        "category": {
+            "id": category.id,
+            "name": category.name,
+            "full_path": category.get_full_path(),
+            "parent_id": category.parent_id,
+            "product_type": category.product_type,
+            "is_custom": True
+        }
+    })
+
+@login_required
+def api_category_tree(request):
+    business = getattr(request.user, "business", None)
+    categories = Category.objects.filter(
+        Q(business__isnull=True) | Q(business=business),
+        is_active=True
+    ).select_related("parent").order_by("name")
+
+    # Map node objects
+    nodes = {
+        cat.id: {
+            "id": cat.id,
+            "name": cat.name,
+            "parent_id": cat.parent_id,
+            "product_type": cat.product_type,
+            "full_path": cat.get_full_path(),
+            "is_custom": cat.business_id is not None,
+            "children": [],
+        }
+        for cat in categories
+    }
+
+    tree = []
+    for cat_id, node in nodes.items():
+        if node["parent_id"] and node["parent_id"] in nodes:
+            nodes[node["parent_id"]]["children"].append(node)
+        else:
+            tree.append(node)
+
+    return JsonResponse({"status": "success", "tree": tree})
+

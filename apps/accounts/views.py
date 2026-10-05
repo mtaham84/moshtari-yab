@@ -384,6 +384,27 @@ def logout_view(request):
 @login_required
 def dashboard_view(request):
     business = getattr(request.user, "business", None)
+    if not business:
+        business = Business.objects.create(
+            user=request.user,
+            name=f"کسب‌وکار {request.user.first_name}",
+            business_type="PHYSICAL",
+            business_domain="عمومی"
+        )
+
+    if request.method == "POST" and request.POST.get("update_social_config"):
+        business.telegram_account_handle = request.POST.get("telegram_account_handle", "").strip()
+        business.x_account_handle = request.POST.get("x_account_handle", "").strip()
+        mode = request.POST.get("preferred_outreach_mode", "DIRECT").strip()
+        if mode in ["DIRECT", "COMMENT"]:
+            business.preferred_outreach_mode = mode
+        limit = request.POST.get("daily_discovery_limit", "").strip()
+        if limit.isdigit():
+            business.daily_discovery_limit = max(1, int(limit))
+        business.save()
+        messages.success(request, "تنظیمات اتصال حساب‌های شبکه‌های اجتماعی و سقف پایش با موفقیت به‌روزرسانی شد.")
+        return redirect(request.META.get("HTTP_REFERER") or "accounts:dashboard")
+
     return render(request, "accounts/dashboard.html", {
         "user": request.user,
         "business": business,

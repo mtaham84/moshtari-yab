@@ -33,8 +33,44 @@ class Business(models.Model):
         blank=True,
         verbose_name="شرح مشتریان ایده‌آل (ICP)"
     )
+    daily_discovery_limit = models.PositiveIntegerField(
+        default=5,
+        verbose_name="سقف روزانه کالاهای فعال برای پایش"
+    )
+    telegram_account_handle = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="شناسه تلگرام فروشنده"
+    )
+    telegram_session_or_bot = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="توکن یا سشن تلگرام"
+    )
+    x_account_handle = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="شناسه توییتر / X فروشنده"
+    )
+    x_access_token = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="توکن دسترسی X"
+    )
+    preferred_outreach_mode = models.CharField(
+        max_length=20,
+        choices=[("DIRECT", "دایرکت خصوصی"), ("COMMENT", "کامنت و پاسخ عمومی")],
+        default="DIRECT",
+        verbose_name="روش ترجیحی ارسال پیام"
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاریخ ایجاد")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    @property
+    def active_discovery_products_count(self):
+        if hasattr(self, "products"):
+            return self.products.filter(is_discovery_active=True).count()
+        return 0
 
     class Meta:
         verbose_name = "کسب‌وکار"

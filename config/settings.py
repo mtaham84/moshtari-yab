@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "apps.accounts.apps.AccountsConfig",
     "apps.businesses.apps.BusinessesConfig",
     "apps.products.apps.ProductsConfig",
+    "apps.discovery.apps.DiscoveryConfig",
 ]
 
 MIDDLEWARE = [
