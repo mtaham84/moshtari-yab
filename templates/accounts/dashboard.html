@@ -6,22 +6,22 @@
 {% block nav_home %}active{% endblock %}
 
 {% block panel_content %}
-<!-- Welcome & Quick Command Header -->
+<!-- Welcome & Header -->
 <div class="p-page-header">
   <div class="p-header-titles">
     <div style="display: flex; align-items: center; gap: 10px;">
-      <h1 class="p-page-title">کنسول کشف هوشمند مشتری</h1>
-      <span class="p-badge p-badge-purple">نسخه مسابقه buildX</span>
+      <h1 class="p-page-title">کنسول هوشمند فروش و کشف مشتری</h1>
+      <span class="p-badge p-badge-purple">ایجنت اختصاصی فروش</span>
     </div>
-    <p class="p-page-subtitle">خوش‌آمدید {{ user.first_name }} 👋 | کسب‌وکار متصل: <strong>{{ business.name }}</strong> ({{ business.business_domain }})</p>
+    <p class="p-page-subtitle">به ما بگویید چه چیزی می‌فروشید؛ ایجنت کشف می‌کند چه کسانی در شبکه‌ها به آن نیاز دارند.</p>
   </div>
 
   <div class="p-header-actions">
     <a href="{% url 'products:add' %}" class="p-btn p-btn-secondary">
-      <span>+ افزودن محصول / خدمت</span>
+      <span>+ افزودن محصول جدید</span>
     </a>
     <a href="{% url 'products:list' %}" class="p-btn p-btn-primary">
-      <span>کاتالوگ محصولات</span>
+      <span>کاتالوگ محصولات ({{ business.products.count }})</span>
       <span aria-hidden="true">✦</span>
     </a>
   </div>
@@ -36,342 +36,365 @@
 {% endif %}
 
 <!-- ========================================================================
-     Three Stone Feature Cards (Direct Mirror of CAR MODEL / KWH / LEVEL Cards)
+     Step 1: Product-Driven Discovery Selector (کشف مشتری بر اساس محصول انتخابی)
      ======================================================================== -->
-<div class="stone-stat-grid">
-
-  <!-- Card 1: ICP Target Persona (Mirroring CAR MODEL) -->
-  <div class="stone-stat-card">
-    <div>
-      <div class="stat-card-label">پرسونای هدف (ICP)</div>
-      <div class="stat-card-title">{{ business.business_domain }}</div>
-      <p style="font-size: 0.82rem; color: var(--stone-text-muted); line-height: 1.5; margin: 0;">
-        {{ business.target_customer_description|truncatewords:10|default:"افراد و کسب‌وکارهایی با نیاز فعال به خدمات تخصصی شما" }}
-      </p>
-    </div>
-    
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--panel-border-subtle);">
-      <div class="stat-card-figure">
-        <span>۹۴٪</span>
-        <span class="stat-card-unit">دقت تطابق معنایی</span>
-      </div>
-      <span class="p-badge p-badge-success">فعال ✓</span>
-    </div>
-  </div>
-
-  <!-- Card 2: Live Community Signal Stream (Mirroring ELECTRICITY KWH Wave) -->
-  <div class="stone-stat-card">
-    <div>
-      <div class="stat-card-label">رصد زنده گفتگوها</div>
-      <div class="stat-card-title">جریان سیگنال‌های دریافتی</div>
-    </div>
-
-    <!-- Simulated SVG Waveform from reference image -->
-    <div class="signal-wave-container">
-      <svg class="signal-wave-svg" viewBox="0 0 240 40" preserveAspectRatio="none">
-        <path d="M 0,25 Q 30,5 60,25 T 120,25 T 180,10 T 240,25" fill="none" stroke="#00f2fe" stroke-width="2.5" stroke-linecap="round"/>
-        <circle cx="180" cy="10" r="4" fill="#00f2fe" style="filter: drop-shadow(0 0 6px #00f2fe);"/>
-      </svg>
-    </div>
-
-    <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid var(--panel-border-subtle);">
-      <div class="stat-card-figure">
-        <span>۴۸</span>
-        <span class="stat-card-unit">سیگنال / ساعت</span>
-      </div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 700;">تلگرام + توییتر/X</span>
-    </div>
-  </div>
-
-  <!-- Card 3: Quality Score & Discovery Cost (Mirroring CHARGING LEVEL 3) -->
-  <div class="stone-stat-card">
-    <div>
-      <div class="stat-card-label">سنجش کیفیت و هزینه تحلیل</div>
-      <div class="stat-card-title">سطح شایستگی ۴ (عالی)</div>
-    </div>
-
-    <!-- Segmented Level Gauge Bar from reference image -->
-    <div class="level-gauge-wrap">
-      <div class="level-gauge-bar">
-        <div class="level-gauge-segment filled"></div>
-        <div class="level-gauge-segment filled"></div>
-        <div class="level-gauge-segment filled"></div>
-        <div class="level-gauge-segment filled"></div>
-        <div class="level-gauge-segment"></div>
+<div class="p-card" style="padding: 18px 24px; margin-bottom: 22px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span style="font-size: 1.25rem;">🎯</span>
+      <div>
+        <strong style="font-size: 0.95rem; color: var(--panel-text-main); display: block;">جستجوی مشتری بر اساس محصول:</strong>
+        <span style="font-size: 0.76rem; color: var(--stone-text-muted);">می‌توانید کل کاتالوگ را پایش کنید یا جستجو را به یک محصول مشخص محدود نمایید.</span>
       </div>
     </div>
 
-    <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid var(--panel-border-subtle);">
-      <div class="stat-card-figure">
-        <span>۰.۰۰۲ $</span>
-        <span class="stat-card-unit">(۱۲۰ تومان)</span>
-      </div>
-      <span class="p-score-badge">میانگین امتیاز: ۹۱</span>
-    </div>
-  </div>
+    <!-- Product Selection Pills -->
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" id="product-filter-container">
+      <button type="button" class="prod-selector-btn active" data-prod-id="all">
+        <span>🌐 همه محصولات (تحلیل جامع)</span>
+      </button>
 
-</div>
-
-<!-- Summary Discovery Metrics Strip -->
-<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px;">
-  <!-- Metric 1: Potential Customers -->
-  <div class="p-card" style="padding: 16px 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-      <span style="font-size: 0.75rem; color: var(--stone-text-faint); font-weight: 700;">مشتری‌های بالقوه کشف‌شده</span>
-      <span>👥</span>
+      {% for prod in business.products.all %}
+        <button type="button" class="prod-selector-btn" data-prod-id="{{ prod.id }}">
+          <span>📦 {{ prod.name|truncatewords:4 }}</span>
+        </button>
+      {% empty %}
+        <a href="{% url 'products:add' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.75rem;">
+          <span>+ هنوز محصولی ثبت نشده (افزودن)</span>
+        </a>
+      {% endfor %}
     </div>
-    <strong style="font-size: 1.5rem; font-weight: 900; color: var(--panel-text-main);">۲۳</strong>
-    <span style="display: block; font-size: 0.72rem; color: var(--p-success); margin-top: 2px;">↑ +۴ در ۲ ساعت گذشته</span>
-  </div>
-
-  <!-- Metric 2: High Quality Opportunities -->
-  <div class="p-card" style="padding: 16px 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-      <span style="font-size: 0.75rem; color: var(--stone-text-faint); font-weight: 700;">فرصت‌های باکیفیت (طلایی)</span>
-      <span>★</span>
-    </div>
-    <strong style="font-size: 1.5rem; font-weight: 900; color: var(--obsidian-cyan);">۱۴</strong>
-    <span style="display: block; font-size: 0.72rem; color: var(--stone-text-muted); margin-top: 2px;">امتیاز شایستگی بالای ۹۰</span>
-  </div>
-
-  <!-- Metric 3: Pending Review -->
-  <div class="p-card" style="padding: 16px 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-      <span style="font-size: 0.75rem; color: var(--stone-text-faint); font-weight: 700;">پیش‌نویس‌های آماده ارسال</span>
-      <span>✉</span>
-    </div>
-    <strong style="font-size: 1.5rem; font-weight: 900; color: var(--p-warning);">۷</strong>
-    <span style="display: block; font-size: 0.72rem; color: var(--stone-text-muted); margin-top: 2px;">متن پیام شخصی‌سازی‌شده</span>
-  </div>
-
-  <!-- Metric 4: Total Token Usage -->
-  <div class="p-card" style="padding: 16px 20px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-      <span style="font-size: 0.75rem; color: var(--stone-text-faint); font-weight: 700;">مجموع هزینه کشف</span>
-      <span>💰</span>
-    </div>
-    <strong style="font-size: 1.5rem; font-weight: 900; color: var(--panel-text-main);">۳,۲۰۰ تومان</strong>
-    <span style="display: block; font-size: 0.72rem; color: var(--stone-text-faint); margin-top: 2px;">۲۶ تحلیل پیام در ۲۴ ساعت</span>
   </div>
 </div>
 
 <!-- ========================================================================
-     Main Workspace Grid: Stone Side (Left) & Obsidian Radar Side (Right)
+     Step 2: Agent Business & ICP Understanding (فهم ایجنت از کسب‌وکار شما)
      ======================================================================== -->
-<div style="display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 24px;">
-
-  <!-- Zone 1: Stone Discovery Workstation & Controls -->
-  <div style="display: flex; flex-direction: column; gap: 20px;">
+<div class="p-card" style="padding: 22px 26px; margin-bottom: 24px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span class="console-pulse-beacon"></span>
+      <h2 style="font-size: 1.05rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">
+        شناخت ایجنت از کسب‌وکار و محصولات شما (ICP)
+      </h2>
+    </div>
     
-    <!-- Business Knowledge & Agent Mission Card -->
-    <div class="p-card">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 1.2rem;">🏢</span>
-          <h2 style="font-size: 1.1rem; font-weight: 850; margin: 0;">پروفایل کسب‌وکار متصل</h2>
-        </div>
-        <span class="p-badge p-badge-success">احراز هویت شده ✓</span>
-      </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span class="p-badge p-badge-success" id="icp-status-badge">استخراج‌شده از کاتالوگ ✓</span>
+      <button type="button" class="p-btn p-btn-sm p-btn-stone" id="btn-confirm-icp">
+        <span>تأیید شناخت ایجنت ✓</span>
+      </button>
+      <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-edit-target" title="شخصی‌سازی محدوده سن، شهر یا صنف">
+        <span>تنظیم دستی هدف‌گذاری</span>
+      </button>
+    </div>
+  </div>
 
-      <p style="font-size: 0.88rem; color: var(--stone-text-muted); line-height: 1.65; margin-bottom: 18px;">
-        {{ business.description|default:"اطلاعات کسب‌وکار شما با موفقیت ثبت شده و برای درک پرسونای خریداران در اختیار ایجنت قرار گرفته است." }}
-      </p>
-
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px; border-radius: 16px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
-        <div>
-          <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block; font-weight: 700;">نام برند:</span>
-          <strong style="font-size: 0.86rem;">{{ business.name }}</strong>
-        </div>
-        <div>
-          <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block; font-weight: 700;">نوع کسب‌وکار:</span>
-          <strong style="font-size: 0.86rem;">{{ business.get_business_type_display }}</strong>
-        </div>
-        <div>
-          <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block; font-weight: 700;">حوزه فعالیت:</span>
-          <strong style="font-size: 0.86rem;">{{ business.business_domain }}</strong>
-        </div>
-      </div>
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px; border-radius: 18px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
+    <div>
+      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">حوزه و صنعت:</span>
+      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ business.business_domain|default:"سبک زندگی دیجیتال و فناوری" }}</strong>
     </div>
 
-    <!-- Connected Products Knowledge Base -->
-    <div class="p-card">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 1.2rem;">📦</span>
-          <h2 style="font-size: 1.1rem; font-weight: 850; margin: 0;">پایگاه دانش محصولات و خدمات</h2>
-        </div>
-        <span class="p-badge p-badge-info">{{ business.products.count }} کالا ثبت‌شده</span>
-      </div>
-
-      <p style="font-size: 0.86rem; color: var(--stone-text-muted); line-height: 1.6; margin-bottom: 16px;">
-        ایجنت محصولات فعال را به عنوان معیار اصلی تطابق با نیازهای مشتریان در نظر می‌گیرد.
-      </p>
-
-      {% if business.products.exists %}
-        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
-          {% for prod in business.products.all|slice:":3" %}
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 14px; background: var(--panel-surface); box-shadow: var(--stone-shadow-sm); border: 1px solid rgba(255,255,255,0.7);">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                {% if prod.main_image %}
-                  <img src="{{ prod.main_image.image.url }}" alt="{{ prod.name }}" style="width: 36px; height: 36px; border-radius: 8px; object-fit: cover;">
-                {% else %}
-                  <div style="width: 36px; height: 36px; border-radius: 8px; background: var(--stone-surface-sunken); display: grid; place-items: center; font-size: 0.8rem;">📦</div>
-                {% endif %}
-                <div>
-                  <strong style="font-size: 0.88rem; display: block;">{{ prod.name|truncatewords:5 }}</strong>
-                  <span style="font-size: 0.72rem; color: var(--stone-text-faint);">{{ prod.formatted_price }}</span>
-                </div>
-              </div>
-              <span class="p-badge p-badge-success" style="font-size: 0.72rem;">فعال برای کشف</span>
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-
-      <div style="display: flex; gap: 10px;">
-        <a href="{% url 'products:list' %}" class="p-btn p-btn-secondary" style="flex: 1;">
-          <span>مشاهده همه محصولات</span>
-        </a>
-        <a href="{% url 'products:add' %}" class="p-btn p-btn-primary" style="flex: 1;">
-          <span>+ ثبت محصول جدید</span>
-        </a>
-      </div>
+    <div>
+      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">ارزش پیشنهادی اصلی:</span>
+      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">کاهش خستگی مفرط و ارتقای بازدهی کاری</strong>
     </div>
 
-    <!-- Lower Obsidian Controller Console (Direct from ELECTRIC CAR Controller in Image) -->
-    <div class="obsidian-control-bar">
+    <div>
+      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">خریداران ایده‌آل شناسایی‌شده:</span>
+      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">برنامه‌نویسان، طراحان، دانشجویان و کارمندان</strong>
+    </div>
+
+    <div>
+      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">محرک‌های خرید (Purchase Triggers):</span>
+      <strong style="font-size: 0.88rem; color: var(--obsidian-cyan);">کار طولانی با مانیتور، سوزش چشم، ارتقای ابزار</strong>
+    </div>
+  </div>
+
+  <!-- Manual Targeting Accordion (Hidden by default, simple & optional) -->
+  <div id="target-settings-drawer" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border-subtle);">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+      <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری (Target Constraints):</span>
+      <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">★ حالت پیش‌فرض: انتخاب خودکار توسط هوش مصنوعی بر اساس کاتالوگ</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
       <div>
-        <div class="ctrl-brand-title">
-          <span>⚡ کنترل عملیاتی ایجنت</span>
+        <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی</label>
+        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
+          <option selected>سراسر کشور (پیش‌فرض AI)</option>
+          <option>تهران و کرج</option>
+          <option>اصفهان و شیراز</option>
+          <option>مشهد و تبریز</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" style="font-size: 0.75rem;">بازه سنی مخاطب</label>
+        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
+          <option selected>۲۰ تا ۳۵ سال (تشخیص خودکار AI)</option>
+          <option>۱۸ تا ۲۵ سال (دانشجویان)</option>
+          <option>۲۵ تا ۴۵ سال (شاغلین)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" style="font-size: 0.75rem;">شبکه مورد پایش</label>
+        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
+          <option selected>همه شبکه‌ها (تلگرام + توییتر/X + اینستاگرام)</option>
+          <option>فقط گروه‌های تخصصی تلگرام</option>
+          <option>فقط گفتگوهای توییتر/X</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" style="font-size: 0.75rem;">مرحله نیت خرید (Intent)</label>
+        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
+          <option selected>آماده خرید + درخواست پیشنهاد (پیش‌فرض)</option>
+          <option>ابراز نیاز و درد روزمره (Problem-aware)</option>
+          <option>در حال مقایسه محصولات (Comparing)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     Step 3: Today's Opportunities Tabs (فرصت‌های کشف‌شده امروز)
+     ======================================================================== -->
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;">
+  <div>
+    <h2 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">فرصت‌های کشف‌شده در شبکه‌های آنلاین</h2>
+    <span style="font-size: 0.78rem; color: var(--stone-text-muted);">تحلیل پیام‌های عمومی در تلگرام، توییتر/X و اینستاگرام بر اساس سیگنال‌های نیت خرید</span>
+  </div>
+
+  <!-- Minimal 3-Tier Filter Pills (Hot / Warm / Monitor) -->
+  <div class="filter-tabs-group">
+    <button type="button" class="filter-tab active" data-tier="hot">
+      <span>🔥 ۱۲ فرصت داغ (نیت قطعی)</span>
+    </button>
+    <button type="button" class="filter-tab" data-tier="warm">
+      <span>🟡 ۳۷ فرصت گرم (در حال جستجو)</span>
+    </button>
+    <button type="button" class="filter-tab" data-tier="monitor">
+      <span>👀 ۸۴ نیازمند رصد (نیاز اولیه)</span>
+    </button>
+  </div>
+</div>
+
+<!-- ========================================================================
+     Step 4: Lead Inspector Workspace (فهرست مخاطبان راست + بررسی عمیق چپ)
+     ======================================================================== -->
+<div style="display: grid; grid-template-columns: 0.9fr 1.3fr; gap: 24px; align-items: start;">
+
+  <!-- Right: Discovered Leads List (فهرست تمیز و خوانا) -->
+  <div style="display: flex; flex-direction: column; gap: 12px;" id="leads-list-container">
+
+    <!-- Lead 1: Sara A. (Eyewear/Comfort target) -->
+    <div class="lead-item-card active" data-lead-id="1">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="lead-avatar-circle">س</div>
+          <div>
+            <strong style="font-size: 0.88rem; color: var(--panel-text-main);">سارا امیری (@sara_dev)</strong>
+            <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block;">توییتر / X • تهران • حوزه نرم‌افزار</span>
+          </div>
         </div>
-        <span style="font-size: 0.7rem; color: var(--obsidian-text-muted);">پایش و پالایش ۲۴ ساعته</span>
+        <span class="p-score-badge">امتیاز: ۹۴ / ۱۰۰</span>
       </div>
 
-      <div class="ctrl-mode-switch">
-        <button type="button" class="ctrl-mode-btn active" id="mode-auto">پایش خودکار</button>
-        <button type="button" class="ctrl-mode-btn" id="mode-deep">اسکن عمیق</button>
-        <button type="button" class="ctrl-mode-btn" id="mode-fast">فیلتر سریع</button>
+      <div class="lead-msg-quote">
+        «امروز بعد از ۱۰ ساعت کار مدام با سیستم چشمام داره می‌سوزه، کسی عینک مخصوص مانیتور باکیفیت سراغ داره که واقعاً جواب داده باشه؟ قصد خرید فوری دارم.»
       </div>
 
-      <div class="ctrl-slider-group">
-        <span class="ctrl-slider-label">حساسیت: ۷۵٪</span>
-        <div class="ctrl-slider-track">
-          <div class="ctrl-slider-fill"></div>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.72rem;">
+        <span style="color: var(--obsidian-cyan); font-weight: 750;">محصول منطبق: عینک بلوکات Pro (۹۴٪)</span>
+        <span style="color: var(--p-success); font-weight: 700;">آماده برای ارتباط فوری ⚡</span>
+      </div>
+    </div>
+
+    <!-- Lead 2: Ali Rezaei (Programming/Courses) -->
+    <div class="lead-item-card" data-lead-id="2">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="lead-avatar-circle">ع</div>
+          <div>
+            <strong style="font-size: 0.88rem; color: var(--panel-text-main);">علی رضایی (@ali_code)</strong>
+            <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block;">گروه تلگرام توسعه‌دهندگان • شیراز</span>
+          </div>
         </div>
+        <span class="p-score-badge">امتیاز: ۹۱ / ۱۰۰</span>
       </div>
 
-      <div class="ctrl-action-row">
-        <button type="button" class="ctrl-action-btn" title="اسکن مجدد" id="btn-rescan">🔄</button>
-        <button type="button" class="ctrl-action-btn" title="تطبیق فوری کاتالوگ">⚡</button>
-        <button type="button" class="ctrl-action-btn" title="خروجی گزارش">📊</button>
+      <div class="lead-msg-quote">
+        «سلام بچه‌ها، می‌خوام تا هفته بعد یادگیری پروژه‌محور جنگو و طراحی وب رو شروع کنم. دوره با پشتیبانی مستقیم می‌خوام، بودجه‌م هم مشخصه، چه پیشنهادی دارید؟»
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.72rem;">
+        <span style="color: var(--obsidian-cyan); font-weight: 750;">محصول منطبق: دوره جامع پایتون (۹۲٪)</span>
+        <span style="color: var(--p-success); font-weight: 700;">درخواست پیشنهاد خرید</span>
+      </div>
+    </div>
+
+    <!-- Lead 3: Mohsen K. (Ecommerce/Consulting) -->
+    <div class="lead-item-card" data-lead-id="3">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="lead-avatar-circle">م</div>
+          <div>
+            <strong style="font-size: 0.88rem; color: var(--panel-text-main);">محسن کریمی (@mohsen_biz)</strong>
+            <span style="font-size: 0.7rem; color: var(--stone-text-faint); display: block;">دایرکت اینستاگرام • مشهد • فروشگاه آنلاین</span>
+          </div>
+        </div>
+        <span class="p-score-badge">امتیاز: ۸۸ / ۱۰۰</span>
+      </div>
+
+      <div class="lead-msg-quote">
+        «ما دنبال یک ابزار مطمئن برای جذب خریداران واقعی بدون تبلیغات فیک در اینستاگرام و سوشال هستیم. کسی تیم یا محصول مطمئنی می‌شناسه معرفی کنه؟»
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.72rem;">
+        <span style="color: var(--obsidian-cyan); font-weight: 750;">محصول منطبق: پکیج مشاوره کشف مشتری (۸۹٪)</span>
+        <span style="color: var(--stone-text-muted); font-weight: 700;">مقایسه و ارزیابی</span>
       </div>
     </div>
 
   </div>
 
-  <!-- Zone 2: Dark Obsidian Live Discovery Radar Module (Direct from Reference Image Map & Dock) -->
-  <div class="obsidian-radar-module" id="radar-module">
+  <!-- Left: Deep Opportunity Inspector Card (بررسی عمیق فرصت و تحلیل چندبعدی) -->
+  <div class="p-card" style="padding: 26px;" id="lead-inspector-card">
 
-    <!-- Live Agent Audio & Listening Stream Header -->
-    <div class="radar-audio-bar">
-      <div class="radar-audio-disc"></div>
-      <div class="radar-audio-info">
-        <span class="radar-audio-title">شنود زنده سیگنال‌های جوامع</span>
-        <span class="radar-audio-sub">تلگرام برنامه‌نویسان • توییتر سبک زندگی • فروم‌ها</span>
-      </div>
-      <div class="radar-audio-waveform">
-        <span class="audio-bar-stick" style="height: 14px;"></span>
-        <span class="audio-bar-stick" style="height: 18px;"></span>
-        <span class="audio-bar-stick" style="height: 10px;"></span>
-        <span class="audio-bar-stick" style="height: 16px;"></span>
-        <span class="audio-bar-stick" style="height: 12px;"></span>
-      </div>
-    </div>
-
-    <!-- High-Tech Radar Map Screen with Sweeping Beam -->
-    <div class="radar-map-screen">
-      <!-- Concentric Grid Lines -->
-      <div class="radar-concentric-circle radar-circle-1"></div>
-      <div class="radar-concentric-circle radar-circle-2"></div>
-      <div class="radar-concentric-circle radar-circle-3"></div>
-
-      <!-- Sweeping Beam -->
-      <div class="radar-sweep-beam"></div>
-
-      <!-- Interactive Radar Pings (Real Online Conversations Detected) -->
-      <!-- Ping 1: Telegram Python Seeker -->
-      <div class="radar-ping-node active" style="top: 28%; right: 35%;" data-ping="1" title="علی رضایی - گروه تلگرام برنامه‌نویسان">
-        <div class="radar-ping-ripple"></div>
-        <span>💬</span>
-      </div>
-
-      <!-- Ping 2: Twitter Pain Narrator -->
-      <div class="radar-ping-node" style="top: 65%; right: 65%;" data-ping="2" title="سارا م. - توییتر/ایکس">
-        <div class="radar-ping-ripple"></div>
-        <span>🐦</span>
-      </div>
-
-      <!-- Ping 3: Forums discussion -->
-      <div class="radar-ping-node" style="top: 40%; right: 75%;" data-ping="3" title="مهرداد ک. - فروم تخصصی">
-        <div class="radar-ping-ripple"></div>
-        <span>🌐</span>
-      </div>
-
-      <!-- Tactical Vertical Circular Action Dock (Exact stacked buttons from Image) -->
-      <div class="tactical-action-dock">
-        <button type="button" class="tactical-dock-btn active" title="رادار زنده جوامع" data-dock="radar">🎯</button>
-        <button type="button" class="tactical-dock-btn" title="فیلتر نیت و نیاز مخاطب" data-dock="intent">⚡</button>
-        <button type="button" class="tactical-dock-btn" title="فرصت‌های باکیفیت" data-dock="quality">★</button>
-        <button type="button" class="tactical-dock-btn" title="هزینه تحلیل و توکن" data-dock="cost">💰</button>
-        <button type="button" class="tactical-dock-btn" title="پیش‌نویس پیام ارتباطی" data-dock="outreach">✉</button>
-      </div>
-    </div>
-
-    <!-- Active Detected Opportunity Preview Card (Interactive) -->
-    <div class="radar-opportunity-card" id="opp-preview-card">
-      <div class="radar-opp-header">
-        <div class="radar-opp-user">
-          <div class="radar-user-avatar" id="opp-avatar">ع</div>
-          <div>
-            <span class="radar-user-name" id="opp-name">علی رضایی (@ali_dev99)</span>
-            <span class="radar-source-tag" id="opp-source">گروه تلگرام توسعه‌دهندگان پایتون ایران</span>
-          </div>
+    <!-- Inspector Header: Identity, Channel & Overall Fit -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle);">
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+          <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);" id="insp-name">
+            سارا امیری (@sara_dev)
+          </h3>
+          <span class="p-badge p-badge-purple" id="insp-network">توییتر / X</span>
         </div>
-        <span class="p-score-badge" id="opp-score">امتیاز: ۹۶ / ۱۰۰ (شایستگی طلایی)</span>
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted);" id="insp-meta">
+          موقعیت: تهران • صنعت: توسعه نرم‌افزار • سبک گفتگو: خودمانی (Casual)
+        </span>
       </div>
 
-      <!-- Detected Message Snippet -->
-      <div class="radar-opp-snippet" id="opp-message">
-        «سلام دوستان، کسی دوره جامع و معتبر برای یادگیری پروژه محور جنگو و پایتون می‌شناسه؟ ترجیح میدم پشتیبانی و تمرین عملی داشته باشه، فوری می‌خوام شروع کنم.»
+      <div style="text-align: left;">
+        <div style="font-size: 1.6rem; font-weight: 900; color: var(--obsidian-cyan); line-height: 1;" id="insp-total-score">
+          ۹۴ <span style="font-size: 0.85rem; color: var(--stone-text-muted);">/ ۱۰۰</span>
+        </div>
+        <span style="font-size: 0.7rem; color: var(--p-success); font-weight: 700;">فرصت طلایی (High Priority)</span>
+      </div>
+    </div>
+
+    <!-- Multi-Dimensional Score Breakdown (امتیازدهی چندبعدی بر اساس درخواست شما) -->
+    <div style="margin-bottom: 22px;">
+      <span style="font-size: 0.76rem; font-weight: 800; color: var(--stone-text-faint); text-transform: uppercase; display: block; margin-bottom: 10px;">
+        تفکیک ابعاد امتیاز شایستگی (Opportunity Factors):
+      </span>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+        <div class="factor-mini-card">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
+            <span>نیاز مخاطب (Need)</span>
+            <strong id="factor-need">۹۶٪</strong>
+          </div>
+          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 96%;" id="bar-need"></div></div>
+        </div>
+
+        <div class="factor-mini-card">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
+            <span>نیت خرید (Intent)</span>
+            <strong id="factor-intent">۹۱٪</strong>
+          </div>
+          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 91%;" id="bar-intent"></div></div>
+        </div>
+
+        <div class="factor-mini-card">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
+            <span>تطابق با کالا (Fit)</span>
+            <strong id="factor-fit">۹۵٪</strong>
+          </div>
+          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 95%;" id="bar-fit"></div></div>
+        </div>
+
+        <div class="factor-mini-card">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
+            <span>فوریت نیاز (Urgency)</span>
+            <strong id="factor-urgency">۸۹٪</strong>
+          </div>
+          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 89%;" id="bar-urgency"></div></div>
+        </div>
+
+        <div class="factor-mini-card">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
+            <span>تطابق با تارگت</span>
+            <strong id="factor-target">۹۷٪</strong>
+          </div>
+          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 97%;" id="bar-target"></div></div>
+        </div>
+
+        <div class="factor-mini-card">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
+            <span>سلامت لحن گفتگو</span>
+            <strong id="factor-safety" style="color: var(--p-success);">۹۲٪ ✓</strong>
+          </div>
+          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 92%; background: var(--p-success);" id="bar-safety"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: Why should I contact this person? (شواهد و دلایل عینی) -->
+    <div style="margin-bottom: 20px;">
+      <span style="font-size: 0.78rem; font-weight: 850; color: var(--panel-text-main); display: block; margin-bottom: 8px;">
+        💡 چرا باید با این شخص ارتباط بگیرید؟ (شواهد ایجنت)
+      </span>
+      <div style="padding: 12px 16px; border-radius: 14px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset); font-size: 0.82rem; color: var(--panel-text-main); line-height: 1.65;" id="insp-evidence">
+        «این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»
+      </div>
+    </div>
+
+    <!-- Section: Recommended Product (برای این آدم کدام محصول؟) -->
+    <div style="margin-bottom: 20px; padding: 14px 18px; border-radius: 18px; background: var(--stone-surface); box-shadow: var(--stone-shadow-sm); border: 1.5px solid rgba(0, 242, 254, 0.35);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 800;">محصول منتخب پیشنهادی ایجنت (#1 Best Match):</span>
+        <span class="p-badge p-badge-success" id="insp-match-percent">۹۴٪ تطابق</span>
       </div>
 
-      <!-- Agent Reasoning & Product Match -->
-      <div style="font-size: 0.78rem; color: var(--obsidian-text-muted); line-height: 1.5;" id="opp-reasoning">
-        💡 <strong>تحلیل نیت ایجنت:</strong> بیان قصد خرید فوری و نیاز به آموزش ساختاریافته که ۱۰۰٪ با کاتالوگ محصولات شما تطابق دارد.
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <strong style="font-size: 0.95rem; color: var(--panel-text-main); display: block;" id="insp-prod-name">عینک کامپیوتر و بلوکات Pro</strong>
+          <span style="font-size: 0.76rem; color: var(--stone-text-muted);" id="insp-prod-reason">دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی</span>
+        </div>
+        <strong style="font-size: 1rem; color: var(--panel-text-main);" id="insp-prod-price">۲,۴۰۰,۰۰۰ تومان</strong>
+      </div>
+    </div>
+
+    <!-- Section: Preferred Channel & Personalized Outreach (پیش‌نویس پیام طبیعی) -->
+    <div style="margin-bottom: 20px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <span style="font-size: 0.78rem; font-weight: 850; color: var(--panel-text-main);">
+          ✉ پیش‌نویس پیام متناسب با لحن کاربر (بدون لحن اسپم تبلیغاتی):
+        </span>
+        <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="insp-channel-tag">
+          بهترین کانال: <strong>دایرکت توییتر / اینستاگرام</strong> (اطمینان ۸۶٪)
+        </span>
       </div>
 
-      <!-- Token & Cost Breakdown (buildX Mandatory Criteria) -->
-      <div class="radar-opp-metrics">
-        <span>مصرف توکن: <strong style="color: var(--obsidian-cyan);" id="opp-tokens">۴۸۰ توکن</strong></span>
-        <span>هزینه تحلیل: <strong style="color: var(--obsidian-green);" id="opp-cost">۰.۰۰۱۹ $ (~ ۱۱۵ تومان)</strong></span>
-      </div>
-
-      <!-- Tailored Outreach Draft (Ready to copy/send) -->
-      <div style="background: rgba(0, 242, 254, 0.08); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 12px; padding: 10px 14px;">
-        <span style="font-size: 0.7rem; color: var(--obsidian-cyan); display: block; font-weight: 800; margin-bottom: 4px;">پیش‌نویس پیام پیشنهادی ایجنت:</span>
-        <p style="font-size: 0.8rem; color: #ffffff; margin: 0; line-height: 1.55;" id="opp-outreach">
-          «سلام علی جان! دیدم دنبال یادگیری پروژه محور با پشتیبانی هستی. دوره جدید ما دقیقا بر اساس پروژه‌های واقعی بازار کار همراه با رفع اشکال مستقیم طراحی شده. اگه مایل باشی سرفصل‌ها و دموی رایگان رو برات بفرستم.»
+      <div style="background: rgba(0, 242, 254, 0.06); border: 1.5px solid rgba(0, 242, 254, 0.25); border-radius: 16px; padding: 14px 18px; margin-bottom: 12px;">
+        <p style="font-size: 0.85rem; color: var(--panel-text-main); margin: 0; line-height: 1.65;" id="insp-outreach-text">
+          «سلام سارا جان، دیدم درباره کار مداوم با سیستم و سوزش چشم پرسیده بودی. ما دقیقا یک مدل فریم سبک TR90 با عدسی فیلتر نور آبی داریم که برای کار مداوم جلوی مانیتور طراحی شده و فکر می‌کنم دقیقاً همون چیزیه که دنبالش بودی. اگه مایل باشی برات اطلاعات بیشتر و نظرات خریداران رو بفرستم؟»
         </p>
       </div>
 
       <!-- Action Buttons -->
-      <div style="display: flex; gap: 8px; margin-top: 4px;">
-        <button type="button" class="p-btn p-btn-primary p-btn-sm" style="flex: 1;" id="btn-copy-draft">
-          <span>کپی پیش‌نویس پیام</span>
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="p-btn p-btn-primary" style="flex: 1;" id="btn-copy-outreach">
+          <span>کپی متن پیام 📋</span>
         </button>
-        <button type="button" class="p-btn p-btn-secondary p-btn-sm" style="flex: 1; background: var(--obsidian-surface); color: #fff; border-color: var(--obsidian-border);">
-          <span>تأیید و ارسال ارتباط</span>
-        </button>
+        <a href="{% url 'products:list' %}" class="p-btn p-btn-stone" style="flex: 1;" id="btn-view-prod-card">
+          <span>مشاهده مشخصات کالا 📦</span>
+        </a>
       </div>
     </div>
 
@@ -379,97 +402,198 @@
 
 </div>
 
-<!-- Client-side Interactive Radar Switcher Script -->
+<!-- Client-side Interactive Logic -->
 <script>
   (() => {
-    const oppsData = {
+    // Lead Database for Instant Filtering & Inspection
+    const leadsData = {
       "1": {
-        avatar: "ع",
-        name: "علی رضایی (@ali_dev99)",
-        source: "گروه تلگرام توسعه‌دهندگان پایتون ایران",
-        score: "امتیاز: ۹۶ / ۱۰۰ (شایستگی طلایی)",
-        message: "«سلام دوستان، کسی دوره جامع و معتبر برای یادگیری پروژه محور جنگو و پایتون می‌شناسه؟ ترجیح میدم پشتیبانی و تمرین عملی داشته باشه، فوری می‌خوام شروع کنم.»",
-        reasoning: "💡 <strong>تحلیل نیت ایجنت:</strong> بیان قصد خرید فوری و نیاز به آموزش ساختاریافته که ۱۰۰٪ با کاتالوگ محصولات شما تطابق دارد.",
-        tokens: "۴۸۰ توکن",
-        cost: "۰.۰۰۱۹ $ (~ ۱۱۵ تومان)",
-        outreach: "«سلام علی جان! دیدم دنبال یادگیری پروژه محور با پشتیبانی هستی. دوره جدید ما دقیقا بر اساس پروژه‌های واقعی بازار کار همراه با رفع اشکال مستقیم طراحی شده. اگه مایل باشی سرفصل‌ها و دموی رایگان رو برات بفرستم.»"
+        name: "سارا امیری (@sara_dev)",
+        network: "توییتر / X",
+        meta: "موقعیت: تهران • صنعت: توسعه نرم‌افزار • سبک گفتگو: خودمانی (Casual)",
+        score: "۹۴",
+        need: "۹۶%",
+        intent: "۹۱%",
+        fit: "۹۵%",
+        urgency: "۸۹%",
+        target: "۹۷%",
+        safety: "۹۲% ✓",
+        evidence: "«این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»",
+        prodName: "عینک کامپیوتر و بلوکات Pro",
+        prodReason: "دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی",
+        prodPrice: "۲,۴۰۰,۰۰۰ تومان",
+        matchPercent: "۹۴٪ تطابق",
+        channel: "بهترین کانال: دایرکت توییتر / اینستاگرام (اطمینان ۸۶٪)",
+        outreach: "«سلام سارا جان، دیدم درباره کار مداوم با سیستم و سوزش چشم پرسیده بودی. ما دقیقا یک مدل فریم سبک TR90 با عدسی فیلتر نور آبی داریم که برای کار مداوم جلوی مانیتور طراحی شده و فکر می‌کنم دقیقاً همون چیزیه که دنبالش بودی. اگه مایل باشی برات اطلاعات بیشتر و نظرات خریداران رو بفرستم؟»"
       },
       "2": {
-        avatar: "س",
-        name: "سارا م. (@saram_lifestyle)",
-        source: "شبکه اجتماعی توییتر / X",
-        score: "امتیاز: ۸۹ / ۱۰۰ (فرصت باکیفیت)",
-        message: "«دیگه چشمم داره بعد از ۱۰ ساعت کار مداوم با سیستم می‌سوزه و گردن درد گرفتم، واقعا نیاز به یک ارگونومی مناسب و عینک مخصوص مانیتور دارم. پیشنهادتون چیه؟»",
-        reasoning: "💡 <strong>تحلیل نیت ایجنت:</strong> ابراز نارضایتی شدید از درد فیزیکی و جستجوی فعال برای راهکار سلامتی و راحتی کار.",
-        tokens: "۴۲۰ توکن",
-        cost: "۰.۰۰۱۷ $ (~ ۱۰۰ تومان)",
-        outreach: "«سلام سارا جان، خستگی چشم بعد از ساعت‌های طولانی کار خیلی آزاردهنده‌ست. محصول ارگونومیک ما دقیقا برای کاهش ۹۰ درصدی فشار نور آبی و مهره‌های گردن ساخته شده؛ دوست داری اطلاعات تست و نظرات خریداران رو ببینی؟»"
+        name: "علی رضایی (@ali_code)",
+        network: "تلگرام",
+        meta: "موقعیت: شیراز • صنف: متقاضی آموزش IT • سبک گفتگو: مستقیم و محترمانه",
+        score: "۹۱",
+        need: "۹۵%",
+        intent: "۹۳%",
+        fit: "۹۱%",
+        urgency: "۸۶%",
+        target: "۹۴%",
+        safety: "۹۶% ✓",
+        evidence: "«کاربر در گروه تلگرام برنامه‌نویسان پایتون صراحتاً تقاضای دوره پروژه‌محور با رفع اشکال برای ورود به بازار کار داشته و بودجه مشخص خود را اعلام کرده است.»",
+        prodName: "دوره جامع آموزش پایتون و جنگو",
+        prodReason: "دلیل پیشنهاد: همپوشانی ۱۰۰٪ سرفصل‌ها با نیاز بازار کار و پشتیبانی مربی",
+        prodPrice: "۱,۸۰۰,۰۰۰ تومان",
+        matchPercent: "۹۲٪ تطابق",
+        channel: "بهترین کانال: پیام مستقیم تلگرام (@ali_code)",
+        outreach: "«سلام علی عزیز، دیدم دنبال دوره پروژه‌محور جنگو با رفع اشکال مستقیم بودی. دوره جدید ما دقیقاً سرفصل‌های ورود به بازار کار رو پوشش میده. سرفصل‌ها و دموی جلسه اول رو برات ارسال کنم؟»"
       },
       "3": {
-        avatar: "م",
-        name: "مهرداد ک. (کاربر فروم تخصصی)",
-        source: "انجمن کسب‌وکارهای آنلاین",
-        score: "امتیاز: ۸۴ / ۱۰۰ (نیاز بالقوه)",
-        message: "«ما برای افزایش فروش سایتمون دنبال ابزار یا خدمات تخصصی کشف مشتریان در سوشال مدیا هستیم. کسی شرکت یا سرویس مطمئنی در این حوزه می‌شناسه؟»",
-        reasoning: "💡 <strong>تحلیل نیت ایجنت:</strong> تصمیم‌گیرنده B2B در جستجوی راهکارهای افزایش فروش و مارکتینگ دیجیتال.",
-        tokens: "۵۱۰ توکن",
-        cost: "۰.۰۰۲۰ $ (~ ۱۲۰ تومان)",
-        outreach: "«درود مهرداد عزیز! سامانه هوشمند مشتری‌یاب دقیقا برای همین هدف طراحی شده و گفتگوهای جوامع آنلاین رو بر اساس کاتالوگ محصولات شما رصد و فیلتر می‌کنه. می‌تونیم یک دموی آزمایشی براتون فعال کنیم.»"
+        name: "محسن کریمی (@mohsen_biz)",
+        network: "اینستاگرام",
+        meta: "موقعیت: مشهد • صنف: فروشگاه آنلاین و خرده‌فروشی • سبک گفتگو: حرفه‌ای (Professional)",
+        score: "۸۸",
+        need: "۸۹%",
+        intent: "۸۵%",
+        fit: "۸۸%",
+        urgency: "۸۰%",
+        target: "۹۱%",
+        safety: "۹۰% ✓",
+        evidence: "«مدیر یک کسب‌وکار اینستاگرامی که در کامنت‌ها دنبال سرویس‌های هوشمند برای کشف خریداران واقعی بدون تقلب بوده است.»",
+        prodName: "پکیج خدمات کشف مشتریان B2B",
+        prodReason: "دلیل پیشنهاد: منطبق بر مدل کسب‌وکار آنلاین و هدف افزایش فروش ارگانیک",
+        prodPrice: "توافقی",
+        matchPercent: "۸۹٪ تطابق",
+        channel: "بهترین کانال: دایرکت رسمی اینستاگرام",
+        outreach: "«درود جناب کریمی عزیز، با توجه به دغدغه شما در خصوص جذب خریداران واقعی در سوشال مدیا، سیستم مشتری‌یاب دقیقاً با پایش گفتگوهای مرتبط، لیدهای باکیفیت را شناسایی می‌کند. خوشحال می‌شویم یک دموی آزمایشی تقدیم حضورتان کنیم.»"
       }
     };
 
-    const pings = document.querySelectorAll('.radar-ping-node');
-    const avatarEl = document.getElementById('opp-avatar');
-    const nameEl = document.getElementById('opp-name');
-    const sourceEl = document.getElementById('opp-source');
-    const scoreEl = document.getElementById('opp-score');
-    const msgEl = document.getElementById('opp-message');
-    const reasonEl = document.getElementById('opp-reasoning');
-    const tokensEl = document.getElementById('opp-tokens');
-    const costEl = document.getElementById('opp-cost');
-    const outreachEl = document.getElementById('opp-outreach');
-    const copyBtn = document.getElementById('btn-copy-draft');
+    // Selecting Leads
+    const leadCards = document.querySelectorAll('.lead-item-card');
+    const inspName = document.getElementById('insp-name');
+    const inspNetwork = document.getElementById('insp-network');
+    const inspMeta = document.getElementById('insp-meta');
+    const inspTotalScore = document.getElementById('insp-total-score');
+    const factorNeed = document.getElementById('factor-need');
+    const factorIntent = document.getElementById('factor-intent');
+    const factorFit = document.getElementById('factor-fit');
+    const factorUrgency = document.getElementById('factor-urgency');
+    const factorTarget = document.getElementById('factor-target');
+    const factorSafety = document.getElementById('factor-safety');
+    const barNeed = document.getElementById('bar-need');
+    const barIntent = document.getElementById('bar-intent');
+    const barFit = document.getElementById('bar-fit');
+    const barUrgency = document.getElementById('bar-urgency');
+    const barTarget = document.getElementById('bar-target');
+    const barSafety = document.getElementById('bar-safety');
+    const inspEvidence = document.getElementById('insp-evidence');
+    const inspProdName = document.getElementById('insp-prod-name');
+    const inspProdReason = document.getElementById('insp-prod-reason');
+    const inspProdPrice = document.getElementById('insp-prod-price');
+    const inspMatchPercent = document.getElementById('insp-match-percent');
+    const inspChannelTag = document.getElementById('insp-channel-tag');
+    const inspOutreachText = document.getElementById('insp-outreach-text');
+    const btnCopy = document.getElementById('btn-copy-outreach');
 
-    pings.forEach(ping => {
-      ping.addEventListener('click', () => {
-        pings.forEach(p => p.classList.remove('active'));
-        ping.classList.add('active');
-        const id = ping.dataset.ping;
-        const data = oppsData[id];
-        if (data) {
-          avatarEl.textContent = data.avatar;
-          nameEl.textContent = data.name;
-          sourceEl.textContent = data.source;
-          scoreEl.textContent = data.score;
-          msgEl.textContent = data.message;
-          reasonEl.innerHTML = data.reasoning;
-          tokensEl.textContent = data.tokens;
-          costEl.textContent = data.cost;
-          outreachEl.textContent = data.outreach;
+    leadCards.forEach(card => {
+      card.addEventListener('click', () => {
+        leadCards.forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        const id = card.dataset.leadId;
+        const d = leadsData[id];
+        if (d) {
+          inspName.textContent = d.name;
+          inspNetwork.textContent = d.network;
+          inspMeta.textContent = d.meta;
+          inspTotalScore.innerHTML = `${d.score} <span style="font-size: 0.85rem; color: var(--stone-text-muted);">/ ۱۰۰</span>`;
+          factorNeed.textContent = d.need;
+          factorIntent.textContent = d.intent;
+          factorFit.textContent = d.fit;
+          factorUrgency.textContent = d.urgency;
+          factorTarget.textContent = d.target;
+          factorSafety.textContent = d.safety;
+          barNeed.style.width = d.need;
+          barIntent.style.width = d.intent;
+          barFit.style.width = d.fit;
+          barUrgency.style.width = d.urgency;
+          barTarget.style.width = d.target;
+          barSafety.style.width = d.safety.replace(' ✓', '');
+          inspEvidence.textContent = d.evidence;
+          inspProdName.textContent = d.prodName;
+          inspProdReason.textContent = d.prodReason;
+          inspProdPrice.textContent = d.prodPrice;
+          inspMatchPercent.textContent = d.matchPercent;
+          inspChannelTag.innerHTML = d.channel;
+          inspOutreachText.textContent = d.outreach;
         }
       });
     });
 
-    if (copyBtn) {
-      copyBtn.addEventListener('click', () => {
-        if (outreachEl) {
-          navigator.clipboard.writeText(outreachEl.textContent.trim()).then(() => {
-            const originalText = copyBtn.innerHTML;
-            copyBtn.innerHTML = '<span>کپی شد ✓</span>';
-            setTimeout(() => { copyBtn.innerHTML = originalText; }, 2000);
+    // Copy Outreach Message
+    if (btnCopy) {
+      btnCopy.addEventListener('click', () => {
+        if (inspOutreachText) {
+          navigator.clipboard.writeText(inspOutreachText.textContent.trim()).then(() => {
+            const oldHtml = btnCopy.innerHTML;
+            btnCopy.innerHTML = '<span>متن کپی شد ✓</span>';
+            setTimeout(() => { btnCopy.innerHTML = oldHtml; }, 2000);
           });
         }
       });
     }
 
-    // Mode Switchers
-    const modeBtns = document.querySelectorAll('.ctrl-mode-btn');
-    modeBtns.forEach(btn => {
+    // Product Filter Buttons
+    const prodButtons = document.querySelectorAll('.prod-selector-btn');
+    prodButtons.forEach(btn => {
       btn.addEventListener('click', () => {
-        modeBtns.forEach(b => b.classList.remove('active'));
+        prodButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Visual indicator that discovery is filtering for this product
+        const prodId = btn.dataset.prodId;
+        if (prodId !== 'all') {
+          // highlight lead 1 or lead 2 depending on category
+          leadCards.forEach((c, idx) => {
+            c.style.display = (idx === 0) ? 'block' : 'none';
+          });
+          leadCards[0].click();
+        } else {
+          leadCards.forEach(c => c.style.display = 'block');
+        }
+      });
+    });
+
+    // ICP Confirm Button
+    const btnConfirm = document.getElementById('btn-confirm-icp');
+    const icpStatusBadge = document.getElementById('icp-status-badge');
+    if (btnConfirm) {
+      btnConfirm.addEventListener('click', () => {
+        btnConfirm.textContent = 'تأیید شد ✓';
+        btnConfirm.style.background = 'var(--p-success)';
+        btnConfirm.style.color = '#fff';
+        if (icpStatusBadge) {
+          icpStatusBadge.textContent = 'تأیید شده توسط فروشنده ✓';
+        }
+      });
+    }
+
+    // Toggle Manual Targeting Drawer
+    const btnEditTarget = document.getElementById('btn-edit-target');
+    const targetDrawer = document.getElementById('target-settings-drawer');
+    if (btnEditTarget && targetDrawer) {
+      btnEditTarget.addEventListener('click', () => {
+        const isHidden = targetDrawer.style.display === 'none';
+        targetDrawer.style.display = isHidden ? 'block' : 'none';
+        btnEditTarget.textContent = isHidden ? 'بستن تنظیمات هدف‌گذاری' : 'تنظیم دستی هدف‌گذاری';
+      });
+    }
+
+    // Tier Filter Buttons (Hot / Warm / Monitor)
+    const tierButtons = document.querySelectorAll('.filter-tab[data-tier]');
+    tierButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tierButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
       });
     });
   })();
 </script>
+
 {% endblock %}
