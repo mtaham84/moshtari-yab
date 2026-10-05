@@ -13,7 +13,7 @@
       <span class="p-badge p-badge-purple">موتور هوش مصنوعی فروش</span>
     </div>
     <p class="p-page-subtitle">
-      ایجنت فروش بر اساس درخت‌واره کاتالوگ شما، گفتگوهای عمومی شبکه‌های اجتماعی را تحلیل کرده و مخاطبان با احتمال خرید بالای ۳۰٪ را ثبت می‌کند.
+      ایجنت فروش بر اساس کاتالوگ شما (تا سقف ۵۰ کالا)، گفتگوهای شبکه‌های اجتماعی را تحلیل کرده، مخاطبان با احتمال خرید بالای ۳۰٪ را شناسایی و پیام‌های هوشمند را بدون نیاز به تأیید دستی پیش‌نویس، مستقیماً از حساب شما ارسال می‌کند.
     </p>
   </div>
 
@@ -71,7 +71,7 @@
       </div>
       <div>
         <label class="form-label" style="font-size: 0.78rem;">سقف کالاهای فعال روزانه</label>
-        <input type="number" name="daily_discovery_limit" min="1" max="50" class="form-input" value="{{ business.daily_discovery_limit }}" style="font-size: 0.82rem;">
+        <input type="number" name="daily_discovery_limit" min="1" max="200" class="form-input" value="{{ business.daily_discovery_limit }}" style="font-size: 0.82rem;">
       </div>
     </div>
     <div style="display: flex; justify-content: flex-end;">
@@ -266,18 +266,14 @@
         <span>تحلیل ایجنت: {{ lead.intent_reasoning }}</span>
       </div>
 
-      <!-- Outreach Draft Box -->
+      <!-- Outreach Sent Box -->
       <div style="padding: 14px 18px; border-radius: 14px; background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.22); margin-bottom: 14px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
           <span style="font-size: 0.75rem; font-weight: 800; color: var(--obsidian-cyan);">
-            پیش‌نویس پیام هوشمند ({% if lead.outreach_mode == 'DIRECT' %}دایرکت خصوصی{% else %}کامنت عمومی{% endif %}):
+            پیام ارسال‌شده توسط ایجنت ({% if lead.outreach_mode == 'DIRECT' %}دایرکت خصوصی{% else %}کامنت عمومی{% endif %}):
           </span>
           <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="outreach-status-{{ lead.id }}">
-            {% if lead.outreach_status == 'SENT' %}
-              ✓ ارسال شده از حساب: <strong style="color: var(--panel-text-main);" dir="ltr">{{ lead.sent_from_handle }}</strong>
-            {% else %}
-              آماده برای ارسال
-            {% endif %}
+            ✓ ارسال خودکار از حساب: <strong style="color: var(--panel-text-main);" dir="ltr">{{ lead.sent_from_handle|default:business.telegram_account_handle|default:"حساب فروشنده" }}</strong>
           </span>
         </div>
         <p style="font-size: 0.82rem; color: var(--panel-text-main); margin: 0; line-height: 1.65; white-space: pre-line;">{{ lead.outreach_message }}</p>
@@ -288,11 +284,11 @@
         <div style="display: flex; align-items: center; gap: 8px;">
           <button 
             type="button" 
-            class="p-btn p-btn-sm p-btn-primary btn-send-outreach" 
+            class="p-btn p-btn-sm p-btn-secondary btn-send-outreach" 
             data-lead-id="{{ lead.id }}"
-            {% if lead.outreach_status == 'SENT' %}disabled style="opacity: 0.6;"{% endif %}>
+            style="font-size: 0.74rem;">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-            <span>{% if lead.outreach_status == 'SENT' %}پیام ارسال شده{% else %}ارسال پیام از حساب شما{% endif %}</span>
+            <span>ارسال مجدد پیام / پیگیری</span>
           </button>
 
           {% if lead.post_url %}

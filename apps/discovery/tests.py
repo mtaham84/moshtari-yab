@@ -95,7 +95,9 @@ class DiscoveryPipelineTests(TestCase):
         self.assertTrue(leads.exists())
         for lead in leads:
             self.assertGreaterEqual(lead.intent_score, 30, "No lead under 30% should be preserved")
-            self.assertTrue(lead.outreach_message, "Outreach message draft must be generated")
+            self.assertTrue(lead.outreach_message, "Outreach message must be generated")
+            self.assertEqual(lead.status, "CONTACTED", "Outreach should be sent automatically without requiring confirmation")
+            self.assertEqual(lead.outreach_status, "SENT")
             self.assertEqual(lead.product, self.product)
 
     def test_deduplication_prevents_duplicate_processing(self):

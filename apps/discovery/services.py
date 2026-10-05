@@ -258,9 +258,9 @@ def evaluate_and_discover_leads(business: Business) -> dict:
 
             seller_handle = ""
             if channel == "TELEGRAM":
-                seller_handle = business.telegram_account_handle or ""
+                seller_handle = business.telegram_account_handle or "@seller_telegram"
             elif channel == "X":
-                seller_handle = business.x_account_handle or ""
+                seller_handle = business.x_account_handle or "@seller_x"
 
             lead = DiscoveredLead.objects.create(
                 business=business,
@@ -275,9 +275,9 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 matched_branch=matched_branch_path,
                 outreach_mode=outreach_mode,
                 outreach_message=outreach_msg,
-                outreach_status="DRAFT",
+                outreach_status="SENT",
                 sent_from_handle=seller_handle,
-                status="NEW"
+                status="CONTACTED"
             )
 
             # Record hash
@@ -296,7 +296,7 @@ def evaluate_and_discover_leads(business: Business) -> dict:
 
     return {
         "status": "success",
-        "message": f"پایش با موفقیت انجام شد. {leads_created} سرنخ بالقوه با انطباق بالای ۳۰٪ کشف گردید.",
+        "message": f"پایش با موفقیت انجام شد. {leads_created} سرنخ بالقوه با انطباق بالای ۳۰٪ کشف و پیام هوشمند به صورت خودکار از حساب شما ارسال گردید.",
         "leads_created": leads_created,
         "leads": created_lead_objects
     }

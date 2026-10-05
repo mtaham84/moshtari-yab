@@ -34,7 +34,7 @@ class Business(models.Model):
         verbose_name="شرح مشتریان ایده‌آل (ICP)"
     )
     daily_discovery_limit = models.PositiveIntegerField(
-        default=5,
+        default=50,
         verbose_name="سقف روزانه کالاهای فعال برای پایش"
     )
     telegram_account_handle = models.CharField(
