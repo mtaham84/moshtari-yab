@@ -230,13 +230,21 @@ def validate_message_in_product_domain(message_text: str, product: Product, busi
 
 def check_account_message_cap(lead: DiscoveredLead) -> tuple[bool, str]:
     """
-    Strict Rate-Limiting: Limits conversation with any account (across comments and DMs)
-    to a maximum of 10 messages.
+    Strict Daily Rate-Limiting: Limits conversation with any account (across comments and DMs)
+    to a maximum of 10 messages per day on Telegram and X.
+    Resets automatically on a new day.
     """
+    today = timezone.now().date()
+    if lead.last_message_date != today:
+        lead.message_count = 0
+        lead.last_message_date = today
+        lead.is_conversation_capped = False
+        lead.save(update_fields=["message_count", "last_message_date", "is_conversation_capped"])
+
     if lead.message_count >= 10:
         lead.is_conversation_capped = True
         lead.save(update_fields=["is_conversation_capped"])
-        return False, "سقف مجاز تبادل پیام (۱۰ پیام) برای این گفتگو تکمیل شده است. جهت هماهنگی بیشتر با پشتیبانی در تماس باشید."
+        return False, "سقف مجاز روزانه تبادل پیام (۱۰ پیام در روز) برای این حساب کاربری تکمیل شده است. ادامه گفتگو فردا امکان‌پذیر خواهد بود."
     return True, "ALLOWED"
 
 
@@ -456,6 +464,10 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 customer_reply=cust_reply if should_send else "",
                 customer_reply_at=timezone.now() if has_reply else None,
                 message_count=2 if has_reply else (1 if should_send else 0),
+                last_message_date=today,
+                tokens_used=570,
+                cost_usd=0.000360,
+                cost_toman=25,
                 guardrail_status="SAFE_IN_DOMAIN",
                 direct_link_sent=direct_link,
                 status="CONTACTED" if should_send else "NEW"
@@ -639,7 +651,8 @@ def get_agent_discovery_feed(business: Business, min_priority: int = 1, limit: i
                 "identity": "بات سراسری پیدا (خرید و مشتری‌یابی در X)",
                 "strategy": "COMMENT_FIRST_WITH_DIRECT_LINK",
                 "dm_policy": "RESPOND_ONLY_ON_CUSTOMER_INITIATION_OR_AFTER_COMMENT",
-                "max_messages_per_account": 10,
+                "daily_message_cap_per_account": 10,
+                "daily_quota_description": "حداکثر سقف مجاز روزانه: ۱۰ پیام به ازای هر حساب کاربری در X و تلگرام",
                 "domain_guardrail": "STRICT_CATALOG_PRODUCTS_ONLY"
             }
         },

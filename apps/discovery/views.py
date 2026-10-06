@@ -1,17 +1,20 @@
 import json
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from apps.businesses.models import Business
 from apps.products.models import Product
 from apps.core.jalali import parse_jalali_date, format_jalali_date
-from .models import DiscoveredLead, CategoryBranchMemory
+from .models import DiscoveredLead, CategoryBranchMemory, ProcessedMessageHash, ProductDailyMetric
 from .services import (
     evaluate_and_discover_leads,
     send_lead_outreach,
     get_agent_discovery_feed,
-    get_performance_analytics
+    get_performance_analytics,
+    check_account_message_cap
 )
 
 @login_required
@@ -216,4 +219,137 @@ def api_analytics_report_view(request):
 
     data = get_performance_analytics(business=business, start_date=start_date, end_date=end_date)
     return JsonResponse({"status": "success", "data": data}, json_dumps_params={"ensure_ascii": False, "indent": 2})
+
+
+@csrf_exempt
+def api_submit_lead_view(request):
+    """
+    Dedicated REST API endpoint for external AI Crawlers, Telegram Listeners, and X Bots
+    to ingest discovered leads into the database with full deduplication, token/cost tracking,
+    and daily quota enforcement.
+    Endpoint: POST /discovery/api/leads/submit/
+    """
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "فقط متد POST مجاز است."}, status=405)
+
+    try:
+        data = json.loads(request.body) if request.body else request.POST
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": f"خطا در پردازش JSON: {str(e)}"}, status=400)
+
+    # Resolve business
+    business = None
+    if request.user.is_authenticated:
+        business = getattr(request.user, "business", None)
+    
+    business_id = data.get("business_id")
+    if not business and business_id:
+        business = Business.objects.filter(id=business_id).first()
+
+    if not business:
+        business = Business.objects.first()
+
+    if not business:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=404)
+
+    channel = data.get("channel", "X").upper()
+    if channel not in ["TELEGRAM", "X"]:
+        channel = "X"
+
+    lead_handle = data.get("lead_handle", "").strip()
+    text = data.get("content_snippet", "").strip()
+    if not lead_handle or not text:
+        return JsonResponse({"status": "error", "message": "ارسال lead_handle و content_snippet الزامی است."}, status=400)
+
+    # 1. Deduplication Hash check
+    fingerprint = ProcessedMessageHash.calculate_hash(channel, lead_handle, text)
+    if ProcessedMessageHash.objects.filter(fingerprint=fingerprint).exists():
+        return JsonResponse({
+            "status": "duplicate",
+            "message": "این پیام قبلاً پردازش و ثبت شده است (Deduplicated).",
+            "fingerprint": fingerprint
+        }, status=200)
+
+    # 2. Product match
+    product_id = data.get("product_id")
+    product = None
+    if product_id:
+        product = Product.objects.filter(id=product_id, business=business).first()
+    if not product:
+        product = Product.objects.filter(business=business, is_discovery_active=True).first() or Product.objects.filter(business=business).first()
+
+    if not product:
+        return JsonResponse({"status": "error", "message": "هیچ محصولی برای تطبیق یافت نشد."}, status=404)
+
+    # 3. Intent score & reasoning
+    score = int(data.get("intent_score", 50))
+    reasoning = data.get("intent_reasoning", "کشف هوشمند از طریق ایجنت هوش مصنوعی")
+    matched_branch = data.get("matched_branch", product.category.get_full_path() if product.category else "")
+
+    outreach_mode = data.get("outreach_mode", "COMMENT" if channel == "X" else "DIRECT")
+    outreach_msg = data.get("outreach_message", "")
+    direct_link = data.get("direct_link_sent", product.url or f"https://customerweb.ir/p/{product.id}")
+
+    tokens_used = int(data.get("tokens_used", 0))
+    cost_usd = float(data.get("cost_usd", 0.0))
+    cost_toman = int(data.get("cost_toman", 0))
+
+    # Daily account cap check (10 messages per day per account)
+    today = timezone.now().date()
+    existing_lead = DiscoveredLead.objects.filter(business=business, channel=channel, lead_handle=lead_handle).first()
+    msg_count = 1
+    if existing_lead:
+        if existing_lead.last_message_date == today:
+            msg_count = existing_lead.message_count + 1
+        else:
+            msg_count = 1
+
+    lead = DiscoveredLead.objects.create(
+        business=business,
+        product=product,
+        channel=channel,
+        lead_handle=lead_handle,
+        lead_display_name=data.get("lead_display_name", ""),
+        post_url=data.get("post_url", ""),
+        content_snippet=text,
+        intent_score=score,
+        intent_reasoning=reasoning,
+        matched_branch=matched_branch,
+        outreach_mode=outreach_mode,
+        outreach_message=outreach_msg,
+        outreach_status=data.get("outreach_status", "SENT"),
+        sent_from_handle=data.get("sent_from_handle", business.telegram_account_handle if channel == "TELEGRAM" else business.x_account_handle or "@peyda_bot"),
+        bot_agent_name=data.get("bot_agent_name", "بات پیدا (@peyda_bot)" if channel == "X" else "ایجنت هوشمند فروش"),
+        customer_reply=data.get("customer_reply", ""),
+        customer_reply_at=timezone.now() if data.get("customer_reply") else None,
+        message_count=msg_count,
+        last_message_date=today,
+        is_conversation_capped=(msg_count >= 10),
+        tokens_used=tokens_used,
+        cost_usd=cost_usd,
+        cost_toman=cost_toman,
+        guardrail_status=data.get("guardrail_status", "SAFE_IN_DOMAIN"),
+        direct_link_sent=direct_link,
+        status=data.get("status", "CONTACTED" if outreach_msg else "NEW")
+    )
+
+    # Save hash
+    ProcessedMessageHash.objects.create(fingerprint=fingerprint, channel=channel)
+
+    # Update metric
+    metric, _ = ProductDailyMetric.objects.get_or_create(product=product, date=today)
+    metric.outreach_sent_count += 1
+    metric.save(update_fields=["outreach_sent_count"])
+
+    return JsonResponse({
+        "status": "success",
+        "lead_id": lead.id,
+        "product_id": product.id,
+        "message_count_today": msg_count,
+        "is_conversation_capped": lead.is_conversation_capped,
+        "cost_toman": cost_toman,
+        "tokens_used": tokens_used,
+        "message": "سرنخ کشف‌شده با موفقیت در پایگاه داده ثبت و پیام به مشتری ارسال شد."
+    }, status=201)
+
 

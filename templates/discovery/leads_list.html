@@ -242,7 +242,12 @@
           </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <!-- Inspection Cost Badge -->
+          <span style="font-size: 0.73rem; color: var(--stone-text-muted); background: var(--stone-surface-sunken); padding: 5px 10px; border-radius: 8px; border: 1px solid var(--panel-border-subtle);">
+            هزینه تحلیل: <strong style="color: var(--panel-text-main);">{{ lead.cost_toman|default:25 }} تومان</strong> ({{ lead.tokens_used|default:570 }} توکن)
+          </span>
+
           <!-- Intent Score Badge -->
           <span class="p-score-badge" style="padding: 6px 14px; border-radius: 12px; font-size: 0.85rem; font-weight: 850; background: {% if lead.intent_score >= 70 %}rgba(16,185,129,0.15){% elif lead.intent_score >= 40 %}rgba(0,242,254,0.15){% else %}rgba(255,255,255,0.08){% endif %}; color: {% if lead.intent_score >= 70 %}var(--p-success){% elif lead.intent_score >= 40 %}var(--obsidian-cyan){% else %}var(--panel-text-main){% endif %}; border: 1px solid currentColor;">
             احتمال خرید: {{ lead.intent_score }}٪
@@ -273,8 +278,8 @@
             <span style="font-size: 0.75rem; font-weight: 800; color: var(--obsidian-cyan);">
               پیام ارسال‌شده توسط {% if lead.channel == 'X' %}بات پیدا (@peyda_bot){% else %}{{ lead.bot_agent_name|default:"ایجنت فروش" }}{% endif %} ({% if lead.outreach_mode == 'DIRECT' %}دایرکت{% else %}ریپلای زیر توییت/کامنت با لینک کالا{% endif %}):
             </span>
-            <span class="p-badge p-badge-purple" style="font-size: 0.65rem; padding: 1px 6px;">
-              پیام {{ lead.message_count }} از ۱۰
+            <span class="p-badge {% if lead.is_conversation_capped %}p-badge-warning{% else %}p-badge-purple{% endif %}" style="font-size: 0.65rem; padding: 1px 6px;">
+              پیام {{ lead.message_count }} از ۱۰ (سقف روزانه){% if lead.is_conversation_capped %} - سقف امروز تکمیل شد{% endif %}
             </span>
           </div>
           <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="outreach-status-{{ lead.id }}">

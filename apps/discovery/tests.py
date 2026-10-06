@@ -1,4 +1,6 @@
-from datetime import date
+import json
+from datetime import date, timedelta
+from django.utils import timezone
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from apps.businesses.models import Business
@@ -261,7 +263,7 @@ class DiscoveryPipelineTests(TestCase):
         self.assertIn("دستیار تخصصی خرید", response)
         self.assertIn(self.product.name, response)
 
-    def test_account_message_cap_enforces_10_message_limit(self):
+    def test_account_message_cap_enforces_10_message_daily_limit_and_resets_next_day(self):
         lead = DiscoveredLead.objects.create(
             business=self.business,
             product=self.product,
@@ -269,19 +271,67 @@ class DiscoveryPipelineTests(TestCase):
             lead_handle="@chatty_user",
             content_snippet="دنبال لباس هستم",
             intent_score=80,
-            message_count=9
+            message_count=9,
+            last_message_date=timezone.now().date()
         )
-        # Message 9 is allowed
+        # Message 9 is allowed today
         allowed, status = check_account_message_cap(lead)
         self.assertTrue(allowed)
         self.assertFalse(lead.is_conversation_capped)
 
-        # Message 10 reaches cap and blocks further answers
+        # Message 10 reaches daily cap and blocks further answers today
         lead.message_count = 10
         allowed, status = check_account_message_cap(lead)
         self.assertFalse(allowed)
         self.assertTrue(lead.is_conversation_capped)
-        self.assertIn("سقف مجاز تبادل پیام (۱۰ پیام)", status)
+        self.assertIn("سقف مجاز روزانه تبادل پیام (۱۰ پیام در روز)", status)
+
+        # On the next day, counter resets automatically
+        yesterday = timezone.now().date() - timedelta(days=1)
+        lead.last_message_date = yesterday
+        lead.save()
+
+        allowed, status = check_account_message_cap(lead)
+        self.assertTrue(allowed)
+        lead.refresh_from_db()
+        self.assertEqual(lead.message_count, 0)
+        self.assertFalse(lead.is_conversation_capped)
+        self.assertEqual(lead.last_message_date, timezone.now().date())
+
+    def test_api_submit_lead_endpoint(self):
+        payload = {
+            "channel": "TELEGRAM",
+            "lead_handle": "@telegram_shopper",
+            "lead_display_name": "خریدار تستی",
+            "content_snippet": "سلام شلوار کارگو باکیفیت برای سایز ۳۸ دارید؟",
+            "product_id": self.product.id,
+            "intent_score": 88,
+            "intent_reasoning": "نیاز فوری به شلوار کارگو با ذکر سایز",
+            "outreach_mode": "DIRECT",
+            "outreach_message": "سلام، شلوار کارگو کتان بگ با کیفیت عالی در کاتالوگ ما موجود است.",
+            "tokens_used": 540,
+            "cost_usd": 0.00034,
+            "cost_toman": 24,
+        }
+        response = self.client.post(
+            "/discovery/api/leads/submit/",
+            data=json.dumps(payload),
+            content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["cost_toman"], 24)
+        self.assertEqual(data["tokens_used"], 540)
+
+        # Test deduplication
+        dup_response = self.client.post(
+            "/discovery/api/leads/submit/",
+            data=json.dumps(payload),
+            content_type="application/json"
+        )
+        self.assertEqual(dup_response.status_code, 200)
+        self.assertEqual(dup_response.json()["status"], "duplicate")
 
     def test_two_way_communication_records_customer_reply_and_peyda_bot_identity(self):
         result = evaluate_and_discover_leads(self.business)

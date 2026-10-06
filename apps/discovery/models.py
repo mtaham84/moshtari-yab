@@ -1,5 +1,6 @@
 import hashlib
 from django.db import models
+from django.utils import timezone
 from apps.businesses.models import Business
 from apps.products.models import Product, Category
 
@@ -184,12 +185,30 @@ class DiscoveredLead(models.Model):
     )
     message_count = models.PositiveSmallIntegerField(
         default=1,
-        verbose_name="تعداد پیام‌های تبادل‌شده",
-        help_text="حداکثر سقف مجاز: ۱۰ پیام"
+        verbose_name="تعداد پیام‌های تبادل‌شده امروز",
+        help_text="حداکثر سقف مجاز روزانه: ۱۰ پیام"
+    )
+    last_message_date = models.DateField(
+        default=timezone.now,
+        verbose_name="تاریخ آخرین تبادل پیام"
     )
     is_conversation_capped = models.BooleanField(
         default=False,
-        verbose_name="رسیدن به سقف ۱۰ پیام"
+        verbose_name="رسیدن به سقف روزانه ۱۰ پیام"
+    )
+    tokens_used = models.PositiveIntegerField(
+        default=0,
+        verbose_name="توکن‌های مصرفی بررسی پیام"
+    )
+    cost_usd = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        default=0,
+        verbose_name="هزینه دلاری بررسی پیام"
+    )
+    cost_toman = models.PositiveIntegerField(
+        default=0,
+        verbose_name="هزینه تومانی بررسی پیام"
     )
     guardrail_status = models.CharField(
         max_length=50,
