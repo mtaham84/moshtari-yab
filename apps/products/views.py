@@ -70,12 +70,21 @@ def product_add_view(request):
         target_customer = request.POST.get("target_customer", "").strip()
         status = request.POST.get("status", "ACTIVE").strip()
 
-        # Parse dynamic attributes from form
+        # Parse dynamic attributes from form (custom key-value pairs + category suggestions)
         attributes = {}
+        attr_keys = request.POST.getlist("custom_attr_key")
+        attr_vals = request.POST.getlist("custom_attr_value")
+        for k, v in zip(attr_keys, attr_vals):
+            k_clean = k.strip()
+            v_clean = v.strip()
+            if k_clean and v_clean:
+                attributes[k_clean] = v_clean
+
         for key, val in request.POST.items():
             if key.startswith("attr_") and val.strip():
                 attr_name = key[5:]
-                attributes[attr_name] = val.strip()
+                if attr_name not in attributes:
+                    attributes[attr_name] = val.strip()
 
         # Validation
         if not name or not description:
@@ -187,11 +196,21 @@ def product_edit_view(request, pk):
         product.telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
         product.x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
 
+        # Parse dynamic attributes from form (custom key-value pairs + category suggestions)
         attributes = {}
+        attr_keys = request.POST.getlist("custom_attr_key")
+        attr_vals = request.POST.getlist("custom_attr_value")
+        for k, v in zip(attr_keys, attr_vals):
+            k_clean = k.strip()
+            v_clean = v.strip()
+            if k_clean and v_clean:
+                attributes[k_clean] = v_clean
+
         for key, val in request.POST.items():
             if key.startswith("attr_") and val.strip():
                 attr_name = key[5:]
-                attributes[attr_name] = val.strip()
+                if attr_name not in attributes:
+                    attributes[attr_name] = val.strip()
         product.attributes = attributes
 
         if category_id:
@@ -329,6 +348,11 @@ def api_create_category(request):
     if parent_id:
         parent = Category.objects.filter(id=parent_id).first()
         if parent:
+            if len(parent.get_ancestors()) >= 2:
+                return JsonResponse({
+                    "status": "error",
+                    "message": "حداکثر عمق مجاز درخت‌واره ۳ سطح است (دسته اصلی > زیرشاخه > رسته)."
+                }, status=400)
             product_type = parent.product_type
 
     category = Category.objects.create(
@@ -368,6 +392,7 @@ def api_category_tree(request):
             "product_type": cat.product_type,
             "full_path": cat.get_full_path(),
             "is_custom": cat.business_id is not None,
+            "depth": len(cat.get_ancestors()),
             "children": [],
         }
         for cat in categories

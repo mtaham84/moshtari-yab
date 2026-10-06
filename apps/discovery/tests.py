@@ -27,7 +27,7 @@ class DiscoveryPipelineTests(TestCase):
             preferred_outreach_mode="DIRECT"
         )
 
-        # Build custom category tree: پوشاک > زنانه > شلوار > کارگو
+        # Build custom category tree up to 3 levels: پوشاک > زنانه > شلوار کارگو
         self.cat_clothing = Category.objects.create(
             business=self.business,
             name="پوشاک",
@@ -39,26 +39,21 @@ class DiscoveryPipelineTests(TestCase):
             parent=self.cat_clothing,
             product_type="PHYSICAL"
         )
-        self.cat_pants = Category.objects.create(
+        self.cat_cargo = Category.objects.create(
             business=self.business,
-            name="شلوار",
+            name="شلوار کارگو",
             parent=self.cat_women,
             product_type="PHYSICAL"
         )
-        self.cat_cargo = Category.objects.create(
-            business=self.business,
-            name="کارگو",
-            parent=self.cat_pants,
-            product_type="PHYSICAL"
-        )
 
-        # Create active product
+        # Create active product with dynamic custom attributes
         self.product = Product.objects.create(
             business=self.business,
-            name="شلوار کارگو زیتونی کتان باکیفیت",
+            name="شلوار کارگو زنانه باکیفیت",
             category=self.cat_cargo,
-            description="شلوار کارگو شش جیب راسته با دوخت صنعتی، مناسب استایل کژوال و راحتی",
+            description="شلوار شش جیب راسته با دوخت صنعتی، مناسب استایل کژوال و راحتی",
             price=850000,
+            attributes={"رنگ": "زیتونی، مشکی", "جنس": "کتان", "سایز": "38, 40"},
             status="ACTIVE",
             is_discovery_active=True,
             discovery_priority=3,
@@ -69,9 +64,9 @@ class DiscoveryPipelineTests(TestCase):
     def test_custom_category_tree_hierarchy(self):
         self.assertEqual(
             self.cat_cargo.get_full_path(),
-            "پوشاک > زنانه > شلوار > کارگو"
+            "پوشاک > زنانه > شلوار کارگو"
         )
-        self.assertEqual(len(self.cat_cargo.get_ancestors()), 3)
+        self.assertEqual(len(self.cat_cargo.get_ancestors()), 2)
 
     def test_keywords_extraction_includes_tree_and_product(self):
         keywords, negatives = extract_keywords_from_product(self.product)
@@ -79,6 +74,8 @@ class DiscoveryPipelineTests(TestCase):
         self.assertIn("شلوار", keywords)
         self.assertIn("پوشاک", keywords)
         self.assertIn("زنانه", keywords)
+        self.assertIn("مشکی", keywords)
+        self.assertIn("کتان", keywords)
         self.assertIn("استخدام", negatives)
 
     def test_discovery_pipeline_captures_all_leads_above_30_percent(self):
@@ -130,23 +127,34 @@ class DiscoveryPipelineTests(TestCase):
         client = Client()
         client.force_login(self.user)
 
-        # Add child category under cargo
+        # 1. Adding child category under level 2 (cat_women) should succeed (depth becomes 2 -> Level 3)
         res = client.post(
             "/products/categories/api/add/",
-            data={"name": "کارگو بگ تابستانه", "parent_id": self.cat_cargo.id},
+            data={"name": "شلوار جین بگ", "parent_id": self.cat_women.id},
             content_type="application/json"
         )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data["status"], "success")
-        self.assertEqual(data["category"]["name"], "کارگو بگ تابستانه")
+        self.assertEqual(data["category"]["name"], "شلوار جین بگ")
 
-        # Check tree endpoint
+        # 2. Adding child category under level 3 (cat_cargo) must FAIL due to max 3-level constraint
+        res_depth_exceeded = client.post(
+            "/products/categories/api/add/",
+            data={"name": "کارگو کتان بهاره", "parent_id": self.cat_cargo.id},
+            content_type="application/json"
+        )
+        self.assertEqual(res_depth_exceeded.status_code, 400)
+        err_data = res_depth_exceeded.json()
+        self.assertEqual(err_data["status"], "error")
+        self.assertIn("حداکثر عمق مجاز درخت‌واره ۳ سطح است", err_data["message"])
+
+        # 3. Check tree endpoint contains depth information
         tree_res = client.get("/products/categories/api/tree/")
         self.assertEqual(tree_res.status_code, 200)
         tree_data = tree_res.json()
         self.assertEqual(tree_data["status"], "success")
-        self.assertTrue(any(node["name"] == "پوشاک" for node in tree_data["tree"]))
+        self.assertTrue(any(node["name"] == "پوشاک" and node["depth"] == 0 for node in tree_data["tree"]))
 
     def test_daily_limit_quota_toggle(self):
         client = Client()

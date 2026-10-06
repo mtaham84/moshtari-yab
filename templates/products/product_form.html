@@ -112,11 +112,11 @@
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
         <label for="category_select" class="form-label" style="margin-bottom: 0;">
           درخت‌واره دسته‌بندی کالا
-          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منعطف؛ امکان تعریف نامحدود زیرشاخه‌ها)</small>
+          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منعطف؛ سقف ۲ تا ۳ سطح منطبق با استانداردهای پایش)</small>
         </label>
         <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-toggle-tree" style="font-size: 0.75rem; padding: 4px 10px;">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          <span id="btn-tree-text">مشاهده / افزودن زیرشاخه</span>
+          <span id="btn-tree-text">بستن / بازکردن درخت‌واره</span>
         </button>
       </div>
 
@@ -124,7 +124,7 @@
       <div id="active-category-display" style="padding: 12px 16px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1.5px solid var(--panel-border-subtle); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--obsidian-cyan);"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-          <span style="font-size: 0.82rem; color: var(--stone-text-muted);">شاخه فعال:</span>
+          <span style="font-size: 0.82rem; color: var(--stone-text-muted);">شاخه فعال انتخابی:</span>
           <strong id="selected-category-text" style="font-size: 0.88rem; color: var(--obsidian-cyan);">
             {% if product.category %}{{ product.category.get_full_path }}{% else %}هنوز شاخه‌ای انتخاب نشده است{% endif %}
           </strong>
@@ -134,39 +134,39 @@
         </span>
       </div>
 
-      <!-- Category Tree Interactive Explorer Drawer -->
-      <div id="category-tree-explorer" style="display: none; padding: 18px; border-radius: 14px; background: var(--stone-surface); border: 1px solid var(--panel-border); margin-bottom: 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border-subtle);">
+      <!-- Category Tree Interactive Explorer Drawer (Open by Default) -->
+      <div id="category-tree-explorer" style="display: block; padding: 18px; border-radius: 14px; background: var(--stone-surface); border: 1px solid var(--panel-border); margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border-subtle); flex-wrap: wrap; gap: 8px;">
           <div>
-            <strong style="font-size: 0.86rem; color: var(--panel-text-main); display: block;">ساختار درختی دسته‌ها:</strong>
-            <span style="font-size: 0.72rem; color: var(--stone-text-muted);">برای انتخاب کلیک کنید یا با دکمه (+) برای هر دسته زیرشاخه اختصاصی بسازید.</span>
+            <strong style="font-size: 0.86rem; color: var(--panel-text-main); display: block;">ساختار درختی دسته‌بندی‌ها:</strong>
+            <span style="font-size: 0.72rem; color: var(--stone-text-muted);">برای انتخاب شاخه کلیک کنید یا با دکمه (+ زیرشاخه) برای هر سطح زیرمجموعه دلخواه بسازید (تا ۳ سطح).</span>
           </div>
           <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-add-root-cat" style="font-size: 0.74rem;">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>+ افزودن سرشاخه اصلی</span>
+            <span>+ افزودن سرشاخه اصلی جدید</span>
           </button>
         </div>
 
-        <!-- Inline Category Creator Form (Populated dynamically) -->
-        <div id="inline-category-creator" style="display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 10px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.25);">
+        <!-- Inline Category Creator Form -->
+        <div id="inline-category-creator" style="display: none; margin-bottom: 14px; padding: 14px; border-radius: 12px; background: rgba(0, 242, 254, 0.05); border: 1.5px solid rgba(0, 242, 254, 0.28);">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <span style="font-size: 0.78rem; font-weight: 800; color: var(--panel-text-main);" id="creator-parent-label">افزودن شاخه جدید</span>
+            <span style="font-size: 0.8rem; font-weight: 800; color: var(--panel-text-main);" id="creator-parent-label">افزودن شاخه جدید</span>
             <button type="button" id="btn-cancel-creator" style="background: none; border: none; color: var(--stone-text-muted); cursor: pointer; font-size: 0.75rem;">انصراف</button>
           </div>
           <div style="display: flex; gap: 8px;">
-            <input type="text" id="new-cat-name-input" class="form-input" placeholder="نام شاخه (مثلاً: شلوار کارگو)" style="height: 38px; font-size: 0.82rem;">
-            <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-save-inline-cat" style="white-space: nowrap;">ثبت و انتخاب</button>
+            <input type="text" id="new-cat-name-input" class="form-input" placeholder="نام شاخه (مثلاً: شلوار کارگو)" style="height: 38px; font-size: 0.82rem; flex: 1;">
+            <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-save-inline-cat" style="white-space: nowrap;">ثبت و انتخاب این شاخه</button>
           </div>
         </div>
 
-        <div id="tree-container" style="max-height: 260px; overflow-y: auto; padding-right: 4px;">
+        <div id="tree-container" style="max-height: 280px; overflow-y: auto; padding-right: 4px;">
           <!-- Rendered dynamically via JS -->
         </div>
       </div>
 
-      <!-- Quick Select Dropdown (Synced with Tree) -->
-      <select name="category_id" id="category_select" class="form-input" style="height: 46px;">
-        <option value="">-- انتخاب مستقیم از لیست دسته‌ها --</option>
+      <!-- Fallback Quick Select Dropdown (Synced with Tree) -->
+      <select name="category_id" id="category_select" class="form-input" style="height: 44px;">
+        <option value="">-- انتخاب مستقیم از لیست تمام دسته‌ها --</option>
         {% for cat in categories %}
           <option 
             value="{{ cat.id }}" 
@@ -180,44 +180,97 @@
       </select>
     </div>
 
-    <!-- Description -->
-    <div class="form-group" style="margin-bottom: 20px;">
+    <!-- Description (Distinct Field for AI & Knowledge Base) -->
+    <div class="form-group" style="margin-bottom: 24px;">
       <label for="prod_desc" class="form-label">
-        شرح ویژگی‌ها و مزایای محصول <span class="req">*</span>
+        شرح کامل و مزایای محصول یا خدمت <span class="req">*</span>
       </label>
       <textarea 
         name="description" 
         id="prod_desc" 
         class="form-input" 
         rows="4" 
-        placeholder="توضیح دهید این محصول چه مشکلی را حل می‌کند و چه مزایایی دارد (ایجنت از این متن برای تطبیق با نیاز کاربران در شبکه‌ها استفاده می‌کند)..." 
+        placeholder="توضیح دهید این محصول چه مشکلی را حل می‌کند، چه کاربردی دارد و چه مزایایی نسبت به سایرین دارد (ایجنت از این توضیحات برای تطبیق دقیق با سوالات خریداران در مکالمات استفاده می‌کند)..." 
         required>{{ product.description|default:'' }}</textarea>
+      <small style="color: var(--panel-text-faint); display: block; margin-top: 6px; font-size: 0.78rem;">
+        این توضیحات متمایز از ویژگی‌های فنی زیر است و به ایجنت کمک می‌کند مفهوم و کارایی محصول را درک کند.
+      </small>
     </div>
 
-    <!-- Dynamic Category-Specific Attributes Section -->
-    <div class="form-group" id="attributes-wrapper" style="border: 1px solid var(--panel-border); border-radius: 16px; padding: 20px; background: var(--panel-hover); margin-bottom: 20px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-        <label class="form-label" style="margin-bottom: 0;">
-          <span>ویژگی‌های اختصاصی دسته</span>
-          <small style="color: var(--panel-text-muted);">(پویا بر اساس دسته انتخابی)</small>
-        </label>
-        <span class="p-badge p-badge-purple">ساختاردهی JSON</span>
+    <!-- Dynamic Custom Attributes Builder (Arbitrary Key-Value Attributes) -->
+    <div class="form-group" id="attributes-wrapper" style="border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover); margin-bottom: 24px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+        <div>
+          <label class="form-label" style="margin-bottom: 2px; font-size: 0.95rem;">
+            ویژگی‌ها و مشخصات فنی کالا (دلخواه و نامحدود)
+          </label>
+          <small style="color: var(--panel-text-muted); display: block; font-size: 0.78rem;">
+            می‌توانید هر تعداد مشخصه دلخواه (مانند سایز، رنگ، جنس، مدل، گارانتی یا موارد دیگر) را ثبت کنید تا ایجنت دقیقاً خریداران این مشخصات را پیدا کند.
+          </small>
+        </div>
+        <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-add-custom-attr" style="font-size: 0.78rem;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>+ افزودن ویژگی دلخواه</span>
+        </button>
       </div>
 
-      <div id="dynamic-attributes-container" class="form-row-2">
+      <!-- Quick Preset Suggestions (Click to Add Row) -->
+      <div style="margin-bottom: 16px; padding: 10px 14px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1px dashed var(--panel-border-subtle);">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--obsidian-cyan);"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          <span style="font-size: 0.76rem; color: var(--stone-text-muted); font-weight: 600;">افزودن سریع ویژگی‌های پرکاربرد (یک‌کلیک):</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;" id="preset-chips-container">
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="سایز" data-sample="مثال: XL یا ۳۸، ۴۰">
+            + سایز (Size)
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="رنگ" data-sample="مثال: مشکی، زیتونی">
+            + رنگ (Color)
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="جنس" data-sample="مثال: کتان پنبه ۱۰۰٪">
+            + جنس / متریال
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="مدل" data-sample="مثال: کارگو، راسته">
+            + مدل / طرح
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="برند" data-sample="مثال: سامسونگ، زارا">
+            + برند (Brand)
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="گارانتی" data-sample="مثال: ۱۸ ماه معتبر شرکتی">
+            + گارانتی (Warranty)
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="ابعاد / وزن" data-sample="مثال: ۳۵×۲۰ سانتی‌متر">
+            + ابعاد / وزن
+          </button>
+          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="مدت دوره" data-sample="مثال: ۴۰ ساعت ویدیو + پروژه">
+            + مدت دوره (خدمات)
+          </button>
+        </div>
+      </div>
+
+      <!-- Dynamic Custom Attributes List (Rows of Key-Value) -->
+      <div id="custom-attributes-list" style="display: flex; flex-direction: column; gap: 10px;">
         {% if product.attributes %}
           {% for k, v in product.attributes.items %}
-            <div class="form-group">
-              <label class="form-label" style="font-size: 0.82rem;">{{ k }}</label>
-              <input type="text" name="attr_{{ k }}" value="{{ v }}" class="form-input" style="background: var(--panel-surface);">
+            <div class="custom-attr-row" style="display: flex; gap: 10px; align-items: center; background: var(--panel-surface); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);">
+              <div style="flex: 1;">
+                <input type="text" name="custom_attr_key" class="form-input" placeholder="عنوان ویژگی (مثلاً سایز)" value="{{ k }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+              </div>
+              <div style="flex: 1.6;">
+                <input type="text" name="custom_attr_value" class="form-input" placeholder="مقدار ویژگی (مثلاً مشکی یا ۳۸)" value="{{ v }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+              </div>
+              <button type="button" class="p-btn p-btn-ghost btn-delete-attr-row" title="حذف این ویژگی" style="padding: 6px 8px; color: var(--p-danger); border-radius: 8px;">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              </button>
             </div>
           {% endfor %}
-        {% else %}
-          <p style="grid-column: span 2; font-size: 0.85rem; color: var(--panel-text-faint); margin: 0;">
-            با انتخاب دسته‌بندی در بالا، فیلدهای ویژگی مرتبط (مانند سایز، جنس، رم، مدت زمان دوره و...) به صورت خودکار در این بخش ایجاد می‌شوند.
-          </p>
         {% endif %}
       </div>
+
+      <div id="no-attrs-placeholder" style="{% if product.attributes %}display: none;{% endif %} text-align: center; padding: 18px; border-radius: 10px; background: var(--panel-surface); border: 1px dashed var(--panel-border-subtle); color: var(--panel-text-faint); font-size: 0.82rem;">
+        هنوز مشخصه‌ای تعریف نشده است. با کلیک بر روی دکمه‌های پرکاربرد بالا یا دکمه «+ افزودن ویژگی دلخواه»، ویژگی‌های این کالا را ثبت کنید.
+      </div>
+    </div>
     <!-- Product Images (Max 10 with Main Image Selection) -->
     <div class="form-group" style="margin-bottom: 24px; border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
@@ -490,36 +543,105 @@
     if (categorySelect) categorySelect.focus();
   });
 
-  // Dynamic category attributes loader
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Dynamic Custom Attributes List Manager
+  const customAttrsList = document.getElementById('custom-attributes-list');
+  const noAttrsPlaceholder = document.getElementById('no-attrs-placeholder');
+  const btnAddCustomAttr = document.getElementById('btn-add-custom-attr');
+  const presetChips = document.querySelectorAll('.preset-chip');
+
+  function addCustomAttrRow(key = '', val = '', placeholder = '') {
+    if (noAttrsPlaceholder) noAttrsPlaceholder.style.display = 'none';
+    const row = document.createElement('div');
+    row.className = 'custom-attr-row';
+    row.style = 'display: flex; gap: 10px; align-items: center; background: var(--panel-surface); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);';
+    row.innerHTML = `
+      <div style="flex: 1;">
+        <input type="text" name="custom_attr_key" class="form-input" placeholder="عنوان ویژگی (مثلاً سایز)" value="${escapeHtml(key)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+      </div>
+      <div style="flex: 1.6;">
+        <input type="text" name="custom_attr_value" class="form-input" placeholder="${placeholder || 'مقدار ویژگی (مثلاً مشکی یا ۳۸)'}" value="${escapeHtml(val)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+      </div>
+      <button type="button" class="p-btn p-btn-ghost btn-delete-attr-row" title="حذف این ویژگی" style="padding: 6px 8px; color: var(--p-danger); border-radius: 8px;">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+      </button>
+    `;
+    const btnDelete = row.querySelector('.btn-delete-attr-row');
+    btnDelete.addEventListener('click', () => {
+      row.remove();
+      if (customAttrsList && customAttrsList.querySelectorAll('.custom-attr-row').length === 0) {
+        if (noAttrsPlaceholder) noAttrsPlaceholder.style.display = 'block';
+      }
+    });
+    if (customAttrsList) customAttrsList.appendChild(row);
+    const valInput = row.querySelector('input[name="custom_attr_value"]');
+    const keyInput = row.querySelector('input[name="custom_attr_key"]');
+    if (key && valInput) {
+      valInput.focus();
+    } else if (keyInput) {
+      keyInput.focus();
+    }
+    return row;
+  }
+
+  // Bind existing delete buttons
+  document.querySelectorAll('.btn-delete-attr-row').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.custom-attr-row');
+      if (row) row.remove();
+      if (customAttrsList && customAttrsList.querySelectorAll('.custom-attr-row').length === 0) {
+        if (noAttrsPlaceholder) noAttrsPlaceholder.style.display = 'block';
+      }
+    });
+  });
+
+  // Preset chips click handling
+  presetChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      const key = chip.dataset.key || '';
+      const sample = chip.dataset.sample || '';
+      const existingInp = Array.from(customAttrsList ? customAttrsList.querySelectorAll('input[name="custom_attr_key"]') : []).find(inp => inp.value.trim() === key);
+      if (existingInp) {
+        const row = existingInp.closest('.custom-attr-row');
+        const valInp = row ? row.querySelector('input[name="custom_attr_value"]') : null;
+        if (valInp) valInp.focus();
+      } else {
+        addCustomAttrRow(key, '', sample);
+      }
+    });
+  });
+
+  btnAddCustomAttr?.addEventListener('click', () => {
+    addCustomAttrRow('', '', '');
+  });
+
+  // Category attributes loader: smoothly integrates suggested attributes into custom rows
   function loadAttributesForCategory(catId) {
     if (!catId) return;
     fetch(`/products/api/category-attributes/${catId}/`)
       .then(res => res.json())
       .then(data => {
         const attrs = data.attributes || [];
-        if (attrs.length === 0) {
-          dynamicContainer.innerHTML = '<p style="grid-column: span 2; font-size: 0.85rem; color: var(--panel-text-faint); margin: 0;">این دسته‌بندی ویژگی اختصاصی پیش‌فرضی ندارد. می‌توانید در شرح محصول خصوصیات را ذکر کنید.</p>';
-          return;
-        }
-
-        let html = '';
         attrs.forEach(a => {
-          html += `
-            <div class="form-group">
-              <label class="form-label" style="font-size: 0.82rem;">${a.label || a.key}</label>
-              <input type="text" name="attr_${a.key}" placeholder="${a.placeholder || ''}" class="form-input" style="background: var(--panel-surface);">
-            </div>
-          `;
+          const key = a.label || a.key;
+          const existingInp = Array.from(customAttrsList ? customAttrsList.querySelectorAll('input[name="custom_attr_key"]') : []).find(inp => inp.value.trim() === key);
+          if (!existingInp) {
+            addCustomAttrRow(key, '', a.placeholder || '');
+          }
         });
-        dynamicContainer.innerHTML = html;
-      });
+      })
+      .catch(err => console.log('Category attributes loading error:', err));
   }
 
   categorySelect?.addEventListener('change', () => {
     loadAttributesForCategory(categorySelect.value);
   });
 
-  // Dynamic Category Tree Builder Logic
+  // Dynamic Category Tree Builder Logic (Max 2-3 Levels Enforced)
   const btnToggleTree = document.getElementById('btn-toggle-tree');
   const btnTreeText = document.getElementById('btn-tree-text');
   const treeExplorer = document.getElementById('category-tree-explorer');
@@ -544,7 +666,7 @@
         if (data.status === 'success' && data.tree) {
           treeContainer.innerHTML = '';
           if (data.tree.length === 0) {
-            treeContainer.innerHTML = '<div style="font-size: 0.8rem; color: var(--stone-text-muted); padding: 10px;">هنوز دسته‌ای ایجاد نشده است. با دکمه بالا سرشاخه بسازید.</div>';
+            treeContainer.innerHTML = '<div style="font-size: 0.8rem; color: var(--stone-text-muted); padding: 10px;">هنوز دسته‌ای ایجاد نشده است. با دکمه بالا سرشاخه اصلی بسازید.</div>';
             return;
           }
           renderTreeNodes(data.tree, treeContainer, 0);
@@ -558,7 +680,8 @@
   function renderTreeNodes(nodes, container, depth) {
     nodes.forEach(node => {
       const nodeEl = document.createElement('div');
-      nodeEl.style = `margin-right: ${depth * 18}px; margin-bottom: 6px; padding: 6px 10px; border-radius: 8px; background: var(--panel-surface-elevated); border: 1px solid var(--panel-border-subtle); display: flex; align-items: center; justify-content: space-between;`;
+      const nodeDepth = (typeof node.depth === 'number') ? node.depth : depth;
+      nodeEl.style = `margin-right: ${nodeDepth * 20}px; margin-bottom: 6px; padding: 7px 12px; border-radius: 8px; background: var(--panel-surface-elevated); border: 1px solid var(--panel-border-subtle); display: flex; align-items: center; justify-content: space-between;`;
       
       const isSelected = categorySelect && categorySelect.value === String(node.id);
       if (isSelected) {
@@ -566,19 +689,26 @@
         nodeEl.style.background = 'rgba(0, 242, 254, 0.08)';
       }
 
+      // Max 3 levels: nodeDepth = 0 (root), 1 (sub), 2 (sub-sub).
+      // Only allow adding subcategories if nodeDepth < 2 (levels 1 and 2).
+      const canHaveChildren = nodeDepth < 2;
+
       nodeEl.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
-          <span style="font-size: 0.8rem; color: var(--obsidian-cyan); display: inline-flex; align-items: center;">${depth > 0 ? '↳' : '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>'}</span>
-          <span style="font-size: 0.82rem; font-weight: 750; color: var(--panel-text-main);">${node.name}</span>
+          <span style="font-size: 0.8rem; color: var(--obsidian-cyan); display: inline-flex; align-items: center;">${nodeDepth > 0 ? '↳' : '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>'}</span>
+          <span style="font-size: 0.84rem; font-weight: 750; color: var(--panel-text-main);">${escapeHtml(node.name)}</span>
           ${node.is_custom ? '<span style="font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; background: rgba(168,85,247,0.15); color: #c084fc;">سفارشی</span>' : ''}
+          ${!canHaveChildren ? '<span style="font-size: 0.68rem; color: var(--stone-text-muted); background: var(--panel-surface); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--panel-border-subtle);">سقف ۳ سطح</span>' : ''}
         </div>
         <div style="display: flex; align-items: center; gap: 6px;">
-          <button type="button" class="p-btn p-btn-sm p-btn-primary btn-select-node" style="font-size: 0.7rem; padding: 3px 8px;">
+          <button type="button" class="p-btn p-btn-sm p-btn-primary btn-select-node" style="font-size: 0.72rem; padding: 4px 10px;">
             ${isSelected ? '✓ انتخاب شده' : 'انتخاب'}
           </button>
-          <button type="button" class="p-btn p-btn-sm p-btn-secondary btn-add-sub" title="افزودن زیرشاخه برای این دسته" style="font-size: 0.7rem; padding: 3px 6px;">
-            + زیرشاخه
-          </button>
+          ${canHaveChildren ? `
+            <button type="button" class="p-btn p-btn-sm p-btn-secondary btn-add-sub" title="افزودن زیرشاخه به این دسته (سطح ${nodeDepth + 2} از ۳)" style="font-size: 0.72rem; padding: 4px 8px;">
+              + زیرشاخه
+            </button>
+          ` : ''}
         </div>
       `;
 
@@ -591,15 +721,18 @@
         fetchAndRenderTree();
       });
 
-      nodeEl.querySelector('.btn-add-sub').addEventListener('click', () => {
-        currentParentId = node.id;
-        if (creatorLabel) creatorLabel.textContent = `افزودن زیرشاخه جدید به «${node.name}»:`;
-        if (inlineCreator) inlineCreator.style.display = 'block';
-        if (newCatInput) {
-          newCatInput.value = '';
-          newCatInput.focus();
-        }
-      });
+      const btnAddSub = nodeEl.querySelector('.btn-add-sub');
+      if (btnAddSub) {
+        btnAddSub.addEventListener('click', () => {
+          currentParentId = node.id;
+          if (creatorLabel) creatorLabel.textContent = `افزودن زیرشاخه جدید به «${node.name}» (سطح ${nodeDepth + 2} از ۳):`;
+          if (inlineCreator) inlineCreator.style.display = 'block';
+          if (newCatInput) {
+            newCatInput.value = '';
+            newCatInput.focus();
+          }
+        });
+      }
 
       container.appendChild(nodeEl);
 
@@ -616,13 +749,13 @@
       fetchAndRenderTree();
     } else {
       treeExplorer.style.display = 'none';
-      if (btnTreeText) btnTreeText.textContent = 'مشاهده / افزودن زیرشاخه';
+      if (btnTreeText) btnTreeText.textContent = 'مشاهده و مدیریت درخت‌واره';
     }
   });
 
   btnAddRootCat?.addEventListener('click', () => {
     currentParentId = null;
-    if (creatorLabel) creatorLabel.textContent = 'افزودن سرشاخه اصلی جدید:';
+    if (creatorLabel) creatorLabel.textContent = 'افزودن سرشاخه اصلی جدید (سطح ۱):';
     if (inlineCreator) inlineCreator.style.display = 'block';
     if (newCatInput) {
       newCatInput.value = '';
@@ -662,10 +795,9 @@
       .then(res => res.json())
       .then(data => {
         btnSaveInlineCat.disabled = false;
-        btnSaveInlineCat.textContent = 'ثبت و انتخاب';
+        btnSaveInlineCat.textContent = 'ثبت و انتخاب این شاخه';
         if (data.status === 'success' && data.category) {
           const cat = data.category;
-          // Add to select if not present
           let opt = categorySelect.querySelector(`option[value="${cat.id}"]`);
           if (!opt) {
             opt = document.createElement('option');
@@ -685,7 +817,7 @@
       })
       .catch(err => {
         btnSaveInlineCat.disabled = false;
-        btnSaveInlineCat.textContent = 'ثبت و انتخاب';
+        btnSaveInlineCat.textContent = 'ثبت و انتخاب این شاخه';
         alert('خطای اتصال به سرور.');
       });
   });
@@ -696,6 +828,9 @@
       selectedCatText.textContent = selectedOpt.getAttribute('data-fullpath') || selectedOpt.text;
     }
   });
+
+  // Render tree immediately on load
+  fetchAndRenderTree();
 
   // Multi-image client preview & main photo selector
   const imagesInput = document.getElementById('product_images');

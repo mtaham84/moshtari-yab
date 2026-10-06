@@ -141,18 +141,31 @@ def extract_keywords_from_product(product: Product) -> tuple[list[str], list[str
         if len(word) > 2:
             keywords.add(word.lower())
 
-    # 2. Category tree names
+    # 2. Category tree names (capped up to 3 levels: ancestors[:2] + category)
     if product.category:
-        for cat in product.category.get_ancestors() + [product.category]:
+        for cat in product.category.get_ancestors()[:2] + [product.category]:
             for word in cat.name.split():
                 if len(word) > 2:
                     keywords.add(word.lower())
 
-    # 3. Product attributes
+    # 3. Product description keywords (distinct from attributes)
+    if product.description:
+        desc_clean = re.sub(r"[^\w\s؀-ۿ]", " ", product.description)
+        stop_words = {"برای", "دارد", "است", "شده", "انواع", "دارای", "جهت", "بوده", "شامل", "کردن", "کنید", "این", "آن", "که", "با"}
+        for word in desc_clean.split():
+            if len(word) > 2 and word not in stop_words:
+                keywords.add(word.lower())
+
+    # 4. Dynamic custom attributes (both keys and values, e.g. سایز, ۳۸, رنگ, مشکی, کتان)
     if isinstance(product.attributes, dict):
         for k, v in product.attributes.items():
+            if isinstance(k, str):
+                for word in k.split():
+                    if len(word) > 2:
+                        keywords.add(word.lower())
             if isinstance(v, str):
-                for word in v.split():
+                v_words = re.split(r"[,،/\s]+", v)
+                for word in v_words:
                     if len(word) > 2:
                         keywords.add(word.lower())
 
@@ -161,7 +174,6 @@ def extract_keywords_from_product(product: Product) -> tuple[list[str], list[str
 
 def generate_smart_outreach_message(business: Business, product: Product, lead_data: dict, mode: str) -> str:
     lead_name = lead_data.get("lead_display_name") or lead_data.get("lead_handle", "دوست گرامی")
-    lead_handle = lead_data.get("lead_handle", "")
     price_info = product.formatted_price() if product.price else "با شرایط ویژه و تضمین اصالت"
     
     seller_identity = ""
@@ -170,16 +182,33 @@ def generate_smart_outreach_message(business: Business, product: Product, lead_d
     elif lead_data.get("channel") == "X" and business.x_account_handle:
         seller_identity = f" ({business.x_account_handle})"
 
+    # Match product custom attributes against lead post text
+    lead_text_lower = (lead_data.get("text") or "").lower()
+    matched_attrs = []
+    if isinstance(product.attributes, dict):
+        for k, v in product.attributes.items():
+            if isinstance(v, str):
+                v_parts = [p.strip().lower() for p in re.split(r"[,،/\s]+", v) if len(p.strip()) > 2]
+                if any(p in lead_text_lower for p in v_parts):
+                    matched_attrs.append(f"{k}: {v}")
+
+    attr_snippet = ""
+    if matched_attrs:
+        attr_snippet = f" (با مشخصات مدنظر شما: {'، '.join(matched_attrs[:2])})"
+    elif isinstance(product.attributes, dict) and product.attributes:
+        top_attrs = [f"{k}: {v}" for k, v in list(product.attributes.items())[:2]]
+        attr_snippet = f" (مشخصات: {'، '.join(top_attrs)})"
+
     if mode == "COMMENT":
         return (
             f"سلام {lead_name} گرامی،\n"
-            f"در خصوص گفت‌وگوی شما پیرامون {product.name}، مجموعه «{business.name}»{seller_identity} این کالا را با {price_info} ارائه می‌کند.\n"
+            f"در خصوص گفت‌وگوی شما پیرامون {product.name}{attr_snippet}، مجموعه «{business.name}»{seller_identity} این کالا را با {price_info} ارائه می‌کند.\n"
             f"در صورت نیاز به بررسی مشخصات بیشتر: {product.url or business.name}"
         )
     else:
         return (
             f"درود {lead_name} گرامی،\n"
-            f"پیام شما در ارتباط با نیاز به محصول را بررسی کردیم. من از مجموعه «{business.name}»{seller_identity} پیام می‌دهم. محصول «{product.name}» با مشخصات مدنظر شما موجود است ({price_info}).\n"
+            f"پیام شما در ارتباط با نیاز به محصول را بررسی کردیم. من از مجموعه «{business.name}»{seller_identity} پیام می‌دهم. محصول «{product.name}» با مشخصات مدنظر شما{attr_snippet} موجود است ({price_info}).\n"
             f"در صورت تمایل، آماده راهنمایی و ارائه جزئیات تکمیلی هستیم."
         )
 
@@ -239,6 +268,17 @@ def evaluate_and_discover_leads(business: Business) -> dict:
             if not has_intent_words and score > 40:
                 score -= 20
 
+            # Boost score based on matching custom attributes (e.g. matching color, size, material)
+            attr_matches_count = 0
+            if isinstance(product.attributes, dict):
+                for k, v in product.attributes.items():
+                    if isinstance(v, str):
+                        v_parts = [p.strip().lower() for p in re.split(r"[,،/\s]+", v) if len(p.strip()) > 2]
+                        if any(p in text_lower for p in v_parts):
+                            attr_matches_count += 1
+            if attr_matches_count > 0:
+                score = min(99, score + attr_matches_count * 10)
+
             # CRITICAL RECALL THRESHOLD:
             # Drop only if < 30%. DO NOT drop any lead with >= 30% match score!
             if score < 30:
@@ -262,6 +302,12 @@ def evaluate_and_discover_leads(business: Business) -> dict:
             elif channel == "X":
                 seller_handle = business.x_account_handle or "@seller_x"
 
+            reasoning_parts = [f"تطابق کلیدواژه‌های شاخه درختی «{matched_branch_path}»"]
+            if attr_matches_count > 0:
+                reasoning_parts.append(f"انطباق {attr_matches_count} ویژگی اختصاصی محصول")
+            reasoning_parts.append(f"قرائن قصد خرید ({score}%)")
+            intent_reasoning = " همراه با ".join(reasoning_parts) + "."
+
             lead = DiscoveredLead.objects.create(
                 business=business,
                 product=product,
@@ -271,7 +317,7 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 post_url=post.get("post_url", ""),
                 content_snippet=text,
                 intent_score=score,
-                intent_reasoning=f"تطابق کلیدواژه‌های شاخه درختی «{matched_branch_path}» همراه با قرائن قصد خرید ({score}%).",
+                intent_reasoning=intent_reasoning,
                 matched_branch=matched_branch_path,
                 outreach_mode=outreach_mode,
                 outreach_message=outreach_msg,

@@ -113,6 +113,26 @@ class ProductsAndTaxonomyTestCase(TestCase):
         self.assertEqual(new_prod.attributes.get("material"), "پنبه خالص")
         self.assertEqual(new_prod.price, 350000)
 
+    def test_product_add_with_dynamic_custom_attributes(self):
+        data = {
+            "name": "شلوار کتان کارگو مردانه",
+            "product_type": "PHYSICAL",
+            "category_id": self.jeans.id,
+            "description": "شلوار کارگو شیک و با دوام با پارچه کتان اعلا",
+            "price": "620000",
+            "custom_attr_key": ["سایز", "رنگ", "جنس", "گارانتی"],
+            "custom_attr_value": ["XL, 38", "مشکی ذغالی", "کتان پنبه", "۱۸ ماه شرکتی"],
+            "status": "ACTIVE",
+        }
+        response = self.client.post(reverse("products:add"), data, follow=True)
+        self.assertEqual(response.status_code, 200)
+        new_prod = Product.objects.filter(name="شلوار کتان کارگو مردانه").first()
+        self.assertIsNotNone(new_prod)
+        self.assertEqual(new_prod.attributes.get("سایز"), "XL, 38")
+        self.assertEqual(new_prod.attributes.get("رنگ"), "مشکی ذغالی")
+        self.assertEqual(new_prod.attributes.get("جنس"), "کتان پنبه")
+        self.assertEqual(new_prod.attributes.get("گارانتی"), "۱۸ ماه شرکتی")
+
     def test_ai_category_suggestion_service(self):
         suggestion = suggest_category_for_product(
             name="شلوار جین مردانه زاپ دار",
