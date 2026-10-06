@@ -266,18 +266,37 @@
         <span>تحلیل ایجنت: {{ lead.intent_reasoning }}</span>
       </div>
 
-      <!-- Outreach Sent Box -->
-      <div style="padding: 14px 18px; border-radius: 14px; background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.22); margin-bottom: 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <span style="font-size: 0.75rem; font-weight: 800; color: var(--obsidian-cyan);">
-            پیام ارسال‌شده توسط ایجنت ({% if lead.outreach_mode == 'DIRECT' %}دایرکت خصوصی{% else %}کامنت عمومی{% endif %}):
-          </span>
+      <!-- Outreach Sent Box (Outbound) -->
+      <div style="padding: 14px 18px; border-radius: 14px; background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.22); margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 0.75rem; font-weight: 800; color: var(--obsidian-cyan);">
+              پیام ارسال‌شده توسط {% if lead.channel == 'X' %}بات پیدا (@peyda_bot){% else %}{{ lead.bot_agent_name|default:"ایجنت فروش" }}{% endif %} ({% if lead.outreach_mode == 'DIRECT' %}دایرکت{% else %}ریپلای زیر توییت/کامنت با لینک کالا{% endif %}):
+            </span>
+            <span class="p-badge p-badge-purple" style="font-size: 0.65rem; padding: 1px 6px;">
+              پیام {{ lead.message_count }} از ۱۰
+            </span>
+          </div>
           <span style="font-size: 0.72rem; color: var(--stone-text-muted);" id="outreach-status-{{ lead.id }}">
-            ✓ ارسال خودکار از حساب: <strong style="color: var(--panel-text-main);" dir="ltr">{{ lead.sent_from_handle|default:business.telegram_account_handle|default:"حساب فروشنده" }}</strong>
+            ✓ ارسال خودکار از: <strong style="color: var(--panel-text-main);" dir="ltr">{{ lead.sent_from_handle|default:business.telegram_account_handle|default:"@peyda_bot" }}</strong>
           </span>
         </div>
         <p style="font-size: 0.82rem; color: var(--panel-text-main); margin: 0; line-height: 1.65; white-space: pre-line;">{{ lead.outreach_message }}</p>
       </div>
+
+      <!-- Customer Reply Box (Inbound - Two-Way) -->
+      {% if lead.customer_reply %}
+        <div style="padding: 12px 18px; border-radius: 14px; background: rgba(168,85,247,0.06); border: 1px solid rgba(168,85,247,0.25); margin-bottom: 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 0.76rem; color: var(--panel-text-main);">پاسخ دریافت شده از {{ lead.lead_display_name|default:lead.lead_handle }}:</strong>
+              <span class="p-badge p-badge-purple" style="font-size: 0.65rem; padding: 1px 6px;">پاسخ مشتری</span>
+            </div>
+            <span style="font-size: 0.7rem; color: var(--p-success); font-weight: 700;">✓ پاسخ دریافت شد</span>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--panel-text-main); margin: 0; line-height: 1.6;">{{ lead.customer_reply }}</p>
+        </div>
+      {% endif %}
 
       <!-- Action Footer -->
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">

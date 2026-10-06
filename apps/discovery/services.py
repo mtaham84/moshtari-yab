@@ -19,7 +19,8 @@ SAMPLE_SOCIAL_STREAM = [
         "post_url": "https://x.com/sara_tehrani/status/17891230491",
         "text": "بچه‌ها کسی پیج یا آنلاین‌شاپی رو می‌شناسه که شلوار کارگو باکیفیت و دوخت تمیز داشته باشه؟ چند وقته دنبال یه کارگو زیتونی یا مشکی خوش‌فرم می‌گردم پیدا نمی‌کنم.",
         "category_hints": ["پوشاک", "زنانه", "شلوار", "کارگو", "لباس"],
-        "base_intent": 88
+        "base_intent": 88,
+        "customer_reply": "سلام، ممنون از پیامتون! لینک رو دیدم و مدل زیتونی رو پسندیدم. فقط قد شلوار و سایزبندیش چطوریه؟"
     },
     {
         "channel": "TELEGRAM",
@@ -28,7 +29,8 @@ SAMPLE_SOCIAL_STREAM = [
         "post_url": "https://t.me/tech_community/98412",
         "text": "سلام دوستان، من تازه می‌خوام یادگیری برنامه‌نویسی پایتون رو شروع کنم برای تحلیل داده و وب. دوره یا کارگاه پروژه‌محور خوب که پشتیبانی داشته باشه چی پیشنهاد می‌دید؟ خریدار دوره با کیفیت هستم.",
         "category_hints": ["آموزش", "برنامه نویسی", "پایتون", "نرم‌افزار", "خدمات"],
-        "base_intent": 92
+        "base_intent": 92,
+        "customer_reply": "سلام و درود، دموی جلسه اول و سرفصل‌ها عالی بود. آیا امکان پشتیبانی مستقیم و رفع اشکال هم روی این دوره هست؟"
     },
     {
         "channel": "X",
@@ -37,7 +39,8 @@ SAMPLE_SOCIAL_STREAM = [
         "post_url": "https://x.com/farhad_m/status/17891230899",
         "text": "می‌خوام برای سایتمون خدمات بهینه‌سازی سئو و رنک یک گوگل بگیرم. آژانس یا متخصص سئو کاربلد و با قیمت منطقی سراغ دارید؟ بودجه آماده داریم.",
         "category_hints": ["سئو", "دیجیتال مارکتینگ", "طراحی سایت", "خدمات"],
-        "base_intent": 95
+        "base_intent": 95,
+        "customer_reply": "سلام، نمونه قرارداد و پلن‌های تضمینی سئوتون رو می‌تونید به دایرکت بفرستید تا با هیئت مدیره بررسی کنیم؟"
     },
     {
         "channel": "TELEGRAM",
@@ -46,7 +49,8 @@ SAMPLE_SOCIAL_STREAM = [
         "post_url": "https://t.me/style_iran/45120",
         "text": "برای پاییز دنبال مانتو یا پالتو سوییت شیک و گرم هستم. جایی رو سراغ دارید قیمت مناسب بده و ارسال سریع داشته باشه؟",
         "category_hints": ["پوشاک", "زنانه", "مانتو", "پالتو"],
-        "base_intent": 84
+        "base_intent": 84,
+        "customer_reply": "سلام، سایزبندی تا چه سایزی موجوده؟ ارسال فوری به تهران هم دارید؟"
     },
     {
         "channel": "X",
@@ -55,7 +59,8 @@ SAMPLE_SOCIAL_STREAM = [
         "post_url": "https://x.com/pouya_tech/status/17891231122",
         "text": "گوشی جدید سامسونگ یا آیفون کدوم ارزش خرید بیشتری داره الان؟ می‌خوام گوشی بگیرم با گارانتی معتبر و رجیستر شده ولی فروشگاه مطمئن کم شده.",
         "category_hints": ["دیجیتال", "موبایل", "گوشی", "سامسونگ", "آیفون"],
-        "base_intent": 78
+        "base_intent": 78,
+        "customer_reply": "سلام، آیا تحویل حضوری یا پرداخت در محل برای تهران دارید؟"
     },
     {
         "channel": "TELEGRAM",
@@ -192,25 +197,88 @@ def generate_smart_outreach_message(business: Business, product: Product, lead_d
                 if any(p in lead_text_lower for p in v_parts):
                     matched_attrs.append(f"{k}: {v}")
 
+OFF_TOPIC_KEYWORDS = [
+    "قرمه سبزی", "قورمه سبزی", "دستور پخت", "آشپزی", "غذا", "سیاست",
+    "انتخابات", "آب و هوا", "فوتبال", "فال", "جوک", "بورس", "ارز دیجیتال",
+    "بیت کوین", "شعر", "هواشناسی"
+]
+
+def validate_message_in_product_domain(message_text: str, product: Product, business: Business) -> tuple[bool, str]:
+    """
+    Strict Guardrail: Ensures user conversations and questions stay strictly within
+    the scope of products available in the catalog.
+    Rejects out-of-domain inquiries politely.
+    """
+    text_lower = message_text.lower()
+    for off in OFF_TOPIC_KEYWORDS:
+        if off in text_lower:
+            return False, (
+                f"من دستیار تخصصی خرید کاتالوگ «{business.name}» هستم و تنها درباره "
+                f"مشخصات فنی، قیمت، موجودی و راهنمای سفارش محصول «{product.name}» "
+                f"می‌توانم پاسخگو باشم. اگر سوالی درباره این کالا دارید در خدمت شما هستم."
+            )
+    return True, "SAFE_IN_DOMAIN"
+
+
+def check_account_message_cap(lead: DiscoveredLead) -> tuple[bool, str]:
+    """
+    Strict Rate-Limiting: Limits conversation with any account (across comments and DMs)
+    to a maximum of 10 messages.
+    """
+    if lead.message_count >= 10:
+        lead.is_conversation_capped = True
+        lead.save(update_fields=["is_conversation_capped"])
+        return False, "سقف مجاز تبادل پیام (۱۰ پیام) برای این گفتگو تکمیل شده است. جهت هماهنگی بیشتر با پشتیبانی در تماس باشید."
+    return True, "ALLOWED"
+
+
+def generate_smart_outreach_message(business: Business, product: Product, post: dict, mode: str = "COMMENT") -> tuple[str, str]:
+    """
+    Returns (outreach_message, direct_product_link).
+    For X / COMMENT (default):
+      Includes the direct product link and asks the user to DM for further details or questions.
+    For Telegram:
+      Friendly direct outreach including the direct link.
+    """
+    lead_name = post.get("lead_display_name") or post.get("lead_handle", "کاربر گرامی")
+    channel = post.get("channel", "X")
+    price_info = f"قیمت {product.formatted_price()}" if product.price else "شرایط و قیمت ویژه"
+    seller_identity = f" ({business.telegram_account_handle})" if channel == "TELEGRAM" and business.telegram_account_handle else ""
+
+    matched_attrs = []
+    lead_text_lower = post.get("text", "").lower()
+    if isinstance(product.attributes, dict):
+        for k, v in product.attributes.items():
+            if isinstance(v, str):
+                v_parts = [p.strip().lower() for p in re.split(r"[,،/\s]+", v) if len(p.strip()) > 2]
+                if any(p in lead_text_lower for p in v_parts):
+                    matched_attrs.append(f"{k}: {v}")
+
     attr_snippet = ""
     if matched_attrs:
-        attr_snippet = f" (با مشخصات مدنظر شما: {'، '.join(matched_attrs[:2])})"
+        attr_snippet = f" (مشخصات مدنظر شما: {'، '.join(matched_attrs[:2])})"
     elif isinstance(product.attributes, dict) and product.attributes:
         top_attrs = [f"{k}: {v}" for k, v in list(product.attributes.items())[:2]]
         attr_snippet = f" (مشخصات: {'، '.join(top_attrs)})"
 
-    if mode == "COMMENT":
-        return (
+    product_link = product.url or f"https://customerweb.ir/p/{product.id}"
+
+    if channel == "X" or mode == "COMMENT":
+        msg = (
             f"سلام {lead_name} گرامی،\n"
-            f"در خصوص گفت‌وگوی شما پیرامون {product.name}{attr_snippet}، مجموعه «{business.name}»{seller_identity} این کالا را با {price_info} ارائه می‌کند.\n"
-            f"در صورت نیاز به بررسی مشخصات بیشتر: {product.url or business.name}"
+            f"در پاسخ به پرسش شما درباره {product.name}{attr_snippet}، این محصول در کاتالوگ «{business.name}» با {price_info} موجود است.\n"
+            f"لینک مستقیم مشخصات و ثبت سفارش:\n{product_link}\n"
+            f"در صورت نیاز به بررسی مشخصات بیشتر یا هرگونه سوال، خوشحال می‌شویم به دایرکت ما پیام بدهید."
         )
     else:
-        return (
+        msg = (
             f"درود {lead_name} گرامی،\n"
             f"پیام شما در ارتباط با نیاز به محصول را بررسی کردیم. من از مجموعه «{business.name}»{seller_identity} پیام می‌دهم. محصول «{product.name}» با مشخصات مدنظر شما{attr_snippet} موجود است ({price_info}).\n"
+            f"لینک مستقیم کالا:\n{product_link}\n"
             f"در صورت تمایل، آماده راهنمایی و ارائه جزئیات تکمیلی هستیم."
         )
+
+    return msg, product_link
 
 
 def evaluate_and_discover_leads(business: Business) -> dict:
@@ -291,8 +359,8 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 continue
 
             # --- Tier 3: Qualified Lead Formation & Outreach Generation ---
-            outreach_mode = business.preferred_outreach_mode or "DIRECT"
-            outreach_msg = generate_smart_outreach_message(business, product, post, outreach_mode)
+            outreach_mode = "COMMENT" if channel == "X" else (business.preferred_outreach_mode or "DIRECT")
+            outreach_msg, direct_link = generate_smart_outreach_message(business, product, post, outreach_mode)
             
             matched_branch_path = product.category.get_full_path() if product.category else "دسته‌بندی اصلی"
 
@@ -301,6 +369,10 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 seller_handle = business.telegram_account_handle or "@seller_telegram"
             elif channel == "X":
                 seller_handle = business.x_account_handle or "@seller_x"
+
+            bot_sender = "بات پیدا (@peyda_bot)" if channel == "X" else (business.telegram_account_handle or "ایجنت هوشمند")
+            cust_reply = post.get("customer_reply", "")
+            has_reply = bool(cust_reply)
 
             reasoning_parts = [f"تطابق کلیدواژه‌های شاخه درختی «{matched_branch_path}»"]
             if attr_matches_count > 0:
@@ -323,6 +395,12 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 outreach_message=outreach_msg,
                 outreach_status="SENT",
                 sent_from_handle=seller_handle,
+                bot_agent_name=bot_sender,
+                customer_reply=cust_reply,
+                customer_reply_at=timezone.now() if has_reply else None,
+                message_count=2 if has_reply else 1,
+                guardrail_status="SAFE_IN_DOMAIN",
+                direct_link_sent=direct_link,
                 status="CONTACTED"
             )
 
@@ -487,6 +565,14 @@ def get_agent_discovery_feed(business: Business, min_priority: int = 1, limit: i
             "accounts": {
                 "telegram": business.telegram_account_handle or "",
                 "x": business.x_account_handle or ""
+            },
+            "peyda_bot_x": {
+                "handle": "@peyda_bot",
+                "identity": "بات سراسری پیدا (خرید و مشتری‌یابی در X)",
+                "strategy": "COMMENT_FIRST_WITH_DIRECT_LINK",
+                "dm_policy": "RESPOND_ONLY_ON_CUSTOMER_INITIATION_OR_AFTER_COMMENT",
+                "max_messages_per_account": 10,
+                "domain_guardrail": "STRICT_CATALOG_PRODUCTS_ONLY"
             }
         },
         "priority_definitions": priority_map,

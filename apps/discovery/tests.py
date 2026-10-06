@@ -3,7 +3,15 @@ from django.contrib.auth import get_user_model
 from apps.businesses.models import Business
 from apps.products.models import Category, Product
 from apps.discovery.models import CategoryBranchMemory, ProcessedMessageHash, DiscoveredLead
-from apps.discovery.services import evaluate_and_discover_leads, send_lead_outreach, extract_keywords_from_product, get_agent_discovery_feed
+from apps.discovery.services import (
+    evaluate_and_discover_leads,
+    send_lead_outreach,
+    extract_keywords_from_product,
+    get_agent_discovery_feed,
+    validate_message_in_product_domain,
+    check_account_message_cap,
+    generate_smart_outreach_message
+)
 
 User = get_user_model()
 
@@ -216,3 +224,62 @@ class DiscoveryPipelineTests(TestCase):
         self.assertEqual(api_data["status"], "success")
         self.assertEqual(len(api_data["products"]), 1)
         self.assertIn("priority_definitions", api_data)
+
+    def test_comment_first_x_outreach_includes_direct_product_link_and_dm_invite(self):
+        post = {
+            "channel": "X",
+            "lead_handle": "@test_user",
+            "lead_display_name": "کاربر تستی",
+            "text": "دنبال شلوار کارگو کتان زیتونی خوش دوخت هستم."
+        }
+        msg, link = generate_smart_outreach_message(self.business, self.product, post, mode="COMMENT")
+        self.assertIn(str(self.product.id), link)
+        self.assertIn(link, msg)
+        self.assertIn("دایرکت", msg)
+        self.assertIn("شلوار کارگو زنانه باکیفیت", msg)
+
+    def test_strict_product_domain_guardrail_blocks_off_topic_queries(self):
+        # 1. Product-related inquiry should pass
+        valid, status = validate_message_in_product_domain("سلام، آیا سایز ۴۲ از این شلوار کارگو موجود هست؟", self.product, self.business)
+        self.assertTrue(valid)
+        self.assertEqual(status, "SAFE_IN_DOMAIN")
+
+        # 2. Irrelevant / cooking recipe question must be blocked politely
+        invalid, response = validate_message_in_product_domain("من چجوری قرمه سبزی درست کنم؟", self.product, self.business)
+        self.assertFalse(invalid)
+        self.assertIn("دستیار تخصصی خرید", response)
+        self.assertIn(self.product.name, response)
+
+    def test_account_message_cap_enforces_10_message_limit(self):
+        lead = DiscoveredLead.objects.create(
+            business=self.business,
+            product=self.product,
+            channel="X",
+            lead_handle="@chatty_user",
+            content_snippet="دنبال لباس هستم",
+            intent_score=80,
+            message_count=9
+        )
+        # Message 9 is allowed
+        allowed, status = check_account_message_cap(lead)
+        self.assertTrue(allowed)
+        self.assertFalse(lead.is_conversation_capped)
+
+        # Message 10 reaches cap and blocks further answers
+        lead.message_count = 10
+        allowed, status = check_account_message_cap(lead)
+        self.assertFalse(allowed)
+        self.assertTrue(lead.is_conversation_capped)
+        self.assertIn("سقف مجاز تبادل پیام (۱۰ پیام)", status)
+
+    def test_two_way_communication_records_customer_reply_and_peyda_bot_identity(self):
+        result = evaluate_and_discover_leads(self.business)
+        self.assertEqual(result["status"], "success")
+
+        x_lead = DiscoveredLead.objects.filter(business=self.business, channel="X").first()
+        self.assertIsNotNone(x_lead)
+        self.assertEqual(x_lead.bot_agent_name, "بات پیدا (@peyda_bot)")
+        self.assertTrue(x_lead.direct_link_sent)
+        self.assertTrue(x_lead.customer_reply, "Customer reply should be captured for two-way communication")
+        self.assertIsNotNone(x_lead.customer_reply_at)
+

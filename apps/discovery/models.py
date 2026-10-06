@@ -150,23 +150,56 @@ class DiscoveredLead(models.Model):
     outreach_mode = models.CharField(
         max_length=20,
         choices=OUTREACH_MODE_CHOICES,
-        default="DIRECT",
+        default="COMMENT",
         verbose_name="نحوه ارتباط"
     )
     outreach_message = models.TextField(
         blank=True,
-        verbose_name="پیش‌نویس پیام ارتباطی هوشمند"
+        verbose_name="پیام ارسالی هوشمند ایجنت"
     )
     outreach_status = models.CharField(
         max_length=20,
         choices=OUTREACH_STATUS_CHOICES,
-        default="DRAFT",
+        default="SENT",
         verbose_name="وضعیت ارسال پیام"
     )
     sent_from_handle = models.CharField(
         max_length=150,
         blank=True,
-        verbose_name="ارسال‌شده از حساب فروشنده"
+        verbose_name="ارسال‌شده از حساب یا بات پیدا"
+    )
+    bot_agent_name = models.CharField(
+        max_length=100,
+        default="بات پیدا (@peyda_bot)",
+        verbose_name="ایجنت / بات ارسال‌کننده"
+    )
+    customer_reply = models.TextField(
+        blank=True,
+        verbose_name="پاسخ دریافت‌شده از مشتری"
+    )
+    customer_reply_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="زمان دریافت پاسخ مشتری"
+    )
+    message_count = models.PositiveSmallIntegerField(
+        default=1,
+        verbose_name="تعداد پیام‌های تبادل‌شده",
+        help_text="حداکثر سقف مجاز: ۱۰ پیام"
+    )
+    is_conversation_capped = models.BooleanField(
+        default=False,
+        verbose_name="رسیدن به سقف ۱۰ پیام"
+    )
+    guardrail_status = models.CharField(
+        max_length=50,
+        default="SAFE_IN_DOMAIN",
+        verbose_name="وضعیت انطباق کانتکست محصول"
+    )
+    direct_link_sent = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="لینک مستقیم محصول ارسالی در کامنت"
     )
     status = models.CharField(
         max_length=20,

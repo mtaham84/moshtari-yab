@@ -37,7 +37,7 @@ class LandingPageTestCase(TestCase):
         # Sources
         self.assertIn('ایکس (توییتر)', content)
         self.assertIn('تلگرام', content)
-        self.assertIn('اینستاگرام', content)
+        self.assertIn('بات سراسری پیدا (@peyda_bot)', content)
         self.assertIn('دیوار', content)
         # Theme toggle
         self.assertIn('data-theme-toggle', content)
