@@ -112,7 +112,7 @@
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
         <label for="category_select" class="form-label" style="margin-bottom: 0;">
           درخت‌واره دسته‌بندی کالا
-          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منعطف؛ سقف ۲ تا ۳ سطح منطبق با استانداردهای پایش)</small>
+          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منعطف تا ۵ سطح؛ امکان تعریف دلخواه زیرشاخه‌ها)</small>
         </label>
         <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-toggle-tree" style="font-size: 0.75rem; padding: 4px 10px;">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -139,7 +139,7 @@
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border-subtle); flex-wrap: wrap; gap: 8px;">
           <div>
             <strong style="font-size: 0.86rem; color: var(--panel-text-main); display: block;">ساختار درختی دسته‌بندی‌ها:</strong>
-            <span style="font-size: 0.72rem; color: var(--stone-text-muted);">برای انتخاب شاخه کلیک کنید یا با دکمه (+ زیرشاخه) برای هر سطح زیرمجموعه دلخواه بسازید (تا ۳ سطح).</span>
+            <span style="font-size: 0.72rem; color: var(--stone-text-muted);">برای انتخاب شاخه کلیک کنید یا با دکمه (+ زیرشاخه) برای هر سطح زیرمجموعه دلخواه بسازید (تا ۵ سطح).</span>
           </div>
           <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-add-root-cat" style="font-size: 0.74rem;">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -689,23 +689,23 @@
         nodeEl.style.background = 'rgba(0, 242, 254, 0.08)';
       }
 
-      // Max 3 levels: nodeDepth = 0 (root), 1 (sub), 2 (sub-sub).
-      // Only allow adding subcategories if nodeDepth < 2 (levels 1 and 2).
-      const canHaveChildren = nodeDepth < 2;
+      // Max 5 levels: nodeDepth = 0 (root), 1 (sub), 2 (sub-sub), 3 (level 4), 4 (level 5).
+      // Only allow adding subcategories if nodeDepth < 4 (levels 1 through 4).
+      const canHaveChildren = nodeDepth < 4;
 
       nodeEl.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
           <span style="font-size: 0.8rem; color: var(--obsidian-cyan); display: inline-flex; align-items: center;">${nodeDepth > 0 ? '↳' : '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>'}</span>
           <span style="font-size: 0.84rem; font-weight: 750; color: var(--panel-text-main);">${escapeHtml(node.name)}</span>
           ${node.is_custom ? '<span style="font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; background: rgba(168,85,247,0.15); color: #c084fc;">سفارشی</span>' : ''}
-          ${!canHaveChildren ? '<span style="font-size: 0.68rem; color: var(--stone-text-muted); background: var(--panel-surface); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--panel-border-subtle);">سقف ۳ سطح</span>' : ''}
+          ${!canHaveChildren ? '<span style="font-size: 0.68rem; color: var(--stone-text-muted); background: var(--panel-surface); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--panel-border-subtle);">سقف ۵ سطح</span>' : ''}
         </div>
         <div style="display: flex; align-items: center; gap: 6px;">
           <button type="button" class="p-btn p-btn-sm p-btn-primary btn-select-node" style="font-size: 0.72rem; padding: 4px 10px;">
             ${isSelected ? '✓ انتخاب شده' : 'انتخاب'}
           </button>
           ${canHaveChildren ? `
-            <button type="button" class="p-btn p-btn-sm p-btn-secondary btn-add-sub" title="افزودن زیرشاخه به این دسته (سطح ${nodeDepth + 2} از ۳)" style="font-size: 0.72rem; padding: 4px 8px;">
+            <button type="button" class="p-btn p-btn-sm p-btn-secondary btn-add-sub" title="افزودن زیرشاخه به این دسته (سطح ${nodeDepth + 2} از ۵)" style="font-size: 0.72rem; padding: 4px 8px;">
               + زیرشاخه
             </button>
           ` : ''}
@@ -725,7 +725,7 @@
       if (btnAddSub) {
         btnAddSub.addEventListener('click', () => {
           currentParentId = node.id;
-          if (creatorLabel) creatorLabel.textContent = `افزودن زیرشاخه جدید به «${node.name}» (سطح ${nodeDepth + 2} از ۳):`;
+          if (creatorLabel) creatorLabel.textContent = `افزودن زیرشاخه جدید به «${node.name}» (سطح ${nodeDepth + 2} از ۵):`;
           if (inlineCreator) inlineCreator.style.display = 'block';
           if (newCatInput) {
             newCatInput.value = '';

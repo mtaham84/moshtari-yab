@@ -348,10 +348,10 @@ def api_create_category(request):
     if parent_id:
         parent = Category.objects.filter(id=parent_id).first()
         if parent:
-            if len(parent.get_ancestors()) >= 2:
+            if len(parent.get_ancestors()) >= 4:
                 return JsonResponse({
                     "status": "error",
-                    "message": "حداکثر عمق مجاز درخت‌واره ۳ سطح است (دسته اصلی > زیرشاخه > رسته)."
+                    "message": "حداکثر عمق مجاز درخت‌واره ۵ سطح است."
                 }, status=400)
             product_type = parent.product_type
 

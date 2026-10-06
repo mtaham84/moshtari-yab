@@ -127,29 +127,40 @@ class DiscoveryPipelineTests(TestCase):
         client = Client()
         client.force_login(self.user)
 
-        # 1. Adding child category under level 2 (cat_women) should succeed (depth becomes 2 -> Level 3)
-        res = client.post(
-            "/products/categories/api/add/",
-            data={"name": "شلوار جین بگ", "parent_id": self.cat_women.id},
-            content_type="application/json"
-        )
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertEqual(data["status"], "success")
-        self.assertEqual(data["category"]["name"], "شلوار جین بگ")
-
-        # 2. Adding child category under level 3 (cat_cargo) must FAIL due to max 3-level constraint
-        res_depth_exceeded = client.post(
+        # 1. Adding child under Level 3 (cat_cargo) creates Level 4 (allowed)
+        res_lvl4 = client.post(
             "/products/categories/api/add/",
             data={"name": "کارگو کتان بهاره", "parent_id": self.cat_cargo.id},
             content_type="application/json"
         )
-        self.assertEqual(res_depth_exceeded.status_code, 400)
-        err_data = res_depth_exceeded.json()
-        self.assertEqual(err_data["status"], "error")
-        self.assertIn("حداکثر عمق مجاز درخت‌واره ۳ سطح است", err_data["message"])
+        self.assertEqual(res_lvl4.status_code, 200)
+        data_lvl4 = res_lvl4.json()
+        self.assertEqual(data_lvl4["status"], "success")
+        lvl4_id = data_lvl4["category"]["id"]
 
-        # 3. Check tree endpoint contains depth information
+        # 2. Adding child under Level 4 creates Level 5 (allowed, maximum depth)
+        res_lvl5 = client.post(
+            "/products/categories/api/add/",
+            data={"name": "مدل بگ راسته", "parent_id": lvl4_id},
+            content_type="application/json"
+        )
+        self.assertEqual(res_lvl5.status_code, 200)
+        data_lvl5 = res_lvl5.json()
+        self.assertEqual(data_lvl5["status"], "success")
+        lvl5_id = data_lvl5["category"]["id"]
+
+        # 3. Adding child under Level 5 (attempting Level 6) must FAIL due to max 5-level constraint
+        res_lvl6 = client.post(
+            "/products/categories/api/add/",
+            data={"name": "طرح جیب پاکتی", "parent_id": lvl5_id},
+            content_type="application/json"
+        )
+        self.assertEqual(res_lvl6.status_code, 400)
+        err_data = res_lvl6.json()
+        self.assertEqual(err_data["status"], "error")
+        self.assertIn("حداکثر عمق مجاز درخت‌واره ۵ سطح است", err_data["message"])
+
+        # 4. Check tree endpoint contains depth information
         tree_res = client.get("/products/categories/api/tree/")
         self.assertEqual(tree_res.status_code, 200)
         tree_data = tree_res.json()

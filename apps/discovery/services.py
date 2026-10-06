@@ -141,9 +141,9 @@ def extract_keywords_from_product(product: Product) -> tuple[list[str], list[str
         if len(word) > 2:
             keywords.add(word.lower())
 
-    # 2. Category tree names (capped up to 3 levels: ancestors[:2] + category)
+    # 2. Category tree names (up to 5 levels: ancestors[:4] + category)
     if product.category:
-        for cat in product.category.get_ancestors()[:2] + [product.category]:
+        for cat in product.category.get_ancestors()[:4] + [product.category]:
             for word in cat.name.split():
                 if len(word) > 2:
                     keywords.add(word.lower())
