@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from apps.businesses.models import Business
 from apps.products.models import Product
 from .models import DiscoveredLead, CategoryBranchMemory
-from .services import evaluate_and_discover_leads, send_lead_outreach
+from .services import evaluate_and_discover_leads, send_lead_outreach, get_agent_discovery_feed
 
 @login_required
 def leads_list_view(request):
@@ -153,3 +153,40 @@ def update_lead_status_view(request, lead_id):
         return JsonResponse({"status": "success", "new_status": new_status})
 
     return JsonResponse({"status": "error", "message": "وضعیت نامعتبر است."}, status=400)
+
+
+@login_required
+def api_agent_discovery_feed_view(request):
+    """
+    Dedicated REST API endpoint for AI Agents and Scrapers to fetch clean, prioritized
+    catalog feed, keywords, categories, and outreach settings.
+    Query params:
+      - min_priority: int (1..5)
+      - limit: int
+      - channel: 'TELEGRAM' | 'X'
+    """
+    business = getattr(request.user, "business", None)
+    if not business:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=404)
+
+    min_priority = 1
+    raw_min_p = request.GET.get("min_priority")
+    if raw_min_p and raw_min_p.isdigit():
+        min_priority = int(raw_min_p)
+
+    limit = None
+    raw_limit = request.GET.get("limit")
+    if raw_limit and raw_limit.isdigit():
+        limit = int(raw_limit)
+
+    channel = request.GET.get("channel", "").upper()
+    if channel not in ["TELEGRAM", "X"]:
+        channel = None
+
+    feed = get_agent_discovery_feed(
+        business=business,
+        min_priority=min_priority,
+        limit=limit,
+        channel=channel
+    )
+    return JsonResponse(feed, json_dumps_params={"ensure_ascii": False, "indent": 2})

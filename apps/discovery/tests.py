@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from apps.businesses.models import Business
 from apps.products.models import Category, Product
 from apps.discovery.models import CategoryBranchMemory, ProcessedMessageHash, DiscoveredLead
-from apps.discovery.services import evaluate_and_discover_leads, send_lead_outreach, extract_keywords_from_product
+from apps.discovery.services import evaluate_and_discover_leads, send_lead_outreach, extract_keywords_from_product, get_agent_discovery_feed
 
 User = get_user_model()
 
@@ -189,3 +189,30 @@ class DiscoveryPipelineTests(TestCase):
         data = res.json()
         self.assertEqual(data["status"], "error")
         self.assertIn("سقف سهمیه روزانه پایش", data["message"])
+
+    def test_agent_discovery_feed_service_and_api(self):
+        # 1. Test Python service directly
+        feed = get_agent_discovery_feed(self.business)
+        self.assertEqual(feed["status"], "success")
+        self.assertGreaterEqual(feed["total_active_products"], 1)
+
+        product_data = feed["products"][0]
+        self.assertEqual(product_data["name"], self.product.name)
+        self.assertIn("priority", product_data)
+        self.assertEqual(product_data["priority"]["score"], 3)
+        self.assertEqual(product_data["priority"]["level"], "HIGH")
+        self.assertEqual(product_data["attributes"]["رنگ"], "زیتونی، مشکی")
+        self.assertEqual(product_data["attributes"]["جنس"], "کتان")
+        self.assertIn("outreach_config", product_data)
+        self.assertEqual(product_data["outreach_config"]["seller_telegram_handle"], "@shikpoosh_bot")
+        self.assertEqual(product_data["category"]["full_path"], "پوشاک > زنانه > شلوار کارگو")
+
+        # 2. Test REST API endpoint
+        client = Client()
+        client.force_login(self.user)
+        api_res = client.get("/discovery/api/agent/feed/")
+        self.assertEqual(api_res.status_code, 200)
+        api_data = api_res.json()
+        self.assertEqual(api_data["status"], "success")
+        self.assertEqual(len(api_data["products"]), 1)
+        self.assertIn("priority_definitions", api_data)

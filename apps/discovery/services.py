@@ -372,3 +372,124 @@ def send_lead_outreach(lead_id: int, business: Business) -> dict:
         "outreach_status": lead.outreach_status,
         "sent_from_handle": lead.sent_from_handle,
     }
+
+
+def get_agent_discovery_feed(business: Business, min_priority: int = 1, limit: int = None, channel: str = None) -> dict:
+    """
+    Returns a clean, structured, prioritized dataset tailored specifically for AI Agents,
+    social listening workers, and crawler pipelines.
+    
+    Products are sorted by discovery_priority DESC (5 down to 1), then updated_at DESC.
+    Includes:
+      - 5-level taxonomy with ancestor hierarchy and full paths
+      - Dynamic custom attributes (key-value dict)
+      - Pre-extracted keywords and negative stop phrases
+      - Outreach account configurations for Telegram and X
+      - Clean ICP definition and distinct problem-solving description
+      - Quota and daily limit metrics
+    """
+    qs = Product.objects.filter(
+        business=business,
+        is_discovery_active=True,
+        status="ACTIVE"
+    ).select_related("category").prefetch_related("images")
+
+    if min_priority and min_priority > 1:
+        qs = qs.filter(discovery_priority__gte=min_priority)
+
+    if channel == "TELEGRAM":
+        qs = qs.filter(telegram_outreach_enabled=True)
+    elif channel == "X":
+        qs = qs.filter(x_outreach_enabled=True)
+
+    # Order strictly by priority (5: URGENT down to 1: NORMAL), then updated_at DESC
+    qs = qs.order_by("-discovery_priority", "-updated_at")
+
+    max_items = limit or business.daily_discovery_limit
+    active_products = list(qs[:max_items])
+
+    priority_map = {
+        5: {"level": "URGENT", "fa_label": "فوری (پایش حداکثری و پیوسته)", "scan_weight": 3.0},
+        4: {"level": "VERY_HIGH", "fa_label": "بسیار بالا", "scan_weight": 2.0},
+        3: {"level": "HIGH", "fa_label": "بالا (کالای کلیدی)", "scan_weight": 1.5},
+        2: {"level": "MEDIUM", "fa_label": "متوسط", "scan_weight": 1.0},
+        1: {"level": "NORMAL", "fa_label": "عادی (رصد متناوب)", "scan_weight": 0.5},
+    }
+
+    product_items = []
+    for prod in active_products:
+        keywords, negatives = extract_keywords_from_product(prod)
+        
+        cat_info = None
+        if prod.category:
+            ancestors = prod.category.get_ancestors()[:4]
+            cat_info = {
+                "id": prod.category.id,
+                "name": prod.category.name,
+                "slug": prod.category.slug,
+                "full_path": prod.category.get_full_path(),
+                "depth": len(ancestors),
+                "level": len(ancestors) + 1,
+                "ancestors": [
+                    {
+                        "level": idx + 1,
+                        "id": anc.id,
+                        "name": anc.name,
+                        "slug": anc.slug
+                    }
+                    for idx, anc in enumerate(ancestors)
+                ]
+            }
+
+        p_info = priority_map.get(prod.discovery_priority, priority_map[1])
+        main_img = prod.images.filter(is_main=True).first() or prod.images.first()
+
+        product_items.append({
+            "id": prod.id,
+            "name": prod.name,
+            "product_type": prod.product_type,
+            "priority": {
+                "score": prod.discovery_priority,
+                "level": p_info["level"],
+                "label": p_info["fa_label"],
+                "scan_weight": p_info["scan_weight"]
+            },
+            "category": cat_info,
+            "description": prod.description,
+            "target_customer": prod.target_customer,
+            "attributes": prod.attributes if isinstance(prod.attributes, dict) else {},
+            "price": {
+                "raw": prod.price,
+                "formatted": prod.formatted_price() if prod.price else "توافقی / با شرایط ویژه",
+            },
+            "url": prod.url or "",
+            "main_image_url": main_img.image.url if main_img and hasattr(main_img.image, "url") else None,
+            "keywords": keywords,
+            "negative_keywords": negatives,
+            "outreach_config": {
+                "telegram_enabled": prod.telegram_outreach_enabled,
+                "x_enabled": prod.x_outreach_enabled,
+                "seller_telegram_handle": business.telegram_account_handle or "",
+                "seller_x_handle": business.x_account_handle or "",
+                "preferred_mode": business.preferred_outreach_mode or "DIRECT",
+            }
+        })
+
+    return {
+        "status": "success",
+        "business": {
+            "id": business.id,
+            "name": business.name,
+            "domain": business.business_domain,
+            "daily_discovery_limit": business.daily_discovery_limit,
+            "active_products_in_quota": len(product_items),
+            "remaining_quota": max(0, business.daily_discovery_limit - len(product_items)),
+            "accounts": {
+                "telegram": business.telegram_account_handle or "",
+                "x": business.x_account_handle or ""
+            }
+        },
+        "priority_definitions": priority_map,
+        "total_active_products": len(product_items),
+        "products": product_items
+    }
