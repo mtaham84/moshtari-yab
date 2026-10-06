@@ -1,8 +1,16 @@
+from datetime import date
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from apps.businesses.models import Business
 from apps.products.models import Category, Product
-from apps.discovery.models import CategoryBranchMemory, ProcessedMessageHash, DiscoveredLead
+from apps.discovery.models import (
+    CategoryBranchMemory,
+    ProcessedMessageHash,
+    DiscoveredLead,
+    ProductDailyMetric,
+    ProductOrder
+)
+from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.discovery.services import (
     evaluate_and_discover_leads,
     send_lead_outreach,
@@ -10,7 +18,10 @@ from apps.discovery.services import (
     get_agent_discovery_feed,
     validate_message_in_product_domain,
     check_account_message_cap,
-    generate_smart_outreach_message
+    generate_smart_outreach_message,
+    get_intent_rank,
+    get_performance_analytics,
+    DAILY_OUTREACH_CAP_PER_PRODUCT
 )
 
 User = get_user_model()
@@ -282,4 +293,115 @@ class DiscoveryPipelineTests(TestCase):
         self.assertTrue(x_lead.direct_link_sent)
         self.assertTrue(x_lead.customer_reply, "Customer reply should be captured for two-way communication")
         self.assertIsNotNone(x_lead.customer_reply_at)
+
+    def test_jalali_date_conversion_and_formatting(self):
+        d = date(2026, 10, 6)
+        shamsi_str = format_jalali_date(d)
+        self.assertIn("۱۴۰۵/۰۷/۱۴", shamsi_str)
+        parsed = parse_jalali_date(shamsi_str)
+        self.assertEqual(parsed, d)
+
+    def test_business_flexible_targeting_constraints(self):
+        # 31 provincial cities or custom city
+        self.business.target_locations = "شیراز"
+        self.business.target_min_age = 22
+        self.business.target_max_age = None
+        self.business.save()
+        self.business.refresh_from_db()
+        self.assertEqual(self.business.target_locations, "شیراز")
+        self.assertEqual(self.business.target_min_age, 22)
+        self.assertIsNone(self.business.target_max_age)
+
+    def test_intent_prioritization_hierarchy(self):
+        # 1: Ready to buy (>= 85)
+        # 2: Comparing (60 - 84)
+        # 3: Initial need (30 - 59)
+        self.assertEqual(get_intent_rank(95), 1)
+        self.assertEqual(get_intent_rank(85), 1)
+        self.assertEqual(get_intent_rank(75), 2)
+        self.assertEqual(get_intent_rank(60), 2)
+        self.assertEqual(get_intent_rank(45), 3)
+        self.assertEqual(get_intent_rank(30), 3)
+
+    def test_daily_outreach_cap_per_product_rule(self):
+        """
+        Tests that when > 100 leads exist for a product, exactly 100 with highest
+        purchase chance are messaged, and the rest remain in status 'NEW'.
+        """
+        candidate_leads = []
+        for i in range(105):
+            score = 30 + (i % 70)
+            lead = DiscoveredLead.objects.create(
+                business=self.business,
+                product=self.product,
+                channel="X",
+                lead_handle=f"@lead_{i}",
+                content_snippet=f"درخواست شماره {i}",
+                intent_score=score,
+                status="NEW",
+                outreach_status="DRAFT"
+            )
+            candidate_leads.append(lead)
+
+        candidate_leads.sort(key=lambda l: (l.intent_priority_rank, -l.intent_score))
+
+        for idx, l in enumerate(candidate_leads):
+            if idx < DAILY_OUTREACH_CAP_PER_PRODUCT:
+                l.status = "CONTACTED"
+                l.outreach_status = "SENT"
+                l.save()
+
+        sent_count = DiscoveredLead.objects.filter(product=self.product, status="CONTACTED").count()
+        unsent_count = DiscoveredLead.objects.filter(product=self.product, status="NEW").count()
+        self.assertEqual(sent_count, 100)
+        self.assertEqual(unsent_count, 5)
+
+    def test_analytics_aggregation_and_persian_date_filtering(self):
+        today = date(2026, 10, 6)
+        ProductDailyMetric.objects.create(
+            product=self.product,
+            date=today,
+            outreach_sent_count=20,
+            clicks_count=15,
+            views_count=35,
+            orders_count=2,
+            sales_amount=1700000
+        )
+
+        analytics = get_performance_analytics(self.business, start_date=today, end_date=today)
+        summary = analytics["summary"]
+        self.assertEqual(summary["total_sales"], 1700000)
+        self.assertEqual(summary["total_orders"], 2)
+        self.assertEqual(summary["total_clicks"], 15)
+        self.assertEqual(summary["total_views"], 35)
+        self.assertEqual(summary["total_outreach"], 20)
+        self.assertAlmostEqual(summary["conversion_rate"], 13.3, places=1)
+
+    def test_public_product_card_and_quick_order(self):
+        client = Client()
+        resp = client.get(f"/p/{self.product.id}/?src=agent")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.product.name)
+        self.assertContains(resp, "خرید مستقیم و سفارش سریع")
+
+        order_resp = client.post(
+            f"/p/{self.product.id}/",
+            {
+                "customer_name": "مریم احمدی",
+                "customer_phone": "09121234567",
+                "shipping_address": "تهران، میدان ونک",
+                "quantity": "2"
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(order_resp.status_code, 200)
+        data = order_resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertTrue(data["tracking_code"].startswith("ORD-"))
+
+        order = ProductOrder.objects.filter(product=self.product, customer_name="مریم احمدی").first()
+        self.assertIsNotNone(order)
+        self.assertEqual(order.quantity, 2)
+        self.assertEqual(order.total_price, self.product.price * 2)
+
 

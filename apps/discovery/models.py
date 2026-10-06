@@ -221,5 +221,145 @@ class DiscoveredLead(models.Model):
         verbose_name_plural = "سرنخ‌های کشف‌شده"
         ordering = ["-intent_score", "-discovered_at"]
 
+    @property
+    def intent_priority_rank(self) -> int:
+        """
+        1: READY_TO_BUY (85-100)
+        2: COMPARING (60-84)
+        3: INITIAL_NEED (30-59)
+        """
+        if self.intent_score >= 85:
+            return 1
+        if self.intent_score >= 60:
+            return 2
+        return 3
+
+    @property
+    def intent_stage_display(self) -> str:
+        if self.intent_score >= 85:
+            return "آماده خرید / تصمیم نهایی"
+        if self.intent_score >= 60:
+            return "در حال مقایسه و ارزیابی"
+        return "ابراز نیاز اولیه"
+
     def __str__(self):
         return f"{self.lead_handle} ({self.intent_score}%) - {self.product.name}"
+
+
+class ProductDailyMetric(models.Model):
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="daily_metrics",
+        verbose_name="محصول"
+    )
+    date = models.DateField(
+        db_index=True,
+        verbose_name="تاریخ روز"
+    )
+    outreach_sent_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="پیام‌های ارسالی ایجنت"
+    )
+    clicks_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="کلیک‌های لینک محصول"
+    )
+    views_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="بازدید صفحه محصول"
+    )
+    orders_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="تعداد سفارش / خرید"
+    )
+    sales_amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=0,
+        default=0,
+        verbose_name="مبلغ فروش (تومان)"
+    )
+
+    class Meta:
+        verbose_name = "آمار روزانه محصول"
+        verbose_name_plural = "آمارهای روزانه محصولات"
+        unique_together = ("product", "date")
+        ordering = ["-date", "-sales_amount"]
+
+    def __str__(self):
+        return f"{self.product.name} ({self.date}): {self.clicks_count} کلیک - {self.orders_count} خرید"
+
+
+class ProductOrder(models.Model):
+    STATUS_CHOICES = [
+        ("PAID", "پرداخت‌شده و نهایی"),
+        ("PENDING", "در انتظار تایید"),
+        ("SHIPPED", "ارسال‌شده"),
+    ]
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="orders",
+        verbose_name="محصول"
+    )
+    lead = models.ForeignKey(
+        DiscoveredLead,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="orders",
+        verbose_name="سرنخ خریدار مرتبط"
+    )
+    customer_name = models.CharField(
+        max_length=150,
+        verbose_name="نام و نام خانوادگی خریدار"
+    )
+    customer_phone = models.CharField(
+        max_length=30,
+        verbose_name="شماره تماس خریدار"
+    )
+    shipping_address = models.TextField(
+        blank=True,
+        verbose_name="آدرس تحویل سفارش"
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        verbose_name="تعداد"
+    )
+    unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=0,
+        default=0,
+        verbose_name="قیمت واحد (تومان)"
+    )
+    total_price = models.DecimalField(
+        max_digits=14,
+        decimal_places=0,
+        default=0,
+        verbose_name="مبلغ کل (تومان)"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PAID",
+        verbose_name="وضعیت سفارش"
+    )
+    tracking_code = models.CharField(
+        max_length=40,
+        unique=True,
+        verbose_name="کد پیگیری سفارش"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="زمان ثبت سفارش"
+    )
+
+    class Meta:
+        verbose_name = "سفارش خرید محصول"
+        verbose_name_plural = "سفارشات خرید محصولات"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"سفارش {self.tracking_code} - {self.customer_name} ({self.total_price:,} تومان)"
+

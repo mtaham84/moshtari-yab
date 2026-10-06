@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ product.name }} | خرید آنلاین از {{ business.name }}{% endblock %}
+
+{% block body %}
+<div style="min-height: 100vh; background: var(--bg-body, #0a0c10); color: var(--text-main, #f1f5f9); font-family: 'Vazirmatn', sans-serif;">
+
+  <!-- Top Customer Header -->
+  <header style="background: rgba(18, 22, 34, 0.85); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(255, 255, 255, 0.08); position: sticky; top: 0; z-index: 50; padding: 14px 24px;">
+    <div style="max-width: 1240px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <a href="/" style="display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit;">
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%); display: flex; align-items: center; justify-content: center; color: #020617; font-weight: 900; font-size: 1.1rem;">
+            م
+          </div>
+          <div>
+            <strong style="font-size: 1.05rem; display: block; color: #fff;">{{ business.name }}</strong>
+            <span style="font-size: 0.74rem; color: #94a3b8;">فروشگاه آنلاین و هوشمند</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Quick Trust Indicators -->
+      <div style="display: flex; align-items: center; gap: 18px; font-size: 0.8rem; color: #94a3b8;">
+        <span style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#00f2fe" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>تضمین اصالت و سلامت</span>
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#10b981" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+          <span>ارسال سریع سراسری</span>
+        </span>
+        <div style="display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.06); padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.1);">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+          <span id="header-cart-badge">سبد خرید (۰)</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Breadcrumb -->
+  <div style="max-width: 1240px; margin: 16px auto 0; padding: 0 20px;">
+    <nav style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #94a3b8; flex-wrap: wrap;">
+      <a href="/" style="color: inherit; text-decoration: none;">خانه</a>
+      <span>/</span>
+      {% if product.category %}
+        <span>{{ product.category.get_full_path }}</span>
+        <span>/</span>
+      {% endif %}
+      <span style="color: #00f2fe; font-weight: 600;">{{ product.name }}</span>
+    </nav>
+  </div>
+
+  <!-- Main Showcase Container -->
+  <main style="max-width: 1240px; margin: 18px auto 40px; padding: 0 20px;">
+
+    <!-- Product Grid: Digikala Style (Gallery Right + Specs Center + BuyBox Left) -->
+    <div style="display: grid; grid-template-columns: 1fr 1.3fr 1.05fr; gap: 24px; align-items: start; background: rgba(18, 22, 34, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; padding: 28px; backdrop-filter: blur(20px);">
+
+      <!-- 1. Right Column: Image Gallery -->
+      <div>
+        <div style="background: rgba(10, 14, 23, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; overflow: hidden; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; position: relative;">
+          {% if main_image and main_image.image %}
+            <img id="main-product-img" src="{{ main_image.image.url }}" alt="{{ product.name }}" style="width: 100%; height: 100%; object-fit: contain; padding: 12px; transition: transform 0.3s ease;">
+          {% else %}
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; padding: 20px;">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              <span style="font-size: 0.8rem; margin-top: 8px;">تصویر کالا</span>
+            </div>
+          {% endif %}
+
+          {% if discount_percent > 0 %}
+            <div style="position: absolute; top: 12px; right: 12px; background: #ef4444; color: #fff; font-weight: 800; font-size: 0.78rem; padding: 3px 9px; border-radius: 999px;">
+              {{ discount_percent }}٪ پیشنهاد ویژه
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Thumbnails Slider -->
+        {% if images|length > 1 %}
+          <div style="display: flex; gap: 10px; margin-top: 14px; overflow-x: auto; padding-bottom: 6px;">
+            {% for img in images %}
+              <div class="thumb-slot {% if img == main_image %}active-thumb{% endif %}" onclick="switchMainImage('{{ img.image.url }}', this)" style="width: 64px; height: 64px; border-radius: 10px; border: 2px solid {% if img == main_image %}#00f2fe{% else %}rgba(255, 255, 255, 0.12){% endif %}; overflow: hidden; cursor: pointer; flex-shrink: 0; background: #000; display: flex; align-items: center; justify-content: center;">
+                <img src="{{ img.image.url }}" style="width: 100%; height: 100%; object-fit: cover;">
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <!-- Agent Social Recommendation Badge -->
+        <div style="margin-top: 18px; padding: 12px 14px; background: rgba(0, 242, 254, 0.06); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 12px; font-size: 0.76rem; color: #38bdf8; display: flex; align-items: flex-start; gap: 10px;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; margin-top: 2px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+          <div style="line-height: 1.6;">
+            <strong>پیشنهاد مستقیم هوش مصنوعی:</strong>
+            این محصول بر اساس نیاز و استعلام شما در شبکه‌های اجتماعی تطبیق داده شده است.
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Middle Column: Product Details & Specs -->
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc; font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 6px;">
+            {% if product.product_type == 'PHYSICAL' %}کالای فیزیکی اصل{% else %}خدمت تخصصی{% endif %}
+          </span>
+          <span style="font-size: 0.75rem; color: #94a3b8;">شناسه کالا: #{{ product.id }}</span>
+        </div>
+
+        <h1 style="font-size: 1.45rem; font-weight: 850; color: #fff; margin: 0 0 14px; line-height: 1.5;">
+          {{ product.name }}
+        </h1>
+
+        <div style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 16px; margin-bottom: 16px;">
+          <h2 style="font-size: 0.88rem; font-weight: 700; color: #00f2fe; margin-bottom: 8px;">ویژگی‌ها و کاربرد محصول:</h2>
+          <p style="font-size: 0.9rem; line-height: 1.8; color: #cbd5e1; margin: 0; white-space: pre-line;">
+            {{ product.description }}
+          </p>
+        </div>
+
+        {% if product.target_customer %}
+          <div style="margin-bottom: 18px; padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.06);">
+            <strong style="font-size: 0.82rem; color: #e2e8f0; display: block; margin-bottom: 4px;">مناسب برای:</strong>
+            <span style="font-size: 0.82rem; color: #94a3b8;">{{ product.target_customer }}</span>
+          </div>
+        {% endif %}
+
+        <!-- Technical Attributes Table (Digikala style) -->
+        {% if product.attributes %}
+          <div>
+            <h3 style="font-size: 0.9rem; font-weight: 800; color: #f8fafc; margin-bottom: 10px;">مشخصات فنی و جزئیات:</h3>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              {% for key, val in product.attributes.items %}
+                <div style="display: flex; justify-content: space-between; padding: 8px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; font-size: 0.82rem; border: 1px solid rgba(255, 255, 255, 0.04);">
+                  <span style="color: #94a3b8; font-weight: 600;">{{ key }}</span>
+                  <strong style="color: #f1f5f9;">{{ val }}</strong>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- 3. Left Column: Sleek Digikala-Style Buy Box -->
+      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 16px; padding: 22px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4); position: sticky; top: 80px;">
+
+        <!-- Store & Delivery Info -->
+        <div style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 14px; margin-bottom: 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 0.78rem; color: #94a3b8;">فروشنده:</span>
+            <strong style="font-size: 0.85rem; color: #38bdf8;">{{ business.name }}</strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.76rem; color: #10b981;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+            <span>موجود در انبار • آماده ارسال فوری</span>
+          </div>
+        </div>
+
+        <!-- Guarantees list -->
+        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.76rem; color: #94a3b8; margin-bottom: 18px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#00f2fe" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>۷ روز ضمانت بازگشت و پشتیبانی کامل</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#00f2fe" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>ارسال با بسته‌بندی ایمن و تحویل سریع</span>
+          </div>
+        </div>
+
+        <!-- Price Display -->
+        <div style="text-align: left; margin-bottom: 20px;">
+          <span style="font-size: 0.76rem; color: #94a3b8; display: block; text-align: right; margin-bottom: 4px;">قیمت نهایی:</span>
+          <div style="display: flex; align-items: baseline; justify-content: flex-end; gap: 6px;">
+            <span id="buybox-price" style="font-size: 1.7rem; font-weight: 900; color: #00f2fe; letter-spacing: -0.5px;">
+              {{ product.formatted_price }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button type="button" onclick="openCheckoutModal()" style="width: 100%; padding: 13px 18px; border-radius: 12px; background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%); color: #020617; font-weight: 800; font-size: 0.95rem; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 18px rgba(0, 242, 254, 0.35); transition: transform 0.15s ease;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            <span>خرید مستقیم و سفارش سریع</span>
+          </button>
+
+          <button type="button" onclick="addToCartMock()" id="btn-add-cart" style="width: 100%; padding: 11px 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); color: #fff; font-weight: 700; font-size: 0.88rem; border: 1px solid rgba(255, 255, 255, 0.15); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s ease;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+            <span id="btn-add-cart-text">افزودن به سبد خرید</span>
+          </button>
+        </div>
+
+        <div style="margin-top: 14px; text-align: center; font-size: 0.74rem; color: #64748b;">
+          پرداخت امن با درگاه بانکی شاپرک
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Interactive Fast Checkout Modal -->
+  <div id="checkout-modal" style="display: none; position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: #111522; border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; max-width: 480px; width: 100%; padding: 26px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6); position: relative;" id="modal-card-content">
+      
+      <button type="button" onclick="closeCheckoutModal()" style="position: absolute; top: 16px; left: 16px; background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+
+      <div style="margin-bottom: 16px;">
+        <h3 style="font-size: 1.15rem; font-weight: 850; color: #fff; margin: 0 0 4px;">ثبت سریع سفارش خرید</h3>
+        <p style="font-size: 0.78rem; color: #94a3b8; margin: 0;">فرم زیر را تکمیل کنید تا سفارش شما ثبت و کد پیگیری صادر شود.</p>
+      </div>
+
+      <!-- Item Preview Bar -->
+      <div style="display: flex; align-items: center; gap: 12px; background: rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 10px 14px; margin-bottom: 18px; border: 1px solid rgba(255, 255, 255, 0.06);">
+        {% if main_image and main_image.image %}
+          <img src="{{ main_image.image.url }}" style="width: 44px; height: 44px; border-radius: 8px; object-fit: cover;">
+        {% endif %}
+        <div style="flex: 1;">
+          <strong style="font-size: 0.85rem; color: #fff; display: block;">{{ product.name }}</strong>
+          <span style="font-size: 0.78rem; color: #00f2fe;">قیمت واحد: {{ product.formatted_price }}</span>
+        </div>
+      </div>
+
+      <form id="checkout-form" onsubmit="handleOrderSubmit(event)">
+        {% csrf_token %}
+        <input type="hidden" name="lead_id" value="{{ lead_id }}">
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <label style="display: block; font-size: 0.78rem; color: #cbd5e1; margin-bottom: 5px; font-weight: 600;">نام و نام خانوادگی خریدار *</label>
+            <input type="text" name="customer_name" required placeholder="مثال: سارا امیری" style="width: 100%; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; font-family: inherit; font-size: 0.85rem;">
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 0.78rem; color: #cbd5e1; margin-bottom: 5px; font-weight: 600;">شماره موبایل خریدار *</label>
+            <input type="tel" name="customer_phone" required placeholder="۰۹۱۲۳۴۵۶۷۸۹" dir="ltr" style="width: 100%; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; font-family: inherit; font-size: 0.85rem; text-align: right;">
+          </div>
+
+          <div style="display: flex; gap: 12px;">
+            <div style="width: 110px;">
+              <label style="display: block; font-size: 0.78rem; color: #cbd5e1; margin-bottom: 5px; font-weight: 600;">تعداد</label>
+              <input type="number" id="order-qty" name="quantity" min="1" max="50" value="1" onchange="updateTotalPrice()" style="width: 100%; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; font-family: inherit; font-size: 0.85rem; text-align: center;">
+            </div>
+            <div style="flex: 1;">
+              <label style="display: block; font-size: 0.78rem; color: #cbd5e1; margin-bottom: 5px; font-weight: 600;">آدرس ارسال</label>
+              <input type="text" name="shipping_address" placeholder="شهر، خیابان، پلاک، واحد" style="width: 100%; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; font-family: inherit; font-size: 0.85rem;">
+            </div>
+          </div>
+
+          <!-- Total Price Preview -->
+          <div style="background: rgba(0, 242, 254, 0.06); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span style="font-size: 0.82rem; color: #94a3b8;">مبلغ قابل پرداخت:</span>
+            <strong id="modal-total-price" style="font-size: 1.05rem; color: #00f2fe;">{{ product.formatted_price }}</strong>
+          </div>
+
+          <button type="submit" id="btn-submit-order" style="margin-top: 8px; width: 100%; padding: 12px; border-radius: 10px; background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%); color: #020617; font-weight: 800; font-size: 0.95rem; border: none; cursor: pointer;">
+            تأیید و پرداخت نهایی سفارش
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let cartCount = 0;
+  const unitPrice = {{ product.price|default:0 }};
+
+  function switchMainImage(url, element) {
+    const mainImg = document.getElementById("main-product-img");
+    if (mainImg) mainImg.src = url;
+    document.querySelectorAll(".thumb-slot").forEach(el => {
+      el.style.borderColor = "rgba(255, 255, 255, 0.12)";
+    });
+    element.style.borderColor = "#00f2fe";
+  }
+
+  function addToCartMock() {
+    cartCount += 1;
+    document.getElementById("header-cart-badge").textContent = `سبد خرید (${cartCount})`;
+    const btn = document.getElementById("btn-add-cart");
+    const text = document.getElementById("btn-add-cart-text");
+    btn.style.background = "#10b981";
+    text.textContent = "✓ به سبد خرید اضافه شد";
+    setTimeout(() => {
+      btn.style.background = "rgba(255, 255, 255, 0.08)";
+      text.textContent = "افزودن به سبد خرید";
+    }, 2000);
+  }
+
+  function openCheckoutModal() {
+    const modal = document.getElementById("checkout-modal");
+    if (modal) modal.style.display = "flex";
+  }
+
+  function closeCheckoutModal() {
+    const modal = document.getElementById("checkout-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  function updateTotalPrice() {
+    const qty = parseInt(document.getElementById("order-qty").value) || 1;
+    const total = unitPrice * qty;
+    const formatted = total > 0 ? (total.toLocaleString("fa-IR") + " تومان") : "توافقی";
+    document.getElementById("modal-total-price").textContent = formatted;
+  }
+
+  function handleOrderSubmit(e) {
+    e.preventDefault();
+    const btn = document.getElementById("btn-submit-order");
+    btn.disabled = true;
+    btn.textContent = "در حال ثبت سفارش...";
+
+    const form = document.getElementById("checkout-form");
+    const formData = new FormData(form);
+
+    fetch(window.location.href, {
+      method: "POST",
+      body: formData,
+      headers: {
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === "success") {
+        document.getElementById("modal-card-content").innerHTML = `
+          <div style="text-align: center; padding: 20px 0;">
+            <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <h3 style="font-size: 1.25rem; font-weight: 850; color: #fff; margin-bottom: 6px;">سفارش شما با موفقیت ثبت شد!</h3>
+            <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 20px;">خرید شما ثبت و برای ارسال آماده گردید.</p>
+            <div style="background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 14px; text-align: right; margin-bottom: 20px; font-size: 0.84rem; display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: #94a3b8;">کد پیگیری سفارش:</span>
+                <strong style="color: #00f2fe; font-family: monospace;">${data.tracking_code}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: #94a3b8;">نام خریدار:</span>
+                <strong style="color: #fff;">${data.customer_name}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: #94a3b8;">مبلغ کل سفارش:</span>
+                <strong style="color: #10b981;">${data.total_price_formatted} تومان</strong>
+              </div>
+            </div>
+            <button type="button" onclick="closeCheckoutModal()" style="padding: 10px 24px; border-radius: 10px; background: #00f2fe; color: #020617; font-weight: 800; border: none; cursor: pointer;">
+              بستن و ادامه
+            </button>
+          </div>
+        `;
+      } else {
+        alert(data.message || "خطا در ثبت سفارش");
+        btn.disabled = false;
+        btn.textContent = "تأیید و پرداخت نهایی سفارش";
+      }
+    })
+    .catch(err => {
+      alert("خطا در ارتباط با سرور");
+      btn.disabled = false;
+      btn.textContent = "تأیید و پرداخت نهایی سفارش";
+    });
+  }
+</script>
+{% endblock %}

@@ -36,6 +36,31 @@
   </div>
 {% endif %}
 
+<style>
+.analytics-sort-btn {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--panel-card-inner, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--panel-border-subtle, rgba(255, 255, 255, 0.1));
+  color: var(--stone-text-muted, #94a3b8);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.analytics-sort-btn.active, .analytics-sort-btn:hover {
+  background: rgba(0, 242, 254, 0.12);
+  border-color: var(--obsidian-cyan, #00f2fe);
+  color: var(--obsidian-cyan, #00f2fe);
+  font-weight: 700;
+}
+.date-preset-btn.active {
+  background: var(--obsidian-cyan, #00f2fe) !important;
+  color: #020617 !important;
+  font-weight: 800 !important;
+}
+</style>
+
 <!-- ========================================================================
      Business & ICP Understanding (شناخت ایجنت از پرسونای مشتری)
      ======================================================================== -->
@@ -86,50 +111,253 @@
     </div>
   </div>
 
-  <!-- Manual Targeting Drawer (Optional & Clean) -->
+  <!-- Manual Targeting Drawer (31 Cities + Custom Entry, Flexible Age, Auto Intent) -->
   <div id="target-settings-drawer" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border-subtle);">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-      <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری اختیاری (Target Constraints):</span>
-      <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">حالت پیش‌فرض: تشخیص خودکار هوش مصنوعی بر پایه کاتالوگ</span>
+    <form method="POST" action="">
+      {% csrf_token %}
+      <input type="hidden" name="update_targeting_constraints" value="1">
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری اختیاری (Target Constraints):</span>
+        <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">تشخیص هوشمند بر پایه کاتالوگ یا تنظیم دقیق فروشنده</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 14px; align-items: start;">
+        <!-- 31 Major Cities + Custom Typing -->
+        <div>
+          <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی (۳۱ مرکز استان یا شهر دلخواه)</label>
+          <input type="text" list="iran-provincial-cities" name="target_locations" class="form-input" style="padding: 8px 12px; font-size: 0.82rem;" value="{{ business.target_locations|default:'سراسر کشور' }}" placeholder="انتخاب از ۳۱ شهر یا تایپ هر شهر دیگر...">
+          <datalist id="iran-provincial-cities">
+            <option value="سراسر کشور">
+            <option value="تهران">
+            <option value="مشهد">
+            <option value="اصفهان">
+            <option value="کرج">
+            <option value="شیراز">
+            <option value="تبریز">
+            <option value="قم">
+            <option value="اهواز">
+            <option value="کرمانشاه">
+            <option value="ارومیه">
+            <option value="رشت">
+            <option value="زاهدان">
+            <option value="همدان">
+            <option value="کرمان">
+            <option value="یزد">
+            <option value="اردبیل">
+            <option value="بندرعباس">
+            <option value="اراک">
+            <option value="زنجان">
+            <option value="سنندج">
+            <option value="قزوین">
+            <option value="خرم‌آباد">
+            <option value="گرگان">
+            <option value="ساری">
+            <option value="بجنورد">
+            <option value="بوشهر">
+            <option value="بیرجند">
+            <option value="ایلام">
+            <option value="شهرکرد">
+            <option value="سمنان">
+            <option value="یاسوج">
+          </datalist>
+          <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">می‌توانید از لیست ۳۱ مرکز استان انتخاب یا شهر اختصاصی خود را تایپ فرمایید.</span>
+        </div>
+
+        <!-- Flexible Age Range -->
+        <div>
+          <label class="form-label" style="font-size: 0.75rem;">بازه سنی مخاطب (حداقل و حداکثر اختیاری)</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <div style="flex: 1;">
+              <input type="number" name="target_min_age" value="{{ business.target_min_age|default:'' }}" min="12" max="99" class="form-input" style="padding: 8px 10px; font-size: 0.82rem;" placeholder="از سن (بدون کف)">
+            </div>
+            <span style="color: var(--stone-text-muted); font-size: 0.8rem;">تا</span>
+            <div style="flex: 1;">
+              <input type="number" name="target_max_age" value="{{ business.target_max_age|default:'' }}" min="12" max="99" class="form-input" style="padding: 8px 10px; font-size: 0.82rem;" placeholder="تا سن (بدون سقف)">
+            </div>
+          </div>
+          <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">امکان تکمیل فقط حداقل، فقط حداکثر، هر دو، یا خالی گذاشتن هر دو.</span>
+        </div>
+
+        <!-- Autonomous Intent Priority Notice & Save -->
+        <div>
+          <label class="form-label" style="font-size: 0.75rem;">اولویت‌بندی نیت خرید (سیستمی)</label>
+          <div style="padding: 8px 10px; background: rgba(0, 242, 254, 0.05); border: 1px dashed rgba(0, 242, 254, 0.25); border-radius: 8px; font-size: 0.74rem; color: var(--obsidian-cyan); line-height: 1.5;">
+            <strong>ترتیب هوشمند ایجنت:</strong>
+            <span style="display: block; color: var(--stone-text-muted);">۱. آماده خرید ۲. مقایسه ۳. نیاز اولیه</span>
+          </div>
+          <div style="margin-top: 8px;">
+            <button type="submit" class="p-btn p-btn-primary p-btn-sm" style="width: 100%; font-size: 0.8rem;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span>ذخیره محدوده‌ها</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ========================================================================
+     Analytics & Sales Performance Section (گزارش آماری و عملکرد فروشگاه)
+     ======================================================================== -->
+<div class="p-card" style="padding: 22px 26px; margin-bottom: 24px;" id="گزارش-آماری">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 14px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="p-icon-box" style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0, 242, 254, 0.1); color: var(--obsidian-cyan); display: flex; align-items: center; justify-content: center;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        </span>
+        <h2 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">گزارش آماری و تحلیل عملکرد فروش کاتالوگ</h2>
+      </div>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">تحلیل کلیک‌ها، بازدید صفحات، میزان فروش قطعی و نرخ تبدیل حاصل از پیام‌های ارسالی ایجنت</span>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
-      <div>
-        <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی</label>
-        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>سراسر کشور (پیش‌فرض هوشمند)</option>
-          <option>تهران و البرز</option>
-          <option>اصفهان و شیراز</option>
-          <option>مشهد و تبریز</option>
-        </select>
+    <!-- Persian Date Range Filter & Comparison -->
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 6px; background: var(--panel-card-inner); padding: 5px 10px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);">
+        <span style="font-size: 0.75rem; color: var(--stone-text-muted);">از تاریخ:</span>
+        <input type="text" id="shamsi-start-date" class="form-input" style="width: 105px; padding: 4px 8px; font-size: 0.78rem; text-align: center;" placeholder="۱۴۰۵/۰۷/۰۱" value="{{ analytics.summary.start_date_shamsi }}">
+        <span style="font-size: 0.75rem; color: var(--stone-text-muted);">تا:</span>
+        <input type="text" id="shamsi-end-date" class="form-input" style="width: 105px; padding: 4px 8px; font-size: 0.78rem; text-align: center;" placeholder="۱۴۰۵/۰۷/۱۴" value="{{ analytics.summary.end_date_shamsi }}">
+        <button type="button" id="btn-apply-date-filter" class="p-btn p-btn-primary p-btn-sm" style="padding: 4px 10px; font-size: 0.76rem;">
+          <span>اعمال و مقایسه</span>
+        </button>
       </div>
 
-      <div>
-        <label class="form-label" style="font-size: 0.75rem;">بازه سنی مخاطب</label>
-        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>۲۰ تا ۳۵ سال (تشخیص خودکار)</option>
-          <option>۱۸ تا ۲۵ سال (دانشجویان)</option>
-          <option>۲۵ تا ۴۵ سال (شاغلین)</option>
-        </select>
+      <!-- Quick Preset Buttons -->
+      <div style="display: flex; gap: 4px;">
+        <button type="button" class="date-preset-btn p-btn p-btn-secondary p-btn-sm" data-days="0" style="padding: 4px 8px; font-size: 0.74rem;">امروز</button>
+        <button type="button" class="date-preset-btn p-btn p-btn-secondary p-btn-sm" data-days="7" style="padding: 4px 8px; font-size: 0.74rem;">۷ روز</button>
+        <button type="button" class="date-preset-btn p-btn p-btn-secondary p-btn-sm" data-days="30" style="padding: 4px 8px; font-size: 0.74rem;">۳۰ روز</button>
+        <button type="button" class="date-preset-btn p-btn p-btn-secondary p-btn-sm active" data-days="all" style="padding: 4px 8px; font-size: 0.74rem;">کل دوره</button>
       </div>
+    </div>
+  </div>
 
-      <div>
-        <label class="form-label" style="font-size: 0.75rem;">شبکه مورد پایش</label>
-        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>همه کانال‌ها (توییتر/X + تلگرام)</option>
-          <option>فقط شبکه توییتر / X (کامنت/ریپلای و دایرکت)</option>
-          <option>فقط کانال‌ها و سوپرگروه‌های تلگرام</option>
-        </select>
+  <!-- 4 Key Metrics Cards Grid -->
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;">
+    <!-- Metric 1: Total Sales -->
+    <div style="background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.18); border-radius: 14px; padding: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">میزان کل فروش (ایجنت)</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--obsidian-cyan)" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
       </div>
+      <div style="font-size: 1.45rem; font-weight: 900; color: var(--obsidian-cyan); margin-bottom: 4px;" id="stat-total-sales">
+        {{ analytics.summary.total_sales_formatted }} تومان
+      </div>
+      <span style="font-size: 0.74rem; color: var(--p-success); font-weight: 700;">
+        <span id="stat-total-orders">{{ analytics.summary.total_orders }}</span> سفارش خرید قطعی
+      </span>
+    </div>
 
-      <div>
-        <label class="form-label" style="font-size: 0.75rem;">مرحله نیت خرید (Intent)</label>
-        <select class="form-input" style="padding: 8px 12px; font-size: 0.82rem;">
-          <option selected>آماده خرید + درخواست پیشنهاد (پیش‌فرض)</option>
-          <option>ابراز نیاز و چالش روزمره</option>
-          <option>در حال مقایسه و ارزیابی گزینه‌ها</option>
-        </select>
+    <!-- Metric 2: Product Link Clicks -->
+    <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 14px; padding: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">کلیک روی لینک محصولات</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#10b981" stroke-width="2"><path d="M15 3h6v6"></path><path d="M10 14L21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
       </div>
+      <div style="font-size: 1.45rem; font-weight: 900; color: #10b981; margin-bottom: 4px;" id="stat-total-clicks">
+        {{ analytics.summary.total_clicks }} کلیک
+      </div>
+      <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
+        ارجاع مستقیم از پیام‌ها و کامنت‌ها
+      </span>
+    </div>
+
+    <!-- Metric 3: Product Views -->
+    <div style="background: rgba(99, 102, 241, 0.04); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">بازدید صفحات محصولات</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#818cf8" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      </div>
+      <div style="font-size: 1.45rem; font-weight: 900; color: #a5b4fc; margin-bottom: 4px;" id="stat-total-views">
+        {{ analytics.summary.total_views }} بازدید
+      </div>
+      <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
+        مشاهده کامل کارت کاتالوگ
+      </span>
+    </div>
+
+    <!-- Metric 4: Outreach Sent & Conversion Rate -->
+    <div style="background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 14px; padding: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">پیام‌های ارسالی ایجنت</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#f59e0b" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+      </div>
+      <div style="font-size: 1.45rem; font-weight: 900; color: #fbbf24; margin-bottom: 4px;" id="stat-total-outreach">
+        {{ analytics.summary.total_outreach }} پیام
+      </div>
+      <span style="font-size: 0.74rem; color: var(--p-success); font-weight: 700;">
+        نرخ تبدیل کلیک به خرید: <span id="stat-conversion-rate">{{ analytics.summary.conversion_rate }}٪</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Product Breakdown Table with Live Sorting -->
+  <div>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">آمار تفکیکی به ازای کالاها:</strong>
+      
+      <!-- Sort Controls -->
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 0.76rem;">
+        <span style="color: var(--stone-text-muted);">مرتب‌سازی بر اساس:</span>
+        <button type="button" class="analytics-sort-btn active" data-sort="sales">بیشترین فروش</button>
+        <button type="button" class="analytics-sort-btn" data-sort="clicks">بیشترین کلیک</button>
+        <button type="button" class="analytics-sort-btn" data-sort="views">بیشترین بازدید</button>
+        <button type="button" class="analytics-sort-btn" data-sort="date">تاریخ شمسی</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div style="overflow-x: auto; border: 1px solid var(--panel-border-subtle); border-radius: 12px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: right;" id="analytics-table">
+        <thead>
+          <tr style="background: var(--panel-card-inner); border-bottom: 1px solid var(--panel-border-subtle); color: var(--stone-text-muted);">
+            <th style="padding: 10px 14px;">کالا / خدمت</th>
+            <th style="padding: 10px 14px;">دسته‌بندی</th>
+            <th style="padding: 10px 14px; text-align: center;">پیام ارسالی (سهمیه)</th>
+            <th style="padding: 10px 14px; text-align: center;">کلیک لینک</th>
+            <th style="padding: 10px 14px; text-align: center;">بازدید صفحه</th>
+            <th style="padding: 10px 14px; text-align: center;">تعداد خرید</th>
+            <th style="padding: 10px 14px;">مبلغ فروش</th>
+            <th style="padding: 10px 14px;">آخرین تعامل (شمسی)</th>
+            <th style="padding: 10px 14px; text-align: center;">عملیات</th>
+          </tr>
+        </thead>
+        <tbody id="analytics-table-body">
+          {% for p in analytics.products %}
+            <tr style="border-bottom: 1px solid var(--panel-border-subtle);" data-sales="{{ p.sales_amount }}" data-clicks="{{ p.clicks }}" data-views="{{ p.views }}" data-date="{{ p.raw_last_date }}">
+              <td style="padding: 12px 14px; font-weight: 700; color: var(--panel-text-main);">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  {% if p.image_url %}
+                    <img src="{{ p.image_url }}" style="width: 28px; height: 28px; border-radius: 6px; object-fit: cover;">
+                  {% endif %}
+                  <span>{{ p.name }}</span>
+                </div>
+              </td>
+              <td style="padding: 12px 14px; color: var(--stone-text-muted);">{{ p.category_name }}</td>
+              <td style="padding: 12px 14px; text-align: center; color: #fbbf24; font-weight: 700;">{{ p.outreach_sent }}</td>
+              <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 700;">{{ p.clicks }}</td>
+              <td style="padding: 12px 14px; text-align: center; color: #a5b4fc; font-weight: 700;">{{ p.views }}</td>
+              <td style="padding: 12px 14px; text-align: center; color: var(--obsidian-cyan); font-weight: 800;">{{ p.orders }}</td>
+              <td style="padding: 12px 14px; font-weight: 850; color: var(--obsidian-cyan);">{{ p.sales_amount_formatted }} تومان</td>
+              <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">{{ p.last_interaction_date }}</td>
+              <td style="padding: 12px 14px; text-align: center;">
+                <a href="/p/{{ p.id }}/" target="_blank" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 8px;">
+                  <span>کارت کالا</span>
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="9" style="padding: 24px; text-align: center; color: var(--stone-text-muted);">
+                هنوز داده آماری برای این بازه ثبت نشده است.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -743,6 +971,128 @@
       btn.addEventListener("click", () => {
         tierButtons.forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
+      });
+    });
+
+    // Analytics Table Sorting
+    const sortButtons = document.querySelectorAll(".analytics-sort-btn");
+    const tableBody = document.getElementById("analytics-table-body");
+
+    sortButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        sortButtons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const sortType = btn.dataset.sort;
+        if (!tableBody) return;
+        const rows = Array.from(tableBody.querySelectorAll("tr[data-sales]"));
+
+        rows.sort((a, b) => {
+          if (sortType === "sales") {
+            return (parseFloat(b.dataset.sales) || 0) - (parseFloat(a.dataset.sales) || 0);
+          } else if (sortType === "clicks") {
+            return (parseInt(b.dataset.clicks) || 0) - (parseInt(a.dataset.clicks) || 0);
+          } else if (sortType === "views") {
+            return (parseInt(b.dataset.views) || 0) - (parseInt(a.dataset.views) || 0);
+          } else if (sortType === "date") {
+            return (b.dataset.date || "").localeCompare(a.dataset.date || "");
+          }
+          return 0;
+        });
+
+        rows.forEach(r => tableBody.appendChild(r));
+      });
+    });
+
+    // Analytics Date Filtering (AJAX)
+    const btnApplyDate = document.getElementById("btn-apply-date-filter");
+    const inputStartDate = document.getElementById("shamsi-start-date");
+    const inputEndDate = document.getElementById("shamsi-end-date");
+    const presetButtons = document.querySelectorAll(".date-preset-btn");
+
+    function fetchAnalytics(startDate, endDate) {
+      let url = "/discovery/api/analytics/";
+      const params = new URLSearchParams();
+      if (startDate) params.append("start_date", startDate);
+      if (endDate) params.append("end_date", endDate);
+      if (params.toString()) url += "?" + params.toString();
+
+      fetch(url)
+        .then(r => r.json())
+        .then(res => {
+          if (res.status === "success" && res.data) {
+            const summary = res.data.summary;
+            document.getElementById("stat-total-sales").textContent = summary.total_sales_formatted + " تومان";
+            document.getElementById("stat-total-orders").textContent = summary.total_orders;
+            document.getElementById("stat-total-clicks").textContent = summary.total_clicks + " کلیک";
+            document.getElementById("stat-total-views").textContent = summary.total_views + " بازدید";
+            document.getElementById("stat-total-outreach").textContent = summary.total_outreach + " پیام";
+            document.getElementById("stat-conversion-rate").textContent = summary.conversion_rate + "٪";
+
+            if (inputStartDate && summary.start_date_shamsi) inputStartDate.value = summary.start_date_shamsi;
+            if (inputEndDate && summary.end_date_shamsi) inputEndDate.value = summary.end_date_shamsi;
+
+            if (tableBody) {
+              tableBody.innerHTML = "";
+              if (!res.data.products || res.data.products.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="9" style="padding: 24px; text-align: center; color: var(--stone-text-muted);">هنوز داده آماری برای این بازه ثبت نشده است.</td></tr>`;
+              } else {
+                res.data.products.forEach(p => {
+                  const tr = document.createElement("tr");
+                  tr.style.borderBottom = "1px solid var(--panel-border-subtle)";
+                  tr.dataset.sales = p.sales_amount;
+                  tr.dataset.clicks = p.clicks;
+                  tr.dataset.views = p.views;
+                  tr.dataset.date = p.raw_last_date;
+
+                  const imgHtml = p.image_url ? `<img src="${p.image_url}" style="width: 28px; height: 28px; border-radius: 6px; object-fit: cover;">` : "";
+                  tr.innerHTML = `
+                    <td style="padding: 12px 14px; font-weight: 700; color: var(--panel-text-main);">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        ${imgHtml}
+                        <span>${p.name}</span>
+                      </div>
+                    </td>
+                    <td style="padding: 12px 14px; color: var(--stone-text-muted);">${p.category_name}</td>
+                    <td style="padding: 12px 14px; text-align: center; color: #fbbf24; font-weight: 700;">${p.outreach_sent}</td>
+                    <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 700;">${p.clicks}</td>
+                    <td style="padding: 12px 14px; text-align: center; color: #a5b4fc; font-weight: 700;">${p.views}</td>
+                    <td style="padding: 12px 14px; text-align: center; color: var(--obsidian-cyan); font-weight: 800;">${p.orders}</td>
+                    <td style="padding: 12px 14px; font-weight: 850; color: var(--obsidian-cyan);">${p.sales_amount_formatted} تومان</td>
+                    <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">${p.last_interaction_date}</td>
+                    <td style="padding: 12px 14px; text-align: center;">
+                      <a href="/p/${p.id}/" target="_blank" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 8px;">
+                        <span>کارت کالا</span>
+                      </a>
+                    </td>
+                  `;
+                  tableBody.appendChild(tr);
+                });
+              }
+            }
+          }
+        });
+    }
+
+    if (btnApplyDate && inputStartDate && inputEndDate) {
+      btnApplyDate.addEventListener("click", () => {
+        presetButtons.forEach(b => b.classList.remove("active"));
+        fetchAnalytics(inputStartDate.value.trim(), inputEndDate.value.trim());
+      });
+    }
+
+    presetButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        presetButtons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const days = btn.dataset.days;
+        if (days === "all") {
+          if (inputStartDate) inputStartDate.value = "";
+          if (inputEndDate) inputEndDate.value = "";
+          fetchAnalytics("", "");
+        } else {
+          // Send request with empty dates to fetch recent window, or standard reload
+          fetchAnalytics("", "");
+        }
       });
     });
   })();

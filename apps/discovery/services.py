@@ -2,11 +2,19 @@ import os
 import re
 import json
 import logging
+from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
 from apps.businesses.models import Business
 from apps.products.models import Product, Category
-from .models import CategoryBranchMemory, ProcessedMessageHash, DiscoveredLead
+from apps.core.jalali import format_jalali_date, parse_jalali_date, to_persian_digits
+from .models import (
+    CategoryBranchMemory,
+    ProcessedMessageHash,
+    DiscoveredLead,
+    ProductDailyMetric,
+    ProductOrder
+)
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +289,23 @@ def generate_smart_outreach_message(business: Business, product: Product, post: 
     return msg, product_link
 
 
+DAILY_OUTREACH_CAP_PER_PRODUCT = 100
+
+
+def get_intent_rank(score: int) -> int:
+    """
+    Rank purchase intent stage for AI prioritization:
+      1: READY_TO_BUY (85-100) - بالاترین شانس خرید فوری
+      2: COMPARING (60-84)     - در حال مقایسه و ارزیابی
+      3: INITIAL_NEED (30-59)  - ابراز نیاز اولیه
+    """
+    if score >= 85:
+        return 1
+    if score >= 60:
+        return 2
+    return 3
+
+
 def evaluate_and_discover_leads(business: Business) -> dict:
     active_products = list(
         Product.objects.filter(
@@ -300,6 +325,7 @@ def evaluate_and_discover_leads(business: Business) -> dict:
 
     leads_created = 0
     created_lead_objects = []
+    today = timezone.now().date()
 
     for product in active_products:
         keywords, negatives = extract_keywords_from_product(product)
@@ -312,6 +338,8 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 business=business,
                 defaults={"keywords": keywords, "negative_keywords": negatives}
             )
+
+        candidate_matches = []
 
         for post in SAMPLE_SOCIAL_STREAM:
             channel = post["channel"]
@@ -358,10 +386,39 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 # Already captured previously, skip to save memory and server load
                 continue
 
-            # --- Tier 3: Qualified Lead Formation & Outreach Generation ---
+            rank = get_intent_rank(score)
+            candidate_matches.append({
+                "post": post,
+                "channel": channel,
+                "lead_handle": lead_handle,
+                "text": text,
+                "score": score,
+                "rank": rank,
+                "fingerprint": fingerprint,
+                "attr_matches_count": attr_matches_count,
+            })
+
+        # Autonomous intent sorting:
+        # Sort strictly by intent stage priority (rank 1 > 2 > 3), then highest score DESC (highest purchase chance)
+        candidate_matches.sort(key=lambda c: (c["rank"], -c["score"]))
+
+        # Daily Quota & Outreach Rule per product:
+        # If <= 100 leads: send message to ALL of them.
+        # If > 100 leads: send message to top 100 with highest chance of purchase; save remainder as DRAFT/NEW
+        sent_today_count = 0
+        for idx, candidate in enumerate(candidate_matches):
+            post = candidate["post"]
+            channel = candidate["channel"]
+            lead_handle = candidate["lead_handle"]
+            text = candidate["text"]
+            score = candidate["score"]
+            fingerprint = candidate["fingerprint"]
+            attr_matches_count = candidate["attr_matches_count"]
+
+            should_send = (idx < DAILY_OUTREACH_CAP_PER_PRODUCT)
+
             outreach_mode = "COMMENT" if channel == "X" else (business.preferred_outreach_mode or "DIRECT")
             outreach_msg, direct_link = generate_smart_outreach_message(business, product, post, outreach_mode)
-            
             matched_branch_path = product.category.get_full_path() if product.category else "دسته‌بندی اصلی"
 
             seller_handle = ""
@@ -372,7 +429,7 @@ def evaluate_and_discover_leads(business: Business) -> dict:
 
             bot_sender = "بات پیدا (@peyda_bot)" if channel == "X" else (business.telegram_account_handle or "ایجنت هوشمند")
             cust_reply = post.get("customer_reply", "")
-            has_reply = bool(cust_reply)
+            has_reply = bool(cust_reply) if should_send else False
 
             reasoning_parts = [f"تطابق کلیدواژه‌های شاخه درختی «{matched_branch_path}»"]
             if attr_matches_count > 0:
@@ -393,15 +450,15 @@ def evaluate_and_discover_leads(business: Business) -> dict:
                 matched_branch=matched_branch_path,
                 outreach_mode=outreach_mode,
                 outreach_message=outreach_msg,
-                outreach_status="SENT",
-                sent_from_handle=seller_handle,
+                outreach_status="SENT" if should_send else "DRAFT",
+                sent_from_handle=seller_handle if should_send else "",
                 bot_agent_name=bot_sender,
-                customer_reply=cust_reply,
+                customer_reply=cust_reply if should_send else "",
                 customer_reply_at=timezone.now() if has_reply else None,
-                message_count=2 if has_reply else 1,
+                message_count=2 if has_reply else (1 if should_send else 0),
                 guardrail_status="SAFE_IN_DOMAIN",
                 direct_link_sent=direct_link,
-                status="CONTACTED"
+                status="CONTACTED" if should_send else "NEW"
             )
 
             # Record hash
@@ -413,14 +470,25 @@ def evaluate_and_discover_leads(business: Business) -> dict:
             leads_created += 1
             created_lead_objects.append(lead)
 
+            if should_send:
+                sent_today_count += 1
+
             if branch_mem:
                 branch_mem.total_scanned_count += 1
                 branch_mem.leads_found_count += 1
                 branch_mem.save(update_fields=["total_scanned_count", "leads_found_count", "last_scanned_at"])
 
+        if sent_today_count > 0:
+            daily_metric, _ = ProductDailyMetric.objects.get_or_create(
+                product=product,
+                date=today
+            )
+            daily_metric.outreach_sent_count += sent_today_count
+            daily_metric.save(update_fields=["outreach_sent_count"])
+
     return {
         "status": "success",
-        "message": f"پایش با موفقیت انجام شد. {leads_created} سرنخ بالقوه با انطباق بالای ۳۰٪ کشف و پیام هوشمند به صورت خودکار از حساب شما ارسال گردید.",
+        "message": f"پایش با موفقیت انجام شد. {leads_created} سرنخ بالقوه با انطباق بالای ۳۰٪ کشف و بر اساس اولویت قصد خرید تا سقف ۱۰۰ پیام برای هر کالا ارسال گردید.",
         "leads_created": leads_created,
         "leads": created_lead_objects
     }
@@ -579,3 +647,132 @@ def get_agent_discovery_feed(business: Business, min_priority: int = 1, limit: i
         "total_active_products": len(product_items),
         "products": product_items
     }
+
+
+def seed_demo_analytics_if_needed(business: Business):
+    """
+    Seeds realistic metrics and conversions across past 14 days for business products
+    if no metrics exist, so dashboard analytics reflect rich live graphs and sortable statistics.
+    """
+    if ProductDailyMetric.objects.filter(product__business=business).exists():
+        return
+
+    products = list(Product.objects.filter(business=business))
+    if not products:
+        return
+
+    today = timezone.now().date()
+    presets = [
+        {"clicks": 18, "views": 42, "orders": 3, "outreach": 25},
+        {"clicks": 12, "views": 28, "orders": 2, "outreach": 20},
+        {"clicks": 7, "views": 19, "orders": 1, "outreach": 15},
+        {"clicks": 4, "views": 10, "orders": 0, "outreach": 10},
+    ]
+
+    for p_idx, prod in enumerate(products):
+        base = presets[p_idx % len(presets)]
+        unit_price = int(prod.price) if prod.price else 650000
+
+        for day_offset in range(14, -1, -1):
+            d = today - timedelta(days=day_offset)
+            factor = 1.0 + (14 - day_offset) * 0.05
+            c = max(1, int(base["clicks"] * factor * 0.8))
+            v = max(c, int(base["views"] * factor * 0.9))
+            o = max(0, int(base["orders"] * factor * 0.7))
+            outreach = max(2, int(base["outreach"] * factor * 0.8))
+            sales = o * unit_price
+
+            ProductDailyMetric.objects.create(
+                product=prod,
+                date=d,
+                outreach_sent_count=outreach,
+                clicks_count=c,
+                views_count=v,
+                orders_count=o,
+                sales_amount=sales
+            )
+
+
+def get_performance_analytics(business: Business, start_date=None, end_date=None) -> dict:
+    """
+    Aggregates clicks, views, sales, and conversions for seller's catalog.
+    Supports exact Persian/Gregorian date range filtering or all-time if not specified.
+    """
+    seed_demo_analytics_if_needed(business)
+
+    metrics_qs = ProductDailyMetric.objects.filter(product__business=business)
+    if start_date:
+        metrics_qs = metrics_qs.filter(date__gte=start_date)
+    if end_date:
+        metrics_qs = metrics_qs.filter(date__lte=end_date)
+
+    total_sales = 0
+    total_orders = 0
+    total_clicks = 0
+    total_views = 0
+    total_outreach = 0
+
+    for m in metrics_qs:
+        total_sales += int(m.sales_amount)
+        total_orders += m.orders_count
+        total_clicks += m.clicks_count
+        total_views += m.views_count
+        total_outreach += m.outreach_sent_count
+
+    conversion_rate = round((total_orders / total_clicks * 100), 1) if total_clicks > 0 else 0.0
+
+    products = Product.objects.filter(business=business).select_related("category")
+    product_stats = []
+
+    for prod in products:
+        p_metrics = metrics_qs.filter(product=prod)
+        p_sales = sum(int(m.sales_amount) for m in p_metrics)
+        p_orders = sum(m.orders_count for m in p_metrics)
+        p_clicks = sum(m.clicks_count for m in p_metrics)
+        p_views = sum(m.views_count for m in p_metrics)
+        p_outreach = sum(m.outreach_sent_count for m in p_metrics)
+
+        latest_m = p_metrics.order_by("-date").first()
+        last_date_shamsi = format_jalali_date(latest_m.date) if latest_m else "—"
+
+        img = prod.main_image
+        img_url = img.image.url if img and hasattr(img.image, "url") else None
+
+        product_stats.append({
+            "id": prod.id,
+            "name": prod.name,
+            "category_name": prod.category.name if prod.category else "عمومی",
+            "image_url": img_url,
+            "price_formatted": prod.formatted_price(),
+            "outreach_sent": p_outreach,
+            "clicks": p_clicks,
+            "views": p_views,
+            "orders": p_orders,
+            "sales_amount": p_sales,
+            "sales_amount_formatted": f"{p_sales:,}".replace(",", "،"),
+            "last_interaction_date": last_date_shamsi,
+            "raw_last_date": latest_m.date.isoformat() if latest_m else "1970-01-01",
+        })
+
+    # Default sort by sales_amount DESC
+    product_stats.sort(key=lambda x: x["sales_amount"], reverse=True)
+
+    start_shamsi = format_jalali_date(start_date) if start_date else ""
+    end_shamsi = format_jalali_date(end_date) if end_date else ""
+
+    return {
+        "summary": {
+            "total_sales": total_sales,
+            "total_sales_formatted": f"{total_sales:,}".replace(",", "،"),
+            "total_orders": total_orders,
+            "total_clicks": total_clicks,
+            "total_views": total_views,
+            "total_outreach": total_outreach,
+            "conversion_rate": conversion_rate,
+            "start_date_shamsi": start_shamsi,
+            "end_date_shamsi": end_shamsi,
+            "is_all_time": not bool(start_date or end_date),
+        },
+        "products": product_stats,
+    }
+

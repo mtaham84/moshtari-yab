@@ -4,8 +4,11 @@ from django.contrib import admin
 from django.urls import include, path
 
 
+from apps.products.views import public_product_card_view
+ 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("p/<int:pk>/", public_product_card_view, name="short_public_card"),
     path("accounts/", include("apps.accounts.urls")),
     path("products/", include("apps.products.urls")),
     path("discovery/", include("apps.discovery.urls")),

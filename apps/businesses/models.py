@@ -29,6 +29,22 @@ class Business(models.Model):
     )
     description = models.TextField(blank=True, verbose_name="توضیحات و ارزش پیشنهادی")
     location = models.CharField(max_length=150, blank=True, verbose_name="موقعیت جغرافیایی / شهر")
+    target_locations = models.CharField(
+        max_length=255,
+        default="سراسر کشور",
+        blank=True,
+        verbose_name="موقعیت جغرافیایی و شهرهای هدف"
+    )
+    target_min_age = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="حداقل سن مخاطب"
+    )
+    target_max_age = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="حداکثر سن مخاطب"
+    )
     target_customer_description = models.TextField(
         blank=True,
         verbose_name="شرح مشتریان ایده‌آل (ICP)"

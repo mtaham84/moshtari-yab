@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from apps.businesses.models import Business
+from apps.discovery.services import get_performance_analytics
 from .emails import send_verification_email
 from .models import EmailVerification
 
@@ -392,20 +393,36 @@ def dashboard_view(request):
             business_domain="عمومی"
         )
 
-    if request.method == "POST" and request.POST.get("update_social_config"):
-        business.telegram_account_handle = request.POST.get("telegram_account_handle", "").strip()
-        business.x_account_handle = request.POST.get("x_account_handle", "").strip()
-        mode = request.POST.get("preferred_outreach_mode", "DIRECT").strip()
-        if mode in ["DIRECT", "COMMENT"]:
-            business.preferred_outreach_mode = mode
-        limit = request.POST.get("daily_discovery_limit", "").strip()
-        if limit.isdigit():
-            business.daily_discovery_limit = max(1, int(limit))
-        business.save()
-        messages.success(request, "تنظیمات اتصال حساب‌های شبکه‌های اجتماعی و سقف پایش با موفقیت به‌روزرسانی شد.")
-        return redirect(request.META.get("HTTP_REFERER") or "accounts:dashboard")
+    if request.method == "POST":
+        if request.POST.get("update_targeting_constraints"):
+            locations = request.POST.get("target_locations", "").strip()
+            min_age_val = request.POST.get("target_min_age", "").strip()
+            max_age_val = request.POST.get("target_max_age", "").strip()
+
+            business.target_locations = locations or "سراسر کشور"
+            business.target_min_age = int(min_age_val) if min_age_val.isdigit() else None
+            business.target_max_age = int(max_age_val) if max_age_val.isdigit() else None
+            business.save(update_fields=["target_locations", "target_min_age", "target_max_age", "updated_at"])
+            messages.success(request, "محدوده‌های هدف‌گذاری اختیاری (موقعیت جغرافیایی و بازه سنی) با موفقیت به‌روزرسانی شد.")
+            return redirect(request.META.get("HTTP_REFERER") or "accounts:dashboard")
+
+        if request.POST.get("update_social_config"):
+            business.telegram_account_handle = request.POST.get("telegram_account_handle", "").strip()
+            business.x_account_handle = request.POST.get("x_account_handle", "").strip()
+            mode = request.POST.get("preferred_outreach_mode", "DIRECT").strip()
+            if mode in ["DIRECT", "COMMENT"]:
+                business.preferred_outreach_mode = mode
+            limit = request.POST.get("daily_discovery_limit", "").strip()
+            if limit.isdigit():
+                business.daily_discovery_limit = max(1, int(limit))
+            business.save()
+            messages.success(request, "تنظیمات اتصال حساب‌های شبکه‌های اجتماعی و سقف پایش با موفقیت به‌روزرسانی شد.")
+            return redirect(request.META.get("HTTP_REFERER") or "accounts:dashboard")
+
+    analytics_data = get_performance_analytics(business)
 
     return render(request, "accounts/dashboard.html", {
         "user": request.user,
         "business": business,
+        "analytics": analytics_data,
     })

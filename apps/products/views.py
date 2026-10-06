@@ -1,10 +1,14 @@
 import json
+import secrets
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from apps.businesses.models import Business
+from apps.discovery.models import ProductDailyMetric, ProductOrder, DiscoveredLead
+from apps.core.jalali import format_jalali_date, to_persian_digits
 from .models import Category, Product, ProductImage
 from .services import suggest_category_for_product
 
@@ -406,4 +410,98 @@ def api_category_tree(request):
             tree.append(node)
 
     return JsonResponse({"status": "success", "tree": tree})
+
+
+def public_product_card_view(request, pk):
+    """
+    Digikala-style public customer product card & checkout view.
+    Accessible publicly without login. Automatically tracks views, agent clicks,
+    and handles instant customer order placement and conversion tracking.
+    """
+    product = get_object_or_404(Product.objects.select_related("business", "category"), pk=pk)
+    today = timezone.now().date()
+    metric, _ = ProductDailyMetric.objects.get_or_create(product=product, date=today)
+
+    ref_lead_id = request.GET.get("lead_id") or request.GET.get("ref")
+    lead_obj = None
+    if ref_lead_id and str(ref_lead_id).isdigit():
+        lead_obj = DiscoveredLead.objects.filter(id=int(ref_lead_id), product=product).first()
+
+    # Track metrics
+    metric.views_count += 1
+    if request.GET.get("src") == "agent" or lead_obj or request.GET.get("ref"):
+        metric.clicks_count += 1
+    metric.save(update_fields=["views_count", "clicks_count"])
+
+    # If POST (order submitted directly from card)
+    if request.method == "POST":
+        customer_name = request.POST.get("customer_name", "").strip()
+        customer_phone = request.POST.get("customer_phone", "").strip()
+        shipping_address = request.POST.get("shipping_address", "").strip()
+        quantity_raw = request.POST.get("quantity", "1").strip()
+        quantity = max(1, int(quantity_raw)) if quantity_raw.isdigit() else 1
+
+        if not (customer_name and customer_phone):
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
+                return JsonResponse({"status": "error", "message": "لطفاً نام و شماره تماس خود را وارد نمایید."}, status=400)
+            messages.error(request, "لطفاً نام و شماره تماس خود را وارد نمایید.")
+        else:
+            unit_price = int(product.price) if product.price else 0
+            total_price = unit_price * quantity
+            tracking_code = f"ORD-{secrets.randbelow(900000) + 100000}"
+
+            order = ProductOrder.objects.create(
+                product=product,
+                lead=lead_obj,
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                shipping_address=shipping_address,
+                quantity=quantity,
+                unit_price=unit_price,
+                total_price=total_price,
+                status="PAID",
+                tracking_code=tracking_code
+            )
+
+            # Record in daily metric
+            metric.orders_count += 1
+            metric.sales_amount += total_price
+            metric.save(update_fields=["orders_count", "sales_amount"])
+
+            if lead_obj:
+                lead_obj.status = "CONVERTED"
+                lead_obj.save(update_fields=["status", "updated_at"])
+
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
+                return JsonResponse({
+                    "status": "success",
+                    "tracking_code": tracking_code,
+                    "customer_name": customer_name,
+                    "quantity": quantity,
+                    "total_price_formatted": f"{total_price:,}".replace(",", "،"),
+                    "message": "سفارش شما با موفقیت ثبت شد."
+                })
+
+            return render(request, "products/order_success.html", {
+                "product": product,
+                "order": order,
+            })
+
+    images = list(product.images.all())
+    main_image = product.main_image
+    other_images = [img for img in images if img != main_image]
+
+    # Calculate discount / badge
+    discount_percent = 15 if (product.price and product.price > 100000) else 0
+
+    return render(request, "products/public_product_card.html", {
+        "product": product,
+        "business": product.business,
+        "main_image": main_image,
+        "images": images,
+        "other_images": other_images,
+        "discount_percent": discount_percent,
+        "lead_id": ref_lead_id or "",
+    })
+
 
