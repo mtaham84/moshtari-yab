@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ai import GrokAnalyzer
+from .cache import DiscoveryCache
+from .jobs import JobStore
 from .core import Analysis, JobResult, ProductProfile, SourceRecord, cheap_candidate, local_classify, normalize_text, rank_analysis
 from .sources import DivarAdapter, MockAdapter, XAdapter
 
@@ -49,8 +51,19 @@ def _merge_analysis(base: Analysis, values: dict[str, Any]) -> Analysis:
     return base
 
 
-def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries: int = 8) -> JobResult:
+def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries: int = 8, job_id: str | None = None, job_store: JobStore | None = None) -> JobResult:
     result = JobResult(product=asdict(profile))
+    store = job_store or JobStore()
+    if job_id is None:
+        job_id = store.create({"profile": asdict(profile), "sources": sources, "mode": mode, "max_queries": max_queries, "stage": "SELLER", "query_index": 0, "records": [], "vocabulary": [], "queries": []})
+    state = store.get(job_id)
+    if state is None:
+        raise KeyError(f"Unknown job: {job_id}")
+    result.job_id = job_id
+    result.started_at = state["created_at"]
+    previous_result = state.get("result") or {}
+    for field_name in ("records_collected", "buyers_found", "sellers_filtered", "duplicates_removed", "grok_calls", "grok_prompt_tokens", "grok_completion_tokens", "grok_estimated_cost_usd", "cache_hits"):
+        setattr(result, field_name, previous_result.get(field_name, getattr(result, field_name)))
     started = time.monotonic()
     max_requests = int(os.getenv("MAX_SOURCE_REQUESTS", "100"))
     max_records = int(os.getenv("MAX_TOTAL_RECORDS", "3000"))
@@ -58,25 +71,83 @@ def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries:
     grok_budget = int(os.getenv("MAX_GROK_REQUESTS", "40"))
     result.status, result.current_phase = "PREPARING_PRODUCT", "PREPARING_PRODUCT"
     use_mock = mode == "mock" or os.getenv("USE_MOCK_SOURCES", "false").lower() == "true"
-    adapters = {name: MockAdapter(name) if use_mock else XAdapter(max_requests=max_requests) if name == "x" else DivarAdapter(max_requests=max_requests) for name in sources}
-    records: list[SourceRecord] = []
-    queries = make_queries(profile, [], max_queries)
+    source_usage = state.get("source_usage", {})
+    adapters = {name: MockAdapter(name) if use_mock else XAdapter(max_requests=max(0, max_requests - source_usage.get(name, 0))) if name == "x" else DivarAdapter(max_requests=max(0, int(os.getenv("DIVAR_MAX_REQUESTS_PER_JOB", "30")) - source_usage.get(name, 0))) for name in sources}
+    records = [SourceRecord(**raw) for raw in state.get("records", [])]
+    cache = DiscoveryCache()
+    queries = state.get("queries", [])
+    vocabulary = state.get("vocabulary", [])
+    stage = state.get("stage", "SELLER")
+    query_index = int(state.get("query_index", 0))
+
+    def save_checkpoint(new_stage: str, next_index: int, phase: str, status: str = "RUNNING") -> None:
+        raw_records = [asdict(record) for record in records]
+        usage = {name: getattr(adapter, "requests_used", 0) + source_usage.get(name, 0) for name, adapter in adapters.items()}
+        store.update(job_id, status=status, phase=phase, stage=new_stage, query_index=next_index, records=raw_records, vocabulary=vocabulary, queries=queries, result=asdict(result), source_usage=usage)
+
+    def pause_if_requested(phase: str) -> bool:
+        if store.stop_requested(job_id):
+            result.status = "PAUSED"
+            result.current_phase = phase
+            result.records_collected = len(records)
+            result.raw_records = [asdict(record) for record in records]
+            result.finished_at = datetime.now(timezone.utc).isoformat()
+            save_checkpoint(stage, query_index, phase, "PAUSED")
+            return True
+        return False
     try:
-        if "x" in adapters:
+        if state["status"] in {"PAUSED", "STOP_REQUESTED", "PARTIAL_SUCCESS", "RUNNING"}:
+            store.clear_stop(job_id)
+        store.update(job_id, status="RUNNING", phase="PREPARING_PRODUCT")
+        cached_vocabulary = cache.get(profile, context={"kind": "vocabulary"})
+        result.cache_hits += int(bool(cached_vocabulary))
+        if stage == "SELLER":
+            seller_queries = [f'"{profile.product_name}" {word}' for word in SELLER_QUERY_WORDS[:3]] if "x" in adapters and not cached_vocabulary else []
             result.current_phase = "DISCOVERING_X_SELLERS"
-            seller_queries = [f'"{profile.product_name}" {word}' for word in SELLER_QUERY_WORDS[:3]]
-            for query in seller_queries:
-                records.extend(adapters["x"].search(query))
+            for index in range(query_index, len(seller_queries)):
+                if pause_if_requested(result.current_phase): return result
                 if time.monotonic() - started > max_runtime or len(records) >= max_records: break
-        vocabulary = discover_vocabulary(records, profile)
-        queries = make_queries(profile, vocabulary, max_queries)
+                records.extend(adapters["x"].search(seller_queries[index]))
+                query_index = index + 1
+                save_checkpoint("SELLER", query_index, result.current_phase)
+            vocabulary = cached_vocabulary.get("terms", []) if cached_vocabulary else discover_vocabulary(records, profile)
+            if not cached_vocabulary:
+                cache.set(profile, {"terms": vocabulary}, context={"kind": "vocabulary"})
+            query_context = {"kind": "queries", "vocabulary": vocabulary, "max_queries": max_queries}
+            cached_queries = cache.get(profile, context=query_context)
+            result.cache_hits += int(bool(cached_queries))
+            queries = cached_queries.get("queries", []) if cached_queries else make_queries(profile, vocabulary, max_queries)
+            if not cached_queries:
+                cache.set(profile, {"queries": queries}, context=query_context)
+            stage, query_index = "BUYER", 0
+            save_checkpoint(stage, query_index, "SEARCHING_X_BUYERS")
+        else:
+            query_context = {"kind": "queries", "vocabulary": vocabulary, "max_queries": max_queries}
+            if not queries:
+                cached_queries = cache.get(profile, context=query_context)
+                queries = cached_queries.get("queries", []) if cached_queries else make_queries(profile, vocabulary, max_queries)
+        source_query_pairs = [(source_name, query) for source_name in sources for query in (queries if source_name == "x" else [profile.product_name, *vocabulary][:max_queries])]
         result.current_phase = "SEARCHING_X_BUYERS"
-        for source_name, adapter in adapters.items():
-            source_queries = queries if source_name == "x" else [profile.product_name, *vocabulary][:max_queries]
-            for query in source_queries:
-                if time.monotonic() - started > max_runtime or len(records) >= max_records:
-                    break
-                records.extend(adapter.search(query))
+        if stage != "ANALYSIS":
+            for index in range(query_index, len(source_query_pairs)):
+                if pause_if_requested(result.current_phase): return result
+                if time.monotonic() - started > max_runtime or len(records) >= max_records: break
+                source_name, query = source_query_pairs[index]
+                records.extend(adapters[source_name].search(query))
+                query_index = index + 1
+                save_checkpoint("BUYER", query_index, result.current_phase)
+        if query_index < len(source_query_pairs) and (len(records) >= max_records or time.monotonic() - started > max_runtime):
+            result.status = "PARTIAL_SUCCESS"
+            result.current_phase = "SEARCHING_X_BUYERS"
+            save_checkpoint("BUYER", query_index, result.current_phase, "PARTIAL_SUCCESS")
+            result.records_collected = len(records)
+            result.raw_records = [asdict(record) for record in records]
+            result.finished_at = datetime.now(timezone.utc).isoformat()
+            return result
+        stage, query_index = "ANALYSIS", 0
+        result.records_collected = len(records)
+        result.raw_records = [asdict(record) for record in records]
+        save_checkpoint(stage, query_index, "ANALYZING")
         result.records_collected = len(records)
         result.raw_records = [{"source": r.source, "source_id": r.source_id, "source_url": r.source_url, "author_id": r.author_id, "username": r.username, "text": r.text, "created_at": r.created_at, "query_used": r.query_used, "raw_data": r.raw_data} for r in records]
         result.current_phase = "DEDUPLICATING"
@@ -91,23 +162,34 @@ def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries:
                 unique.append(record)
         candidates = [record for record in unique if cheap_candidate(record, profile)]
         result.current_phase = "ANALYZING"
+        if pause_if_requested(result.current_phase): return result
         analyzer = None if use_mock else GrokAnalyzer()
         if analyzer and not analyzer.api_key:
             raise RuntimeError("Set XAI_API_KEY or run with --mode mock")
         if analyzer:
-            classifications = analyzer.classify_batch(candidates)
-            result.grok_calls = analyzer.calls
+            analyzer.max_calls = max(0, grok_budget - result.grok_calls)
+        if analyzer:
+            classification_capacity = ((analyzer.max_calls + 1) // 2) * analyzer.batch_size
+            ai_candidates = candidates[:classification_capacity]
+            classifications = analyzer.classify_batch(ai_candidates)
+            result.grok_calls += analyzer.calls
             classification_map = {str(item.get("id")): item for item in classifications}
+            result.grok_prompt_tokens += analyzer.prompt_tokens
+            result.grok_completion_tokens += analyzer.completion_tokens
+            result.grok_estimated_cost_usd += analyzer.estimated_cost_usd
         else:
             classification_map = {r.source_id: {"intent": a.intent, "lead_direction": a.lead_direction, "confidence": a.confidence} for r in candidates if (a := local_classify(r, profile))}
+        if analyzer:
+            save_checkpoint("ANALYSIS", 0, "ANALYZING")
         eligible: list[tuple[SourceRecord, Analysis]] = []
         for record in candidates:
-            classification = classification_map.get(record.source_id, {})
+            classification = classification_map.get(record.source_id)
             analysis = local_classify(record, profile)
-            analysis.intent = classification.get("intent", analysis.intent)
-            analysis.lead_direction = classification.get("lead_direction", analysis.lead_direction)
-            analysis.confidence = float(classification.get("confidence", analysis.confidence) or 0)
-            analysis.reason = classification.get("reason", analysis.reason)
+            if classification:
+                analysis.intent = classification.get("intent", analysis.intent)
+                analysis.lead_direction = classification.get("lead_direction", analysis.lead_direction)
+                analysis.confidence = float(classification.get("confidence", analysis.confidence) or 0)
+                analysis.reason = classification.get("reason", analysis.reason)
             if analysis.lead_direction == "seller" or analysis.intent in {"sell", "advertisement"}:
                 result.sellers_filtered += 1
                 continue
@@ -119,10 +201,16 @@ def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries:
             remaining_calls = grok_budget - analyzer.calls
             detail_capacity = remaining_calls * analyzer.batch_size
             details = analyzer.extract_batch(eligible[:detail_capacity], profile)
-            result.grok_calls = analyzer.calls
+            result.grok_calls += analyzer.calls
+            result.grok_prompt_tokens += analyzer.prompt_tokens
+            result.grok_completion_tokens += analyzer.completion_tokens
+            result.grok_estimated_cost_usd += analyzer.estimated_cost_usd
             detail_map = {str(item.get("id")): item for item in details}
+            save_checkpoint("ANALYSIS", 0, "ANALYZING")
         else:
             detail_map = {}
+        if pause_if_requested("RANKING"):
+            return result
         scored: list[dict[str, Any]] = []
         aggregated: dict[str, dict[str, Any]] = {}
         for record, analysis in eligible:
@@ -148,8 +236,22 @@ def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries:
         result.buyers_found = len(result.buyers)
         result.finished_at = datetime.now(timezone.utc).isoformat()
         result.status = "COMPLETED" if result.buyers else "PARTIAL_SUCCESS"
+        store.update(job_id, status=result.status, phase="COMPLETED", stage="COMPLETED", query_index=0, result=asdict(result), records=[asdict(record) for record in records], vocabulary=vocabulary, queries=queries)
     except Exception as exc:
         result.errors.append(str(exc))
-        result.status = "FAILED"
+        if "RATE_LIMITED" in str(exc):
+            result.status = "RATE_LIMITED"
+        elif "QUOTA_EXCEEDED" in str(exc):
+            result.status = "QUOTA_EXCEEDED"
+        elif "AUTH" in str(exc) or "API key" in str(exc):
+            result.status = "AUTH_REQUIRED"
+        elif result.records_collected:
+            result.status = "PARTIAL_SUCCESS"
+        else:
+            result.status = "FAILED"
         result.finished_at = datetime.now(timezone.utc).isoformat()
+        try:
+            save_checkpoint(stage, query_index, result.current_phase or "FAILED", result.status)
+        except Exception:
+            pass
     return result
