@@ -14,7 +14,9 @@ from .services import (
     send_lead_outreach,
     get_agent_discovery_feed,
     get_performance_analytics,
-    check_account_message_cap
+    check_account_message_cap,
+    extract_keywords_from_product,
+    generate_smart_outreach_message,
 )
 
 @login_required
@@ -275,6 +277,21 @@ def api_submit_lead_view(request):
     product = None
     if product_id:
         product = Product.objects.filter(id=product_id, business=business).first()
+
+    if not product:
+        # Match text against business active products using keyword scoring
+        active_products = list(
+            Product.objects.filter(business=business, is_discovery_active=True).select_related("category")
+        )
+        best_score = 0
+        text_lower = text.lower()
+        for cand in active_products:
+            kw_list, _ = extract_keywords_from_product(cand)
+            score_count = sum(1 for kw in kw_list if kw in text_lower)
+            if score_count > best_score:
+                best_score = score_count
+                product = cand
+
     if not product:
         product = Product.objects.filter(business=business, is_discovery_active=True).first() or Product.objects.filter(business=business).first()
 
@@ -283,12 +300,25 @@ def api_submit_lead_view(request):
 
     # 3. Intent score & reasoning
     score = int(data.get("intent_score", 50))
-    reasoning = data.get("intent_reasoning", "کشف هوشمند از طریق ایجنت هوش مصنوعی")
+    reasoning = data.get("intent_reasoning", "کشف هوشمند از طریق ایجنت هوش مصنوعی تلگرام")
     matched_branch = data.get("matched_branch", product.category.get_full_path() if product.category else "")
 
     outreach_mode = data.get("outreach_mode", "COMMENT" if channel == "X" else "DIRECT")
     outreach_msg = data.get("outreach_message", "")
     direct_link = data.get("direct_link_sent", product.url or f"https://customerweb.ir/p/{product.id}")
+
+    if not outreach_msg and product:
+        outreach_msg, direct_link = generate_smart_outreach_message(
+            business,
+            product,
+            {
+                "lead_handle": lead_handle,
+                "lead_display_name": data.get("lead_display_name", ""),
+                "channel": channel,
+                "text": text,
+            },
+            mode=outreach_mode,
+        )
 
     tokens_used = int(data.get("tokens_used", 0))
     cost_usd = float(data.get("cost_usd", 0.0))

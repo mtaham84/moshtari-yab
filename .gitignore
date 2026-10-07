@@ -1,9 +1,15 @@
 __pycache__/
 *.py[cod]
 *.sqlite3
+*.db
+*.db-*
+*.session
 .env
+telegram_crawler/.env
+telegram_crawler/data/
 .venv/
 venv/
 staticfiles/
 media/
 .DS_Store
+
