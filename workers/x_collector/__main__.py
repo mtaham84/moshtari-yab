@@ -6,7 +6,6 @@ import logging
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 from .client import XCliError
@@ -18,31 +17,25 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Read-only X tweet collector (JSONL worker)")
     parser.add_argument("--queries", default=os.getenv("X_COLLECT_QUERIES_FILE", "data/x_queries.txt"))
-    parser.add_argument("--catalog", default=os.getenv("CATALOG_SOURCE", "data/sample/catalog.json"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval", type=float, default=300)
-    parser.add_argument("--enqueue", action="store_true")
     parser.add_argument("--output-dir", default=os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
     args = parser.parse_args(argv)
-    if args.mock and args.enqueue:
-        parser.error("--enqueue cannot be used with --mock.")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    queries = XCollector.load_queries(args.queries, args.catalog)
+    queries = XCollector.load_queries(args.queries) or (["mock"] if args.mock else [])
     if not queries:
-        parser.error(f"No queries found. Add UTF-8 queries to {args.queries} or configure catalog {args.catalog}.")
+        parser.error(f"No queries found. Add UTF-8 queries (one per line) to {args.queries}.")
     output_dir = "data/x_collected_mock" if args.mock else args.output_dir
     state_path = "output/x_collector_mock_state.sqlite3" if args.mock else None
     collector = XCollector(output_dir=output_dir, state_path=state_path)
     mock_records = None
     if args.mock:
-        fixture = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "x_tweets.json"
+        fixture = Path(__file__).resolve().parent / "tests" / "fixtures" / "x_tweets.json"
         if not fixture.is_file():
-            fixture = Path(args.catalog).resolve().parents[1] / "sample" / "x_tweets.json"
-        if not fixture.is_file():
-            parser.error("Mock fixture not found under tests/fixtures or data/sample.")
+            parser.error(f"Mock fixture {fixture} not found.")
         mock_records = json.loads(fixture.read_text(encoding="utf-8"))
     if args.loop:
         if args.dry_run:
@@ -50,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(collector.run(queries, dry_run=True), ensure_ascii=False, indent=2))
             return 0
         try:
-            collect_forever(collector, queries, max(1.0, args.interval), mock_records, enqueue=args.enqueue)
+            collect_forever(collector, queries, max(1.0, args.interval), mock_records)
         except XCliError as exc:
             logging.error("Collector loop stopped: %s", exc)
             return 1
@@ -62,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.dry_run:
             _print_commands(queries)
-        result = collector.run(queries, dry_run=args.dry_run, mock_records=mock_records, enqueue=args.enqueue)
+        result = collector.run(queries, dry_run=args.dry_run, mock_records=mock_records)
     except XCliError as exc:
         logging.error("%s", exc)
         return 2

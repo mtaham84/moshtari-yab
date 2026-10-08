@@ -12,8 +12,8 @@ data/x_queries.txt
 output/x_collector_state.sqlite3
 output/x_collector_state.sqlite3-shm
 output/x_collector_state.sqlite3-wal
-output/jobs.sqlite3
-output/discovery_cache.sqlite3
+data/opportunities.jsonl
+data/opportunities.jsonl.offset
 **/twitter_cookies*
 **/twitter_session*
 **/cookies.txt

@@ -3,18 +3,20 @@ from __future__ import annotations
 import json
 import sqlite3
 import shutil
+import tempfile
 import unittest
 import io
 import contextlib
 from pathlib import Path
 from unittest.mock import patch
 
-from analysis.store import AnalysisStore
-from sources.file_adapter import load_file
 from workers.x_collector.client import XCliClient, XCliError
 from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, collect_forever
 from workers.x_collector.__main__ import main
-from buyer_engine.sources import XFileAdapter, XAdapter, build_x_adapter
+
+
+def load_file(path):
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 class FakeClient:
@@ -33,7 +35,7 @@ class FakeClient:
 
 class XCollectorTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path.cwd() / "tests" / ".x_collector_test_data"
+        self.root = Path(tempfile.mkdtemp(prefix="x_collector_"))
         self.root.mkdir(parents=True, exist_ok=True)
         for child in self.root.iterdir():
             if child.is_dir():
@@ -56,21 +58,20 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(record["url"], "https://x.com/cafe_buyer_demo/status/mock-x-1001")
         self.assertEqual(record["metadata"]["raw_cli"], self.fixture[0])
 
-    def test_jsonl_loads_as_x_messages_with_source_override(self):
+    def test_jsonl_records_are_x_messages(self):
         result = self.collector().run(["اسپرسوساز"])
-        messages = load_file(result["output"], default_source="file")
-        self.assertEqual(len(messages), 2)
-        self.assertEqual(messages[0].uid, "x:mock-x-1001")
-        self.assertEqual(messages[0].source, "x")
+        records = load_file(result["output"])
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["id"], "mock-x-1001")
+        self.assertEqual(records[0]["source"], "x")
 
-    def test_collected_count_matches_loader_for_supported_timestamps(self):
+    def test_supported_timestamps_are_normalised_to_utc(self):
         timestamp_values = ["2026-10-01T10:00:00Z", 1790848800, 1790848800000, "Thu Oct 01 10:00:00 +0000 2026"]
         records = [{**self.fixture[0], "id": str(index), "created_at": value} for index, value in enumerate(timestamp_values)]
         result = self.collector(client=FakeClient(records)).run(["q"])
-        messages = load_file(result["output"], default_source="x")
-        self.assertEqual(result["collected"], len(messages))
-        self.assertEqual(len(messages), len(timestamp_values))
-        self.assertTrue(all(message.created_at.utcoffset().total_seconds() == 0 for message in messages))
+        rows = load_file(result["output"])
+        self.assertEqual(result["collected"], len(timestamp_values))
+        self.assertTrue(all(r["created_at"].endswith("+00:00") for r in rows))
 
     def test_dedup_and_daily_cap(self):
         collector = self.collector(daily_cap=1)
@@ -171,39 +172,11 @@ class XCollectorTests(unittest.TestCase):
             XCliClient().search("--help", 5)
         self.assertEqual(run.call_args.args[0][2], "--query=--help")
 
-    def test_catalog_derives_queries_when_query_file_missing(self):
-        path = self.root / "catalog.json"
-        path.write_text(json.dumps({"products": [{"name": "محصول یک", "keywords": ["کلمه فارسی", "query"]}]}, ensure_ascii=False), encoding="utf-8")
-        self.assertEqual(XCollector.load_queries(self.root / "missing.txt", path), ["کلمه فارسی", "query"])
-
-    def test_buyer_engine_file_adapter_reads_daily_worker_output(self):
-        output_path = self.root / "collected" / "2026-10-01.jsonl"
-        output_path.parent.mkdir(parents=True)
-        record = normalize_tweet(self.fixture[0])
-        output_path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-        adapter = XFileAdapter(path=str(self.root / "collected" / "latest.jsonl"))
-        found = adapter.search('"دستگاه اسپرسوساز"')
-        self.assertEqual(len(found), 1)
-        self.assertEqual(found[0].source, "x")
-
-    def test_api_backend_remains_the_default(self):
-        with patch.dict("os.environ", {}, clear=True):
-            self.assertIsInstance(build_x_adapter(), XAdapter)
-
-    def test_cli_backend_is_rejected_by_factory(self):
-        with patch.dict("os.environ", {"X_BACKEND": "cli"}):
-            with self.assertRaises(ValueError):
-                build_x_adapter()
-
-    def test_unknown_backend_is_rejected_by_factory(self):
-        with patch.dict("os.environ", {"X_BACKEND": "typo"}):
-            with self.assertRaises(ValueError):
-                build_x_adapter()
-
-    def test_mock_and_enqueue_are_refused(self):
-        with self.assertRaises(SystemExit) as error:
-            main(["--mock", "--enqueue", "--once"])
-        self.assertEqual(error.exception.code, 2)
+    def test_queries_file_ignores_comments_and_duplicates(self):
+        path = self.root / "queries.txt"
+        path.write_text("# comment\nکلمه فارسی\nquery\nکلمه فارسی\n", encoding="utf-8")
+        self.assertEqual(XCollector.load_queries(path), ["کلمه فارسی", "query"])
+        self.assertEqual(XCollector.load_queries(self.root / "missing.txt"), [])
 
     def test_dry_run_prints_exact_cli_command_without_secrets(self):
         query_file = self.root / "queries.txt"
@@ -215,12 +188,12 @@ class XCollectorTests(unittest.TestCase):
         self.assertIn('twitter-cli search "--query=-query فارسی" --limit 50 --json', output.getvalue())
         self.assertNotIn("private", output.getvalue())
 
-    def test_loop_stops_on_failure_and_passes_enqueue(self):
+    def test_loop_stops_on_failure(self):
         collector = self.collector()
-        collector.run = lambda *args, **kwargs: {"status": "AUTH_FAILED", "collected": 0, "enqueue": kwargs.get("enqueue")}
+        collector.run = lambda *args, **kwargs: {"status": "AUTH_FAILED", "collected": 0}
         with patch("workers.x_collector.worker.time.sleep", return_value=None):
             with self.assertRaises(XCliError):
-                collect_forever(collector, ["q"], 1, enqueue=True)
+                collect_forever(collector, ["q"], 1)
 
 
 if __name__ == "__main__":

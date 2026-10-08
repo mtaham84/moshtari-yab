@@ -1,15 +1,11 @@
-"""Backfill + live monitoring of one or more Telegram groups.
+"""Backfill + live archiving of one or more Telegram groups.
 
 For every monitored group:
   1. resolve/join the group and resume from the last scanned message id;
-  2. backfill: collect history (time + count limits), archive ALL messages
-     locally, then process candidates oldest -> newest so context is local;
-  3. live: archive every new message, attach late replies to still-pending
-     inbox items, and enqueue new candidates.
+  2. backfill: archive recent history (time + count limits);
+  3. live: archive every new message.
 
-Candidates (messages that pass the basic filter) are converted to the shared
-``SocialMessage`` format and enqueued in the analysis inbox, where the agent
-decides whether they are real opportunities.
+The crawler does no filtering or analysis: need_engine reads the archive and decides what is a need.
 """
 
 from __future__ import annotations
@@ -18,7 +14,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
@@ -26,16 +22,12 @@ from telethon.tl.types import Message
 
 from telegram_crawler import db as local_db
 from telegram_crawler.config import settings
-from telegram_crawler.detector import DetectorCallable, is_target_message
-from telegram_crawler.extractor import build_lead_context, message_to_snippet
-from telegram_crawler.models import GroupInfo, LeadContext
+from telegram_crawler.extractor import message_to_snippet
+from telegram_crawler.models import GroupInfo
 from telegram_crawler.ratelimit import FloodWaitTooLong, pace
 from telegram_crawler.telegram_client import join_and_resolve_group
-from telegram_crawler.webhook import DjangoWebhookDispatcher
 
 log = logging.getLogger("telegram_crawler.monitor")
-
-LeadCallback = Callable[[LeadContext], Awaitable[None]]
 
 
 @dataclass
@@ -61,44 +53,24 @@ class CrawlerMonitor:
         self,
         client: TelegramClient,
         group_links: list[str] | str | None = None,
-        detector: DetectorCallable | None = None,
         backfill_hours: float | None = None,
         backfill_limit: int | None = None,
-        context_msg_count: int | None = None,
-        on_lead_detected: LeadCallback | None = None,
         db_path: str | None = None,
-        webhook: DjangoWebhookDispatcher | None = None,
-        analysis_store: Any = None,
-        enqueue: bool | None = None,
         resume: bool = True,
     ) -> None:
         self.client = client
         if isinstance(group_links, str):
             group_links = [group_links]
         self.group_links = [g for g in (group_links or []) if g and g.strip()]
-        self.detector = detector or is_target_message
         self.backfill_hours = settings.backfill_hours if backfill_hours is None else backfill_hours
         self.backfill_limit = settings.backfill_limit if backfill_limit is None else backfill_limit
-        self.context_msg_count = settings.context_msg_count if context_msg_count is None else context_msg_count
-        self.on_lead_detected = on_lead_detected
         self.db_path = db_path or settings.db_path
-        self.webhook = webhook or DjangoWebhookDispatcher(db_path=self.db_path)
         self.resume = resume
-        self.enqueue_enabled = settings.analysis_enabled if enqueue is None else enqueue
-        self._store = analysis_store
         self.groups: list[GroupState] = []
-        self.stats = {"archived": 0, "candidates": 0, "enqueued": 0, "late_replies_attached": 0}
+        self.stats = {"archived": 0}
         local_db.init_db(self.db_path)
 
     # ----------------------------------------------------------------- setup
-    @property
-    def store(self):
-        if self._store is None and self.enqueue_enabled:
-            from analysis.store import AnalysisStore
-
-            self._store = AnalysisStore()
-        return self._store
-
     def add_resolved_group(self, entity: Any, info: GroupInfo, link: str | None = None) -> GroupState:
         state = GroupState(link=link, entity=entity, info=info)
         if self.resume:
@@ -107,11 +79,10 @@ class CrawlerMonitor:
                 state.resume_from = int(saved.get("last_scanned_msg_id") or 0)
         state.max_seen = state.resume_from
         self.groups.append(state)
+        self._save_progress(state)  # registers title/link so need_engine can build message links
         return state
 
     async def initialize(self) -> None:
-        if self.webhook.enabled:
-            await self.webhook.sync_pending()
         for link in self.group_links:
             try:
                 entity, info = await join_and_resolve_group(self.client, link)
@@ -128,67 +99,20 @@ class CrawlerMonitor:
             raise RuntimeError("No group could be resolved; nothing to monitor.")
 
     # ------------------------------------------------------------- internals
-    def _archive(self, state: GroupState, msg: Message, is_candidate: bool = False) -> bool:
+    def _archive(self, state: GroupState, msg: Message) -> bool:
         snippet = message_to_snippet(msg)
         sender = getattr(msg, "sender", None)
         username = getattr(sender, "username", None)
-        is_bot = getattr(sender, "bot", False) is True
         inserted = local_db.save_message(
             state.info.group_id, snippet,
             sender_username=username if isinstance(username, str) else None,
-            sender_is_bot=is_bot, is_candidate=is_candidate, db_path=self.db_path,
+            sender_is_bot=getattr(sender, "bot", False) is True, db_path=self.db_path,
         )
         if inserted:
             self.stats["archived"] += 1
         if msg.id > state.max_seen:
             state.max_seen = msg.id
         return inserted
-
-    async def _is_candidate(self, state: GroupState, msg: Message) -> bool:
-        text = (getattr(msg, "message", None) or "").strip()
-        if not text:
-            return False
-        sender = getattr(msg, "sender", None)
-        metadata = {
-            "msg_id": msg.id,
-            "date": msg.date.isoformat() if getattr(msg, "date", None) else None,
-            "group_id": state.info.group_id,
-            "is_bot": getattr(sender, "bot", False) is True,
-        }
-        return bool(await self.detector(text, metadata))
-
-    async def _process_candidate(self, state: GroupState, msg: Message, fetch_children_remote: bool) -> LeadContext | None:
-        if local_db.is_message_enqueued(state.info.group_id, msg.id, db_path=self.db_path):
-            return None
-        self.stats["candidates"] += 1
-        lead = await build_lead_context(
-            client=self.client,
-            entity=state.entity,
-            group_info=state.info,
-            target_msg=msg,
-            context_msg_count=self.context_msg_count,
-            db_path=self.db_path,
-            fetch_children_remote=fetch_children_remote,
-        )
-        if lead.user.is_bot:
-            return None
-        local_db.save_lead(lead, db_path=self.db_path)
-
-        if self.enqueue_enabled and self.store is not None:
-            from sources.telegram_adapter import lead_context_to_social_message
-
-            if self.store.enqueue(lead_context_to_social_message(lead)):
-                self.stats["enqueued"] += 1
-        local_db.mark_message_enqueued(state.info.group_id, msg.id, db_path=self.db_path)
-
-        if self.webhook.enabled:  # legacy path, disabled by default
-            await self.webhook.send_lead(lead)
-        if self.on_lead_detected:
-            try:
-                await self.on_lead_detected(lead)
-            except Exception as exc:
-                log.error("Error in on_lead_detected callback: %s", exc)
-        return lead
 
     def _save_progress(self, state: GroupState) -> None:
         local_db.update_group_monitor(
@@ -231,7 +155,7 @@ class CrawlerMonitor:
 
     # ------------------------------------------------------------ public API
     async def run_backfill(self, state: GroupState | None = None) -> int:
-        """Backfill one group (or all). Returns the number of candidates found."""
+        """Archive recent history of one group (or all). Returns the number of newly archived messages."""
         if state is None:
             total = 0
             for st in self.groups:
@@ -240,46 +164,18 @@ class CrawlerMonitor:
         if self.backfill_limit <= 0:
             log.info("Backfill limit is 0; skipping history for '%s'.", state.info.title)
             return 0
-
         history = await self._collect_history(state)
-        history.reverse()  # oldest first
-        for msg in history:  # archive everything first so context lookups stay local
-            self._archive(state, msg)
-
-        found = 0
-        for i, msg in enumerate(history, 1):
-            if await self._is_candidate(state, msg):
-                local_db.mark_message_candidate(state.info.group_id, msg.id, db_path=self.db_path)
-                if await self._process_candidate(state, msg, fetch_children_remote=False):
-                    found += 1
-            if i % 20 == 0:
-                await asyncio.sleep(0)
+        history.reverse()  # oldest first → archive ids follow conversation order
+        new = sum(1 for msg in history if self._archive(state, msg))
         self._save_progress(state)
-        log.info(
-            "Backfill '%s': %s messages scanned (after msg %s), %s candidates enqueued.",
-            state.info.title, len(history), state.resume_from, found,
-        )
-        return found
+        log.info("Backfill '%s': %s messages scanned (after msg %s), %s new archived.",
+                 state.info.title, len(history), state.resume_from, new)
+        return new
 
-    async def handle_live_message(self, state: GroupState, msg: Message) -> LeadContext | None:
-        self._archive(state, msg)
-        parent_id = getattr(getattr(msg, "reply_to", None), "reply_to_msg_id", None)
-        if isinstance(parent_id, int) and self.enqueue_enabled and self.store is not None:
-            from analysis.schemas import ContextMessage
-            from sources.telegram_adapter import telegram_uid
-
-            snippet = message_to_snippet(msg)
-            if snippet.text and self.store.add_context(
-                telegram_uid(state.info.group_id, parent_id),
-                ContextMessage(id=str(msg.id), relation="reply", author_name=snippet.sender_name, text=snippet.text, created_at=snippet.date),
-            ):
-                self.stats["late_replies_attached"] += 1
-        lead = None
-        if await self._is_candidate(state, msg):
-            local_db.mark_message_candidate(state.info.group_id, msg.id, db_path=self.db_path)
-            lead = await self._process_candidate(state, msg, fetch_children_remote=False)
+    async def handle_live_message(self, state: GroupState, msg: Message) -> bool:
+        inserted = self._archive(state, msg)
         self._save_progress(state)
-        return lead
+        return inserted
 
     def _state_for_chat(self, chat_id: Any) -> GroupState | None:
         for st in self.groups:
@@ -299,7 +195,7 @@ class CrawlerMonitor:
             try:
                 await self.handle_live_message(state, event.message)
             except Exception as exc:  # never kill the listener
-                log.exception("Failed to handle live message %s: %s", getattr(event.message, "id", "?"), exc)
+                log.exception("Failed to archive live message %s: %s", getattr(event.message, "id", "?"), exc)
 
     async def run(self, live: bool = True) -> None:
         await self.initialize()
@@ -309,10 +205,3 @@ class CrawlerMonitor:
             await self.start_live_monitoring()
             log.info("Listening for new messages (Ctrl+C to stop)...")
             await self.client.run_until_disconnected()
-
-
-class LeadMonitor(CrawlerMonitor):
-    """Backwards-compatible single-group entry point."""
-
-    def __init__(self, client: TelegramClient, group_link: str | None = None, **kwargs: Any) -> None:
-        super().__init__(client, [group_link] if group_link else [], **kwargs)

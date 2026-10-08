@@ -31,32 +31,6 @@ def _float(key: str, default: float) -> float:
         return default
 
 
-def _keywords(key: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    raw = os.getenv(key, "")
-    if not raw.strip():
-        return default
-    return tuple(k.strip() for k in raw.split(",") if k.strip())
-
-
-DEFAULT_KEYWORDS = (
-    "روغن موتور",
-    "خریدارم",
-    "خریدار هستم",
-    "دنبال",
-    "میخوام بخرم",
-    "می خوام بخرم",
-    "قصد خرید",
-    "نیاز دارم",
-    "لازم دارم",
-    "قیمت چنده",
-    "سراغ دارید",
-    "کسی سراغ داره",
-    "کسی داره",
-    "خرید",
-    "فروشنده",
-)
-
-
 @dataclass(frozen=True)
 class Settings:
     # Telegram credentials (Userbot)
@@ -73,29 +47,6 @@ class Settings:
         default_factory=lambda: os.getenv("DB_PATH", str(ROOT / "data" / "leads.db"))
     )
 
-    # Django Webhook Integration (Microservice)
-    django_webhook_url: str = field(
-        default_factory=lambda: os.getenv(
-            "DJANGO_WEBHOOK_URL", "http://localhost:8000/discovery/api/leads/submit/"
-        )
-    )
-    # Legacy: push raw candidates directly to Django (disabled; verdicts go via the analysis agent)
-    django_webhook_enabled: bool = field(
-        default_factory=lambda: os.getenv("DJANGO_WEBHOOK_ENABLED", "false").strip().lower() == "true"
-    )
-
-    # Shared analysis inbox (see analysis/store.py)
-    analysis_enabled: bool = field(
-        default_factory=lambda: os.getenv("ANALYSIS_ENQUEUE_ENABLED", "true").strip().lower() == "true"
-    )
-
-    # Candidate filter: "basic" (drop empty/very short/bot messages; the agent decides the rest)
-    # or "keyword" (legacy: only messages containing TARGET_KEYWORDS)
-    filter_mode: str = field(
-        default_factory=lambda: os.getenv("CRAWLER_FILTER_MODE", "basic").strip().lower()
-    )
-    min_text_chars: int = field(default_factory=lambda: _int("MIN_TEXT_CHARS", 8) or 8)
-
     # Rate limiting
     flood_sleep_threshold: int = field(default_factory=lambda: _int("FLOOD_SLEEP_THRESHOLD", 60))
     flood_max_wait: int = field(default_factory=lambda: _int("FLOOD_MAX_WAIT_SECONDS", 900) or 900)
@@ -108,14 +59,6 @@ class Settings:
     )
     backfill_limit: int = field(
         default_factory=lambda: _int("BACKFILL_LIMIT", 200) or 200
-    )
-    context_msg_count: int = field(
-        default_factory=lambda: _int("CONTEXT_MSG_COUNT", 5) or 5
-    )
-
-    # Keywords for default detector
-    keywords: tuple[str, ...] = field(
-        default_factory=lambda: _keywords("TARGET_KEYWORDS", DEFAULT_KEYWORDS)
     )
 
     def require(self, *keys: str) -> None:

@@ -43,8 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "stats":
         from need_engine.store import Store
 
-        for row in Store(cfg.state_path).cost_summary():
+        st = Store(cfg.state_path)
+        for row in st.cost_summary():
             print(json.dumps(row, ensure_ascii=False))
+        print(json.dumps(st.totals(), ensure_ascii=False))
         return 0
     if a.cmd == "demo":
         cfg.messages_dsn, cfg.products_source = f"jsonl:{a.chats}", f"jsonl:{a.products}"

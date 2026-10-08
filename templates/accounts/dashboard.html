@@ -250,7 +250,7 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--brand-purple)" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
       </div>
       <div style="font-size: 1.45rem; font-weight: 900; color: var(--brand-purple); margin-bottom: 4px;" id="stat-total-sales">
-        {{ analytics.summary.total_leads_in_db|default:"۱۳۳" }} سرنخ
+        {{ analytics.summary.total_leads_in_db }} فرصت
       </div>
       <span style="font-size: 0.74rem; color: var(--p-success); font-weight: 700;">
         شناسایی‌شده از منابع مختلف
@@ -264,7 +264,7 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#10b981" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
       </div>
       <div style="font-size: 1.45rem; font-weight: 900; color: #10b981; margin-bottom: 4px;" id="stat-total-clicks">
-        {{ analytics.summary.high_intent_leads_in_db|default:"۴۹" }} فرصت طلایی
+        {{ analytics.summary.high_intent_leads_in_db }} فرصت طلایی
       </div>
       <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
         امتیاز نیت خرید بالای ۸۰٪
@@ -278,24 +278,24 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--obsidian-cyan)" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
       </div>
       <div style="font-size: 1.45rem; font-weight: 900; color: var(--obsidian-cyan); margin-bottom: 4px;" id="stat-total-views">
-        {{ analytics.summary.monitored_products_count|default:"۳" }} محصول
+        {{ analytics.summary.monitored_products_count }} محصول
       </div>
       <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
-        پوشش {{ analytics.summary.monitored_categories_count|default:"۲" }} شاخه دسته‌بندی
+        پوشش {{ analytics.summary.monitored_categories_count }} شاخه دسته‌بندی
       </span>
     </div>
 
     <!-- Metric 4: Monitored Platforms -->
     <div style="background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 14px; padding: 16px;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">جوامع آنلاین رصدشده</span>
+        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">هزینه تحلیل هر پیام</span>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
       </div>
       <div style="font-size: 1.45rem; font-weight: 900; color: #fbbf24; margin-bottom: 4px;" id="stat-total-outreach">
-        تلگرام (فعال)
+        {{ analytics.summary.cost_per_message_display }}
       </div>
       <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
-        کانال‌ها و گروه‌ها • سایر پلتفرم‌ها (فاز ۲)
+        {{ analytics.summary.messages_analysed_display }} پیام بررسی‌شده • هزینه کل {{ analytics.summary.total_cost_display }}
       </span>
     </div>
   </div>
@@ -332,9 +332,9 @@
                 </div>
               </td>
               <td style="padding: 12px 14px; color: var(--stone-text-muted);">{{ p.category_name }}</td>
-              <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">{{ p.discovered_leads_count|default:"۱۴" }} مشتری</td>
-              <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 750;">{{ p.high_intent_count|default:"۶" }} فرصت فوری</td>
-              <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">{{ p.channels_display|default:"تلگرام (فعال)" }}</td>
+              <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">{{ p.discovered_leads_count }} مشتری</td>
+              <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 750;">{{ p.high_intent_count }} فرصت فوری</td>
+              <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">{{ p.channels_display }}</td>
               <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">{{ p.last_interaction_date }}</td>
               <td style="padding: 12px 14px; text-align: center;">
                 <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
@@ -964,16 +964,16 @@
           if (res.status === "success" && res.data) {
             const summary = res.data.summary;
             if (document.getElementById("stat-total-sales")) {
-              document.getElementById("stat-total-sales").textContent = (summary.total_leads_in_db || summary.total_outreach || "۱۳۳") + " سرنخ";
+              document.getElementById("stat-total-sales").textContent = (summary.total_leads_in_db || 0) + " فرصت";
             }
             if (document.getElementById("stat-total-clicks")) {
-              document.getElementById("stat-total-clicks").textContent = (summary.high_intent_leads_in_db || "۴۹") + " فرصت طلایی";
+              document.getElementById("stat-total-clicks").textContent = (summary.high_intent_leads_in_db || 0) + " فرصت طلایی";
             }
             if (document.getElementById("stat-total-views")) {
-              document.getElementById("stat-total-views").textContent = (summary.monitored_products_count || "۳") + " محصول";
+              document.getElementById("stat-total-views").textContent = (summary.monitored_products_count || 0) + " محصول";
             }
             if (document.getElementById("stat-total-outreach")) {
-              document.getElementById("stat-total-outreach").textContent = "۴ پلتفرم فعال";
+              document.getElementById("stat-total-outreach").textContent = summary.cost_per_message_display;
             }
 
             if (inputStartDate && summary.start_date_shamsi) inputStartDate.value = summary.start_date_shamsi;
@@ -1001,9 +1001,9 @@
                       </div>
                     </td>
                     <td style="padding: 12px 14px; color: var(--stone-text-muted);">${p.category_name}</td>
-                    <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">${p.discovered_leads_count || p.outreach_sent || '۱۴'} مشتری</td>
-                    <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 750;">${p.high_intent_count || '۶'} فرصت فوری</td>
-                    <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">${p.channels_display || 'تلگرام (فعال)'}</td>
+                    <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">${p.discovered_leads_count || 0} مشتری</td>
+                    <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 750;">${p.high_intent_count || 0} فرصت فوری</td>
+                    <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">${p.channels_display || ''}</td>
                     <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">${p.last_interaction_date}</td>
                     <td style="padding: 12px 14px; text-align: center;">
                       <a href="/discovery/opportunities/" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">

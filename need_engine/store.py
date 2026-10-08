@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -102,6 +103,9 @@ class Store:
             self.conn.execute("""DELETE FROM recent WHERE chat_id = ? AND message_id NOT IN
                                  (SELECT message_id FROM recent WHERE chat_id = ? ORDER BY message_id DESC LIMIT ?)""",
                               (chat_id, chat_id, max(keep_recent, 1)))
+            self.conn.execute("""INSERT INTO kv (k, v) VALUES ('messages_analysed', ?)
+                                 ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + CAST(excluded.v AS INTEGER) AS TEXT)""",
+                              (str(len(msgs)),))
             self.conn.commit()
 
     def recent(self, chat_id: str, before_id: int, limit: int) -> list[ChatMessage]:
@@ -159,7 +163,11 @@ class Store:
         with self.lock:
             k = int(self.get("need_seq", 0)) + 1
             self.set("need_seq", k)
-            return f"need_{k:06d}"
+            inst = self.get("instance_id")
+            if not inst:  # unique per state file → ids never collide after the state is reset
+                inst = secrets.token_hex(3)
+                self.set("instance_id", inst)
+            return f"need_{k:06d}_{inst}"
 
     # ── products ────────────────────────────────────────────────────────────
     def product_hashes(self) -> dict[str, str]:
@@ -193,6 +201,13 @@ class Store:
         rows = self._all("""SELECT stage, model, COUNT(*) calls, SUM(cached) cached, SUM(prompt_tokens) pt, SUM(completion_tokens) ct,
                             SUM(usd) usd, SUM(toman) toman FROM costs WHERE ts >= ? GROUP BY stage, model ORDER BY stage""", (since_ts,))
         return [dict(r) for r in rows]
+
+    def totals(self) -> dict:
+        """Lifetime numbers for the dashboard: messages reviewed, LLM calls and total cost."""
+        r = self._all("SELECT COUNT(*) calls, COALESCE(SUM(toman), 0) toman, COALESCE(SUM(usd), 0) usd FROM costs")[0]
+        n = int(self.get("messages_analysed", 0) or 0)
+        return {"messages_analysed": n, "llm_calls": int(r["calls"]), "cost_toman": float(r["toman"]), "cost_usd": float(r["usd"]),
+                "cost_per_message_toman": float(r["toman"]) / n if n else 0.0}
 
     def quota_used(self, day: str, model: str) -> int:
         rows = self._all("SELECT n FROM quota WHERE day = ? AND model = ?", (day, model))

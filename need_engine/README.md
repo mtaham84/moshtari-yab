@@ -12,7 +12,8 @@ crawler ──(write)──► messages DB ──(read-only)──► need_engin
 ## تضمین‌ها
 - به دیتابیس اصلی **هیچ چیزی نمی‌نویسد** (sqlite با `mode=ro`، Postgres با تراکنش read-only). تست هم hash فایل را چک می‌کند.
 - همه‌ی state خودش (cursor، پیام‌های در انتظار، نیازها، بردارها، کش LLM، هزینه‌ها، سهمیه) در فایل جدای `NE_STATE_PATH` است.
-- خروجی فعلاً فقط JSONL است؛ نوشتن در DB بعداً با یک sink جدید اضافه می‌شود (`NeedEngine(cfg, sink=callable)`).
+- خروجی JSONL است و `python manage.py sync_opportunities [--follow]` آن را به مدل‌های پنل منتقل می‌کند (idempotent با `opportunity_id`).
+- شناسه‌ی نیاز/فرصت شامل شناسه‌ی یکتای همین state است (`need_000001_<instance>`) تا با ریست state تداخل پیش نیاید.
 
 ## جریان کار
 1. **ingest**: پیام‌های جدید را با cursor روی `id` می‌خواند و در صف هر گروه می‌گذارد.
@@ -32,7 +33,7 @@ export NE_LLM_API_KEY=...                       # یا GEMINI_API_KEY
 python -m need_engine run                       # حلقه‌ی دائمی (هر NE_POLL_SECONDS)
 python -m need_engine run --once                # یک دور
 python -m need_engine run --once --flush        # همه‌ی پیام‌های منتظر را بدون توجه به trigger تحلیل کن
-python -m need_engine stats                     # وضعیت state و هزینه‌ها
+python -m need_engine stats                     # وضعیت state، پیام‌های تحلیل‌شده، هزینه کل و هزینه هر پیام
 python -m need_engine demo --chats chats.jsonl --products products.jsonl --mock   # آفلاین، بدون API
 python -m pytest need_engine/tests -q
 ```
@@ -43,7 +44,7 @@ python -m pytest need_engine/tests -q
 | `NE_MESSAGES_DSN` | `sqlite:///data/leads.db` | بعد از مهاجرت: `postgresql://user:pass@host/db` |
 | `NE_MESSAGES_TABLE` / `NE_GROUPS_TABLE` | `messages` / `group_monitors` | اگر نام جدول‌ها عوض شد |
 | `NE_MESSAGES_COLUMNS` | (نگاشت پیش‌فرض schema.sql) | JSON برای نگاشت ستون‌ها اگر اسم ستون‌ها تغییر کرد |
-| `NE_PRODUCTS_SOURCE` | `jsonl:data/products.jsonl` | یا `sql:postgresql://…` / `sql:sqlite:///db.sqlite3` (جدول `products_product`) |
+| `NE_PRODUCTS_SOURCE` | `sql:sqlite:///db.sqlite3` (محصولات پنل Django) | یا `sql:postgresql://…` / `jsonl:data/products.jsonl` |
 | `NE_STATE_PATH` / `NE_OUTPUT_PATH` | `data/need_engine_state.db` / `data/opportunities.jsonl` | |
 | `NE_EXTRACT_MODEL` / `NE_VERIFY_MODEL` / `NE_REPLY_MODEL` | `gemini-3.5-flash-lite` | در صورت 503 مکرر: `gemini-2.5-flash-lite` |
 | `NE_LLM_BASE_URL` | Gemini OpenAI-compatible | هر provider سازگار با OpenAI |
@@ -60,5 +61,5 @@ python -m pytest need_engine/tests -q
 اگر state از sqlite به Postgres منتقل می‌شود و idها از اول شروع می‌شوند، فایل state را پاک کنید (یا `stats` را ببینید) تا cursor ریست شود.
 
 ## کارهای باز
-- sink دیتابیس (بعد از نهایی‌شدن مدل `DiscoveredLead.analysis` و endpoint ‏`api/leads/submit`).
+- منبع X (خروجی `workers/x_collector`) به‌عنوان ورودی دوم.
 - gate ارزان (مدل خیلی ارزان یا Jev) قبل از استخراج برای کاهش هزینه به ~۱–۱.۵ تومان/پیام.

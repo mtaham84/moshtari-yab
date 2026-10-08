@@ -159,21 +159,14 @@ class XCollector:
         self.sleeper, self.jitter = sleeper, jitter
 
     @staticmethod
-    def load_queries(query_file: str | Path | None = None, catalog_file: str | Path = "data/sample/catalog.json") -> list[str]:
+    def load_queries(query_file: str | Path | None = None) -> list[str]:
         path = Path(query_file or os.getenv("X_COLLECT_QUERIES_FILE", "data/x_queries.txt"))
-        if path.is_file():
-            return list(dict.fromkeys(line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.lstrip().startswith("#")))
-        catalog = Path(catalog_file)
-        if not catalog.is_file():
+        if not path.is_file():
             return []
-        payload = json.loads(catalog.read_text(encoding="utf-8"))
-        queries = []
-        for product in payload.get("products", []):
-            keywords = product.get("keywords") or [product.get("name", "")]
-            queries.extend(str(keyword).strip() for keyword in keywords if str(keyword).strip())
-        return list(dict.fromkeys(queries))
+        lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
+        return list(dict.fromkeys(line for line in lines if line and not line.startswith("#")))
 
-    def run(self, queries: list[str], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None, enqueue: bool = False) -> dict[str, Any]:
+    def run(self, queries: list[str], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         today = date.today().isoformat()
         output_path = self.output_dir / f"{today}.jsonl"
         if dry_run:
@@ -223,12 +216,6 @@ class XCollector:
                             normalized = normalize_tweet(raw)
                             if normalized is None or normalized["id"] in already_written or self.state.has_seen(normalized):
                                 continue
-                            from sources.file_adapter import record_to_message
-                            try:
-                                record_to_message(normalized, default_source="x")
-                            except (KeyError, TypeError, ValueError) as exc:
-                                log.warning("Skipping invalid normalized tweet %s: %s", normalized.get("id"), exc)
-                                continue
                             if len(collected) >= daily_remaining:
                                 break
                             write_offset = stream.tell()
@@ -273,20 +260,13 @@ class XCollector:
                 if stop_reason or consecutive_failures >= self.circuit_breaker or query_index == len(queries) - 1:
                     break
                 self.sleeper(self.jitter(self.sleep_min, self.sleep_max))
-        if enqueue and collected:
-            from sources.file_adapter import load_file
-            from analysis.store import AnalysisStore
-            messages = load_file(output_path, default_source="x")
-            enqueued_count = AnalysisStore().enqueue_many(messages)
-        else:
-            enqueued_count = 0
         status = stop_reason or ("RATE_LIMITED" if self.state.get_setting("rate_limit_until") and datetime.now(timezone.utc) < datetime.fromisoformat(self.state.get_setting("rate_limit_until")) else "CIRCUIT_OPEN" if consecutive_failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
-        return {"status": status, "collected": len(collected), "failures": failures, "failed_queries": failed_queries, "output": str(output_path), "enqueued_loaded": enqueued_count}
+        return {"status": status, "collected": len(collected), "failures": failures, "failed_queries": failed_queries, "output": str(output_path)}
 
 
-def collect_forever(collector: XCollector, queries: list[str], interval: float, mock_records: list[dict[str, Any]] | None = None, enqueue: bool = False) -> None:
+def collect_forever(collector: XCollector, queries: list[str], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
-        result = collector.run(queries, mock_records=mock_records, enqueue=enqueue)
+        result = collector.run(queries, mock_records=mock_records)
         log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")

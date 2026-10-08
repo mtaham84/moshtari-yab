@@ -164,7 +164,7 @@
 
       <!-- AI Metadata Strip (Zero Chain-of-Thought, Pure Facts) -->
       <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: var(--stone-text-muted); padding-top: 10px; border-top: 1px solid var(--panel-border-subtle);">
-        <span>مدل زبانی: {{ analysis.model_name|default:"llama-3.3-70b-versatile" }}</span>
+        <span>مدل زبانی: {{ analysis.model_name|default:"—" }}</span>
         <span>توکن مصرفی: {{ analysis.tokens_used }} توکن</span>
         <span>هزینه پردازش: {{ analysis.cost_toman }} تومان</span>
       </div>
@@ -310,9 +310,7 @@
       <div style="margin-bottom: 14px;">
         <span style="font-size: 0.74rem; color: var(--stone-text-muted); display: block; margin-bottom: 6px;">وضعیت فعلی:</span>
         <div id="status-current-badge">
-          {% if opportunity.status == 'QUALIFIED' %}
-            <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6; font-size: 0.85rem; padding: 6px 14px;">تأیید شده (Qualified)</span>
-          {% elif opportunity.status == 'NEW' %}
+          {% if opportunity.status == 'NEW' %}
             <span class="p-badge" style="background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); font-size: 0.85rem; padding: 6px 14px;">جدید (New)</span>
           {% elif opportunity.status == 'REVIEWED' %}
             <span class="p-badge" style="background: rgba(234, 179, 8, 0.15); color: #CA8A04; font-size: 0.85rem; padding: 6px 14px;">بررسی شده (Reviewed)</span>
@@ -322,6 +320,10 @@
             <span class="p-badge" style="background: rgba(16, 185, 129, 0.25); color: #047857; font-weight: 700; font-size: 0.85rem; padding: 6px 14px;">مشتری نهایی (Converted)</span>
           {% elif opportunity.status == 'REJECTED' %}
             <span class="p-badge" style="background: rgba(239, 68, 68, 0.15); color: #DC2626; font-size: 0.85rem; padding: 6px 14px;">رد شده (Rejected)</span>
+          {% elif opportunity.status == 'RESOLVED' %}
+            <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6; font-size: 0.85rem; padding: 6px 14px;">نیاز برطرف شد (Resolved)</span>
+          {% elif opportunity.status == 'EXPIRED' %}
+            <span class="p-badge" style="background: rgba(120, 113, 108, 0.15); color: #78716C; font-size: 0.85rem; padding: 6px 14px;">منقضی شده (Expired)</span>
           {% endif %}
         </div>
       </div>
@@ -330,11 +332,12 @@
         <label class="form-label" style="font-size: 0.76rem;">تغییر وضعیت فرصت:</label>
         <select id="select-status-changer" class="form-input" style="height: 38px; font-size: 0.82rem;">
           <option value="NEW" {% if opportunity.status == 'NEW' %}selected{% endif %}>جدید (New)</option>
-          <option value="QUALIFIED" {% if opportunity.status == 'QUALIFIED' %}selected{% endif %}>تأیید شده (Qualified)</option>
           <option value="REVIEWED" {% if opportunity.status == 'REVIEWED' %}selected{% endif %}>بررسی شده (Reviewed)</option>
           <option value="CONTACTED" {% if opportunity.status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده (Contacted)</option>
           <option value="CONVERTED" {% if opportunity.status == 'CONVERTED' %}selected{% endif %}>تبدیل به مشتری نهایی (Converted)</option>
           <option value="REJECTED" {% if opportunity.status == 'REJECTED' %}selected{% endif %}>رد شده (Rejected)</option>
+          <option value="RESOLVED" {% if opportunity.status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد (Resolved)</option>
+          <option value="EXPIRED" {% if opportunity.status == 'EXPIRED' %}selected{% endif %}>منقضی شده (Expired)</option>
         </select>
       </div>
 

@@ -84,7 +84,7 @@ class EngineConfig:
         "text": "text", "date": "date", "reply_to": "reply_to_msg_id",
     })
     # jsonl:path/to/products.jsonl  |  sql:<dsn>  (reads Django's products_product table read-only)
-    products_source: str = _f("NE_PRODUCTS_SOURCE", "jsonl:data/products.jsonl")
+    products_source: str = _f("NE_PRODUCTS_SOURCE", "sql:sqlite:///db.sqlite3")  # Django panel DB, or jsonl:path
     products_table: str = _f("NE_PRODUCTS_TABLE", "products_product")
     fetch_batch: int = _f("NE_FETCH_BATCH", 2000)
 

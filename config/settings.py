@@ -135,3 +135,7 @@ FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "accounts:dashboard"
 LOGOUT_REDIRECT_URL = "core:landing"
+
+# need_engine (analysis core) — same env names the engine itself uses
+NEED_ENGINE_OUTPUT_PATH = os.environ.get("NE_OUTPUT_PATH", str(BASE_DIR / "data" / "opportunities.jsonl"))
+NEED_ENGINE_STATE_PATH = os.environ.get("NE_STATE_PATH", str(BASE_DIR / "data" / "need_engine_state.db"))
