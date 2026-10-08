@@ -10,7 +10,7 @@ import sys
 from telegram_crawler.config import settings
 from telegram_crawler.detector import KeywordTargetDetector
 from telegram_crawler.models import LeadContext
-from telegram_crawler.monitor import LeadMonitor
+from telegram_crawler.monitor import CrawlerMonitor
 from telegram_crawler.telegram_client import create_telegram_client
 
 logging.basicConfig(
@@ -27,11 +27,9 @@ async def example_lead_callback(lead: LeadContext) -> None:
     In the future, you can send this data to your CRM, webhook, or seller notification bot.
     """
     print("\n" + "=" * 65)
-    print("🔥 NEW LEAD IDENTIFIED!")
+    print("📥 CANDIDATE QUEUED FOR ANALYSIS")
     print(f"Group:        {lead.group.title} (ID: {lead.group.group_id})")
     print(f"User:         {lead.user.display_name} (ID: {lead.user.user_id}, Username: @{lead.user.username or 'N/A'})")
-    if lead.user.phone:
-        print(f"Phone:        {lead.user.phone}")
     print(f"Target Msg:   \"{lead.target_message.text}\" (ID: {lead.target_message.message_id})")
     print(f"Date:         {lead.target_message.date}")
 
@@ -59,9 +57,30 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--link",
+        action="append",
+        default=[],
+        help="Telegram group link (t.me/+hash, t.me/name or @name). Repeat for several groups.",
+    )
+    parser.add_argument(
+        "--links-file",
         type=str,
-        help="Telegram group link (e.g., https://t.me/+invite_hash, https://t.me/groupname, or @groupname).",
         default=None,
+        help="Text file with one group link per line (# comments allowed).",
+    )
+    parser.add_argument(
+        "--no-analysis",
+        action="store_true",
+        help="Archive and extract only; do not enqueue candidates in the analysis inbox.",
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Ignore the last scanned message id and rescan the backfill window.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Do not print every queued candidate.",
     )
     parser.add_argument(
         "--hours",
@@ -104,13 +123,17 @@ def parse_args() -> argparse.Namespace:
 async def async_main() -> None:
     args = parse_args()
 
-    group_link = args.link
-    if not group_link:
-        # Prompt from stdin if not provided as argument
-        group_link = input("Enter Telegram Group link or @username: ").strip()
+    group_links = list(args.link)
+    if args.links_file:
+        with open(args.links_file, encoding="utf-8") as fh:
+            group_links += [ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith("#")]
+    if not group_links:
+        entered = input("Enter Telegram Group link or @username: ").strip()
+        if entered:
+            group_links.append(entered)
 
-    if not group_link:
-        print("Error: Group link is required.", file=sys.stderr)
+    if not group_links:
+        print("Error: at least one group link is required.", file=sys.stderr)
         sys.exit(1)
 
     # Check Telegram credentials
@@ -134,15 +157,17 @@ async def async_main() -> None:
     me = await client.get_me()
     log.info("Authenticated as: %s (id=%s)", me.first_name, me.id)
 
-    monitor = LeadMonitor(
+    monitor = CrawlerMonitor(
         client=client,
-        group_link=group_link,
+        group_links=group_links,
         detector=detector,
         backfill_hours=args.hours,
         backfill_limit=args.limit,
         context_msg_count=args.context_count,
-        on_lead_detected=example_lead_callback,
+        on_lead_detected=None if args.quiet else example_lead_callback,
         db_path=args.db_path,
+        enqueue=not args.no_analysis,
+        resume=not args.no_resume,
     )
 
     try:
@@ -150,6 +175,7 @@ async def async_main() -> None:
     except KeyboardInterrupt:
         log.info("Monitoring stopped by user.")
     finally:
+        log.info("Crawler stats: %s", monitor.stats)
         await client.disconnect()
 
 

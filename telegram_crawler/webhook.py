@@ -1,4 +1,9 @@
-"""Dispatcher for sending discovered Telegram leads to Django backend via webhook."""
+"""(Legacy) Dispatcher that pushes raw, *un-analysed* Telegram candidates to Django.
+
+Disabled by default since milestone 1: candidates now go to the shared analysis
+inbox (analysis.store) and only agent verdicts will be sent to Django (milestone 3).
+Enable with DJANGO_WEBHOOK_ENABLED=true only for backwards-compatible demos.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ log = logging.getLogger("telegram_crawler.webhook")
 
 
 def format_intent_reasoning(lead: LeadContext) -> str:
-    """Format rich conversation context into a human-readable reasoning string for Django."""
+    """(Legacy) Format rich conversation context into a human-readable reasoning string for Django."""
     lines = [
         f"گروه: {lead.group.title} (ID: {lead.group.group_id})",
         f"پیام هدف: «{lead.target_message.text}»",
@@ -33,19 +38,14 @@ def format_intent_reasoning(lead: LeadContext) -> str:
         for parent in lead.reply_thread.parent_messages:
             lines.append(f"  ↑ {parent.sender_name or 'کاربر'}: {parent.text}")
 
-    if lead.user.phone:
-        lines.append(f"شماره تماس کاربر: {lead.user.phone}")
-
     return "\n".join(lines)
 
 
 def build_django_payload(lead: LeadContext) -> dict[str, Any]:
     """Build the JSON payload structure matching Django's api_submit_lead_view."""
-    post_url = (
-        f"https://t.me/{lead.group.username}/{lead.target_message.message_id}"
-        if lead.group.username
-        else f"https://t.me/c/{lead.group.group_id}/{lead.target_message.message_id}"
-    )
+    from sources.telegram_adapter import telegram_message_url
+
+    post_url = telegram_message_url(lead.group, lead.target_message.message_id) or ""
 
     lead_handle = (
         f"@{lead.user.username}" if lead.user.username else str(lead.user.user_id)
@@ -57,9 +57,8 @@ def build_django_payload(lead: LeadContext) -> dict[str, Any]:
         "lead_display_name": lead.user.display_name,
         "post_url": post_url,
         "content_snippet": lead.target_message.text,
-        "intent_score": 88,
+        "intent_score": 0,  # not analysed yet; real scores come from the analysis agent
         "intent_reasoning": format_intent_reasoning(lead),
-        "phone": lead.user.phone,
         "context_messages": [m.model_dump(mode="json") for m in lead.previous_messages],
         "reply_thread": lead.reply_thread.model_dump(mode="json"),
         "detected_at": lead.detected_at.isoformat(),

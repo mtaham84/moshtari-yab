@@ -17,7 +17,7 @@ class UserProfile(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     username: str | None = None
-    phone: str | None = None
+    # NOTE: phone numbers are intentionally NOT collected (privacy).
     is_bot: bool = False
     is_premium: bool = False
 
@@ -58,6 +58,7 @@ class GroupInfo(BaseModel):
     title: str
     username: str | None = None
     invite_link: str | None = None
+    is_supergroup: bool = True   # basic (legacy) groups have no t.me/c/... message links
 
 
 class LeadContext(BaseModel):

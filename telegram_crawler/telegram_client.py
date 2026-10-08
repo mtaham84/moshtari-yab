@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Tuple
 from telethon import TelegramClient
 from telethon.errors import (
-    FloodWaitError,
     InviteHashExpiredError,
     InviteHashInvalidError,
     UserAlreadyParticipantError,
@@ -22,6 +21,7 @@ from telethon.tl.types import ChatInviteAlready
 
 from telegram_crawler.config import settings
 from telegram_crawler.models import GroupInfo
+from telegram_crawler.ratelimit import FloodWaitTooLong, with_flood_retry
 
 log = logging.getLogger("telegram_crawler.client")
 
@@ -44,7 +44,9 @@ def create_telegram_client(
     # Ensure parent directory of session file exists
     Path(s_path).parent.mkdir(parents=True, exist_ok=True)
 
-    return TelegramClient(s_path, app_id, app_hash)
+    # Telethon sleeps automatically on FloodWait shorter than this threshold;
+    # longer waits raise FloodWaitError and are handled by ratelimit.with_flood_retry.
+    return TelegramClient(s_path, app_id, app_hash, flood_sleep_threshold=settings.flood_sleep_threshold)
 
 
 def parse_group_link(link: str) -> tuple[str, str]:
@@ -95,7 +97,7 @@ async def join_and_resolve_group(
     if link_type == "invite":
         log.info("Processing private invite link with hash: %s", identifier)
         try:
-            updates = await client(ImportChatInviteRequest(hash=identifier))
+            updates = await with_flood_retry(lambda: client(ImportChatInviteRequest(hash=identifier)), what="join(invite)")
             if hasattr(updates, "chats") and updates.chats:
                 entity = updates.chats[0]
             else:
@@ -103,7 +105,7 @@ async def join_and_resolve_group(
             log.info("Successfully joined private group via invite link.")
         except UserAlreadyParticipantError:
             log.info("Already a participant of the private group. Resolving entity...")
-            check_res = await client(CheckChatInviteRequest(hash=identifier))
+            check_res = await with_flood_retry(lambda: client(CheckChatInviteRequest(hash=identifier)), what="check_invite")
             if isinstance(check_res, ChatInviteAlready):
                 entity = check_res.chat
             elif hasattr(check_res, "chat"):
@@ -116,24 +118,25 @@ async def join_and_resolve_group(
     elif link_type in ("public", "id"):
         target_ref: Any = int(identifier) if link_type == "id" else identifier
         log.info("Resolving entity: %s", target_ref)
-        entity = await client.get_entity(target_ref)
+        entity = await with_flood_retry(lambda: client.get_entity(target_ref), what="get_entity")
 
         try:
-            await client(JoinChannelRequest(entity))
+            await with_flood_retry(lambda: client(JoinChannelRequest(entity)), what="join(public)")
             log.info("Joined public channel/group: %s", getattr(entity, "title", target_ref))
         except UserAlreadyParticipantError:
             log.info("Already a member of %s", getattr(entity, "title", target_ref))
+        except FloodWaitTooLong:
+            raise
         except Exception as exc:
             log.debug("JoinChannelRequest note (may already be in or not needed): %s", exc)
 
     if entity is None:
         raise ValueError(f"Could not resolve group entity for link: {group_link}")
 
+    # Telethon entity.id is the bare (positive) id. Supergroups/channels are
+    # Channel objects (they have a "megagroup" attribute); legacy groups are Chat.
     group_id = entity.id
-    # Format standard channel/supergroup ID with -100 prefix if needed
-    if hasattr(entity, "broadcast") or hasattr(entity, "megagroup"):
-        # Telethon entity.id is positive, but full chat_id is -100...
-        pass
+    is_supergroup = hasattr(entity, "megagroup") or hasattr(entity, "broadcast")
 
     group_title = getattr(entity, "title", str(group_id))
     group_username = getattr(entity, "username", None)
@@ -143,6 +146,7 @@ async def join_and_resolve_group(
         title=group_title,
         username=group_username,
         invite_link=group_link,
+        is_supergroup=is_supergroup,
     )
 
     return entity, info

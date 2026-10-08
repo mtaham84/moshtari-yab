@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from telegram_crawler.config import settings
-from telegram_crawler.models import LeadContext
+from telegram_crawler.models import LeadContext, MessageSnippet
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
@@ -153,3 +153,94 @@ def get_group_monitor(group_id: int, db_path: str | None = None) -> dict[str, An
         if not row:
             return None
         return dict(row)
+
+
+# ============================================================================
+# Raw message archive (all messages, used for local context + resume + dataset)
+# ============================================================================
+def save_message(
+    group_id: int,
+    snippet: "MessageSnippet",
+    sender_username: str | None = None,
+    sender_is_bot: bool = False,
+    is_candidate: bool = False,
+    db_path: str | None = None,
+) -> bool:
+    """Store a message once. Returns True if newly inserted."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT OR IGNORE INTO messages (
+                group_id, msg_id, sender_id, sender_name, sender_username, sender_is_bot,
+                text, date, reply_to_msg_id, is_candidate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                group_id, snippet.message_id, snippet.sender_id, snippet.sender_name, sender_username,
+                1 if sender_is_bot else 0, snippet.text, snippet.date.isoformat(),
+                snippet.reply_to_msg_id, 1 if is_candidate else 0,
+            ),
+        )
+        return cur.rowcount > 0
+
+
+def mark_message_enqueued(group_id: int, msg_id: int, db_path: str | None = None) -> None:
+    with get_connection(db_path) as conn:
+        conn.execute("UPDATE messages SET enqueued = 1 WHERE group_id = ? AND msg_id = ?", (group_id, msg_id))
+
+
+def is_message_enqueued(group_id: int, msg_id: int, db_path: str | None = None) -> bool:
+    with get_connection(db_path) as conn:
+        row = conn.execute("SELECT enqueued FROM messages WHERE group_id = ? AND msg_id = ?", (group_id, msg_id)).fetchone()
+        return bool(row and row["enqueued"])
+
+
+def _row_to_snippet(row: sqlite3.Row) -> "MessageSnippet":
+    from telegram_crawler.models import MessageSnippet
+
+    return MessageSnippet(
+        message_id=row["msg_id"],
+        sender_id=row["sender_id"],
+        sender_name=row["sender_name"],
+        text=row["text"],
+        date=datetime.fromisoformat(row["date"]),
+        reply_to_msg_id=row["reply_to_msg_id"],
+    )
+
+
+def get_local_message(group_id: int, msg_id: int, db_path: str | None = None) -> "MessageSnippet | None":
+    with get_connection(db_path) as conn:
+        row = conn.execute("SELECT * FROM messages WHERE group_id = ? AND msg_id = ?", (group_id, msg_id)).fetchone()
+        return _row_to_snippet(row) if row else None
+
+
+def get_local_previous(group_id: int, before_msg_id: int, limit: int, db_path: str | None = None) -> list["MessageSnippet"]:
+    """Up to ``limit`` stored messages right before ``before_msg_id`` (chronological, empty texts dropped).
+    May return fewer than ``limit`` if older messages were never stored; callers then fall back to Telegram."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE group_id = ? AND msg_id < ? ORDER BY msg_id DESC LIMIT ?",
+            (group_id, before_msg_id, limit),
+        ).fetchall()
+    return [_row_to_snippet(r) for r in reversed(rows) if (r["text"] or "").strip()]
+
+
+def get_local_replies(group_id: int, msg_id: int, limit: int = 10, db_path: str | None = None) -> list["MessageSnippet"]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE group_id = ? AND reply_to_msg_id = ? ORDER BY msg_id ASC LIMIT ?",
+            (group_id, msg_id, limit),
+        ).fetchall()
+    return [_row_to_snippet(r) for r in rows if (r["text"] or "").strip()]
+
+
+def count_local_messages(group_id: int | None = None, db_path: str | None = None) -> int:
+    with get_connection(db_path) as conn:
+        if group_id is None:
+            return conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM messages WHERE group_id = ?", (group_id,)).fetchone()[0]
+
+
+def mark_message_candidate(group_id: int, msg_id: int, db_path: str | None = None) -> None:
+    with get_connection(db_path) as conn:
+        conn.execute("UPDATE messages SET is_candidate = 1 WHERE group_id = ? AND msg_id = ?", (group_id, msg_id))

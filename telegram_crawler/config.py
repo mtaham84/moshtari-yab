@@ -79,9 +79,28 @@ class Settings:
             "DJANGO_WEBHOOK_URL", "http://localhost:8000/discovery/api/leads/submit/"
         )
     )
+    # Legacy: push raw candidates directly to Django (disabled; verdicts go via the analysis agent)
     django_webhook_enabled: bool = field(
-        default_factory=lambda: os.getenv("DJANGO_WEBHOOK_ENABLED", "true").strip().lower() == "true"
+        default_factory=lambda: os.getenv("DJANGO_WEBHOOK_ENABLED", "false").strip().lower() == "true"
     )
+
+    # Shared analysis inbox (see analysis/store.py)
+    analysis_enabled: bool = field(
+        default_factory=lambda: os.getenv("ANALYSIS_ENQUEUE_ENABLED", "true").strip().lower() == "true"
+    )
+
+    # Candidate filter: "basic" (drop empty/very short/bot messages; the agent decides the rest)
+    # or "keyword" (legacy: only messages containing TARGET_KEYWORDS)
+    filter_mode: str = field(
+        default_factory=lambda: os.getenv("CRAWLER_FILTER_MODE", "basic").strip().lower()
+    )
+    min_text_chars: int = field(default_factory=lambda: _int("MIN_TEXT_CHARS", 8) or 8)
+
+    # Rate limiting
+    flood_sleep_threshold: int = field(default_factory=lambda: _int("FLOOD_SLEEP_THRESHOLD", 60))
+    flood_max_wait: int = field(default_factory=lambda: _int("FLOOD_MAX_WAIT_SECONDS", 900) or 900)
+    flood_max_retries: int = field(default_factory=lambda: _int("FLOOD_MAX_RETRIES", 3) or 3)
+    request_delay: float = field(default_factory=lambda: _float("REQUEST_DELAY_SECONDS", 0.3))
 
     # Crawling & Backfill defaults
     backfill_hours: float = field(

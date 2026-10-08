@@ -1,0 +1,30 @@
+[
+  {
+    "input": {
+      "product": {"name": "دوره پروژه‌محور پایتون برای تحلیل داده", "description": "دوره ۱۲ هفته‌ای از صفر تا تحلیل داده با پانداس، با پشتیبانی منتور و پروژه واقعی.", "target_customer": "مبتدی‌هایی که می‌خواهند پایتون را برای تحلیل داده یاد بگیرند و پشتیبانی می‌خواهند.", "price": 4900000},
+      "conversation": {"source": "telegram", "channel": "برنامه‌نویسان پایتون", "parents": [], "previous": [{"author": "رضا", "text": "کسی جلسه امشب رو ضبط کرد؟"}], "target": {"author": "علیرضا", "text": "سلام، تازه می‌خوام پایتون رو برای تحلیل داده شروع کنم. دوره پروژه‌محور که پشتیبانی داشته باشه چی پیشنهاد می‌دید؟"}, "replies": []}
+    },
+    "output": {"need_type": "explicit", "intent_stage": "comparing", "user_level": "beginner", "fit_score": 92, "decision": "respond", "reason": "تازه‌کار است، دقیقاً دوره پروژه‌محور با پشتیبانی برای تحلیل داده می‌خواهد که با محصول یکی است.", "reply_draft": "سلام علیرضا جان! برای شروع از صفر و تمرکز روی تحلیل داده، دوره پروژه‌محور پایتون ما رو ببین؛ منتور پشتیبان داره و آخرش یه پروژه واقعی انجام میدی. جزئیاتش اینجاست: {{PRODUCT_LINK}}"}
+  },
+  {
+    "input": {
+      "product": {"name": "دوره پروژه‌محور پایتون برای تحلیل داده", "description": "دوره ۱۲ هفته‌ای از صفر تا تحلیل داده با پانداس، با پشتیبانی منتور و پروژه واقعی.", "target_customer": "مبتدی‌هایی که می‌خواهند پایتون را برای تحلیل داده یاد بگیرند و پشتیبانی می‌خواهند.", "price": 4900000},
+      "conversation": {"source": "telegram", "channel": "برنامه‌نویسان پایتون", "parents": [], "previous": [], "target": {"author": "مریم", "text": "کسی تجربه distributed training با PyTorch روی چند GPU داره؟ NCCL مدام timeout میده"}, "replies": []}
+    },
+    "output": {"need_type": "none", "intent_stage": "none", "user_level": "expert", "fit_score": 8, "decision": "discard", "reason": "سؤال فنی پیشرفته از یک فرد حرفه‌ای است و دوره مقدماتی تحلیل داده به نیاز او نمی‌خورد.", "reply_draft": null}
+  },
+  {
+    "input": {
+      "product": {"name": "عینک محافظ نور آبی (بلوکنترل)", "description": "فیلتر نور آبی صفحه‌نمایش، کاهش خستگی و خشکی چشم، فریم سبک.", "target_customer": "کسانی که ساعت‌ها با لپ‌تاپ کار می‌کنند و خستگی یا سوزش چشم دارند.", "price": 1250000},
+      "conversation": {"source": "x", "channel": null, "parents": [], "previous": [], "target": {"author": "سارا", "text": "این روزا روزی ۱۰ ساعت پای لپ‌تاپم، شبا چشمام می‌سوزه و سرم درد می‌گیره 😩"}, "replies": [{"author": "نیما", "text": "منم همینطورم"}]}
+    },
+    "output": {"need_type": "implicit", "intent_stage": "initial_need", "user_level": "heavy laptop user", "fit_score": 78, "decision": "respond", "reason": "اسمی از محصول نیاورده ولی دقیقاً مشکل خستگی و سوزش چشم ناشی از کار طولانی با لپ‌تاپ را دارد.", "reply_draft": "سارا جان خسته نباشی، با این حجم کار پای لپ‌تاپ سوزش چشم خیلی رایجه. یه عینک بلوکنترل سبک می‌تونه خستگی چشم رو کمتر کنه؛ اگه خواستی این مدل رو ببین: {{PRODUCT_LINK}}"}
+  },
+  {
+    "input": {
+      "product": {"name": "عینک محافظ نور آبی (بلوکنترل)", "description": "فیلتر نور آبی صفحه‌نمایش، کاهش خستگی و خشکی چشم، فریم سبک.", "target_customer": "کسانی که ساعت‌ها با لپ‌تاپ کار می‌کنند و خستگی یا سوزش چشم دارند.", "price": 1250000},
+      "conversation": {"source": "telegram", "channel": "بازار لوازم جانبی", "parents": [], "previous": [], "target": {"author": "فروشگاه آریا", "text": "🔥 فروش ویژه عینک بلوکات اورجینال فقط امروز! ارسال به سراسر کشور، سفارش در دایرکت"}, "replies": []}
+    },
+    "output": {"need_type": "none", "intent_stage": "none", "user_level": null, "fit_score": 0, "decision": "discard", "reason": "نویسنده خودش فروشنده است و پیام تبلیغاتی گذاشته؛ مشتری نیست.", "reply_draft": null}
+  }
+]

@@ -42,7 +42,6 @@ def test_lead_context_serialization():
         first_name="Ali",
         last_name="Rezaei",
         username="alirez",
-        phone="+989123456789",
     )
     assert user.display_name == "Ali Rezaei"
 
@@ -205,8 +204,10 @@ def test_parse_group_link():
 # 5. Extractor Mock Tests
 # =====================================================================
 @pytest.mark.asyncio
-async def test_extractor_logic():
+async def test_extractor_logic(tmp_path: Path):
     dt = datetime(2026, 10, 7, 10, 0, 0, tzinfo=timezone.utc)
+    db_file = str(tmp_path / "extract.db")
+    init_db(db_file)
 
     # Create mock target message
     mock_target = MagicMock()
@@ -214,13 +215,13 @@ async def test_extractor_logic():
     mock_target.sender_id = 999
     mock_target.message = "کسی روغن موتور داره؟"
     mock_target.date = dt
+    mock_target.sender = None
 
     mock_sender = MagicMock()
     mock_sender.id = 999
     mock_sender.first_name = "Reza"
     mock_sender.last_name = "Ahmadi"
     mock_sender.username = "reza_ah"
-    mock_sender.phone = None
     mock_sender.bot = False
     mock_sender.premium = True
     mock_target.get_sender = AsyncMock(return_value=mock_sender)
@@ -264,6 +265,7 @@ async def test_extractor_logic():
         group_info=group_info,
         target_msg=mock_target,
         context_msg_count=2,
+        db_path=db_file,
     )
 
     # Assertions
@@ -307,9 +309,10 @@ async def test_lead_monitor_pipeline(tmp_path: Path):
 
     msg3 = MagicMock(id=3, sender_id=30, message="چطوری؟", date=dt, reply_to=None, sender=None)
 
-    async def mock_iter(entity, limit=200):
+    async def mock_iter(entity, limit=200, min_id=0, **kwargs):
         for m in [msg3, msg2, msg1]:
-            yield m
+            if m.id > min_id:
+                yield m
 
     mock_client.iter_messages = mock_iter
     mock_client.get_messages = AsyncMock(return_value=[])
@@ -319,19 +322,22 @@ async def test_lead_monitor_pipeline(tmp_path: Path):
     async def capture_callback(lead: LeadContext):
         leads_captured.append(lead)
 
+    from analysis.store import AnalysisStore
+    from telegram_crawler.detector import KeywordTargetDetector
+
+    store = AnalysisStore(str(tmp_path / "analysis.sqlite3"))
     monitor = LeadMonitor(
         client=mock_client,
         group_link="https://t.me/test_grp",
+        detector=KeywordTargetDetector(("روغن موتور",)),  # legacy keyword mode
         backfill_hours=24,
         backfill_limit=10,
         context_msg_count=2,
         on_lead_detected=capture_callback,
         db_path=db_file,
+        analysis_store=store,
     )
-
-    monitor.entity = mock_entity
-    monitor.group_info = GroupInfo(group_id=555, title="گروه تست", username="test_grp")
-    init_db(db_file)
+    monitor.add_resolved_group(mock_entity, GroupInfo(group_id=555, title="گروه تست", username="test_grp"))
 
     leads_count = await monitor.run_backfill()
 
@@ -346,6 +352,11 @@ async def test_lead_monitor_pipeline(tmp_path: Path):
     assert db_lead is not None
     assert db_lead.user.user_id == 20
     assert db_lead.lead_id == "555_2"
+
+    # Candidate was enqueued for the analysis agent with local context (msg 1 precedes msg 2)
+    queued = store.get_message("telegram:555:2")
+    assert queued is not None
+    assert [c.id for c in queued.context_of("previous")] == ["1"]
 
 
 # =====================================================================
@@ -367,7 +378,7 @@ async def test_webhook_dispatcher_offline():
     )
 
     # Use a dummy non-existent port to test offline fallback
-    dispatcher = DjangoWebhookDispatcher(url="http://127.0.0.1:59999/dummy/", timeout=0.5)
+    dispatcher = DjangoWebhookDispatcher(url="http://127.0.0.1:59999/dummy/", timeout=0.5, enabled=True)
     # Should safely return False without throwing exception
     result = await dispatcher.send_lead(lead)
     assert result is False
@@ -385,7 +396,7 @@ async def test_webhook_dispatcher_success(tmp_path: Path, monkeypatch):
         lead_id="g1_m2",
         group=GroupInfo(group_id=1, title="Test Group", username="testgrp"),
         target_message=MessageSnippet(message_id=2, text="روغن موتور کاسترول خریدارم", date=dt),
-        user=UserProfile(user_id=20, first_name="Ali", username="ali20", phone="+989123456789"),
+        user=UserProfile(user_id=20, first_name="Ali", username="ali20"),
         previous_messages=[],
         reply_thread=ReplyThread(),
         detected_at=dt,
@@ -395,7 +406,7 @@ async def test_webhook_dispatcher_success(tmp_path: Path, monkeypatch):
     payload = build_django_payload(lead)
     assert payload["channel"] == "TELEGRAM"
     assert payload["lead_handle"] == "@ali20"
-    assert payload["phone"] == "+989123456789"
+    assert "phone" not in payload  # privacy: phone numbers are never collected
     assert "روغن موتور" in payload["content_snippet"]
 
     # Mock _http_post_sync
@@ -405,6 +416,7 @@ async def test_webhook_dispatcher_success(tmp_path: Path, monkeypatch):
     dispatcher = DjangoWebhookDispatcher(
         url="http://localhost:8000/discovery/api/leads/submit/",
         db_path=db_file,
+        enabled=True,  # legacy webhook is disabled by default since milestone 1
     )
     success = await dispatcher.send_lead(lead)
     assert success is True
