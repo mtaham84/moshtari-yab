@@ -110,6 +110,29 @@ python manage.py test
 
 ---
 
+## X Collector Worker (آزمایشی)
+
+این worker داده‌های قابل‌مشاهده‌ی X را به JSONL می‌نویسد و از تحلیل و پنل Django جداست. فقط خواندنی است و هیچ پست، پاسخ، لایک، دنبال‌کردن یا پیام خصوصی ارسال نمی‌کند.
+
+اجرای نمونه بدون Agent Reach:
+
+~~~bash
+python -m workers.x_collector --mock --once
+~~~
+
+برای اجرای زنده با CLI، ابتدا Agent Reach را بررسی کنید. نام `X_CLI_CMD` احتمالاً `twitter` است (طبق README مربوط به Agent Reach)، اما باید پیش از اولین اجرا با `agent-reach doctor` و `twitter --help` تأیید شود. مقادیر فعلی در `workers/x_collector/cli_mapping.py` تغییر نکرده و تأییدنشده‌اند؛ dry-run خط فرمان نهایی (بدون secrets) را نمایش می‌دهد.
+
+کوکی‌های TWITTER_AUTH_TOKEN و TWITTER_CT0 را فقط در متغیرهای محیطی امن تنظیم کنید و حتماً حساب آزمایشی اختصاصی (burner) به‌کار ببرید؛ هرگز حساب اصلی را استفاده نکنید. عبارت‌های جست‌وجو را در data/x_queries.txt بگذارید؛ این فایل UTF-8 اولویت دارد و در نبود آن worker از کلیدواژه‌های کاتالوگ نمونه استفاده می‌کند.
+
+~~~bash
+python -m workers.x_collector --once
+python -m workers.x_collector --loop --interval 300
+python -m sources.file_adapter data/x_collected/YYYY-MM-DD.jsonl --source x
+~~~
+در loop، auth failure، rate limit و circuit breaker باعث توقف با exit code غیرصفر می‌شوند. Rate limit تا ۱۵ دقیقه در state ذخیره می‌شود و اجراهای بعدی در این مدت درخواست CLI نمی‌فرستند. `--mock` از مسیر و state جداگانه‌ی `data/x_collected_mock/` استفاده می‌کند و با `--enqueue` قابل ترکیب نیست.
+
+خواندن با کوکی ممکن است با شرایط استفاده‌ی X مغایر باشد، باعث محدودیت یا مسدودشدن حساب شود و با تغییر X از کار بیفتد. سقف و تأخیر ریسک را حذف نمی‌کنند. برای محصول عملیاتی از API رسمی یا تأمین‌کننده‌ی داده‌ی دارای مجوز استفاده کنید. جزئیات mapping و ریسک‌ها در docs/X_COLLECTION_ANALYSIS.md آمده است.
+
 ## 👥 تیم توسعه و ارائه در مسابقه buildX
 - **مهندس ۱:** سیستم‌های ایجنتیک، جریان کار و رصد داده‌ها (Agentic Systems & Data Scrapers)
 - **مهندس ۲:** مدل‌های زبانی، مهندسی پرامپت، بهینه‌سازی کانتکست و امنیت (LLMs & Guardrails)

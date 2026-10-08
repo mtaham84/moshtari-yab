@@ -7,6 +7,17 @@ __pycache__/
 .env
 telegram_crawler/.env
 telegram_crawler/data/
+data/x_collected/
+data/x_queries.txt
+output/x_collector_state.sqlite3
+output/x_collector_state.sqlite3-shm
+output/x_collector_state.sqlite3-wal
+output/jobs.sqlite3
+output/discovery_cache.sqlite3
+**/twitter_cookies*
+**/twitter_session*
+**/cookies.txt
+**/cookies.json
 .venv/
 venv/
 staticfiles/

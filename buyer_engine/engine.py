@@ -11,7 +11,7 @@ from .ai import GrokAnalyzer
 from .cache import DiscoveryCache
 from .jobs import JobStore
 from .core import Analysis, JobResult, ProductProfile, SourceRecord, cheap_candidate, local_classify, normalize_text, rank_analysis
-from .sources import DivarAdapter, MockAdapter, XAdapter
+from .sources import DivarAdapter, MockAdapter, build_x_adapter
 
 BUY_PHRASES = ["میخوام", "نیاز دارم", "دنبال", "برای کافه", "برای مغازه", "برای رستوران", "looking for", "need", "for my cafe"]
 SELLER_QUERY_WORDS = ["فروش", "فروش عمده", "موجود", "for sale", "wholesale", "seller"]
@@ -72,7 +72,7 @@ def run_job(profile: ProductProfile, sources: list[str], mode: str, max_queries:
     result.status, result.current_phase = "PREPARING_PRODUCT", "PREPARING_PRODUCT"
     use_mock = mode == "mock" or os.getenv("USE_MOCK_SOURCES", "false").lower() == "true"
     source_usage = state.get("source_usage", {})
-    adapters = {name: MockAdapter(name) if use_mock else XAdapter(max_requests=max(0, max_requests - source_usage.get(name, 0))) if name == "x" else DivarAdapter(max_requests=max(0, int(os.getenv("DIVAR_MAX_REQUESTS_PER_JOB", "30")) - source_usage.get(name, 0))) for name in sources}
+    adapters = {name: MockAdapter(name) if use_mock else build_x_adapter(max_requests=max(0, max_requests - source_usage.get(name, 0))) if name == "x" else DivarAdapter(max_requests=max(0, int(os.getenv("DIVAR_MAX_REQUESTS_PER_JOB", "30")) - source_usage.get(name, 0))) for name in sources}
     records = [SourceRecord(**raw) for raw in state.get("records", [])]
     cache = DiscoveryCache()
     queries = state.get("queries", [])

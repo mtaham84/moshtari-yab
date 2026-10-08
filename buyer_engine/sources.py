@@ -7,6 +7,7 @@ import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from .core import ProductProfile, SourceRecord, normalize_text
@@ -124,3 +125,42 @@ class MockAdapter(BaseSourceAdapter):
     def search(self, query: str, **kwargs: Any) -> list[SourceRecord]:
         first_term = normalize_text(query.split()[0].strip('"'))
         return [self.normalize({**raw, "query_used": query}) for raw in MOCK_RECORDS if raw["source"] == self.source and first_term in normalize_text(raw.get("text", "") + raw.get("title", "") + raw.get("description", ""))]
+
+
+class XFileAdapter(BaseSourceAdapter):
+    def __init__(self, path: str | None = None):
+        self.path = Path(path or os.getenv("X_COLLECT_INPUT_FILE", "data/x_collected/latest.jsonl"))
+        if not self.path.is_file():
+            daily_files = sorted(self.path.parent.glob("*.jsonl")) if self.path.parent.is_dir() else []
+            if daily_files:
+                self.path = daily_files[-1]
+
+    def normalize(self, raw_data: dict[str, Any]) -> SourceRecord:
+        return SourceRecord("x", str(raw_data.get("id", "")), str(raw_data.get("text", "")), raw_data.get("url"), raw_data.get("author_id"), raw_data.get("author_handle"), raw_data.get("created_at"), raw_data.get("query_used"), raw_data.get("metadata") or {})
+
+    def search(self, query: str, **kwargs: Any) -> list[SourceRecord]:
+        from sources.file_adapter import iter_records
+
+        needle = normalize_text(query).replace('"', "")
+        query_tokens = [token for token in needle.split() if len(token) > 2]
+        records = []
+        if not self.path.is_file():
+            return []
+        for raw in iter_records(self.path):
+            text = normalize_text(raw.get("text", ""))
+            if raw.get("source") == "x" and (needle in text or (query_tokens and all(token in text for token in query_tokens))):
+                records.append(self.normalize(raw))
+        return records
+
+
+def build_x_adapter(**kwargs: Any) -> BaseSourceAdapter:
+    backend = os.getenv("X_BACKEND", "api").strip().lower()
+    if backend == "api":
+        return XAdapter(**kwargs)
+    if backend == "file":
+        return XFileAdapter()
+    raise ValueError("X_BACKEND must be one of: api, file")
+
+
+def selected_x_backend() -> BaseSourceAdapter:
+    return build_x_adapter()

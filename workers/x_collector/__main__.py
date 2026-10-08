@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from .client import XCliError
+from .worker import XCollector, collect_forever
+
+
+def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description="Read-only X tweet collector (JSONL worker)")
+    parser.add_argument("--queries", default=os.getenv("X_COLLECT_QUERIES_FILE", "data/x_queries.txt"))
+    parser.add_argument("--catalog", default=os.getenv("CATALOG_SOURCE", "data/sample/catalog.json"))
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--loop", action="store_true")
+    parser.add_argument("--interval", type=float, default=300)
+    parser.add_argument("--enqueue", action="store_true")
+    parser.add_argument("--output-dir", default=os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
+    args = parser.parse_args(argv)
+    if args.mock and args.enqueue:
+        parser.error("--enqueue cannot be used with --mock.")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    queries = XCollector.load_queries(args.queries, args.catalog)
+    if not queries:
+        parser.error(f"No queries found. Add UTF-8 queries to {args.queries} or configure catalog {args.catalog}.")
+    output_dir = "data/x_collected_mock" if args.mock else args.output_dir
+    state_path = "output/x_collector_mock_state.sqlite3" if args.mock else None
+    collector = XCollector(output_dir=output_dir, state_path=state_path)
+    mock_records = None
+    if args.mock:
+        fixture = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "x_tweets.json"
+        if not fixture.is_file():
+            fixture = Path(args.catalog).resolve().parents[1] / "sample" / "x_tweets.json"
+        if not fixture.is_file():
+            parser.error("Mock fixture not found under tests/fixtures or data/sample.")
+        mock_records = json.loads(fixture.read_text(encoding="utf-8"))
+    if args.loop:
+        if args.dry_run:
+            _print_commands(queries)
+            print(json.dumps(collector.run(queries, dry_run=True), ensure_ascii=False, indent=2))
+            return 0
+        try:
+            collect_forever(collector, queries, max(1.0, args.interval), mock_records, enqueue=args.enqueue)
+        except XCliError as exc:
+            logging.error("Collector loop stopped: %s", exc)
+            return 1
+        except KeyboardInterrupt:
+            logging.info("Collector loop stopped by user")
+        return 0
+    if not (args.once or args.dry_run or args.mock):
+        parser.error("Choose --once, --loop, --dry-run, or --mock.")
+    try:
+        if args.dry_run:
+            _print_commands(queries)
+        result = collector.run(queries, dry_run=args.dry_run, mock_records=mock_records, enqueue=args.enqueue)
+    except XCliError as exc:
+        logging.error("%s", exc)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["status"] in {"DRY_RUN", "COMPLETED", "DAILY_CAP_REACHED"} else 1
+
+
+def _print_commands(queries: list[str]) -> None:
+    from . import cli_mapping
+
+    for query in queries:
+        command = [cli_mapping.CLI_COMMAND, cli_mapping.CLI_SEARCH_SUBCOMMAND, f"{cli_mapping.CLI_QUERY_FLAG}={query}", cli_mapping.CLI_LIMIT_FLAG, str(int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))), cli_mapping.CLI_OUTPUT_FLAG]
+        print("CLI dry-run command: " + subprocess.list2cmdline(command), file=sys.stderr)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
