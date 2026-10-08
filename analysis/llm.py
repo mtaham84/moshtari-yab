@@ -21,7 +21,15 @@ log = logging.getLogger("analysis.llm")
 
 
 class LLMError(RuntimeError):
-    """Transport/provider failure after all retries (message should be retried later)."""
+    """Transport/provider failure after all retries (message should be retried later).
+
+    ``fatal`` marks configuration problems (bad key, unknown model, region not supported...)
+    that will not fix themselves: messages are returned to the queue without using an attempt.
+    """
+
+    def __init__(self, message: str, fatal: bool = False) -> None:
+        super().__init__(message)
+        self.fatal = fatal
 
 
 class LLMBudgetExceeded(RuntimeError):
@@ -187,7 +195,7 @@ class OpenAICompatibleLLM(BaseLLM):
                 )
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "ignore")[:300] if hasattr(exc, "read") else ""
-                last_error = LLMError(f"HTTP {exc.code}: {detail}")
+                last_error = LLMError(f"HTTP {exc.code}: {detail}", fatal=exc.code not in self.RETRY_STATUS)
                 if exc.code == 400 and "json" in detail.lower() and "response_format" in body:
                     body.pop("response_format")  # provider/model without JSON mode: rely on the prompt
                     continue

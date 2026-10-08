@@ -58,6 +58,8 @@ class RunStats:
     released: int = 0
     failed: int = 0
     status: str = "ok"
+    error: str | None = None
+    fatal_error: bool = False
     drop_reasons: dict[str, int] = field(default_factory=dict)
     llm: dict = field(default_factory=dict)
 
@@ -137,6 +139,7 @@ class AnalysisPipeline:
                 stats.status, interrupted = "budget_exhausted", "budget"
             except LLMError as exc:
                 stats.status, interrupted = "llm_error", str(exc)
+                stats.error, stats.fatal_error = str(exc), exc.fatal
             failed = set(outcome.failed)
             unscreened = []
             for m in to_screen:
@@ -152,7 +155,7 @@ class AnalysisPipeline:
                 stats.failed += len(failed)
                 self._release([m for m in to_screen if m.uid in failed], stats, "invalid_triage_output")
             if unscreened:
-                if interrupted == "budget":
+                if interrupted == "budget" or stats.fatal_error:
                     self._release(unscreened, stats, None, count_attempt=False)
                 else:
                     self._release(unscreened, stats, interrupted or "not_screened")
@@ -174,8 +177,8 @@ class AnalysisPipeline:
                 self._release(screened[idx:], stats, None, count_attempt=False)
                 return
             except LLMError as exc:
-                stats.status = "llm_error"
-                self._release(screened[idx:], stats, str(exc))
+                stats.status, stats.error, stats.fatal_error = "llm_error", str(exc), exc.fatal
+                self._release(screened[idx:], stats, str(exc), count_attempt=not exc.fatal)
                 return
             stats.deep_pairs += len(verdicts)
             self._finish(verdicts, [m.uid], run_id, stats)

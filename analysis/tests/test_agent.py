@@ -277,3 +277,16 @@ def test_worker_cli_mock_run(tmp_path, capsys, monkeypatch):
     assert worker.main(["--db-path", db, "replay", "--source", "x"]) == 0
     out = capsys.readouterr().out
     assert "Funnel: entered=38" in out and "moved back to the queue" in out
+
+
+def test_fatal_llm_error_keeps_messages_pending_without_attempt(tmp_path, catalog):
+    class FatalLLM(ScriptedLLM):
+        def _complete(self, model, messages, max_tokens):
+            raise LLMError("HTTP 400: User location is not supported", fatal=True)
+
+    s = settings(tmp_path, max_attempts=1)
+    store = AnalysisStore(s.db_path)
+    store.enqueue(msg("telegram:1:1", "دنبال دوره پایتون هستم برای شروع"))
+    stats = AnalysisPipeline(store, FatalLLM(s, triage_all()), catalog, s).run_once()
+    assert stats.status == "llm_error" and stats.fatal_error and "location" in stats.error
+    assert store.stats()["inbox"] == {"pending": 1}

@@ -56,6 +56,12 @@ def cmd_run(args, settings, store) -> int:
                 f"| calls={llm_s.get('llm_calls', 0)} tokens={llm_s.get('prompt_tokens', 0) + llm_s.get('completion_tokens', 0)} "
                 f"cost={_fmt_toman(llm_s.get('cost_toman', 0))} toman | status={stats.status}"
             )
+        if stats.error:
+            print(f"[run] LLM error: {stats.error}", file=sys.stderr)
+            if stats.fatal_error:
+                print("[run] Configuration problem (key / model name / base URL / region). "
+                      "Messages were returned to the queue without using an attempt. Fix .env and run again.", file=sys.stderr)
+                return 2
         if not args.loop:
             if not stats.claimed:
                 print("Inbox is empty — nothing to analyse.")
