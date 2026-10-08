@@ -41,6 +41,47 @@ class Category(models.Model):
         help_text="لیست کلیدها و برچسب‌های ویژگی‌ها به صورت JSON"
     )
     is_active = models.BooleanField(default=True, verbose_name="فعال")
+    normalized_name = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name="نام نرمال‌شده"
+    )
+    full_path = models.CharField(
+        max_length=500,
+        blank=True,
+        db_index=True,
+        verbose_name="مسیر کامل دسته‌بندی"
+    )
+    depth = models.PositiveSmallIntegerField(
+        default=1,
+        verbose_name="عمق دسته‌بندی (۱ تا ۵)"
+    )
+    embedding = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="بردار تعبیه‌شده دسته (Embedding)"
+    )
+    embedding_model = models.CharField(
+        max_length=100,
+        blank=True,
+        default="text-embedding-3-small",
+        verbose_name="مدل بردارساز"
+    )
+    embedding_version = models.CharField(
+        max_length=50,
+        blank=True,
+        default="v1",
+        verbose_name="نسخه بردار"
+    )
+    taxonomy_version = models.PositiveIntegerField(
+        default=1,
+        verbose_name="نسخه تاکسونومی"
+    )
+    keywords = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="کلمات کلیدی و مترادف‌ها"
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ایجاد")
 
     class Meta:
@@ -48,12 +89,50 @@ class Category(models.Model):
         verbose_name_plural = "دسته‌بندی‌ها"
         ordering = ["product_type", "name"]
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.parent:
+            if self.parent_id == self.id:
+                raise ValidationError("یک دسته‌بندی نمی‌تواند والد خودش باشد.")
+            curr = self.parent
+            d = 2
+            while curr.parent:
+                if curr.parent_id == self.id:
+                    raise ValidationError("حلقه دورانی در ساختار درختی مجاز نیست.")
+                curr = curr.parent
+                d += 1
+            if d > 5:
+                raise ValidationError("حداکثر عمق مجاز دسته‌بندی ۵ سطح است.")
+
     def save(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
         if not self.slug:
             base_slug = slugify(self.name, allow_unicode=True) or "cat"
             unique_suffix = uuid.uuid4().hex[:6]
             self.slug = f"{base_slug}-{unique_suffix}"
+
+        from apps.discovery.taxonomy.normalizer import normalize_persian_text
+        self.normalized_name = normalize_persian_text(self.name)
+
+        if self.parent:
+            if self.parent_id == self.id:
+                raise ValidationError("دسته‌بندی نمی‌تواند والد خودش باشد.")
+            self.depth = self.parent.depth + 1
+            if self.depth > 5:
+                raise ValidationError("حداکثر عمق مجاز دسته‌بندی ۵ سطح است.")
+        else:
+            self.depth = 1
+
+        self.full_path = self.get_full_path()
         super().save(*args, **kwargs)
+
+        # Invalidate taxonomy cache & increment version on Business if changed
+        if self.business_id:
+            try:
+                from apps.discovery.taxonomy.cache import invalidate_seller_taxonomy_cache
+                invalidate_seller_taxonomy_cache(self.business)
+            except (ImportError, Exception):
+                pass
 
     def get_ancestors(self):
         """Returns ancestor categories from root down to parent."""
@@ -187,6 +266,26 @@ class Product(models.Model):
         for k, v in self.attributes.items():
             items.append({"key": k, "value": v})
         return items
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.business_id:
+            try:
+                from apps.discovery.taxonomy.cache import invalidate_seller_taxonomy_cache
+                invalidate_seller_taxonomy_cache(self.business)
+            except Exception:
+                pass
+
+    def delete(self, *args, **kwargs):
+        b = self.business
+        res = super().delete(*args, **kwargs)
+        if b:
+            try:
+                from apps.discovery.taxonomy.cache import invalidate_seller_taxonomy_cache
+                invalidate_seller_taxonomy_cache(b)
+            except Exception:
+                pass
+        return res
 
     def __str__(self):
         return f"{self.name} - {self.business.name}"

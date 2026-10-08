@@ -1,0 +1,277 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}فرصت‌های کشف‌شده هوشمند (AI Opportunities) | پیدا{% endblock %}
+{% block breadcrumb %}فرصت‌های کشف‌شده هوشمند{% endblock %}
+{% block nav_opportunities %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header" style="margin-bottom: 24px;">
+  <div class="p-header-titles">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <h1 class="p-page-title">فرصت‌های کشف‌شده هوشمند (AI Opportunities)</h1>
+      <span class="p-badge p-badge-purple">لایه نتیجه یکپارچه ایجنتیک</span>
+    </div>
+    <p class="p-page-subtitle">
+      مشاهده مشتریان و سرنخ‌های کشف‌شده از جوامع آنلاین (تلگرام به عنوان پلتفرم فعال • X، اینستاگرام و دیوار در فاز ۲) به همراه ارزیابی ساختاریافته نیت خرید، انطباق کاتالوگ، شواهد تصمیم‌گیری و پیش‌نویس پاسخ هوشمند.
+    </p>
+  </div>
+</div>
+
+<!-- Summary Metric Cards (Neumorphic Stone) -->
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
+  <!-- Total Opportunities -->
+  <div class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+    <div class="p-icon-box" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(168, 85, 247, 0.12); color: var(--brand-purple); display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+    </div>
+    <div>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">کل فرصت‌ها</span>
+      <strong style="font-size: 1.4rem; color: var(--panel-text-main); font-weight: 700;">{{ stats.total }}</strong>
+    </div>
+  </div>
+
+  <!-- High Intent (>= 80%) -->
+  <div class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+    <div class="p-icon-box" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(16, 185, 129, 0.12); color: #10B981; display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+    </div>
+    <div>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">قصد خرید بالا (≥ ۸۰٪)</span>
+      <strong style="font-size: 1.4rem; color: #10B981; font-weight: 700;">{{ stats.high_intent }}</strong>
+    </div>
+  </div>
+
+  <!-- Qualified / Active -->
+  <div class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+    <div class="p-icon-box" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(59, 130, 246, 0.12); color: #3B82F6; display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+    </div>
+    <div>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">تایید شده (Qualified)</span>
+      <strong style="font-size: 1.4rem; color: #3B82F6; font-weight: 700;">{{ stats.qualified }}</strong>
+    </div>
+  </div>
+
+  <!-- Converted -->
+  <div class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+    <div class="p-icon-box" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(245, 158, 11, 0.12); color: #F59E0B; display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+    </div>
+    <div>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">مشتریان نهایی (Converted)</span>
+      <strong style="font-size: 1.4rem; color: #F59E0B; font-weight: 700;">{{ stats.converted }}</strong>
+    </div>
+  </div>
+</div>
+
+<!-- Filter & Search Toolbar -->
+<div class="p-card" style="padding: 16px 20px; margin-bottom: 24px;">
+  <form method="GET" action="{% url 'discovery:opportunity_list' %}" style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 0;">
+    
+    <!-- Platform Selector Tabs -->
+    <div style="display: flex; align-items: center; gap: 6px; background: var(--stone-surface-sunken); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);">
+      <a href="?platform=&status={{ selected_status }}&min_score={{ selected_min_score }}&q={{ search_query }}" 
+         class="p-btn p-btn-sm {% if not selected_platform %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+        همه پلتفرم‌ها ({{ stats.total }})
+      </a>
+      <a href="?platform=telegram&status={{ selected_status }}&min_score={{ selected_min_score }}&q={{ search_query }}" 
+         class="p-btn p-btn-sm {% if selected_platform == 'telegram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; margin-left: 5px;"></span>
+        تلگرام (فعال: {{ stats.telegram_count }})
+      </a>
+      <a href="?platform=x&status={{ selected_status }}&min_score={{ selected_min_score }}&q={{ search_query }}" 
+         class="p-btn p-btn-sm {% if selected_platform == 'x' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
+        X / توییتر (فاز ۲: {{ stats.x_count }})
+      </a>
+      <a href="?platform=instagram&status={{ selected_status }}&min_score={{ selected_min_score }}&q={{ search_query }}" 
+         class="p-btn p-btn-sm {% if selected_platform == 'instagram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
+        اینستاگرام (فاز ۲: {{ stats.instagram_count }})
+      </a>
+      <a href="?platform=divar&status={{ selected_status }}&min_score={{ selected_min_score }}&q={{ search_query }}" 
+         class="p-btn p-btn-sm {% if selected_platform == 'divar' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
+        دیوار (فاز ۲: {{ stats.divar_count }})
+      </a>
+    </div>
+
+    <!-- Status Filter -->
+    <div style="min-width: 140px;">
+      <select name="status" class="form-input" style="height: 38px; font-size: 0.8rem; padding: 0 12px;">
+        <option value="">همه وضعیت‌ها</option>
+        <option value="NEW" {% if selected_status == 'NEW' %}selected{% endif %}>جدید (New)</option>
+        <option value="QUALIFIED" {% if selected_status == 'QUALIFIED' %}selected{% endif %}>تأیید شده (Qualified)</option>
+        <option value="REVIEWED" {% if selected_status == 'REVIEWED' %}selected{% endif %}>بررسی شده (Reviewed)</option>
+        <option value="CONTACTED" {% if selected_status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده (Contacted)</option>
+        <option value="CONVERTED" {% if selected_status == 'CONVERTED' %}selected{% endif %}>مشتری نهایی (Converted)</option>
+        <option value="REJECTED" {% if selected_status == 'REJECTED' %}selected{% endif %}>رد شده (Rejected)</option>
+      </select>
+    </div>
+
+    <!-- Min Score Filter -->
+    <div style="min-width: 120px;">
+      <select name="min_score" class="form-input" style="height: 38px; font-size: 0.8rem; padding: 0 12px;">
+        <option value="">حداقل امتیاز نیت</option>
+        <option value="85" {% if selected_min_score == '85' %}selected{% endif %}>قصد فوری (≥ ۸۵٪)</option>
+        <option value="70" {% if selected_min_score == '70' %}selected{% endif %}>قصد بالا (≥ ۷۰٪)</option>
+        <option value="50" {% if selected_min_score == '50' %}selected{% endif %}>نیاز مشخص (≥ ۵۰٪)</option>
+      </select>
+    </div>
+
+    <!-- Search Input -->
+    <div style="flex: 1; min-width: 180px;">
+      <input type="text" name="q" value="{{ search_query }}" placeholder="جستجو در نام، کاربر، پیام یا نیاز..." class="form-input" style="height: 38px; font-size: 0.8rem;">
+    </div>
+
+    <input type="hidden" name="platform" value="{{ selected_platform }}">
+
+    <button type="submit" class="p-btn p-btn-secondary" style="height: 38px; padding: 0 16px;">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <span>اعمال فیلتر</span>
+    </button>
+
+    {% if selected_platform or selected_status or selected_min_score or search_query %}
+      <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-ghost" style="height: 38px; padding: 0 12px; font-size: 0.78rem; color: var(--stone-text-muted);">
+        پاکسازی فیلترها
+      </a>
+    {% endif %}
+  </form>
+</div>
+
+<!-- Opportunities List Cards -->
+<div class="opportunities-container" style="display: flex; flex-direction: column; gap: 14px;">
+  {% for opp in opportunities %}
+    <div class="p-card opportunity-card" style="padding: 20px 24px; transition: transform 0.2s, box-shadow 0.2s;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px;">
+        
+        <!-- Left / Top Info: Platform badge & Customer info -->
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          
+          <!-- Source Platform Badge -->
+          {% if opp.source_platform == 'telegram' %}
+            <span class="p-badge" style="background: rgba(34, 158, 217, 0.15); color: #0088cc; border: 1px solid rgba(34, 158, 217, 0.3); font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06-.01.19-.02.27z"/></svg>
+              تلگرام
+            </span>
+          {% elif opp.source_platform == 'x' %}
+            <span class="p-badge" style="background: rgba(15, 23, 42, 0.12); color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.3); font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              ایکس (توییتر)
+            </span>
+          {% elif opp.source_platform == 'instagram' %}
+            <span class="p-badge" style="background: rgba(225, 48, 108, 0.12); color: #E1306C; border: 1px solid rgba(225, 48, 108, 0.3); font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="12" cy="12" r="3.2"/><path d="M9 2h6a7 7 0 0 1 7 7v6a7 7 0 0 1-7 7H9a7 7 0 0 1-7-7V9a7 7 0 0 1 7-7zm0 2a5 5 0 0 0-5 5v6a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5V9a5 5 0 0 0-5-5H9zm8.5 2.75a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0z"/></svg>
+              اینستاگرام
+            </span>
+          {% elif opp.source_platform == 'divar' %}
+            <span class="p-badge" style="background: rgba(166, 38, 38, 0.12); color: #c02626; border: 1px solid rgba(166, 38, 38, 0.3); font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+              دیوار (Divar)
+            </span>
+          {% else %}
+            <span class="p-badge p-badge-gray">سایر شبکه</span>
+          {% endif %}
+
+          <!-- Customer Identity -->
+          <strong style="font-size: 0.95rem; color: var(--panel-text-main);">
+            {{ opp.customer.display_identifier }}
+          </strong>
+
+          <!-- Contact Phone Info (Zero Fabrication) -->
+          {% if opp.customer.phone_number %}
+            <span style="font-size: 0.78rem; color: #10B981; direction: ltr; font-family: monospace;">
+              {{ opp.customer.phone_number }}
+            </span>
+          {% else %}
+            <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
+              (شماره تماس در دسترس نیست)
+            </span>
+          {% endif %}
+
+          <!-- Category Snapshot -->
+          {% if opp.category_name_snapshot %}
+            <span style="font-size: 0.76rem; color: var(--stone-text-muted); background: var(--stone-surface-sunken); padding: 2px 8px; border-radius: 6px;">
+              {{ opp.category_name_snapshot }}
+            </span>
+          {% endif %}
+        </div>
+
+        <!-- Right Side: AI Scores & Status -->
+        <div style="display: flex; align-items: center; gap: 10px;">
+          
+          <!-- Intent Score Badge -->
+          <div style="display: flex; align-items: center; gap: 6px; background: rgba(168, 85, 247, 0.1); padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.25);">
+            <span style="font-size: 0.74rem; color: var(--brand-purple);">نیت خرید:</span>
+            <strong style="font-size: 0.88rem; color: var(--brand-purple);">{{ opp.intent_score_percentage }}٪</strong>
+          </div>
+
+          <!-- Product Fit Badge -->
+          <div style="display: flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.1); padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.25);">
+            <span style="font-size: 0.74rem; color: #10B981;">انطباق کالا:</span>
+            <strong style="font-size: 0.88rem; color: #10B981;">{{ opp.product_fit_score_percentage }}٪</strong>
+          </div>
+
+          <!-- Status Badge -->
+          {% if opp.status == 'QUALIFIED' %}
+            <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6;">تأیید شده</span>
+          {% elif opp.status == 'NEW' %}
+            <span class="p-badge" style="background: rgba(168, 85, 247, 0.15); color: var(--brand-purple);">جدید</span>
+          {% elif opp.status == 'REVIEWED' %}
+            <span class="p-badge" style="background: rgba(234, 179, 8, 0.15); color: #CA8A04;">بررسی شده</span>
+          {% elif opp.status == 'CONTACTED' %}
+            <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981;">تماس گرفته شده</span>
+          {% elif opp.status == 'CONVERTED' %}
+            <span class="p-badge" style="background: rgba(16, 185, 129, 0.25); color: #047857; font-weight: 700;">مشتری نهایی</span>
+          {% elif opp.status == 'REJECTED' %}
+            <span class="p-badge" style="background: rgba(239, 68, 68, 0.15); color: #DC2626;">رد شده</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Raw Customer Message Quote -->
+      <div style="background: var(--stone-surface-sunken); border-right: 3px solid var(--brand-purple); padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 14px;">
+        <p style="margin: 0; font-size: 0.86rem; color: var(--panel-text-main); line-height: 1.6;">
+          «{{ opp.source_raw_message }}»
+        </p>
+      </div>
+
+      <!-- Card Footer: Recommended Product & Action Button -->
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          {% with primary=opp.primary_product_match %}
+            {% if primary %}
+              <div style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--panel-text-main);">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--brand-purple);"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                <span style="color: var(--stone-text-muted);">کالای پیشنهادی اصلی:</span>
+                <strong>{{ primary.product.name }}</strong>
+                <span style="font-size: 0.76rem; color: #10B981;">({{ primary.match_score_percentage }}٪ تطابق)</span>
+              </div>
+            {% endif %}
+          {% endwith %}
+          <span style="font-size: 0.76rem; color: var(--stone-text-muted);">• ثبت: {{ opp.created_at|date:"Y/m/d H:i" }}</span>
+        </div>
+
+        <div>
+          <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary" style="padding: 6px 14px; font-size: 0.82rem;">
+            <span>مشاهده تحلیل کامل و پیش‌نویس پاسخ</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="p-card" style="padding: 48px 24px; text-align: center;">
+      <div class="p-icon-box" style="width: 56px; height: 56px; border-radius: 16px; background: rgba(168, 85, 247, 0.1); color: var(--brand-purple); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+      </div>
+      <h3 style="font-size: 1.1rem; color: var(--panel-text-main); margin-bottom: 8px;">هیچ فرصتی با فیلترهای جاری یافت نشد</h3>
+      <p style="font-size: 0.84rem; color: var(--stone-text-muted); max-width: 480px; margin: 0 auto 20px;">
+        فرصت‌های جدید به صورت خودکار از پیام‌های ورودی شبکه‌های اجتماعی استخراج و ارزیابی می‌شوند.
+      </p>
+      {% if selected_platform or selected_status or search_query %}
+        <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary" style="padding: 8px 18px;">
+          پاکسازی فیلترها و نمایش همه
+        </a>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

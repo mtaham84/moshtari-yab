@@ -1,0 +1,305 @@
+{% extends "panel/base_panel.html" %}
+{% load static %}
+
+{% block title %}تنظیمات کسب‌وکار و حساب کاربری | پیدا{% endblock %}
+{% block breadcrumb %}تنظیمات{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header" style="margin-bottom: 24px;">
+  <div class="p-header-titles">
+    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+      <h1 class="p-page-title">تنظیمات کسب‌وکار و اتصال شبکه‌ها</h1>
+      <span class="p-badge p-badge-purple">پیکربندی هوشمند</span>
+      <span class="p-badge p-badge-success" style="font-size: 0.72rem;">پلتفرم فعال: تلگرام</span>
+    </div>
+    <p class="p-page-subtitle">
+      مدیریت هویت کسب‌وکار، پارامترهای هدف‌گذاری پرسونای خریدار و تنظیمات اتصال به تلگرام جهت کشف خودکار سرنخ‌ها.
+    </p>
+  </div>
+</div>
+
+{% if messages %}
+  <div class="auth-messages" style="margin-bottom: 24px;">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div style="display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start;">
+  <!-- Settings Navigation Tabs (Sidebar) -->
+  <div class="p-card" style="padding: 16px;">
+    <nav style="display: flex; flex-direction: column; gap: 6px;">
+      <button type="button" class="settings-tab-btn active" data-tab="tab-profile" style="text-align: right; padding: 12px 14px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--panel-text-main); font-family: inherit; font-size: 0.84rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 10px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        <span>مشخصات کسب‌وکار</span>
+      </button>
+
+      <button type="button" class="settings-tab-btn" data-tab="tab-targeting" style="text-align: right; padding: 12px 14px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--stone-text-muted); font-family: inherit; font-size: 0.84rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 10px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+        <span>هدف‌گذاری و مخاطبان</span>
+      </button>
+
+      <button type="button" class="settings-tab-btn" data-tab="tab-telegram" style="text-align: right; padding: 12px 14px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--stone-text-muted); font-family: inherit; font-size: 0.84rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 10px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z"/></svg>
+        <span>اتصال تلگرام و پیام‌ها</span>
+      </button>
+
+      <button type="button" class="settings-tab-btn" data-tab="tab-other-platforms" style="text-align: right; padding: 12px 14px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--stone-text-muted); font-family: inherit; font-size: 0.84rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+        <span style="display: flex; align-items: center; gap: 10px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+          <span>سایر شبکه‌ها</span>
+        </span>
+        <span class="p-badge" style="font-size: 0.65rem; background: rgba(148,163,184,0.15); color: var(--stone-text-muted);">فاز ۲</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Settings Forms Area -->
+  <div>
+    <!-- TAB 1: Business Profile -->
+    <div id="tab-profile" class="settings-tab-pane">
+      <div class="p-card" style="padding: 26px;">
+        <div style="border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 14px; margin-bottom: 20px;">
+          <h2 style="font-size: 1.05rem; font-weight: 850; color: var(--panel-text-main); margin: 0 0 4px 0;">مشخصات و هویت کسب‌وکار</h2>
+          <span style="font-size: 0.78rem; color: var(--stone-text-muted);">اطلاعات عمومی فروشگاه که توسط ایجنت در متن پیام‌ها و تحلیل پرسونای خریدار استفاده می‌شود.</span>
+        </div>
+
+        <form method="POST" action="{% url 'accounts:settings' %}">
+          {% csrf_token %}
+          <input type="hidden" name="section" value="profile">
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px;">
+            <div>
+              <label class="form-label">نام کسب‌وکار یا فروشگاه</label>
+              <input type="text" name="name" class="form-input" value="{{ business.name }}" required>
+            </div>
+
+            <div>
+              <label class="form-label">نوع کسب‌وکار</label>
+              <select name="business_type" class="form-input" style="height: 44px;">
+                <option value="PHYSICAL" {% if business.business_type == 'PHYSICAL' %}selected{% endif %}>کالایی / فروشگاهی</option>
+                <option value="SERVICE" {% if business.business_type == 'SERVICE' %}selected{% endif %}>خدماتی</option>
+                <option value="ONLINE" {% if business.business_type == 'ONLINE' %}selected{% endif %}>آنلاین / دیجیتال</option>
+                <option value="HYBRID" {% if business.business_type == 'HYBRID' %}selected{% endif %}>ترکیبی (کالایی و خدماتی)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <label class="form-label">حوزه و صنعت فعالیت</label>
+            <input type="text" name="business_domain" class="form-input" value="{{ business.business_domain }}" placeholder="مثال: پوشاک و مد، لپ‌تاپ و تجهیزات دیجیتال، آموزش برنامه‌نویسی" required>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <label class="form-label">ارزش پیشنهادی و مزیت رقابتی اصلی</label>
+            <textarea name="description" class="form-input" rows="3" placeholder="توضیح دهید فروشگاه شما چه نیازی را با چه مزیتی (کیفیت، قیمت، ارسال سریع، پشتیبانی) برطرف می‌کند...">{{ business.description }}</textarea>
+          </div>
+
+          <div style="margin-bottom: 22px;">
+            <label class="form-label">شرح مشتریان ایده‌آل (ICP)</label>
+            <textarea name="target_customer_description" class="form-input" rows="3" placeholder="مشتریان هدف شما معمولاً چه کسانی هستند؟ (مثال: برنامه‌نویسان نیازمند لپ‌تاپ قدرتمند، گیمرها، دانشجویان...)">{{ business.target_customer_description }}</textarea>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" class="p-btn p-btn-primary">ذخیره مشخصات کسب‌وکار</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- TAB 2: Targeting Constraints -->
+    <div id="tab-targeting" class="settings-tab-pane" style="display: none;">
+      <div class="p-card" style="padding: 26px;">
+        <div style="border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 14px; margin-bottom: 20px;">
+          <h2 style="font-size: 1.05rem; font-weight: 850; color: var(--panel-text-main); margin: 0 0 4px 0;">هدف‌گذاری جغرافیایی و جمعیت‌شناختی</h2>
+          <span style="font-size: 0.78rem; color: var(--stone-text-muted);">محدود کردن دامنه پایش هوشمند بر اساس موقعیت جغرافیایی و سن مخاطبان.</span>
+        </div>
+
+        <form method="POST" action="{% url 'accounts:settings' %}">
+          {% csrf_token %}
+          <input type="hidden" name="section" value="targeting">
+
+          <div style="margin-bottom: 18px;">
+            <label class="form-label">موقعیت جغرافیایی و شهرهای هدف</label>
+            <input type="text" list="provincial-cities-list" name="target_locations" class="form-input" value="{{ business.target_locations|default:'سراسر کشور' }}" placeholder="انتخاب از مراکز استان یا تایپ شهر دلخواه...">
+            <datalist id="provincial-cities-list">
+              <option value="سراسر کشور">
+              <option value="تهران">
+              <option value="مشهد">
+              <option value="اصفهان">
+              <option value="کرج">
+              <option value="شیراز">
+              <option value="تبریز">
+              <option value="قم">
+              <option value="اهواز">
+              <option value="رشت">
+              <option value="کرمانشاه">
+              <option value="ارومیه">
+              <option value="همدان">
+              <option value="یزد">
+              <option value="کرمان">
+            </datalist>
+            <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">برای فروش غیرحضوری و سراسری، عبارت «سراسر کشور» را وارد کنید.</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 22px;">
+            <div>
+              <label class="form-label">حداقل سن مخاطب هدف (اختیاری)</label>
+              <input type="number" name="target_min_age" class="form-input" min="10" max="100" value="{{ business.target_min_age|default:'' }}" placeholder="مثال: ۱۸">
+            </div>
+
+            <div>
+              <label class="form-label">حداکثر سن مخاطب هدف (اختیاری)</label>
+              <input type="number" name="target_max_age" class="form-input" min="10" max="100" value="{{ business.target_max_age|default:'' }}" placeholder="مثال: ۵۰">
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" class="p-btn p-btn-primary">ذخیره تنظیمات هدف‌گذاری</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- TAB 3: Telegram & Messaging Config -->
+    <div id="tab-telegram" class="settings-tab-pane" style="display: none;">
+      <div class="p-card" style="padding: 26px;">
+        <div style="border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 14px; margin-bottom: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <h2 style="font-size: 1.05rem; font-weight: 850; color: var(--panel-text-main); margin: 0;">تنظیمات تلگرام و شیوه ارتباط</h2>
+            <span class="p-badge p-badge-purple" style="font-size: 0.75rem;">شبکه فعال اصلی</span>
+          </div>
+          <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">
+            اتصال حساب فروشنده و پیکربندی نحوه پاسخگویی و سقف روزانه پیام‌ها در تلگرام.
+          </span>
+        </div>
+
+        <form method="POST" action="{% url 'accounts:settings' %}">
+          {% csrf_token %}
+          <input type="hidden" name="section" value="telegram">
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px;">
+            <div>
+              <label class="form-label">شناسه اکانت تلگرام فروشنده</label>
+              <input type="text" name="telegram_account_handle" class="form-input" value="{{ business.telegram_account_handle }}" placeholder="@my_telegram_handle" dir="ltr">
+              <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">پیام‌های پیش‌نویس با این شناسه برای ارتباط با خریدار آماده می‌شوند.</span>
+            </div>
+
+            <div>
+              <label class="form-label">شیوه ترجیحی ارتباط با مشتری</label>
+              <select name="preferred_outreach_mode" class="form-input" style="height: 44px;">
+                <option value="DIRECT" {% if business.preferred_outreach_mode == 'DIRECT' %}selected{% endif %}>دایرکت خصوصی (پیشنهادی)</option>
+                <option value="COMMENT" {% if business.preferred_outreach_mode == 'COMMENT' %}selected{% endif %}>پاسخ عمومی / ریپلای در گروه</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px;">
+            <div>
+              <label class="form-label">سقف روزانه پیام‌های پایش (Quota)</label>
+              <input type="number" name="daily_discovery_limit" min="1" max="200" class="form-input" value="{{ business.daily_discovery_limit }}">
+              <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">حداکثر تعداد پیام‌های قابل تحلیل و پردازش روزانه توسط ایجنت.</span>
+            </div>
+
+            <div>
+              <label class="form-label">توکن بات تلگرام یا سشن ایجنت (اختیاری)</label>
+              <input type="text" name="telegram_session_or_bot" class="form-input" value="{{ business.telegram_session_or_bot }}" placeholder="123456789:ABCdefGHIjk..." dir="ltr">
+              <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">جهت رصد خودکار یا ارسال با بات اختصاصی.</span>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" class="p-btn p-btn-primary">ذخیره تنظیمات تلگرام</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- TAB 4: Other Platforms (Phase 2 Coming Soon) -->
+    <div id="tab-other-platforms" class="settings-tab-pane" style="display: none;">
+      <div class="p-card" style="padding: 26px;">
+        <div style="border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 14px; margin-bottom: 20px;">
+          <h2 style="font-size: 1.05rem; font-weight: 850; color: var(--panel-text-main); margin: 0 0 4px 0;">وضعیت اتصال سایر شبکه‌ها و پلتفرم‌ها</h2>
+          <span style="font-size: 0.78rem; color: var(--stone-text-muted);">پلتفرم‌های تحت توسعه برای فاز دوم پروژه پیدا.</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <!-- X / Twitter -->
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle);">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(29, 161, 242, 0.1); color: #1da1f2; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;">
+                X
+              </div>
+              <div>
+                <strong style="color: var(--panel-text-main); font-size: 0.92rem; display: block;">شبکه اجتماعی X (توییتر)</strong>
+                <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پایش توییت‌ها و مکالمات تقاضای خرید در توییتر فارسی</span>
+              </div>
+            </div>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به زودی در فاز ۲</span>
+          </div>
+
+          <!-- Instagram -->
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle);">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(225, 48, 108, 0.1); color: #e1306c; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;">
+                IG
+              </div>
+              <div>
+                <strong style="color: var(--panel-text-main); font-size: 0.92rem; display: block;">اینستاگرام (Instagram)</strong>
+                <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پایش کامنت‌ها و سوالات خرید زیر پست‌های مرتبط</span>
+              </div>
+            </div>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به زودی در فاز ۲</span>
+          </div>
+
+          <!-- Divar -->
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle);">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(166, 38, 38, 0.1); color: #e53e3e; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;">
+                دیوار
+              </div>
+              <div>
+                <strong style="color: var(--panel-text-main); font-size: 0.92rem; display: block;">دیوار (Divar)</strong>
+                <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پایش آگهی‌های تقاضای خرید در دسته‌بندی‌های کالا و خدمات</span>
+              </div>
+            </div>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به زودی در فاز ۲</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const tabs = document.querySelectorAll('.settings-tab-btn');
+  const panes = document.querySelectorAll('.settings-tab-pane');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', function() {
+      tabs.forEach(t => {
+        t.style.background = 'transparent';
+        t.style.borderColor = 'transparent';
+        t.style.color = 'var(--stone-text-muted)';
+      });
+      panes.forEach(p => p.style.display = 'none');
+
+      this.style.background = 'var(--obsidian-cyan-subtle, rgba(0, 242, 254, 0.08))';
+      this.style.borderColor = 'var(--obsidian-cyan, #00f2fe)';
+      this.style.color = 'var(--panel-text-main)';
+
+      const targetPane = document.getElementById(this.dataset.tab);
+      if (targetPane) targetPane.style.display = 'block';
+    });
+  });
+
+  // Activate first tab by default
+  if (tabs.length > 0) {
+    tabs[0].click();
+  }
+});
+</script>
+{% endblock %}

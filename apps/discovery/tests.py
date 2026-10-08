@@ -10,8 +10,26 @@ from apps.discovery.models import (
     ProcessedMessageHash,
     DiscoveredLead,
     ProductDailyMetric,
-    ProductOrder
+    ProductOrder,
+    Customer,
+    Opportunity,
+    AIAnalysis,
+    OpportunityProductMatch,
+    Evidence
 )
+from apps.discovery.ai_contracts import (
+    CandidateInputSchema,
+    CandidateProductItem,
+    ProductMatchOutput,
+    EvidenceOutput,
+    AIAnalysisOutputSchema,
+    LLMOutputValidator
+)
+from apps.discovery.llm_provider import (
+    MockLLMProvider,
+    get_llm_provider
+)
+from apps.discovery.opportunity_service import OpportunityService
 from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.discovery.services import (
     evaluate_and_discover_leads,
@@ -453,5 +471,464 @@ class DiscoveryPipelineTests(TestCase):
         self.assertIsNotNone(order)
         self.assertEqual(order.quantity, 2)
         self.assertEqual(order.total_price, self.product.price * 2)
+
+
+class UnifiedOpportunityModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="seller2@example.com",
+            email="seller2@example.com",
+            password="StrongPassword123!"
+        )
+        self.business = Business.objects.create(
+            user=self.user,
+            name="کالای دیجیتال پیشرو",
+            business_type="PHYSICAL"
+        )
+        self.category = Category.objects.create(
+            business=self.business,
+            name="لوازم جانبی موبایل"
+        )
+        self.product1 = Product.objects.create(
+            business=self.business,
+            name="پاوربانک ۲۰۰۰۰ فست شارژ",
+            category=self.category,
+            price=1200000
+        )
+        self.product2 = Product.objects.create(
+            business=self.business,
+            name="کابل شارژ تایپ سی انکر",
+            category=self.category,
+            price=350000
+        )
+
+    def test_customer_creation_nullable_fields_and_identifier(self):
+        # Customer without phone or real name
+        c1 = Customer.objects.create(
+            business=self.business,
+            source_platform="telegram",
+            source_username="tehran_shopper",
+            external_user_id="tg_123456"
+        )
+        self.assertIsNone(c1.phone_number)
+        self.assertEqual(c1.name, "")
+        self.assertEqual(c1.display_identifier, "@tehran_shopper")
+
+        # Customer with phone and name
+        c2 = Customer.objects.create(
+            business=self.business,
+            name="علی محمدی",
+            phone_number="09120000000",
+            source_platform="divar"
+        )
+        self.assertEqual(c2.display_identifier, "علی محمدی")
+
+        # Customer with only external_user_id
+        c3 = Customer.objects.create(
+            business=self.business,
+            external_user_id="user_9876",
+            source_platform="x"
+        )
+        self.assertEqual(c3.display_identifier, "کاربر user_9876")
+
+    def test_opportunity_and_aianalysis_relationships(self):
+        customer = Customer.objects.create(
+            business=self.business,
+            source_platform="telegram",
+            source_username="buyer_ali"
+        )
+        opportunity = Opportunity.objects.create(
+            business=self.business,
+            customer=customer,
+            category=self.category,
+            category_name_snapshot="لوازم جانبی موبایل",
+            source_platform="telegram",
+            source_message_id="msg_999",
+            source_raw_message="سلام پاوربانک فست شارژ خوب چی پیشنهاد میدید؟",
+            status="QUALIFIED"
+        )
+
+        analysis = AIAnalysis.objects.create(
+            opportunity=opportunity,
+            need="درخواست پیشنهاد خرید پاوربانک فست شارژ",
+            intent_score=0.92,
+            product_fit_score=0.88,
+            confidence=0.95,
+            why_selected="کاربر مشخصاً به دنبال پاوربانک فست شارژ با کیفیت است که دقیقاً با کاتالوگ فروشگاه تطابق دارد.",
+            suggested_reply="سلام علی عزیز، پاوربانک ۲۰۰۰۰ فست شارژ ما با فناوری PD و توان ۲۲.۵ وات کاملاً مناسب نیاز شماست.",
+            model_name="llama-3.3-70b-versatile",
+            tokens_used=420,
+            cost_usd=0.00035,
+            cost_toman=25
+        )
+
+        self.assertEqual(opportunity.intent_score_percentage, 92)
+        self.assertEqual(opportunity.product_fit_score_percentage, 88)
+        self.assertEqual(opportunity.confidence_percentage, 95)
+        self.assertEqual(opportunity.ai_analysis.why_selected, analysis.why_selected)
+
+    def test_multi_product_matches_and_primary_match(self):
+        customer = Customer.objects.create(
+            business=self.business,
+            source_platform="x",
+            source_username="tech_geek"
+        )
+        opportunity = Opportunity.objects.create(
+            business=self.business,
+            customer=customer,
+            category=self.category,
+            source_platform="x",
+            source_raw_message="یه پاوربانک و کابل خوب چی بخرم؟"
+        )
+
+        match1 = OpportunityProductMatch.objects.create(
+            opportunity=opportunity,
+            product=self.product1,
+            match_score=0.95,
+            recommendation_reason="تطابق با بخش پاوربانک درخواست",
+            rank=1
+        )
+        match2 = OpportunityProductMatch.objects.create(
+            opportunity=opportunity,
+            product=self.product2,
+            match_score=0.85,
+            recommendation_reason="تطابق با بخش کابل شارژ",
+            rank=2
+        )
+
+        self.assertEqual(opportunity.primary_product_match, match1)
+        self.assertEqual(opportunity.product_matches.count(), 2)
+        self.assertEqual(match1.match_score_percentage, 95)
+
+    def test_evidence_citations(self):
+        customer = Customer.objects.create(
+            business=self.business,
+            source_platform="divar"
+        )
+        opportunity = Opportunity.objects.create(
+            business=self.business,
+            customer=customer,
+            source_platform="divar",
+            source_raw_message="سلام قیمت عمده کابل شارژ چنده؟"
+        )
+
+        ev1 = Evidence.objects.create(
+            opportunity=opportunity,
+            evidence_type="customer_message",
+            content="سلام قیمت عمده کابل شارژ چنده؟",
+            source_reference="پیام چت دیوار"
+        )
+        ev2 = Evidence.objects.create(
+            opportunity=opportunity,
+            evidence_type="need_signal",
+            content="نیاز به استعلام قیمت کابل شارژ",
+            source_reference="تحلیل نیت هوش مصنوعی"
+        )
+
+        evidence_items = list(opportunity.evidence_items.all())
+        self.assertEqual(len(evidence_items), 2)
+        self.assertEqual(evidence_items[0], ev1)
+        self.assertEqual(evidence_items[1], ev2)
+
+
+class LLMContractAndValidationTests(TestCase):
+    def setUp(self):
+        self.candidate = CandidateInputSchema(
+            candidate_id="cand_123",
+            source_platform="telegram",
+            source_raw_message="سلام پاوربانک فست شارژ برای سفر میخوام. چه مدلی رو پیشنهاد میدید؟",
+            source_message_id="tg_msg_777",
+            sender_username="traveler_ali",
+            candidate_products=[
+                CandidateProductItem(id=10, name="پاوربانک ۲۰۰۰۰ میلی‌آمپر فست", price=1200000),
+                CandidateProductItem(id=20, name="کابل تایپ سی انکر", price=300000),
+            ]
+        )
+
+    def test_candidate_input_schema_serialization(self):
+        cand_dict = self.candidate.to_dict()
+        self.assertEqual(cand_dict["source_platform"], "telegram")
+        self.assertEqual(len(cand_dict["candidate_products"]), 2)
+        self.assertEqual(cand_dict["candidate_products"][0]["id"], 10)
+
+        restored = CandidateInputSchema.from_dict(cand_dict)
+        self.assertEqual(restored.candidate_id, "cand_123")
+        self.assertEqual(restored.candidate_products[0].name, "پاوربانک ۲۰۰۰۰ میلی‌آمپر فست")
+
+    def test_validator_strips_hallucinated_product_ids(self):
+        """
+        CRITICAL GUARDRAIL:
+        If LLM invents product ID 9999 (not in candidate_products), it MUST be discarded.
+        Valid product ID 10 must be preserved.
+        """
+        raw_output = AIAnalysisOutputSchema(
+            need="پاوربانک مناسب سفر",
+            intent_score=0.95,
+            product_fit_score=0.90,
+            confidence=0.92,
+            why_selected="کاربر نیازمند شارژر همراه برای مسافرت است.",
+            suggested_reply="سلام، پاوربانک ۲۰۰۰۰ فست شارژ برای مسافرت عالی است.",
+            product_matches=[
+                ProductMatchOutput(product_id=9999, match_score=0.99, recommendation_reason="کالای خیالی"),
+                ProductMatchOutput(product_id=10, match_score=0.92, recommendation_reason="پاوربانک کاتالوگ"),
+            ]
+        )
+
+        sanitized = LLMOutputValidator.validate_and_sanitize(raw_output, self.candidate)
+        # Hallucinated product 9999 must NOT be in product_matches
+        match_ids = [m.product_id for m in sanitized.product_matches]
+        self.assertNotIn(9999, match_ids)
+        self.assertIn(10, match_ids)
+        self.assertEqual(len(sanitized.product_matches), 1)
+        self.assertEqual(sanitized.product_matches[0].rank, 1)
+
+    def test_validator_strips_chain_of_thought_and_clamps_scores(self):
+        raw_output = AIAnalysisOutputSchema(
+            need="خرید باتری",
+            intent_score=1.5,  # Out of range > 1.0
+            product_fit_score=-0.2,  # Out of range < 0.0
+            confidence=0.8,
+            why_selected="<think>User is asking about power bank. Step 1: analyze intent...</think>مشتری قصد خرید دارد.",
+            suggested_reply="سلام، در خدمتیم."
+        )
+
+        sanitized = LLMOutputValidator.validate_and_sanitize(raw_output, self.candidate)
+        self.assertEqual(sanitized.intent_score, 1.0)
+        self.assertEqual(sanitized.product_fit_score, 0.0)
+        self.assertNotIn("<think>", sanitized.why_selected)
+        self.assertNotIn("Step 1", sanitized.why_selected)
+        self.assertEqual(sanitized.why_selected, "مشتری قصد خرید دارد.")
+
+    def test_validator_calculates_toman_cost(self):
+        raw_output = AIAnalysisOutputSchema(
+            need="تست هزینه",
+            intent_score=0.8,
+            product_fit_score=0.8,
+            confidence=0.8,
+            why_selected="تست",
+            suggested_reply="تست",
+            cost_usd=0.001,
+            cost_toman=0
+        )
+        sanitized = LLMOutputValidator.validate_and_sanitize(raw_output, self.candidate)
+        self.assertEqual(sanitized.cost_toman, 70)  # 0.001 * 70,000 = 70 Toman
+
+    def test_mock_llm_provider_execution(self):
+        provider = MockLLMProvider()
+        result = provider.analyze_candidate(self.candidate)
+
+        self.assertIsInstance(result, AIAnalysisOutputSchema)
+        self.assertGreaterEqual(result.intent_score, 0.8)
+        self.assertGreaterEqual(result.product_fit_score, 0.7)
+        self.assertTrue(len(result.product_matches) >= 1)
+        self.assertEqual(result.product_matches[0].product_id, 10)
+        self.assertIn("پاوربانک", result.suggested_reply)
+        self.assertTrue(len(result.evidence_items) >= 2)
+
+    def test_get_llm_provider_factory(self):
+        provider = get_llm_provider("mock")
+        self.assertIsInstance(provider, MockLLMProvider)
+
+
+class OpportunityServiceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="seller3@example.com",
+            email="seller3@example.com",
+            password="StrongPassword123!"
+        )
+        self.business = Business.objects.create(
+            user=self.user,
+            name="کفش و پوشاک اسپرت",
+            business_type="PHYSICAL"
+        )
+        self.category = Category.objects.create(
+            business=self.business,
+            name="کفش ورزشی"
+        )
+        self.product = Product.objects.create(
+            business=self.business,
+            name="کفش پیاده‌روی ریباک اصل",
+            category=self.category,
+            price=2400000,
+            status="ACTIVE",
+            is_discovery_active=True
+        )
+
+    def test_process_candidate_from_all_four_platforms(self):
+        """
+        Verifies source-agnostic support across Telegram, X, Instagram, and Divar.
+        """
+        platforms_data = [
+            ("telegram", "tg_101", "@reza_run", "سلام قیمت کفش پیاده‌روی چنده؟ موجود دارید؟"),
+            ("x", "x_202", "@sarah_fit", "دنبال یه جفت کفش پیاده‌روی راحت و اصل هستم. چی پیشنهاد میدید؟"),
+            ("instagram", "ig_303", "lifestyle_iran", "سلام این مدل کفش پیاده‌روی رو چطور می‌تونم سفارش بدم؟"),
+            ("divar", "divar_404", "divar_buyer_88", "سلام کفش پیاده‌روی ریباک سایز ۴۲ موجوده؟ تخفیف داره؟"),
+        ]
+
+        for platform, msg_id, username, msg_text in platforms_data:
+            payload = {
+                "source_platform": platform,
+                "source_message_id": msg_id,
+                "sender_username": username,
+                "source_raw_message": msg_text,
+                "category_id": self.category.id
+            }
+
+            opp = OpportunityService.process_candidate(
+                candidate_payload=payload,
+                business=self.business,
+                llm_provider=MockLLMProvider()
+            )
+
+            self.assertIsNotNone(opp)
+            self.assertEqual(opp.source_platform, platform)
+            self.assertEqual(opp.source_message_id, msg_id)
+            self.assertEqual(opp.customer.source_platform, platform)
+            self.assertEqual(opp.customer.source_username, username.lstrip("@"))
+            self.assertIsNone(opp.customer.phone_number)
+            self.assertTrue(hasattr(opp, "ai_analysis"))
+            self.assertGreaterEqual(opp.ai_analysis.intent_score, 0.7)
+            self.assertTrue(opp.product_matches.exists())
+            self.assertEqual(opp.product_matches.first().product, self.product)
+            self.assertTrue(opp.evidence_items.exists())
+
+    def test_deduplication_returns_existing_opportunity(self):
+        payload = {
+            "source_platform": "telegram",
+            "source_message_id": "tg_duplicate_check",
+            "sender_username": "buyer_check",
+            "source_raw_message": "سلام کفش ورزشی موجود دارید؟",
+            "category_id": self.category.id
+        }
+
+        opp1 = OpportunityService.process_candidate(payload, self.business, MockLLMProvider())
+        opp2 = OpportunityService.process_candidate(payload, self.business, MockLLMProvider())
+
+        self.assertEqual(opp1.id, opp2.id)
+        self.assertEqual(Opportunity.objects.filter(source_message_id="tg_duplicate_check").count(), 1)
+
+
+class OpportunityPanelViewsTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username="seller_panel@example.com",
+            email="seller_panel@example.com",
+            password="StrongPassword123!"
+        )
+        self.business = Business.objects.create(
+            user=self.user,
+            name="فروشگاه لپ‌تاپ پارس",
+            business_type="PHYSICAL"
+        )
+        self.category = Category.objects.create(
+            business=self.business,
+            name="لپ‌تاپ گیمینگ"
+        )
+        self.product = Product.objects.create(
+            business=self.business,
+            name="لپ‌تاپ ایسوس ROG",
+            category=self.category,
+            price=68000000,
+            status="ACTIVE",
+            is_discovery_active=True
+        )
+
+        # Create two opportunities for testing
+        payload1 = {
+            "source_platform": "telegram",
+            "source_message_id": "tg_view_1",
+            "sender_username": "gamermaster",
+            "source_raw_message": "سلام لپ‌تاپ گیمینگ ایسوس موجود دارید برای خرید نقدی؟",
+            "category_id": self.category.id
+        }
+        self.opp1 = OpportunityService.process_candidate(payload1, self.business, MockLLMProvider())
+
+        payload2 = {
+            "source_platform": "x",
+            "source_message_id": "x_view_2",
+            "sender_username": "tech_fan",
+            "source_raw_message": "دنبال یه لپ‌تاپ قوی برای رندر و بازی هستم. پیشنهادتون چیه؟",
+            "category_id": self.category.id
+        }
+        self.opp2 = OpportunityService.process_candidate(payload2, self.business, MockLLMProvider())
+
+    def test_opportunity_list_requires_login(self):
+        resp = self.client.get("/discovery/opportunities/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/accounts/login/", resp.url)
+
+    def test_opportunity_list_authenticated_displays_items(self):
+        self.client.force_login(self.user)
+        resp = self.client.get("/discovery/opportunities/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "فرصت‌های کشف‌شده هوشمند")
+        self.assertContains(resp, "gamermaster")
+        self.assertContains(resp, "tech_fan")
+        self.assertContains(resp, "لپ‌تاپ ایسوس ROG")
+
+    def test_opportunity_list_filters_by_platform(self):
+        self.client.force_login(self.user)
+        # Filter for telegram
+        resp_tg = self.client.get("/discovery/opportunities/?platform=telegram")
+        self.assertEqual(resp_tg.status_code, 200)
+        self.assertContains(resp_tg, "gamermaster")
+        self.assertNotContains(resp_tg, "tech_fan")
+
+        # Filter for X
+        resp_x = self.client.get("/discovery/opportunities/?platform=x")
+        self.assertEqual(resp_x.status_code, 200)
+        self.assertContains(resp_x, "tech_fan")
+        self.assertNotContains(resp_x, "gamermaster")
+
+    def test_opportunity_detail_view(self):
+        self.client.force_login(self.user)
+        resp = self.client.get(f"/discovery/opportunities/{self.opp1.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "چرا پیدا این مشتری را انتخاب کرد؟")
+        self.assertContains(resp, "پیشنهاد پاسخ هوشمند")
+        self.assertContains(resp, "لپ‌تاپ ایسوس ROG")
+        self.assertContains(resp, self.opp1.source_raw_message)
+
+    def test_opportunity_status_update_via_ajax(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            f"/discovery/opportunities/{self.opp1.id}/status/",
+            data={"status": "CONTACTED"}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["new_status"], "CONTACTED")
+
+        self.opp1.refresh_from_db()
+        self.assertEqual(self.opp1.status, "CONTACTED")
+
+    def test_api_opportunity_process_endpoint(self):
+        self.client.force_login(self.user)
+        payload = {
+            "source_platform": "instagram",
+            "source_message_id": "ig_api_999",
+            "sender_username": "insta_buyer",
+            "source_raw_message": "سلام لپ تاپ برای گیم دارید قیمت چنده؟",
+            "business_id": self.business.id
+        }
+        resp = self.client.post(
+            "/discovery/api/opportunities/process/",
+            data=json.dumps(payload),
+            content_type="application/json"
+        )
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["source_platform"], "instagram")
+        self.assertIn("ai_analysis", data)
+        self.assertGreaterEqual(data["ai_analysis"]["intent_score"], 0.7)
+        self.assertTrue(len(data["product_matches"]) >= 1)
+
+
+
+
 
 

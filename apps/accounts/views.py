@@ -426,3 +426,65 @@ def dashboard_view(request):
         "business": business,
         "analytics": analytics_data,
     })
+
+
+@login_required
+def settings_view(request):
+    """
+    Dedicated settings page for business profile, targeting constraints,
+    and Telegram / messaging configuration.
+    """
+    business = getattr(request.user, "business", None)
+    if not business:
+        business = Business.objects.create(
+            user=request.user,
+            name=f"کسب‌وکار {request.user.first_name or request.user.username}",
+            business_type="PHYSICAL",
+            business_domain="عمومی"
+        )
+
+    if request.method == "POST":
+        section = request.POST.get("section", "all")
+
+        # 1. Business Profile
+        if section in ["profile", "all"]:
+            business.name = request.POST.get("name", business.name).strip()
+            business.business_type = request.POST.get("business_type", business.business_type)
+            business.business_domain = request.POST.get("business_domain", business.business_domain).strip()
+            business.description = request.POST.get("description", business.description).strip()
+            business.target_customer_description = request.POST.get("target_customer_description", business.target_customer_description).strip()
+
+        # 2. Targeting Constraints
+        if section in ["targeting", "all"]:
+            locations = request.POST.get("target_locations", "").strip()
+            business.target_locations = locations or "سراسر کشور"
+            min_age_val = request.POST.get("target_min_age", "").strip()
+            max_age_val = request.POST.get("target_max_age", "").strip()
+            business.target_min_age = int(min_age_val) if min_age_val.isdigit() else None
+            business.target_max_age = int(max_age_val) if max_age_val.isdigit() else None
+
+        # 3. Telegram & Outreach Configuration
+        if section in ["telegram", "all"]:
+            tg_handle = request.POST.get("telegram_account_handle", "").strip()
+            if tg_handle and not tg_handle.startswith("@"):
+                tg_handle = f"@{tg_handle}"
+            business.telegram_account_handle = tg_handle
+            business.telegram_session_or_bot = request.POST.get("telegram_session_or_bot", "").strip()
+
+            mode = request.POST.get("preferred_outreach_mode", "DIRECT")
+            if mode in ["DIRECT", "COMMENT"]:
+                business.preferred_outreach_mode = mode
+
+            limit_val = request.POST.get("daily_discovery_limit", "50").strip()
+            if limit_val.isdigit():
+                business.daily_discovery_limit = max(1, int(limit_val))
+
+        business.save()
+        messages.success(request, "تنظیمات کسب‌وکار و حساب با موفقیت ذخیره شد.")
+        return redirect("accounts:settings")
+
+    return render(request, "accounts/settings.html", {
+        "user": request.user,
+        "business": business,
+    })
+
