@@ -150,6 +150,9 @@ class PanelAgentTests(EngineSchemaMixin, TestCase):
             "what_it_is": "دستکش موتورسواری ضدآب", "aliases": ["دستکش موتور", "دستکش گرم"],
             "problems_solved": ["سرمای دست", "خیس شدن دست"], "audience": "پیک‌ها", "use": "personal", "level": None})
         self.assertEqual(card_state(self.with_url)["state"], "seller")
+        page = self.client.get(reverse("products:detail", args=[self.with_url.pk])).content.decode()
+        self.assertIn(">سرمای دست\nخیس شدن دست</textarea>", page)
+        self.assertNotIn("problems_solved|join", page)
 
         self.client.post(url, {"action": "revert"})
         self.with_url.refresh_from_db()
@@ -202,10 +205,10 @@ class PanelAgentTests(EngineSchemaMixin, TestCase):
     # ── dashboard / login ─────────────────────────────────────────────────
     def test_dashboard_shows_real_data_only(self):
         html = self.client.get(reverse("accounts:dashboard")).content.decode()
-        for fake in ("سارا امیری", "علی رضایی", "محسن کریمی", "leadsData", "تأیید شناخت ایجنت", "کاهش خستگی مفرط"):
+        for fake in ("سارا امیری", "علی رضایی", "محسن کریمی", "leadsData", "تأیید شناخت ایجنت", "کاهش خستگی مفرط",
+                     "پرسونای خریدار", "تنظیم دستی هدف‌گذاری", "توضیح معماری دمو"):
             self.assertNotIn(fake, html)
         self.assertIn("هنوز فرصتی پیدا نشده", html)
-        self.assertIn("دستکش و لوازم گرم زمستانی برای موتورسواران", html)   # ICP from the business profile
         opp = self._opportunity()
         html = self.client.get(reverse("accounts:dashboard")).content.decode()
         self.assertIn(reverse("discovery:opportunity_detail", args=[opp.pk]), html)

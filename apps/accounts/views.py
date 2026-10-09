@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from apps.businesses.models import Business, MessageStyle
 from apps.discovery.models import Opportunity
-from apps.discovery.services import business_icp, get_performance_analytics
+from apps.discovery.services import get_performance_analytics
 
 User = get_user_model()
 
@@ -179,7 +179,6 @@ def dashboard_view(request):
         "user": request.user,
         "business": business,
         "analytics": analytics_data,
-        "icp": business_icp(business),
         "recent_opportunities": Opportunity.objects.filter(business=business).select_related(
             "customer", "ai_analysis").prefetch_related("product_matches__product").order_by("-created_at")[:5],
     })

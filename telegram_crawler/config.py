@@ -57,6 +57,8 @@ class Settings:
     # Telegram credentials (Userbot)
     api_id: int = field(default_factory=lambda: _int("TG_API_ID"))
     api_hash: str = field(default_factory=lambda: os.getenv("TG_API_HASH", ""))
+    # socks5://[user:pass@]host:port, http://host:port or mtproxy://<secret>@host:port (empty = direct)
+    proxy: str = field(default_factory=lambda: os.getenv("TG_PROXY", "").strip())
     session_path: str = field(
         default_factory=lambda: os.getenv(
             "TG_SESSION", str(ROOT / "data" / "telegram_crawler_session")

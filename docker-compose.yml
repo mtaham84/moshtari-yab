@@ -2,6 +2,9 @@
 # docker compose up -d --build             → postgres (pgvector) + panel + sync + need_engine + Telegram crawler
 #                                            groups to watch are added in the panel («جوامع آنلاین»), no restart needed
 # docker compose --profile x up -d         → also the experimental X collector
+# docker compose --profile proxy up -d     → also xray (v2ray) for servers without access to Telegram/Gemini:
+#                                            put xray/config.json (see xray/config.example.json), then in .env
+#                                            TG_PROXY=socks5://xray:1080 and HTTPS_PROXY=http://xray:8080
 
 x-app: &app
   build: .
@@ -80,6 +83,14 @@ services:
     volumes:
       - appdata:/app/data
       - xdata:/app/output
+
+  xray:
+    image: ${XRAY_IMAGE:-teddysun/xray}
+    profiles: ["proxy"]
+    volumes:
+      - ./xray/config.json:/etc/xray/config.json:ro
+    restart: unless-stopped
+    # no "ports": the proxy is reachable only inside the compose network
 
 volumes:
   pgdata:
