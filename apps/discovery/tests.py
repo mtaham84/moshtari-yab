@@ -57,6 +57,13 @@ def seller(email: str, name: str) -> tuple:
     return user, Business.objects.create(user=user, name=name, business_type="PHYSICAL", business_domain="عمومی")
 
 
+def global_source(chat_id: int = -1001):
+    """The engine payloads below come from chat -1001: make it a source every seller sees."""
+    from .models import MonitoredCommunity
+    return MonitoredCommunity.objects.create(business=None, handle_or_link="@moto_global_src", telegram_chat_id=chat_id,
+                                             sync_status="ACTIVE")
+
+
 def engine_payload(opp_id: str, product_ids: list[int], status: str = "open") -> dict:
     return {
         "opportunity_id": opp_id, "status": status,
@@ -85,6 +92,16 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         self.p1 = Product.objects.create(business=self.biz, category=self.cat, name="دستکش گرم", description="x", price=900000)
         self.p2 = Product.objects.create(business=self.biz, name="دستکش چرمی", description="x", price=1200000)
         self.q1 = Product.objects.create(business=self.other, name="دستکش موتور", description="x", price=800000)
+        self.global_src = global_source()
+
+    def test_private_chat_only_reaches_its_owners(self):
+        from .models import MonitoredCommunity
+
+        self.global_src.delete()
+        self.assertEqual(import_opportunity(engine_payload("need_000020_ab", [self.p1.id, self.q1.id])), [])  # no source
+        MonitoredCommunity.objects.create(business=self.other, handle_or_link="@moto", telegram_chat_id=-1001)
+        out = import_opportunity(engine_payload("need_000020_ab", [self.p1.id, self.q1.id]))
+        self.assertEqual([o.business_id for o in out], [self.other.id])
 
     def test_one_opportunity_per_seller_with_ranked_matches_and_evidence(self):
         opps = import_opportunity(engine_payload("need_000001_ab", [self.p1.id, self.q1.id, self.p2.id]))
@@ -192,6 +209,7 @@ class PanelViewTests(TestCase):
         self.other_user, self.other = seller("b@example.com", "فروشگاه ب")
         self.p1 = Product.objects.create(business=self.biz, name="دستکش گرم", description="x", price=900000)
         self.q1 = Product.objects.create(business=self.other, name="دستکش موتور", description="x", price=800000)
+        global_source()
         import_opportunity(engine_payload("need_000010_ab", [self.p1.id, self.q1.id]))
         self.mine = Opportunity.objects.get(business=self.biz)
         self.client = Client()

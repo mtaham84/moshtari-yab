@@ -22,6 +22,7 @@ from apps.products.models import Product
 
 from .models import (ENGINE_STATUS_MAP, AIAnalysis, Customer, Evidence, MonitoredCommunity, Opportunity,
                      OpportunityProductMatch)
+from .sources import GLOBAL
 
 log = logging.getLogger(__name__)
 
@@ -44,17 +45,36 @@ def _customer(business, platform: str, cand: dict) -> Customer:
     return customer
 
 
+def sellers_allowed_for_chat(chat_id: Any) -> set[int] | None:
+    """Same rule as need_engine/access.py: None = every seller (active GLOBAL source), else the owners of the
+    active PRIVATE sources. Chats that are not Telegram ids (offline demo files) are not restricted."""
+    if not str(chat_id or "").lstrip("-").isdigit():
+        return None
+    rows = MonitoredCommunity.objects.filter(telegram_chat_id=int(chat_id), is_active=True).values_list("scope", "business_id")
+    owners: set[int] = set()
+    for scope, business_id in rows:
+        if scope == GLOBAL:
+            return None
+        owners.add(business_id)
+    return owners
+
+
 @transaction.atomic
 def import_opportunity(payload: dict) -> list[Opportunity]:
     """Upsert one engine opportunity. Returns the panel opportunities (one per seller)."""
     matches = payload.get("matched_products") or []
     ids = [int(m["product_id"]) for m in matches if str(m.get("product_id", "")).isdigit()]
     products = {p.id: p for p in Product.objects.filter(id__in=ids).select_related("business", "category")}
+    allowed = sellers_allowed_for_chat((payload.get("source") or {}).get("chat_id"))
     by_business: dict[int, list[tuple[dict, Product]]] = defaultdict(list)
     for m in matches:
         p = products.get(int(m["product_id"])) if str(m.get("product_id", "")).isdigit() else None
         if p is None:
             log.warning("opportunity %s: unknown product %s skipped", payload.get("opportunity_id"), m.get("product_id"))
+            continue
+        if allowed is not None and p.business_id not in allowed:   # double check of the engine's access rule
+            log.warning("opportunity %s: seller %s does not watch this chat; product %s skipped",
+                        payload.get("opportunity_id"), p.business_id, p.id)
             continue
         by_business[p.business_id].append((m, p))
 
