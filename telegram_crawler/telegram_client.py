@@ -38,6 +38,33 @@ class JoinError(RuntimeError):
         self.code = code
 
 
+def proxy_options(url: str) -> dict[str, Any]:
+    """TG_PROXY → extra TelegramClient kwargs. Empty → {} (direct connection)."""
+    from urllib.parse import unquote, urlsplit
+
+    if not url:
+        return {}
+    u = urlsplit(url)
+    scheme = (u.scheme or "").lower()
+    if not u.hostname or not u.port:
+        raise ValueError(f"TG_PROXY needs host and port: {url!r}")
+    if scheme in ("mtproxy", "mtproto"):
+        from telethon import connection
+
+        secret = unquote(u.username or "")
+        if not secret:
+            raise ValueError("TG_PROXY mtproxy:// needs the secret: mtproxy://<secret>@host:port")
+        return {"connection": connection.ConnectionTcpMTProxyRandomizedIntermediate,
+                "proxy": (u.hostname, u.port, secret)}
+    kinds = {"socks5": "socks5", "socks5h": "socks5", "socks4": "socks4", "http": "http"}
+    if scheme not in kinds:
+        raise ValueError(f"unsupported TG_PROXY scheme {scheme!r} (use socks5, http or mtproxy)")
+    proxy: dict[str, Any] = {"proxy_type": kinds[scheme], "addr": u.hostname, "port": u.port, "rdns": True}
+    if u.username:
+        proxy["username"], proxy["password"] = unquote(u.username), unquote(u.password or "")
+    return {"proxy": proxy}
+
+
 def create_telegram_client(
     session_path: str | None = None,
     api_id: int | None = None,
@@ -58,7 +85,10 @@ def create_telegram_client(
 
     # Telethon sleeps automatically on FloodWait shorter than this threshold;
     # longer waits raise FloodWaitError and are handled by ratelimit.with_flood_retry.
-    return TelegramClient(s_path, app_id, app_hash, flood_sleep_threshold=settings.flood_sleep_threshold)
+    extra = proxy_options(settings.proxy)
+    if extra:
+        log.info("Connecting to Telegram through proxy %s", settings.proxy.split("@")[-1])
+    return TelegramClient(s_path, app_id, app_hash, flood_sleep_threshold=settings.flood_sleep_threshold, **extra)
 
 
 def parse_group_link(link: str) -> tuple[str, str]:
