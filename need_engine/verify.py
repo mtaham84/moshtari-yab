@@ -39,7 +39,8 @@ def verify_need(n: NeedCard, ret: Retrieval, cat: Catalog, store: Store, llm: LL
 
     def run(cands: list[int]):
         user = head + "\n\nRequirements:\n" + req_block(n) + "\n\nCandidates:\n" + "\n".join(cat.line(j) for j in cands)
-        data, usage = llm.complete_json("verify", cfg.verify_model, VERIFY_SYSTEM, user, max_tokens=2048, ref=n.need_id)
+        data, usage = llm.complete_json("verify", cfg.verify_model, VERIFY_SYSTEM, user, max_tokens=2048, ref=n.need_id,
+                                        businesses=[cat.products[j].business_id for j in cands])   # candidates' owners
         return cands, data, usage["toman"]
 
     with ThreadPoolExecutor(max_workers=cfg.max_workers) as ex:
@@ -80,7 +81,8 @@ def verify_new_product(pid: str, needs: list[tuple[NeedCard, np.ndarray]], cat: 
     by_id = {n.need_id: (s, n) for s, n in scored}
     lines = "\n".join(f"[{n.need_id}] {n.situation} | نیاز: {n.need}\n  Requirements:\n{req_block(n)}" for _, n in scored)
     data, usage = llm.complete_json("new_product_verify", cfg.verify_model, NEW_PRODUCT_SYSTEM,
-                                    "Product:\n" + cat.line(j) + "\n\nPeople:\n" + lines, max_tokens=2048, ref=pid)
+                                    "Product:\n" + cat.line(j) + "\n\nPeople:\n" + lines, max_tokens=2048, ref=pid,
+                                    businesses=[cat.products[j].business_id])
     out = {}
     for m in (data or {}).get("matches", []) or []:
         if not isinstance(m, dict) or m.get("need_id") not in by_id or m.get("solves") not in cfg.solves_factor:
@@ -100,7 +102,7 @@ def draft_reply(n: NeedCard, mp: MatchedProduct, cat: Catalog, store: Store, llm
     user = json.dumps({"person_messages": evidence_text(n, store), "situation": n.situation, "product": cat.line(j),
                        "mismatches_to_mention_honestly": mp.verdict.conflicts}, ensure_ascii=False)
     data, usage = llm.complete_json("reply", cfg.reply_model, REPLY_SYSTEM, user, max_tokens=800, temperature=0.4,
-                                    ref=f"{n.need_id}:{mp.product_id}")
+                                    ref=f"{n.need_id}:{mp.product_id}", businesses=[cat.products[j].business_id])
     rep = _STRIP.sub("", (data or {}).get("reply") or "").strip()
     link = cfg.product_url_template.format(product_id=mp.product_id, opportunity_id=n.need_id)
     return (rep.replace("{{LINK}}", link) if "{{LINK}}" in rep else (rep + " " + link).strip()), usage["toman"]

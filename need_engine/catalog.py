@@ -51,7 +51,8 @@ class Catalog:
         def run(batch: list[Product]) -> list[dict]:
             user = json.dumps({"listings": [_listing(p) for p in batch]}, ensure_ascii=False)
             data, _ = self.llm.complete_json("product_cards", self.cfg.extract_model, PRODUCT_CARD_SYSTEM, user, max_tokens=4096,
-                                             ref=",".join(p.product_id for p in batch))
+                                             ref=",".join(p.product_id for p in batch),
+                                             businesses=[p.business_id for p in batch])
             return [c for c in (data or {}).get("cards", []) if isinstance(c, dict)]
 
         got: dict[str, ProductCard] = {}

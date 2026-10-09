@@ -52,6 +52,7 @@ TEST_DATABASE_URL=postgresql://… python -m pytest need_engine/tests -q
 | `NE_EMBED_BACKEND` | `gemini` | `cloudflare` (bge-m3) یا `hash` (فقط تست) |
 | `NE_SIM_FLOOR` | خودکار (gemini 0.55، bge-m3 0.40) | با بخش calibration نوت‌بوک تنظیم شود |
 | `NE_TRIGGER_COUNT` / `NE_WINDOW_SIZE` | 50 / 50 | هر چند پیام یک بار تحلیل شود / پیام در هر فراخوانی |
+| `stats --business <id>` | — | سهم یک فروشنده از هزینه: تطبیق و پاسخ محصولاتش + تحلیل گروه‌های اختصاصی‌اش (تقسیم مساوی بین صاحبان)؛ گروه عمومی = هزینه‌ی پلتفرم |
 | `NE_SOURCE_ACCESS` / `NE_COMMUNITIES_TABLE` | `panel` / `public.discovery_monitoredcommunity` | قانون دسترسی قبل از هر LLM: منبع عمومی فعال → محصولات همه، فقط منبع اختصاصی → فقط محصولات صاحبانش، بدون منبع فعال → چت تحلیل نمی‌شود (`open` = بدون قانون) |
 | `NE_MAX_WAIT_MINUTES` | 0 (خاموش) | اختیاری: پیام‌های کمتر از یک دسته بعد از این مدت تحلیل شوند |
 | `NE_MIN_SCORE` | 15 | حداقل امتیاز (۰..۱۰۰) برای نگه داشتن یک محصول |

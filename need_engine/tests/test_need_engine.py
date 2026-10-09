@@ -260,8 +260,13 @@ def test_source_access_rule_is_applied_before_the_llm(tmp_path, cfg_for, crawler
     assert r.ingested == 0 and r.analysed_messages == 0 and set(calls) == {"product_cards"}   # no message LLM call
 
     crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, 'PRIVATE', 'S2', TRUE)", (int(CHAT),))
-    r = engine().run_once(now=T0 + timedelta(hours=1))
+    eng = engine()
+    r = eng.run_once(now=T0 + timedelta(hours=1))
     assert r.analysed_messages == 1
+    payers = {(x["stage"], x["business_id"]) for x in eng.store._all("SELECT stage, business_id FROM {s}.costs")}
+    assert ("need_extraction", "S2") in payers and ("need_extraction", None) not in payers   # private chat: owner pays
+    assert {b for st, b in payers if st == "product_cards"} == {"S1", "S2"}                  # each product: its seller
+    assert eng.store.totals(business_id="S2", chat_ids=[str(CHAT)])["messages_analysed"] == 1
     assert all(m.product_id != "P1" for o in r.opportunities for m in o.matched_products)   # S1 does not watch this chat
 
     crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, 'GLOBAL', NULL, TRUE)", (int(CHAT),))

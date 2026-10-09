@@ -205,7 +205,7 @@ class NeedEngine:
             log.info("chat %s: analysing %d of %d pending messages (%s)", chat_id, len(batch), len(pending), why)
             for w in build_windows(chat_id, batch, self.store, self.cfg):
                 try:
-                    cards, toman = extract_window(w, self.llm, self.cfg, now)
+                    cards, toman = extract_window(w, self.llm, self.cfg, now, payers=self.access.owners(chat_id))
                 except QuotaExhausted:
                     raise
                 except Exception as e:  # keep the messages pending; they are retried next run
