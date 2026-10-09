@@ -1,0 +1,4 @@
+# Global sources: groups watched for every seller (copy to global_sources.txt and run
+#   docker compose exec web python manage.py seed_global_sources docker/global_sources.txt)
+# One link per line; anything after the link is used as the display name.
+@example_public_group  گروه نمونه
