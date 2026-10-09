@@ -14,6 +14,7 @@ from apps.products.models import Category, Product
 
 from .models import MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES
 from .services import get_performance_analytics
+from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
 
 
 @login_required
@@ -330,11 +331,31 @@ def opportunity_status_update_view(request, pk):
     })
 
 
+def _validate_private_source(business, raw_link: str) -> tuple[str, str]:
+    """→ (normalized_link, "") or ("", Persian error). Rules: valid Telegram link, not already a global
+    source, not already one of this seller's sources, at most TG_MAX_PRIVATE_SOURCES per seller."""
+    key = normalize_link(raw_link)
+    if not key:
+        return "", "لطفاً لینک یا آیدی گروه تلگرامی را وارد کنید."
+    if not (TG_USERNAME_RE.match(key) or TG_INVITE_RE.match(key)):
+        return "", "لینک واردشده معتبر نیست. نمونه‌ی درست: @group_name یا https://t.me/group_name یا لینک دعوت https://t.me/+…"
+    if MonitoredCommunity.objects.filter(scope=GLOBAL, normalized_link=key).exists():
+        return "", "این گروه جزو منابع عمومی است و از قبل برای همه‌ی فروشنده‌ها (از جمله شما) پایش می‌شود."
+    own = MonitoredCommunity.objects.filter(scope=PRIVATE, business=business)
+    if own.filter(normalized_link=key).exists():
+        return "", "این گروه قبلاً در منابع اختصاصی شما ثبت شده است."
+    limit = max_private_sources()
+    if own.count() >= limit:
+        return "", f"حداکثر {limit} منبع اختصاصی می‌توانید داشته باشید. برای افزودن، یکی از منابع فعلی را حذف کنید."
+    return key, ""
+
+
 @login_required
 def communities_list_view(request):
     """
-    Manages monitored online communities (Telegram public channels & groups).
-    Lists active communities, handles adding new Telegram sources, and displays stats.
+    Telegram sources the crawler watches for this seller:
+      • global sources (defined by the platform admin, analysed for every seller, read-only here);
+      • the seller's private sources (only this seller's products are matched there), limited per seller.
     """
     business = getattr(request.user, "business", None)
     if not business:
@@ -342,58 +363,37 @@ def communities_list_view(request):
         return redirect("accounts:dashboard")
 
     if request.method == "POST":
-        name = request.POST.get("name", "").strip()
-        handle_or_link = request.POST.get("handle_or_link", "").strip()
-        community_type = request.POST.get("community_type", "CHANNEL")
-        category_id = request.POST.get("category_id")
-        description = request.POST.get("description", "").strip()
-        members_str = request.POST.get("members_count", "0").strip()
-        members_count = int(members_str) if members_str.isdigit() else 0
-
-        if not name or not handle_or_link:
-            messages.error(request, "لطفاً نام و آیدی یا لینک جامعه تلگرامی را وارد نمایید.")
+        link = request.POST.get("handle_or_link", "").strip()
+        description = request.POST.get("description", "").strip()[:500]
+        key, error = _validate_private_source(business, link)
+        if error:
+            messages.error(request, error)
         else:
-            cat_obj = None
-            if category_id:
-                cat_obj = Category.objects.filter(id=category_id, business=business).first()
-
-            # Normalize handle (ensure @ or link)
-            clean_handle = handle_or_link
-            if not clean_handle.startswith("@") and not clean_handle.startswith("http"):
-                clean_handle = f"@{clean_handle}"
-
-            MonitoredCommunity.objects.create(
-                business=business,
-                platform="telegram",
-                community_type=community_type,
-                name=name,
-                handle_or_link=clean_handle,
-                category=cat_obj,
-                description=description,
-                members_count=members_count,
-                is_active=True
+            community = MonitoredCommunity.objects.create(
+                business=business, platform="telegram", handle_or_link=link,
+                description=description, is_active=True,
             )
-            messages.success(request, f"جامعه تلگرامی «{name}» با موفقیت به فهرست پایش هوشمند اضافه شد.")
+            messages.success(request, f"گروه {community.handle_or_link} به منابع اختصاصی شما اضافه شد و در صف اتصال قرار گرفت.")
             return redirect("discovery:communities_list")
 
-    communities = MonitoredCommunity.objects.filter(business=business).select_related("category")
-    categories = Category.objects.filter(business=business, is_active=True).order_by("depth", "name")
-
-    total_communities = communities.count()
-    active_communities = communities.filter(is_active=True).count()
-    total_scanned = sum(c.messages_scanned_count for c in communities)
-    total_leads = sum(c.leads_discovered_count for c in communities)
+    global_sources = MonitoredCommunity.objects.filter(scope=GLOBAL, is_active=True)
+    private_sources = MonitoredCommunity.objects.filter(scope=PRIVATE, business=business)
+    watched = list(global_sources) + [c for c in private_sources if c.is_active]
 
     return render(request, "discovery/communities_list.html", {
-        "communities": communities,
-        "categories": categories,
+        "global_sources": global_sources,
+        "private_sources": private_sources,
         "business": business,
+        "private_limit": max_private_sources(),
+        "can_add_private": private_sources.count() < max_private_sources(),
+        "form_link": request.POST.get("handle_or_link", "") if request.method == "POST" else "",
+        "form_description": request.POST.get("description", "") if request.method == "POST" else "",
         "stats": {
-            "total_communities": total_communities,
-            "active_communities": active_communities,
-            "total_scanned": total_scanned,
-            "total_leads": total_leads,
-        }
+            "global_count": global_sources.count(),
+            "private_count": private_sources.count(),
+            "total_scanned": sum(c.messages_scanned_count for c in watched),
+            "total_leads": sum(c.leads_discovered_count for c in private_sources),
+        },
     })
 
 
@@ -401,7 +401,9 @@ def communities_list_view(request):
 def community_toggle_status_view(request, community_id):
     """Toggles active/inactive monitoring status for a community."""
     business = getattr(request.user, "business", None)
-    community = get_object_or_404(MonitoredCommunity, id=community_id, business=business)
+    if request.method != "POST":
+        return redirect("discovery:communities_list")
+    community = get_object_or_404(MonitoredCommunity, id=community_id, business=business, scope=PRIVATE)
 
     community.is_active = not community.is_active
     if community.is_active and community.sync_status == "ERROR":
@@ -409,7 +411,7 @@ def community_toggle_status_view(request, community_id):
     community.save(update_fields=["is_active", "sync_status", "sync_error"])
 
     status_str = "فعال" if community.is_active else "غیرفعال"
-    messages.success(request, f"وضعیت جامعه «{community.name}» به {status_str} تغییر یافت.")
+    messages.success(request, f"پایش «{community.display_name}» {status_str} شد.")
     return redirect("discovery:communities_list")
 
 
@@ -417,9 +419,11 @@ def community_toggle_status_view(request, community_id):
 def community_delete_view(request, community_id):
     """Removes a community from the monitoring list."""
     business = getattr(request.user, "business", None)
-    community = get_object_or_404(MonitoredCommunity, id=community_id, business=business)
+    if request.method != "POST":
+        return redirect("discovery:communities_list")
+    community = get_object_or_404(MonitoredCommunity, id=community_id, business=business, scope=PRIVATE)
 
-    name = community.name
+    name = community.display_name
     community.delete()
-    messages.info(request, f"جامعه تلگرامی «{name}» از لیست پایش حذف شد.")
+    messages.info(request, f"«{name}» از منابع اختصاصی شما حذف شد.")
     return redirect("discovery:communities_list")

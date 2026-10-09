@@ -25,6 +25,11 @@ SYNC_ERROR_MESSAGES = {
 }
 
 
+# A normalized key (see normalize_link) is either a public username or an invite hash.
+TG_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{3,31}$")
+TG_INVITE_RE = re.compile(r"^(?:\+|joinchat/)[A-Za-z0-9_-]{5,}$")
+
+
 def max_private_sources() -> int:
     try:
         return max(int(os.environ.get("TG_MAX_PRIVATE_SOURCES", "5")), 0)

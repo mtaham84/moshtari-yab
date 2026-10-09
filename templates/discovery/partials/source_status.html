@@ -1,0 +1,12 @@
+{% if comm.is_active and comm.sync_status == 'ERROR' %}
+  <span class="p-badge" style="background: rgba(239, 68, 68, 0.1); color: var(--p-error); font-size: 0.75rem;">خطا در اتصال</span>
+  <span style="font-size: 0.7rem; color: var(--stone-text-muted); display: block; margin-top: 4px; max-width: 240px;">{{ comm.sync_error_display }}</span>
+{% elif comm.is_active and comm.sync_status != 'ACTIVE' %}
+  <span class="p-badge" style="background: rgba(245, 158, 11, 0.12); color: #F59E0B; font-size: 0.75rem;">در صف اتصال…</span>
+  {% if comm.sync_error %}<span style="font-size: 0.7rem; color: var(--stone-text-muted); display: block; margin-top: 4px; max-width: 240px;">{{ comm.sync_error_display }}</span>{% endif %}
+{% elif comm.is_active %}
+  <span class="p-badge p-badge-success" style="font-size: 0.75rem;">در حال پایش</span>
+  {% if comm.last_scanned_at %}<span style="font-size: 0.7rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">آخرین پیام: {{ comm.last_scanned_at|timesince }} پیش</span>{% endif %}
+{% else %}
+  <span class="p-badge" style="background: rgba(148, 163, 184, 0.15); color: var(--stone-text-muted); font-size: 0.75rem;">متوقف</span>
+{% endif %}

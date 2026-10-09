@@ -56,3 +56,55 @@ class SourceModelTests(TestCase):
         self.assertFalse(globals_["old_group"].is_active)
         call_command("seed_global_sources", f.name, stdout=StringIO())             # idempotent
         self.assertEqual(MonitoredCommunity.objects.filter(scope=GLOBAL).count(), 3)
+
+
+class CommunitiesPageTests(TestCase):
+    def setUp(self):
+        from django.test import Client
+        user, self.biz = seller("p@example.com", "فروشگاه پ")
+        _, self.other = seller("q@example.com", "فروشگاه ق")
+        self.client = Client()
+        self.client.force_login(user)
+        self.g = MonitoredCommunity.objects.create(business=None, name="گروه عمومی موتور", handle_or_link="@moto_global")
+
+    def add(self, link, description=""):
+        from django.urls import reverse
+        r = self.client.post(reverse("discovery:communities_list"), {"handle_or_link": link, "description": description}, follow=True)
+        return r.content.decode()
+
+    def test_page_shows_global_and_private_sections(self):
+        from django.urls import reverse
+        MonitoredCommunity.objects.create(business=self.biz, handle_or_link="@my_group")
+        MonitoredCommunity.objects.create(business=self.other, handle_or_link="@their_group")
+        html = self.client.get(reverse("discovery:communities_list")).content.decode()
+        self.assertIn("منابع عمومی", html)
+        self.assertIn("منابع اختصاصی من", html)
+        self.assertIn("گروه عمومی موتور", html)
+        self.assertIn("@my_group", html)
+        self.assertNotIn("@their_group", html)
+
+    def test_add_private_source_normalizes_and_rejects_duplicates(self):
+        self.add("https://t.me/My_Group/", "توضیح")
+        c = MonitoredCommunity.objects.get(business=self.biz)
+        self.assertEqual((c.scope, c.handle_or_link, c.description), (PRIVATE, "@my_group", "توضیح"))
+        self.assertIn("قبلاً در منابع اختصاصی شما ثبت شده", self.add("@my_group"))
+        self.assertIn("جزو منابع عمومی است", self.add("t.me/moto_global"))
+        self.assertIn("معتبر نیست", self.add("not a link!"))
+        self.assertEqual(MonitoredCommunity.objects.filter(business=self.biz).count(), 1)
+        # another seller may watch the same group privately
+        MonitoredCommunity.objects.create(business=self.other, handle_or_link="@my_group")
+
+    def test_private_source_limit(self):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"TG_MAX_PRIVATE_SOURCES": "2"}):
+            self.add("@group_one"); self.add("@group_two")
+            self.assertIn("حداکثر 2 منبع اختصاصی", self.add("@group_three"))
+        self.assertEqual(MonitoredCommunity.objects.filter(business=self.biz).count(), 2)
+
+    def test_global_and_foreign_sources_cannot_be_toggled_or_deleted(self):
+        from django.urls import reverse
+        theirs = MonitoredCommunity.objects.create(business=self.other, handle_or_link="@their_group")
+        for c in (self.g, theirs):
+            self.assertEqual(self.client.post(reverse("discovery:community_toggle", args=[c.id])).status_code, 404)
+            self.assertEqual(self.client.post(reverse("discovery:community_delete", args=[c.id])).status_code, 404)
+        self.assertEqual(MonitoredCommunity.objects.count(), 2)

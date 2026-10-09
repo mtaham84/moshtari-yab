@@ -1,0 +1,1 @@
+<a href="{% if comm.handle_or_link|slice:':4' == 'http' %}{{ comm.handle_or_link }}{% else %}https://t.me/{{ comm.handle_or_link|cut:'@' }}{% endif %}" target="_blank" rel="noopener" dir="ltr" style="color: #0088cc; font-family: monospace; font-weight: 600; text-decoration: none;">{{ comm.handle_or_link }}</a>
