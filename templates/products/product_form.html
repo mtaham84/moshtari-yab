@@ -40,6 +40,21 @@
   <form method="POST" id="product-form" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
 
+    <!-- Autofill from the seller's product page -->
+    <div id="autofill-box" style="border: 1px dashed var(--panel-border); border-radius: 14px; padding: 16px 18px; margin-bottom: 24px; background: var(--panel-hover);">
+      <label for="autofill_url" class="form-label" style="margin-bottom: 4px;">پر کردن خودکار از لینک</label>
+      <small style="color: var(--panel-text-faint); display: block; margin-bottom: 10px; font-size: 0.78rem;">
+        لینک صفحه‌ی محصول در سایت خودتان را بدهید؛ نام، قیمت، توضیح و ویژگی‌ها خوانده می‌شوند. فقط فیلدهای خالی پر می‌شوند.
+      </small>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <input type="url" id="autofill_url" class="form-input" style="flex: 1; min-width: 220px;" dir="ltr" placeholder="https://yoursite.com/product/..." value="{{ product.url|default:'' }}">
+        <button type="button" id="btn-autofill" class="p-btn p-btn-secondary" data-endpoint="{% url 'products:api_autofill' %}">
+          <span id="btn-autofill-label">خواندن از لینک</span>
+        </button>
+      </div>
+      <div id="autofill-status" role="status" style="display: none; margin-top: 10px; font-size: 0.8rem;"></div>
+    </div>
+
     <!-- Product Name -->
     <div class="form-group" style="margin-bottom: 20px;">
       <label for="prod_name" class="form-label">
@@ -617,6 +632,55 @@
 
   btnAddCustomAttr?.addEventListener('click', () => {
     addCustomAttrRow('', '', '');
+  });
+
+  // Autofill from link: only empty fields are filled; the link goes into the product's url field
+  const btnAutofill = document.getElementById('btn-autofill');
+  const autofillUrl = document.getElementById('autofill_url');
+  const autofillStatus = document.getElementById('autofill-status');
+  const autofillLabel = document.getElementById('btn-autofill-label');
+  function autofillMsg(text, ok) {
+    autofillStatus.style.display = 'block';
+    autofillStatus.style.color = ok ? '#10B981' : 'var(--p-danger, #ef4444)';
+    autofillStatus.textContent = text;
+  }
+  btnAutofill?.addEventListener('click', () => {
+    const link = (autofillUrl.value || '').trim();
+    if (!link) { autofillMsg('لینک صفحه‌ی محصول را وارد کنید.', false); return; }
+    btnAutofill.disabled = true;
+    autofillLabel.textContent = 'در حال خواندن صفحه...';
+    const body = new URLSearchParams({ url: link });
+    fetch(btnAutofill.dataset.endpoint, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+      .then(r => r.json().catch(() => ({ status: 'error', message: 'پاسخ نامعتبر از سرور.' })))
+      .then(res => {
+        if (res.status !== 'success') { autofillMsg(res.message || 'خواندن صفحه ممکن نشد.', false); return; }
+        const d = res.data || {};
+        const filled = [];
+        const fill = (el, value, label) => {
+          if (el && value && !el.value.trim()) { el.value = value; filled.push(label); }
+        };
+        fill(nameInput, d.name, 'نام');
+        fill(document.getElementById('prod_price'), d.price ? String(d.price) : '', 'قیمت');
+        fill(descInput, d.description, 'توضیح');
+        const urlInput = document.getElementById('prod_url');
+        if (urlInput && res.url) { urlInput.value = res.url; }
+        const existing = new Set(Array.from(customAttrsList ? customAttrsList.querySelectorAll('input[name="custom_attr_key"]') : [])
+          .map(i => i.value.trim()).filter(Boolean));
+        let added = 0;
+        (d.features || []).forEach(f => {
+          if (f && f.name && f.value && !existing.has(f.name)) { addCustomAttrRow(f.name, f.value, ''); existing.add(f.name); added++; }
+        });
+        if (added) filled.push(`${added} ویژگی`);
+        if (nameInput && filled.includes('نام')) nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        autofillMsg(filled.length ? `پر شد: ${filled.join('، ')}. لطفاً پیش از ذخیره بررسی کنید.`
+                                  : 'فیلدها از قبل پر بودند؛ فقط لینک محصول ثبت شد.', true);
+      })
+      .catch(() => autofillMsg('ارتباط با سرور برقرار نشد.', false))
+      .finally(() => { btnAutofill.disabled = false; autofillLabel.textContent = 'خواندن از لینک'; });
   });
 
   // Category attributes loader: smoothly integrates suggested attributes into custom rows

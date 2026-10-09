@@ -173,6 +173,12 @@ class Product(models.Model):
         blank=True,
         verbose_name="خریداران ایده‌آل (ICP)"
     )
+    agent_card_override = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name="برداشت ایجنت (ویرایش‌شده توسط فروشنده)",
+        help_text="خالی = نسخه‌ی خود ایجنت. پر = همین متن مستقیم در تطبیق استفاده می‌شود."
+    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
