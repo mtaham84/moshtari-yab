@@ -9,12 +9,14 @@ import numpy as np
 import pytest
 
 from need_engine.config import EngineConfig
+from need_engine.extract import _confirmed_x_buyer
 from need_engine.engine import NeedEngine
 from need_engine.mock import mock_llm
 from need_engine.retrieve import select_candidates
 from need_engine.schemas import ChatMessage, Constraints, NeedCard, Product, Requirement
 from need_engine.scoring import score_match
 from need_engine.sources import JsonlProductSource, SQLMessageSource, XMessageSource
+from workers.x_collector.query_source import queries_from_products
 from need_engine.store import Store
 from need_engine.windowing import build_windows, is_ready, render
 from telegram_crawler.db import Archive
@@ -99,6 +101,32 @@ def test_x_source_ordering_namespace_and_url(cfg_for):
     assert rows[0].author_id == "x_81001"
     assert rows[0].url == "https://x.com/buyer/status/1990000000000001001"
     assert rows[0].profile_url == "https://x.com/buyer"
+
+
+def test_x_queries_come_from_products_and_category_keywords():
+    product = Product(product_id="1", title="قهوه‌ساز صنعتی", category_path="کافه / تجهیزات",
+                      category_keywords=["اسپرسوساز", "قهوه", "اسپرسوساز"])
+    assert queries_from_products([product]) == ["قهوه‌ساز صنعتی", "کافه / تجهیزات", "اسپرسوساز", "قهوه"]
+
+
+def test_x_buyer_gate_requires_confirmed_intent_medium_strength_and_author_evidence():
+    author_post = ChatMessage(chat_id="x:public", message_id=1, author_id="x_1", text="قصد خرید دارم", date=T0, platform="x")
+    other_post = ChatMessage(chat_id="x:public", message_id=2, author_id="x_2", text="پیشنهاد خرید", date=T0, platform="x")
+    candidate = {"buyer_intent_confirmed": True, "is_opportunity": True, "label": "explicit_need",
+                 "strength": "strong", "need": "قهوه‌ساز", "solution_queries": ["قهوه‌ساز"],
+                 "author_type": "individual", "promotional_content": False}
+    assert _confirmed_x_buyer(candidate, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "buyer_intent_confirmed": False}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "strength": "weak"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer(candidate, [2], "x_1", {2: other_post})
+    assert not _confirmed_x_buyer({**candidate, "label": "curiosity"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "author_type": "organization"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "author_type": "unknown"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "promotional_content": True}, [1], "x_1", {1: author_post})
+    verified = author_post.model_copy(update={"author_verified": True})
+    assert not _confirmed_x_buyer(candidate, [1], "x_1", {1: verified})
+    corporate_bio = author_post.model_copy(update={"author_bio": "Official company store"})
+    assert not _confirmed_x_buyer(candidate, [1], "x_1", {1: corporate_bio})
 
 
 def test_independent_source_ingest_uses_distinct_cursors(cfg_for):

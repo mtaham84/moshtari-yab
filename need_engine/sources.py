@@ -103,8 +103,9 @@ class XMessageSource:
     def __init__(self, cfg: EngineConfig, dsn: str | None = None, conn: Any = None):
         self.cfg = cfg
         self.db = _DB(dsn or cfg.database_url) if conn is None else conn
-        self.sql = f"""SELECT row_id, tweet_id, author_id, author_handle, author_name, text, created_at, url
-                         FROM {_ident(cfg.crawler_schema)}.x_posts WHERE row_id > %s ORDER BY row_id LIMIT %s"""
+        self.sql = f"""SELECT row_id, tweet_id, author_id, author_handle, author_name, text, created_at, url, query, author_verified, author_bio
+                         FROM {_ident(cfg.crawler_schema)}.x_posts WHERE row_id > %s AND author_id IS NOT NULL AND author_id <> ''
+                         ORDER BY row_id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
         rows = self.db.all(self.sql, (cursor, limit))
@@ -113,11 +114,12 @@ class XMessageSource:
             handle = str(row.get("author_handle") or "").lstrip("@") or None
             messages.append(ChatMessage(
                 chat_id="x:public", message_id=int(row["tweet_id"]), row_id=int(row["row_id"]),
-                author_id=f"x_{row.get('author_id') or handle or row['tweet_id']}",
+                author_id=f"x_{row['author_id']}",
                 author_name=row.get("author_name"), author_username=handle, text=row.get("text") or "",
                 date=parse_dt(row.get("created_at") or datetime.fromtimestamp(0, timezone.utc)),
                 chat_title="X", platform="x", url=row.get("url"),
-                profile_url=f"https://x.com/{handle}" if handle else None))
+                profile_url=f"https://x.com/{handle}" if handle else None, search_query=row.get("query"),
+                author_verified=bool(row.get("author_verified")), author_bio=row.get("author_bio")))
         return messages
 
 
@@ -191,7 +193,9 @@ class JsonlProductSource:
                 product_type=o.get("product_type") or "", price_toman=_price(o.get("price_toman", o.get("price"))),
                 city=o.get("city"), ships_nationwide=bool(o.get("ships_nationwide", True)),
                 attributes=o.get("attributes") if isinstance(o.get("attributes"), dict) else {},
-                tags=o.get("tags") if isinstance(o.get("tags"), list) else []))
+                tags=o.get("tags") if isinstance(o.get("tags"), list) else [], category_path=str(o.get("category_path") or ""),
+                category_keywords=o.get("category_keywords") if isinstance(o.get("category_keywords"), list) else [],
+                discovery_priority=int(o.get("discovery_priority") or 1)))
         return out
 
 
@@ -202,8 +206,12 @@ class SQLProductSource:
         self.cfg, self.db = cfg, _DB(dsn or cfg.database_url)
 
     def all(self) -> list[Product]:
-        rows = self.db.all(f"""SELECT id, business_id, name, description, product_type, price, attributes, target_customer
-                               FROM {_ident(self.cfg.products_table)} WHERE status = 'ACTIVE' AND is_discovery_active = %s""", (True,))
+        rows = self.db.all(f"""SELECT p.id, p.business_id, p.name, p.description, p.product_type, p.price, p.attributes, p.target_customer,
+                                   p.discovery_priority,
+                                   COALESCE(c.full_path, c.name, '') AS category_path, COALESCE(c.keywords, '[]'::jsonb) AS category_keywords
+                               FROM {_ident(self.cfg.products_table)} p
+                               LEFT JOIN public.products_category c ON c.id = p.category_id
+                               WHERE p.status = 'ACTIVE' AND p.is_discovery_active = %s AND p.x_outreach_enabled = %s""", (True, True))
         out = []
         for r in rows:
             attrs = r.get("attributes")
@@ -213,9 +221,17 @@ class SQLProductSource:
                 except Exception:
                     attrs = {}
             desc = " ".join(x for x in [r.get("description") or "", r.get("target_customer") or ""] if x)
+            keywords = r.get("category_keywords") or []
+            if isinstance(keywords, str):
+                try:
+                    keywords = json.loads(keywords)
+                except json.JSONDecodeError:
+                    keywords = []
             out.append(Product(product_id=str(r["id"]), business_id=str(r.get("business_id") or "") or None, title=r.get("name") or "",
                                description=desc, product_type=str(r.get("product_type") or ""), price_toman=_price(r.get("price")),
-                               attributes=attrs if isinstance(attrs, dict) else {}))
+                               attributes=attrs if isinstance(attrs, dict) else {}, category_path=str(r.get("category_path") or ""),
+                               category_keywords=keywords if isinstance(keywords, list) else [],
+                               discovery_priority=int(r.get("discovery_priority") or 1)))
         return out
 
 

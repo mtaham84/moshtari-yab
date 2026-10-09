@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from workers.x_collector.client import XCliClient, XCliError
 from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, collect_forever
+from workers.x_collector.query_source import queries_from_products
 from workers.x_collector.__main__ import main
 
 
@@ -163,7 +164,7 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(len(load_file(latest)), result["collected"])
 
     def test_cli_uses_argument_list_no_shell_and_does_not_log_credentials(self):
-        completed = type("Completed", (), {"returncode": 0, "stdout": json.dumps(self.fixture), "stderr": ""})()
+        completed = type("Completed", (), {"returncode": 0, "stdout": json.dumps({"ok": True, "data": self.fixture}), "stderr": ""})()
         with patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter-cli"), patch("workers.x_collector.client.subprocess.run", return_value=completed) as run, patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "secret-a", "TWITTER_CT0": "secret-b"}):
             records = XCliClient().search("فارسی", 5)
         self.assertEqual(len(records), 2)
@@ -171,10 +172,8 @@ class XCollectorTests(unittest.TestCase):
         self.assertNotIn("secret-a", str(run.call_args))
 
     def test_query_starting_with_dash_cannot_become_a_cli_option(self):
-        completed = type("Completed", (), {"returncode": 0, "stdout": json.dumps(self.fixture), "stderr": ""})()
-        with patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter-cli"), patch("workers.x_collector.client.subprocess.run", return_value=completed) as run, patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "token", "TWITTER_CT0": "cookie"}):
+        with self.assertRaisesRegex(XCliError, "starting with '-'"):
             XCliClient().search("--help", 5)
-        self.assertEqual(run.call_args.args[0][2], "--query=--help")
 
     def test_queries_file_ignores_comments_and_duplicates(self):
         path = self.root / "queries.txt"
@@ -189,7 +188,8 @@ class XCollectorTests(unittest.TestCase):
         with patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "private", "TWITTER_CT0": "private-cookie"}), contextlib.redirect_stderr(output), contextlib.redirect_stdout(io.StringIO()):
             result = main(["--dry-run", "--queries", str(query_file)])
         self.assertEqual(result, 0)
-        self.assertIn('twitter-cli search "--query=-query فارسی" --limit 50 --json', output.getvalue())
+        self.assertNotIn("twitter search", output.getvalue())
+        self.assertIn("Skipping query starting with '-'", output.getvalue())
         self.assertNotIn("private", output.getvalue())
 
     def test_loop_stops_on_failure(self):
@@ -198,6 +198,62 @@ class XCollectorTests(unittest.TestCase):
         with patch("workers.x_collector.worker.time.sleep", return_value=None):
             with self.assertRaises(XCliError):
                 collect_forever(collector, ["q"], 1)
+
+    def test_flag_like_query_is_skipped_but_following_query_runs(self):
+        client = FakeClient(self.fixture[:1])
+        result = self.collector(client).run(["--help", "coffee"])
+        self.assertEqual(result["status"], "COMPLETED")
+        self.assertEqual(client.calls, [("coffee", 50)])
+        self.assertEqual(result["collected"], 1)
+
+    def test_error_json_codes_are_classified_even_on_nonzero_exit(self):
+        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "fatal"), ("service_unavailable", "transient")]
+        for code, kind in cases:
+            completed = type("Completed", (), {"returncode": 1, "stdout": json.dumps({"ok": False, "error": {"code": code}}), "stderr": ""})()
+            with self.subTest(code=code), patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter"), \
+                    patch("workers.x_collector.client.subprocess.run", return_value=completed), \
+                    patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "token", "TWITTER_CT0": "cookie"}):
+                with self.assertRaises(XCliError) as raised:
+                    XCliClient().search("coffee", 5)
+                self.assertEqual(raised.exception.kind, kind)
+
+    def test_success_envelope_and_retweet_filter(self):
+        payload = {"ok": True, "data": [{**self.fixture[0], "isRetweet": False}, {**self.fixture[1], "isRetweet": True}]}
+        completed = type("Completed", (), {"returncode": 0, "stdout": json.dumps(payload), "stderr": ""})()
+        with patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter"), \
+                patch("workers.x_collector.client.subprocess.run", return_value=completed), \
+                patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "token", "TWITTER_CT0": "cookie"}):
+            records = XCliClient().search("coffee", 5)
+        self.assertEqual([row["id"] for row in records], [self.fixture[0]["id"]])
+
+    def test_product_search_queries_include_category_and_are_deduplicated(self):
+        from need_engine.schemas import Product
+
+        product = Product(product_id="1", title="قهوه‌ساز صنعتی", category_path="کافه / تجهیزات",
+                          category_keywords=["اسپرسوساز", "قهوه", "اسپرسوساز"])
+        self.assertEqual(queries_from_products([product]),
+                         ["قهوه‌ساز صنعتی", "کافه / تجهیزات", "اسپرسوساز", "قهوه"])
+
+    def test_agent_reach_nested_author_fields_are_normalized(self):
+        record = normalize_tweet({"id": "1990000000000001003", "text": "دنبال آسیاب قهوه هستم",
+                                  "author": {"id": "81003", "name": "خریدار", "screenName": "buyer"},
+                                  "createdAtISO": "2026-10-01T10:00:00Z", "lang": "fa"}, "آسیاب قهوه")
+        self.assertEqual(record["author_id"], "81003")
+        self.assertEqual(record["author_handle"], "@buyer")
+        self.assertEqual(record["author_name"], "خریدار")
+        self.assertEqual(record["metadata"]["query"], "آسیاب قهوه")
+
+    def test_tweet_without_stable_author_id_is_rejected(self):
+        record = normalize_tweet({"id": "1990000000000001004", "text": "دنبال آسیاب هستم", "username": "buyer"})
+        self.assertIsNone(record)
+
+    def test_advertising_copy_is_rejected_but_plain_buyer_post_is_kept(self):
+        ad = {"id": "1", "author_id": "90", "username": "brand",
+              "text": "فروش ویژه، همین حالا سفارش دهید"}
+        buyer = {"id": "2", "author_id": "91", "username": "person",
+                 "text": "برای خانه‌ام دنبال قهوه‌ساز می‌گردم"}
+        self.assertIsNone(normalize_tweet(ad))
+        self.assertIsNotNone(normalize_tweet(buyer))
 
 
 if __name__ == "__main__":

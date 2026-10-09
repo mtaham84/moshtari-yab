@@ -53,7 +53,8 @@ def validate_record(record: object) -> dict:
     return {"tweet_id": int(tweet_id), "author_id": record["author_id"].strip(),
             "author_handle": handle, "author_name": record.get("author_name"), "text": record["text"],
             "created_at": created, "lang": metadata.get("lang"), "url": record.get("url"),
-            "query": metadata.get("query"), "raw": record}
+            "query": metadata.get("query"), "author_verified": bool(record.get("author_verified")),
+            "author_bio": str(record.get("author_bio") or "")[:500], "raw": record}
 
 
 def load(path: str | Path, dsn: str | None = None) -> int:
@@ -69,7 +70,10 @@ def load(path: str | Path, dsn: str | None = None) -> int:
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {schema}.x_posts (
             row_id BIGSERIAL PRIMARY KEY, tweet_id BIGINT UNIQUE NOT NULL, author_id TEXT NOT NULL,
             author_handle TEXT NOT NULL, author_name TEXT, text TEXT NOT NULL, created_at TIMESTAMPTZ,
-            lang TEXT, url TEXT, query TEXT, raw JSONB NOT NULL, loaded_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+            lang TEXT, url TEXT, query TEXT, author_verified BOOLEAN NOT NULL DEFAULT FALSE, author_bio TEXT,
+            raw JSONB NOT NULL, loaded_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+        conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS author_verified BOOLEAN NOT NULL DEFAULT FALSE")
+        conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS author_bio TEXT")
         with Path(path).open(encoding="utf-8") as stream:
             for line_no, line in enumerate(stream, 1):
                 if not line.strip() or line.lstrip().startswith("//"):
@@ -80,13 +84,15 @@ def load(path: str | Path, dsn: str | None = None) -> int:
                     log.warning("Skipping %s line %d: %s", path, line_no, exc)
                     continue
                 conn.execute(f"""INSERT INTO {schema}.x_posts
-                    (tweet_id, author_id, author_handle, author_name, text, created_at, lang, url, query, raw)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (tweet_id, author_id, author_handle, author_name, text, created_at, lang, url, query, author_verified, author_bio, raw)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (tweet_id) DO UPDATE SET author_id=EXCLUDED.author_id, author_handle=EXCLUDED.author_handle,
                     author_name=EXCLUDED.author_name, text=EXCLUDED.text, created_at=EXCLUDED.created_at,
-                    lang=EXCLUDED.lang, url=EXCLUDED.url, query=EXCLUDED.query, raw=EXCLUDED.raw""",
+                    lang=EXCLUDED.lang, url=EXCLUDED.url, query=EXCLUDED.query, author_verified=EXCLUDED.author_verified,
+                    author_bio=EXCLUDED.author_bio, raw=EXCLUDED.raw""",
                     (record["tweet_id"], record["author_id"], record["author_handle"], record["author_name"],
-                     record["text"], record["created_at"], record["lang"], record["url"], record["query"], Jsonb(record["raw"])))
+                     record["text"], record["created_at"], record["lang"], record["url"], record["query"],
+                     bool(record.get("author_verified")), record.get("author_bio"), Jsonb(record["raw"])))
                 count += 1
     return count
 

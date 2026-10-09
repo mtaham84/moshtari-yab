@@ -47,10 +47,10 @@ python -m telegram_crawler.main                              # ۱) آرشیو پ
 python -m need_engine run                                     # ۲) تحلیل و تولید فرصت‌ها
 python manage.py sync_opportunities --follow                  # ۳) ورود فرصت‌ها به پنل
 
-# مسیر اختیاری X: ابتدا NE_X_ENABLED=true را در محیط موتور فعال کنید
-python -m workers.x_collector --mock --once                    # ۱) جمع‌آوری آزمایشی X
+# مسیر اختیاری X: queryها از محصولات فعال و دسته‌هایشان می‌آیند
+python -m workers.x_collector --once                             # ۱) جمع‌آوری براساس محصولات فعال
 python -m x_ingest --path data/x_collected/latest.jsonl         # ۲) ورود به crawler.x_posts
-python -m need_engine run --once --flush --mock                 # ۳) تحلیل (برای X باید NE_X_ENABLED=true باشد)
+python -m need_engine run --once --flush                         # ۳) تحلیل (پس از فعال‌کردن NE_X_ENABLED=true)
 python manage.py sync_opportunities                            # ۴) نمایش فرصت‌ها در پنل
 python manage.py runserver                                    # ۴) پنل
 ```
@@ -84,6 +84,7 @@ docker compose logs -f crawler engine sync
 - `web` موقع بالا آمدن خودش `migrate` می‌زند؛ با `DJANGO_SEED_DEMO=true` داده‌ی نمونه هم ساخته می‌شود.
 - need_engine پیام‌ها و محصولات را با اتصال read-only می‌خواند؛ تا کراولر داده‌ای ننوشته باشد کاری انجام نمی‌دهد.
 - اتصال X به‌صورت پیش‌فرض خاموش است (`NE_X_ENABLED=false`). رعایت شرایط استفادهٔ X الزامی است؛ از حساب اختصاصی کم‌ریسک استفاده کنید. این pipeline فقط می‌خواند و هرگز پست، پاسخ، لایک، فالو یا DM نمی‌فرستد.
+- فیلتر X برای کم‌کردن مشتری/دادهٔ ساختگی محافظه‌کار است: پست باید شناسهٔ پایدار نویسنده داشته باشد، متن خودش قصد خرید صریح را نشان دهد، شواهد از همان نویسنده باشد و محصول از مرحلهٔ تطبیق مستقل با حداقل امتیاز (`NE_X_MIN_MATCH_SCORE=65`) عبور کند. این کار خطای مثبت را کم می‌کند اما تضمین مشتری قطعی نمی‌دهد؛ نتیجه را پیش از تماس انسانی بررسی کنید.
 - X collector آزمایشی است: `docker compose --profile x up -d x`.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
 
@@ -103,7 +104,5 @@ docker compose run --rm web python manage.py test apps  # پنل و sync
 # بیرون از Docker: TEST_DATABASE_URL=postgresql://postgres:pass@127.0.0.1:5432/postgres python -m pytest
 ```
 
-## X Collector (آزمایشی)
-`python -m workers.x_collector --mock --once` بدون شبکه اجرا می‌شود. اجرای زنده با کوکی (حساب burner) ریسک
-محدودیت/ban دارد و نگاشت CLI هنوز باید با نسخه‌ی نصب‌شده‌ی `twitter-cli` تطبیق داده شود؛ جزئیات در
-`docs/X_COLLECTION_ANALYSIS.md`.
+## X Collector
+اجرای mock بدون شبکه است. اجرای زنده queryها را از محصولات فعالِ علامت‌خورده برای پایش X می‌سازد: نام کالا، مسیر دسته‌بندی سراسری و keywordهای دسته. collector با `twitter search <query> -t Latest --exclude retweets --max N --json` می‌خواند، JSONL می‌سازد و loader آن را به `crawler.x_posts` می‌برد. برای تولید، نحو CLI را با `twitter --help` و `agent-reach doctor` بررسی کنید؛ اجرای X ممکن است محدودیت حساب/سرویس داشته باشد. `--queries` مسیر override دستی queryهاست.

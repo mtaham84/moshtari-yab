@@ -149,12 +149,16 @@ class NeedEngine:
     def _match(self, n: NeedCard, qvecs: np.ndarray | None, report: RunReport) -> None:
         ret = retrieve(n, qvecs, self.catalog, self.cfg)
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
+        if n.chat_id.startswith("x:"):
+            matches = [match for match in matches if match.match_score * 100 >= self.cfg.x_min_match_score]
         report.cost_matching_toman += toman
         n.cost_toman += toman
         n.llm_calls += calls
         self._finish_and_emit(n, matches, report)
 
     def _finish_and_emit(self, n: NeedCard, matches: list[MatchedProduct], report: RunReport, extra_cost: float = 0.0) -> None:
+        if n.chat_id.startswith("x:"):
+            matches = [match for match in matches if match.match_score * 100 >= self.cfg.x_min_match_score]
         matches = sorted(matches, key=lambda m: -m.match_score)[:self.cfg.max_products_per_opportunity]
         n.cost_toman += extra_cost
         if self.cfg.write_replies:
@@ -184,6 +188,7 @@ class NeedEngine:
             candidate=Candidate(external_user_id=author_id if platform == "x" else f"telegram_{author_id}", customer_name=n.author_name, username=username,
                                 profile_url=profile_url or ((f"https://x.com/{username}" if platform == "x" else f"https://t.me/{username}") if username else None)),
             source=Source(platform=platform, chat_id=n.chat_id, chat_title=title, profile_url=f"https://x.com/{username}" if platform == "x" and username else None,
+                          search_query=next((m.search_query for m in ev if m.search_query), None),
                           evidence=[Evidence(message_id=str(m.message_id), timestamp=m.date, author=m.author_name, text=m.text,
                                              url=_message_url(m)) for m in ev]),
             need=NeedOut(label=n.label, strength=n.strength, situation=n.situation, summary=n.need, requirements=n.requirements,

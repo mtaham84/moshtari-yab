@@ -35,6 +35,9 @@ class ChatMessage(BaseModel):
     platform: str = "telegram"
     url: str | None = None
     profile_url: str | None = None
+    search_query: str | None = None
+    author_verified: bool = False
+    author_bio: str | None = None
 
 
 class Product(BaseModel):
@@ -48,6 +51,9 @@ class Product(BaseModel):
     ships_nationwide: bool = True
     attributes: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+    category_path: str = ""
+    category_keywords: list[str] = Field(default_factory=list)
+    discovery_priority: int = 1
 
     def content_hash(self) -> str:
         payload = self.model_dump(exclude={"business_id"})
@@ -86,6 +92,7 @@ class NeedCard(BaseModel):
     author_username: str | None = None
     label: str
     is_opportunity: bool
+    buyer_intent_confirmed: bool = False
     situation: str | None = None
     need: str | None = None
     solution_queries: list[str] = Field(default_factory=list)

@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import random
 import sqlite3
 import time
@@ -17,6 +18,20 @@ from .client import XCliClient, XCliError
 
 log = logging.getLogger("x_collector")
 RATE_LIMIT_COOLDOWN_SECONDS = 15 * 60
+PROMOTIONAL_PATTERNS = (
+    r"(?:buy now|shop now|limited offer|order now|use code|discount|promo code|sponsored|giveaway)",
+    r"(?:تخفیف|فروش ویژه|ثبت سفارش|سفارش دهید|خرید کنید|همین حالا بخرید|ارسال رایگان|کد تخفیف|فروش فوری|موجود شد|برای خرید|دایرکت بدهید|دایرکت دهید|تماس بگیرید|قیمت ویژه)",
+)
+
+
+def is_promotional_post(text: str) -> bool:
+    lowered = text.casefold()
+    if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in PROMOTIONAL_PATTERNS):
+        return True
+    has_url = bool(re.search(r"https?://|www\.", lowered))
+    has_purchase_cta = bool(re.search(r"(?:خرید|سفارش|فروش|order|buy|shop)", lowered, re.IGNORECASE))
+    has_contact_cta = bool(re.search(r"(?:دایرکت|تماس|واتساپ|تلگرام|DM|contact)", lowered, re.IGNORECASE))
+    return has_url and (has_purchase_cta or has_contact_cta)
 
 
 def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
@@ -28,19 +43,28 @@ def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
 
 
 def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, Any] | None:
+    if raw.get("isRetweet") is True:
+        log.info("Skipping retweet %s", raw.get("id") or "without id")
+        return None
     author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
     tweet_id = _first(raw, mapping.OUTPUT_ID_KEYS)
     text = _first(raw, mapping.OUTPUT_TEXT_KEYS)
     handle = _first(raw, mapping.OUTPUT_HANDLE_KEYS) or author.get("screenName")
-    if not tweet_id or not handle or not isinstance(text, str) or not text.strip():
+    author_id = _first(raw, mapping.OUTPUT_AUTHOR_ID_KEYS) or author.get("id")
+    if not tweet_id or not author_id or not handle or not isinstance(text, str) or not text.strip():
         missing = []
         if not tweet_id:
             missing.append("id")
         if not handle:
             missing.append("handle")
+        if not author_id:
+            missing.append("author_id")
         if not isinstance(text, str) or not text.strip():
             missing.append("text")
         log.warning("Skipping tweet with missing required fields: %s", ", ".join(missing))
+        return None
+    if is_promotional_post(text):
+        log.info("Skipping promotional X post %s", tweet_id)
         return None
     clean_id = str(tweet_id).strip()
     if not clean_id:
@@ -55,7 +79,10 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         "text": text.strip(),
         "author_handle": f"@{handle}" if handle else None,
         "author_name": _first(raw, mapping.OUTPUT_NAME_KEYS) or author.get("name"),
-        "author_id": str(_first(raw, mapping.OUTPUT_AUTHOR_ID_KEYS) or author.get("id") or ""),
+        "author_id": str(author_id),
+        "author_verified": bool(author.get("verified") or author.get("isVerified") or raw.get("author_verified")),
+        "author_bio": str(author.get("description") or author.get("bio") or "")[:500],
+        "author_verified": bool(author.get("verified") or author.get("isVerified") or raw.get("author_verified")),
         "created_at": str(created_at) if created_at else None,
         "url": tweet_url,
         "metadata": {"collector": "agent-reach-cli", "raw_cli": raw, "lang": _first(raw, mapping.OUTPUT_LANG_KEYS), "query": query},
@@ -169,6 +196,10 @@ class XCollector:
         return list(dict.fromkeys(line for line in lines if line and not line.startswith("#")))
 
     def run(self, queries: list[str], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        invalid_queries = [query for query in queries if query.lstrip().startswith("-")]
+        for query in invalid_queries:
+            log.warning("Skipping query starting with '-': %s", query)
+        queries = [query for query in queries if not query.lstrip().startswith("-")]
         today = date.today().isoformat()
         output_path = self.output_dir / f"{today}.jsonl"
         if dry_run:
@@ -180,7 +211,7 @@ class XCollector:
                         collected_today = int(row[0]) if row else 0
                 except sqlite3.Error:
                     pass
-            return {"status": "DRY_RUN", "queries": queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "output": str(output_path), "cli_called": False}
+            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "output": str(output_path), "cli_called": False}
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.state = SeenStore(self.state_path)
         collected, failures, failed_queries, consecutive_failures = [], 0, 0, 0
@@ -266,9 +297,10 @@ class XCollector:
         return {"status": status, "collected": len(collected), "failures": failures, "failed_queries": failed_queries, "output": str(output_path)}
 
 
-def collect_forever(collector: XCollector, queries: list[str], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
+def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
-        result = collector.run(queries, mock_records=mock_records)
+        current_queries = queries() if callable(queries) else queries
+        result = collector.run(current_queries, mock_records=mock_records)
         log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")

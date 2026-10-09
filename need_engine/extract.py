@@ -21,6 +21,25 @@ log = logging.getLogger("need_engine.extract")
 _LABELS = OPPORTUNITY_LABELS | {"resolved", "joke", "seller", "curiosity", "no_buy_complaint", "advice_giver", "past_need"}
 
 
+def _confirmed_x_buyer(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict) -> bool:
+    if candidate.get("buyer_intent_confirmed") is not True or candidate.get("is_opportunity") is not True:
+        return False
+    if candidate.get("label") not in {"explicit_need", "on_behalf_need"}:
+        return False
+    if candidate.get("strength") not in {"medium", "strong"}:
+        return False
+    if not str(candidate.get("need") or "").strip() or not candidate.get("solution_queries"):
+        return False
+    if candidate.get("author_type") != "individual" or candidate.get("promotional_content") is not False:
+        return False
+    cited = [new_by_id.get(message_id) for message_id in evidence_ids]
+    suspicious_bio = ("official", "official account", "official store", "company", "brand", "support", "store", "shop",
+                      "رسمی", "شرکت", "برند", "فروشگاه", "فروش", "پشتیبانی")
+    return bool(cited) and all(message is not None and message.author_id == author_id and not message.author_verified
+                                and not any(term in (message.author_bio or "").casefold() for term in suspicious_bio)
+                                for message in cited)
+
+
 def _int_or_none(v) -> int | None:
     try:
         f = float(str(v).replace(",", ""))
@@ -35,16 +54,20 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime) 
         return [], 0.0
     system = NEED_SYSTEM if w.new[0].platform != "x" else NEED_SYSTEM.replace(
         "You are a perceptive sales scout reading part of a Persian Telegram group chat.",
-        "You are a perceptive sales scout reading independent public Persian X posts. Posts are by different authors and are not a conversation. Never use one author's post as context for another author.")
+        "You are a strict sales-intent reviewer reading independent public Persian X posts. Posts are by different authors and are not a conversation. Never use one author's post as context for another author. For X, ignore weak or inferred needs: only explicitly confirmed current purchase intent qualifies.")
     data, usage = llm.complete_json("need_extraction", cfg.extract_model, system, render(w, cfg), max_tokens=6000,
                                     ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}")
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
+    x_messages = {m.message_id: m for m in w.new} if w.new[0].platform == "x" else {}
     cards, dropped = [], 0
     for n in (data or {}).get("needs", []) or []:
         if not isinstance(n, dict):
             continue
         ev = sorted({int(e) for e in (n.get("evidence_message_ids") or []) if str(e).lstrip("-").isdigit()} & w.all_ids)
         aid = str(n.get("author_id") or "")
+        if x_messages and not _confirmed_x_buyer(n, ev, aid, x_messages):
+            dropped += 1
+            continue
         if not ev or aid not in authors or not (set(ev) & w.new_ids):
             dropped += 1
             continue
@@ -56,7 +79,8 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime) 
         is_opp = bool(n.get("is_opportunity")) and label in OPPORTUNITY_LABELS
         cards.append(NeedCard(
             need_id="", chat_id=w.chat_id, author_id=aid, author_name=a.author_name, author_username=a.author_username,
-            label=label, is_opportunity=is_opp, situation=n.get("situation"), need=n.get("need"),
+            label=label, is_opportunity=is_opp, buyer_intent_confirmed=n.get("buyer_intent_confirmed") is True,
+            situation=n.get("situation"), need=n.get("need"),
             solution_queries=[q.strip() for q in (n.get("solution_queries") or []) if isinstance(q, str) and q.strip()][:6],
             problem_queries=[q.strip() for q in (n.get("problem_queries") or []) if isinstance(q, str) and q.strip()][:3],
             requirements=reqs,

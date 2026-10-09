@@ -95,6 +95,7 @@ class EngineConfig:
     fetch_batch: int = _f("NE_FETCH_BATCH", 2000)
     x_enabled: bool = _f("NE_X_ENABLED", False)
     x_max_per_run: int = _f("NE_X_MAX_PER_RUN", 200)
+    x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 65.0)
     # engine-private state, pgvector vectors and the opportunities table the panel syncs from
     state_schema: str = _f("NE_STATE_SCHEMA", "need_engine")
     output_jsonl: str = _f("NE_OUTPUT_JSONL", "")          # optional extra copy of every opportunity (debug/demo)

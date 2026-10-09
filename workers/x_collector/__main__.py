@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Read-only X tweet collector (JSONL worker)")
-    parser.add_argument("--queries", default=os.getenv("X_COLLECT_QUERIES_FILE", "data/x_queries.txt"))
+    parser.add_argument("--queries", default=os.getenv("X_COLLECT_QUERIES_FILE"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--once", action="store_true")
@@ -25,9 +25,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", default=os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    queries = XCollector.load_queries(args.queries) or (["mock"] if args.mock else [])
+    if args.mock:
+        queries = XCollector.load_queries(args.queries) or ["mock"]
+        query_provider = queries
+    else:
+        try:
+            from .query_source import collector_queries
+
+            queries = collector_queries(args.queries)
+            query_provider = lambda: collector_queries(args.queries)
+        except RuntimeError as exc:
+            parser.error(str(exc))
     if not queries:
         parser.error(f"No queries found. Add UTF-8 queries (one per line) to {args.queries}.")
+    queries = [query for query in queries if not query.lstrip().startswith("-")]
+    if not queries:
+        parser.error("All X search queries were skipped because they start with '-'.")
     output_dir = "data/x_collected_mock" if args.mock else args.output_dir
     state_path = "output/x_collector_mock_state.sqlite3" if args.mock else None
     collector = XCollector(output_dir=output_dir, state_path=state_path)
@@ -43,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(collector.run(queries, dry_run=True), ensure_ascii=False, indent=2))
             return 0
         try:
-            collect_forever(collector, queries, max(1.0, args.interval), mock_records)
+            collect_forever(collector, query_provider, max(1.0, args.interval), mock_records)
         except XCliError as exc:
             logging.error("Collector loop stopped: %s", exc)
             return 1
@@ -67,7 +80,12 @@ def _print_commands(queries: list[str]) -> None:
     from . import cli_mapping
 
     for query in queries:
-        command = [cli_mapping.CLI_COMMAND, cli_mapping.CLI_SEARCH_SUBCOMMAND, f"{cli_mapping.CLI_QUERY_FLAG}={query}", cli_mapping.CLI_LIMIT_FLAG, str(int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))), cli_mapping.CLI_OUTPUT_FLAG]
+        if query.lstrip().startswith("-"):
+            logging.warning("Skipping query starting with '-' in dry-run: %s", query)
+            continue
+        command = [cli_mapping.CLI_COMMAND, cli_mapping.CLI_SEARCH_SUBCOMMAND, query, "-t", cli_mapping.CLI_TIME_FILTER,
+                   cli_mapping.CLI_EXCLUDE_RETWEETS_FLAG, cli_mapping.CLI_EXCLUDE_RETWEETS_VALUE,
+                   cli_mapping.CLI_LIMIT_FLAG, str(int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))), cli_mapping.CLI_OUTPUT_FLAG]
         print("CLI dry-run command: " + subprocess.list2cmdline(command), file=sys.stderr)
 
 

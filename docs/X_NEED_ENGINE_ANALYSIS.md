@@ -12,7 +12,9 @@
 
 Cursor تلگرام `fetch_cursor` دست‌نخورده می‌ماند؛ X از `fetch_cursor_x` جدا استفاده می‌کند. تغییر، cursor قبلی و صف‌های `pending`/`recent` تلگرام را reset، migrate یا replay نمی‌کند. تنها پیام‌های X به stream جدید اضافه می‌شوند. Loader یک جدول `crawler.x_posts` idempotent می‌سازد و upsert را بر `tweet_id` یکتا انجام می‌دهد؛ `row_id BIGSERIAL` ترتیب ورود و cursor مستقل منبع را می‌دهد. شناسه‌های X در `BIGINT` جا می‌شوند (Snowflakeهای فعلی زیر حد signed 64-bit هستند) و به‌صورت `message_id` عددی نگهداری می‌شوند؛ `chat_id` نیز prefix پلتفرم دارد.
 
-Crawler صاحب نوشتن `crawler.x_posts` است؛ به نقش loader اجازهٔ نوشتن crawler schema/table و به نقش موتور فقط `SELECT` داده شود. موتور مانند Telegram به sourceها read-only متصل می‌ماند و فقط state در schema خودش را می‌نویسد. Loader بدون Django است، JSONL UTF-8 را خط‌به‌خط اعتبارسنجی می‌کند، خط خراب را با علت رد می‌کند و retry/upsert تکراری ردیف جدید نمی‌سازد. Worker فقط `author_id` و `metadata.query` را به قرارداد خروجی اضافه می‌کند؛ عملیاتش همچنان فقط خواندن/ذخیرهٔ محلی است و هیچ تعامل/ارسالی در X ندارد.
+Crawler صاحب نوشتن `crawler.x_posts` است؛ به نقش loader اجازهٔ نوشتن crawler schema/table و به نقش موتور فقط `SELECT` داده شود. موتور مانند Telegram به sourceها read-only متصل می‌ماند و فقط state در schema خودش را می‌نویسد. Loader بدون Django است، JSONL UTF-8 را خط‌به‌خط اعتبارسنجی می‌کند، خط خراب را با علت رد می‌کند و retry/upsert تکراری ردیف جدید نمی‌سازد. Worker `author_id` و `metadata.query` را ثبت می‌کند. Queryهای live از محصول‌های ACTIVE با discovery و X outreach روشن تولید می‌شوند: نام کالا، مسیر دسته‌بندی و keywordهای دسته، با اولویت `discovery_priority`; `--queries` برای override است و loop فهرست DB را در هر چرخه بازخوانی می‌کند. Category path/keywords در کارت و embedding محصول می‌آیند تا تطبیق نیاز پست با محصول/دسته دقیق‌تر شود؛ خروجی فرصت، شناسه و URL شاهد را به bridge پنل می‌دهد.
+
+CLI طبق قرارداد ارائه‌شده به‌شکل `twitter search <query> -t Latest --exclude retweets --max N --json` ساخته می‌شود و queryهای آغازشونده با `-` رد می‌شوند. باید نصب واقعی CLI را با `twitter --help` و `agent-reach doctor` بررسی کرد.
 
 ## پنل، پرچم‌ها و اعتبارسنجی
 
