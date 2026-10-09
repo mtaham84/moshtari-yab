@@ -129,6 +129,22 @@ def heartbeat(name: str) -> None:
     EngineSyncCursor.objects.update_or_create(name=f"heartbeat:{name}", defaults={"position": int(time.time())})
 
 
+def waiting_payment() -> dict[str, dict]:
+    """Work held by need_engine for sellers without balance (kv ``waiting_payment``, refreshed every engine run):
+    {business_id: {"messages", "needs", "products"}}. Processed automatically after a top-up."""
+    try:
+        if not _table_exists("kv"):
+            return {}
+        rows = _rows("SELECT v FROM {s}.kv WHERE k = 'waiting_payment'")
+    except Exception:  # pragma: no cover - engine schema not reachable
+        return {}
+    if not rows:
+        return {}
+    v = rows[0]["v"] if isinstance(rows[0]["v"], dict) else json.loads(rows[0]["v"])
+    return {str(k): {x: int(d.get(x, 0) or 0) for x in ("messages", "needs", "products")}
+            for k, d in (v.get("sellers") or {}).items()}
+
+
 # ── numbers for the admin panel ───────────────────────────────────────────────
 def _since(days: float) -> float:
     return time.time() - days * 86400

@@ -8,7 +8,9 @@ The rule is read from the panel's ``discovery_monitoredcommunity`` table (read-o
 ``NE_SOURCE_ACCESS=open`` (tests, offline demo, crawler used without the panel) disables the rule.
 
 Pay-as-you-go: sellers whose prepaid balance is used up (``ModelRegistry.blocked``) are left out — their products are
-not matched, they pay for nothing, and a private chat whose owners are all blocked is not analysed.
+not matched and they pay for nothing. Their work is HELD, not lost («در انتظار پرداخت», see engine.py): messages of a
+private chat whose owners are all blocked are still collected but not analysed (``held``), needs that the seller's
+products could have matched are queued per seller, and new/changed products wait; all of it resumes after a top-up.
 """
 from __future__ import annotations
 
@@ -65,6 +67,14 @@ class SourceAccess:
     # ── queries ─────────────────────────────────────────────────────────────
     def _active(self) -> bool:
         return self.enabled and self.loaded
+
+    def monitored(self, chat_id: str) -> bool:
+        """An active source exists for the chat → its messages are collected (even while its owners are blocked)."""
+        return not self._active() or str(chat_id) in self.rules
+
+    def held(self, chat_id: str) -> bool:
+        """Collected but waiting for payment: a private chat whose owners are all blocked."""
+        return self.monitored(chat_id) and not self.analysed(chat_id)
 
     def analysed(self, chat_id: str) -> bool:
         if not self._active():

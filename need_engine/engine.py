@@ -2,6 +2,15 @@
 
 Every emitted Opportunity is published to ``<state schema>.opportunities`` (the panel imports it with
 ``manage.py sync_opportunities``); an extra sink (e.g. a JSONL file for the demo) can be plugged in.
+
+Pay-as-you-go («در انتظار پرداخت»): while a seller's balance is used up (``SourceAccess.blocked``) nothing is spent for
+them, but nothing is lost either —
+  • private chats whose owners are all blocked are still collected; the messages stay in ``pending`` (``held``);
+  • a need whose matching skipped a blocked seller with relevant products is queued for that seller (``deferred``);
+  • the seller's new/changed products are not carded (``Catalog.sync(hold=...)``).
+After the top-up the held messages are analysed as usual, the queued needs are re-matched against that seller's
+products only (``release``) and the waiting products are carded and back-matched. Anything older than
+``need_ttl_days`` is dropped (it would expire anyway). Counts per seller → kv ``waiting_payment`` (shown in the panel).
 """
 from __future__ import annotations
 
@@ -57,6 +66,7 @@ class RunReport:
     products_changed: int = 0
     cost_messages_toman: float = 0.0
     cost_matching_toman: float = 0.0
+    released: int = 0               # queued needs re-matched after a top-up
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -66,7 +76,7 @@ class RunReport:
     def summary(self) -> str:
         return (f"ingested={self.ingested} analysed={self.analysed_messages} windows={self.windows} "
                 f"needs new/updated={self.needs_new}/{self.needs_updated} opportunities={len(self.opportunities)} "
-                f"products_changed={self.products_changed} cost: messages={self.cost_messages_toman:,.1f} "
+                f"products_changed={self.products_changed} released={self.released} cost: messages={self.cost_messages_toman:,.1f} "
                 f"({self.toman_per_message:,.2f}/msg) matching={self.cost_matching_toman:,.1f} toman"
                 + (f" errors={len(self.errors)}" if self.errors else ""))
 
@@ -103,7 +113,7 @@ class NeedEngine:
             batch = self.messages.fetch_after(cursor, self.cfg.fetch_batch)
             if not batch:
                 break
-            keep = [m for m in batch if self.access.analysed(m.chat_id)]   # chats without an active source: skipped
+            keep = [m for m in batch if self.access.monitored(m.chat_id)]   # chats without an active source: skipped
             total += self.store.add_pending(keep) if keep else 0
             cursor = max(m.row_id for m in batch)
             self.store.set("fetch_cursor", cursor)
@@ -112,7 +122,7 @@ class NeedEngine:
         return total
 
     def sync_products(self, report: RunReport) -> None:
-        changed = self.catalog.sync(self.products.all())
+        changed = self.catalog.sync(self.products.all(), hold=self.access.blocked)
         report.products_changed = len(changed)
         if not changed or not self.store.get("catalog_initialised", False):
             self.store.set("catalog_initialised", True)  # first sync: nothing to back-match yet
@@ -134,13 +144,58 @@ class NeedEngine:
                 self._finish_and_emit(n, matches, report, extra_cost=toman / max(1, len(hits)))
 
     def _match(self, n: NeedCard, qvecs: np.ndarray | None, report: RunReport) -> None:
-        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=self.access.sellers(n.chat_id),
-                       excluded=self.access.blocked)
+        allowed = self.access.sellers(n.chat_id)
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=allowed, excluded=self.access.blocked)
+        self._defer_blocked(n, qvecs, allowed)
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
         report.cost_matching_toman += toman
         n.cost_toman += toman
         n.llm_calls += calls
         self._finish_and_emit(n, matches, report)
+
+    def _defer_blocked(self, n: NeedCard, qvecs: np.ndarray | None, allowed: frozenset[str] | None) -> None:
+        """Queues the need for blocked sellers whose products are candidates (retrieval only — no LLM call)."""
+        blocked = self.access.blocked if allowed is None else (allowed & self.access.blocked)
+        if not blocked:
+            return
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=frozenset(blocked))
+        sellers = {str(self.catalog.products[j].business_id) for j in ret.candidates if self.catalog.products[j].business_id}
+        if sellers:
+            self.store.defer(n.need_id, sellers)
+
+    def release(self, report: RunReport) -> None:
+        """After a top-up: re-match the needs queued for that seller against the seller's products only."""
+        for bid in self.store.deferred_sellers():
+            if bid in self.access.blocked:
+                continue
+            for need_id in self.store.deferred_needs(bid, self.cfg.release_batch):
+                n = self.store.need(need_id)
+                try:
+                    if n is not None and n.status == "open" and self.access.allows(n.chat_id, bid):
+                        self._match_seller(n, bid, report)
+                except QuotaExhausted:
+                    raise                                   # stays queued → next run
+                except Exception as e:
+                    report.errors.append(f"{need_id}: {e}")
+                    log.exception("deferred matching failed for %s / seller %s", need_id, bid)
+                self.store.undefer(bid, [need_id])
+
+    def _match_seller(self, n: NeedCard, bid: str, report: RunReport) -> None:
+        ret = retrieve(n, self.store.query_vecs(n.need_id), self.catalog, self.cfg, allowed=frozenset({bid}))
+        report.released += 1
+        if not ret.candidates:
+            return
+        found, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
+        report.cost_matching_toman += toman
+        n.cost_toman += toman
+        n.llm_calls += calls
+        if not found:
+            self.store.update_need(n)
+            return
+        prev = self.store.emitted(n.need_id)
+        old = [MatchedProduct.model_validate(x) for x in json.loads(prev[1])["matched_products"]] if prev else []
+        ids = {m.product_id for m in found}
+        self._finish_and_emit(n, [m for m in old if m.product_id not in ids] + found, report)
 
     def _finish_and_emit(self, n: NeedCard, matches: list[MatchedProduct], report: RunReport, extra_cost: float = 0.0) -> None:
         matches = sorted(matches, key=lambda m: -m.match_score)[:self.cfg.max_products_per_opportunity]
@@ -204,7 +259,10 @@ class NeedEngine:
     def process(self, report: RunReport, now: datetime | None = None, flush: bool = False) -> None:
         now = now or datetime.now(timezone.utc)
         for chat_id in self.store.pending_chats():
-            if not self.access.analysed(chat_id):      # source removed/paused since the messages were queued
+            if not self.access.monitored(chat_id):     # source removed/paused since the messages were queued
+                continue
+            if self.access.held(chat_id):              # owners' balance used up → kept, analysed after the top-up
+                self._prune_held(chat_id, now)
                 continue
             pending = self.store.pending(chat_id)
             batch, why = (pending, "flush") if flush else ready_batch(pending, now, self.cfg)
@@ -238,6 +296,32 @@ class NeedEngine:
                     elif n.status in ("resolved", "expired"):
                         self._close(n, report)
 
+    def _prune_held(self, chat_id: str, now: datetime) -> None:
+        cutoff = now - timedelta(days=self.cfg.need_ttl_days)
+        old = [m.message_id for m in self.store.pending(chat_id) if m.date < cutoff]
+        if old:
+            self.store.drop_pending(chat_id, old)
+            log.info("chat %s: dropped %d held messages older than %s days", chat_id, len(old), self.cfg.need_ttl_days)
+
+    def waiting_payment(self) -> dict[str, dict[str, int]]:
+        """Per blocked seller: held messages, queued needs, waiting products (→ kv ``waiting_payment``)."""
+        out: dict[str, dict[str, int]] = {}
+
+        def add(b: str, k: str, v: int) -> None:
+            if v:
+                out.setdefault(str(b), {"messages": 0, "needs": 0, "products": 0})[k] += int(v)
+
+        for chat_id in self.store.pending_chats():
+            if self.access.held(chat_id):
+                k = self.store.pending_count(chat_id)
+                for b in self.access.sellers(chat_id) or ():
+                    add(b, "messages", k)
+        for b, k in self.store.deferred_counts().items():
+            add(b, "needs", k)
+        for b, k in self.catalog.held.items():
+            add(b, "products", k)
+        return out
+
     def expire(self, report: RunReport, now: datetime | None = None) -> None:
         now = now or datetime.now(timezone.utc)
         for need_id in self.store.expire_needs((now - timedelta(days=self.cfg.need_ttl_days)).timestamp()):
@@ -252,6 +336,7 @@ class NeedEngine:
             self.access.refresh()
             self.styles = {b: MessageStyle.from_dict(d) for b, d in self.style_source.all().items()}
             self.sync_products(report)
+            self.release(report)
             report.ingested = self.ingest()
             self.process(report, now=now, flush=flush)
             self.expire(report, now=now)
@@ -259,6 +344,10 @@ class NeedEngine:
             report.errors.append(f"quota: {e}")
             log.error("%s — pending messages stay queued and are processed on the next run", e)
         log.info(report.summary())
+        try:
+            self.store.set("waiting_payment", {"ts": time.time(), "sellers": self.waiting_payment()})
+        except Exception:  # pragma: no cover
+            log.exception("waiting_payment not saved")
         try:   # read by the admin panel («وضعیت سرویس‌ها»)
             self.store.set("heartbeat", {"ts": time.time(), "summary": report.summary(), "errors": report.errors[-5:]})
         except Exception:  # pragma: no cover

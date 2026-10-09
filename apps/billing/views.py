@@ -52,10 +52,12 @@ def dashboard(request):
     s = BillingSettings.get()
     blocked = Wallet.objects.filter(balance_toman__lte=s.min_balance_toman).count() if s.enforce_balance else 0
     rev = services.revenue(float(days))
+    waiting = services.waiting_payment().values()
+    held = {k: sum(w[k] for w in waiting) for k in ("messages", "needs", "products")}
     return render(request, "ops/dashboard.html", {
         "nav": "dashboard", "days": days, "periods": PERIODS, "totals": totals, "revenue": rev,
         "profit": rev - Decimal(str(round(totals["toman"], 2))),
-        "wallet_total": wallets["total"] or 0, "wallet_count": wallets["n"], "blocked": blocked,
+        "wallet_total": wallets["total"] or 0, "wallet_count": wallets["n"], "blocked": blocked, "held": held,
         "by_model": services.cost_breakdown(float(days), "model"),
         "by_stage": services.cost_breakdown(float(days), "stage"),
         "daily": services.cost_daily(14), "status": services.service_status(),
@@ -167,6 +169,10 @@ def wallets(request):
     if q:
         items = items.filter(Q(business__name__icontains=q) | Q(business__user__email__icontains=q))
     s = BillingSettings.get()
+    waiting = services.waiting_payment()
+    items = list(items)
+    for w in items:
+        w.waiting = waiting.get(str(w.business_id))
     return render(request, "ops/wallets.html", {"nav": "wallets", "wallets": items, "q": q, "settings": s})
 
 
@@ -184,6 +190,7 @@ def wallet_detail(request, business_id):
         "nav": "wallets", "business": business, "wallet": wallet, "form": form,
         "transactions": wallet.transactions.select_related("created_by")[:200],
         "blocked": services.is_blocked(business),
+        "waiting": services.waiting_payment().get(str(business.pk)),
     })
 
 

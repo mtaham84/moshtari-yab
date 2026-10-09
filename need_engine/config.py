@@ -78,6 +78,7 @@ class EngineConfig:
     # Providers / models / prices / wallets from the admin panel (/ops/); NE_* values above are the fallback
     model_registry: bool = _f("NE_MODEL_REGISTRY", True)
     registry_ttl: float = _f("NE_REGISTRY_TTL", 60.0)
+    release_batch: int = _f("NE_RELEASE_BATCH", 200)        # queued needs re-matched per seller per run after a top-up
     providers_table: str = _f("NE_PROVIDERS_TABLE", "public.billing_provider")
     models_table: str = _f("NE_MODELS_TABLE", "public.billing_aimodel")
     billing_settings_table: str = _f("NE_BILLING_SETTINGS_TABLE", "public.billing_billingsettings")

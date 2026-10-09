@@ -53,6 +53,7 @@ class Catalog:
         self.V = np.zeros((0, 1), dtype=np.float32)
         self.owner = np.zeros(0, dtype=int)
         self.bm25: BM25 | None = None
+        self.held: dict[str, int] = {}    # seller → new/changed products waiting for payment
 
     @property
     def n(self) -> int:
@@ -89,14 +90,22 @@ class Catalog:
             got[p.product_id] = ProductCard(product_id=p.product_id)
         return got
 
-    def sync(self, products: list[Product]) -> list[str]:
-        """Builds cards/vectors only for new or changed products. Returns ids of new or changed products."""
+    def sync(self, products: list[Product], hold: frozenset[str] = frozenset()) -> list[str]:
+        """Builds cards/vectors only for new or changed products. Returns ids of new or changed products.
+
+        ``hold`` = sellers whose balance is used up: their new/changed products are not carded (that LLM call is theirs)
+        and wait — the stored version, if any, stays — until they top up; then they show up here as changed."""
         known = self.store.product_hashes()
         current = {p.product_id: p for p in products}
         removed = [pid for pid in known if pid not in current]
         if removed:
             self.store.delete_products(removed)
         changed = [p for p in products if known.get(p.product_id) != p.content_hash()]
+        self.held = {}
+        for p in changed:
+            if p.business_id is not None and str(p.business_id) in hold:
+                self.held[str(p.business_id)] = self.held.get(str(p.business_id), 0) + 1
+        changed = [p for p in changed if p.business_id is None or str(p.business_id) not in hold]
         if changed:
             log.info("product cards: %d new/changed of %d", len(changed), len(products))
             cards = self._cards_for(changed)

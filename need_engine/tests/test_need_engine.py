@@ -295,3 +295,89 @@ def test_source_access_rules():
     assert a.sellers("-2") is None and a.owners("-2") == []
     assert not a.analysed("-3") and a.analysed("-1")
     assert a.allows("-1", "7") and not a.allows("-1", "9") and a.allows("-2", "9") and not a.allows("-3", "7")
+
+
+class _Wallets:
+    """Stand-in for ModelRegistry.blocked(): sellers whose balance is used up."""
+    def __init__(self, *blocked):
+        self.ids = set(blocked)
+
+    def blocked(self):
+        return frozenset(self.ids)
+
+
+def _paying_engine(tmp_path, cfg_for, crawler, scope, wallets, calls):
+    t = f"{crawler.schema}.communities"
+    crawler.conn.execute(f"CREATE TABLE IF NOT EXISTS {t} (telegram_chat_id bigint, scope text, business_id text, is_active boolean)")
+    crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, %s, %s, TRUE)", (int(CHAT), scope, "S1" if scope == "PRIVATE" else None))
+    products_file(tmp_path / "products.jsonl")
+
+    def counting_llm(stage, system, user):
+        calls.append(stage)
+        return mock_llm(stage, system, user)
+
+    eng = NeedEngine(cfg_for(crawler_schema=crawler.schema, trigger_count=1, source_access="panel", communities_table=t),
+                     mock_llm=counting_llm)
+    eng.access.registry = wallets
+    return eng
+
+
+def test_private_chat_of_a_seller_without_balance_is_held_then_processed(tmp_path, cfg_for, crawler):
+    wallets, calls = _Wallets("S1"), []
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "PRIVATE", wallets, calls)
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 0)
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.ingested == 1 and r.analysed_messages == 0 and "need_extraction" not in calls   # collected, not processed
+    assert eng.store.get("waiting_payment")["sellers"]["S1"]["messages"] == 1
+    assert not eng.store._all("SELECT 1 FROM {s}.costs WHERE business_id = 'S1'")             # S1 paid nothing
+
+    wallets.ids.clear()                                                                        # topped up
+    r = eng.run_once(now=T0 + timedelta(hours=2))
+    assert r.analysed_messages == 1 and any(m.product_id == "P1" for o in r.opportunities for m in o.matched_products)
+    assert eng.store.get("waiting_payment")["sellers"] == {}
+
+
+def test_held_messages_older_than_the_need_ttl_are_dropped(tmp_path, cfg_for, crawler):
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "PRIVATE", _Wallets("S1"), [])
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم", 0)
+    eng.run_once(now=T0 + timedelta(hours=1))
+    assert eng.store.pending_count(str(CHAT)) == 1
+    eng.run_once(now=T0 + timedelta(days=eng.cfg.need_ttl_days + 1))
+    assert eng.store.pending_count(str(CHAT)) == 0
+
+
+def test_global_need_is_queued_for_a_blocked_seller_and_matched_after_top_up(tmp_path, cfg_for, crawler):
+    wallets, calls = _Wallets(), []
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "GLOBAL", wallets, calls)
+    eng.run_once(now=T0)                                       # catalog built while everyone can pay
+    wallets.ids.add("S1")
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 0)
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.analysed_messages == 1
+    assert all(m.product_id != "P1" for o in r.opportunities for m in o.matched_products)
+    assert eng.store.deferred_counts() == {"S1": 1}
+    assert eng.store.get("waiting_payment")["sellers"]["S1"]["needs"] == 1
+    assert not eng.store._all("SELECT 1 FROM {s}.costs WHERE business_id = 'S1' AND stage <> 'product_cards'")
+
+    wallets.ids.clear()
+    r = eng.run_once(now=T0 + timedelta(hours=2))
+    assert r.released == 1 and r.analysed_messages == 0
+    assert any(m.product_id == "P1" for o in r.opportunities for m in o.matched_products)
+    assert eng.store.deferred_counts() == {}
+    assert eng.store._all("SELECT 1 FROM {s}.costs WHERE business_id = 'S1' AND stage = 'verify'")   # now S1 pays
+
+
+def test_products_of_a_blocked_seller_wait_for_the_top_up(tmp_path, cfg_for, crawler):
+    wallets, calls = _Wallets(), []
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "GLOBAL", wallets, calls)
+    eng.run_once(now=T0)
+    wallets.ids.add("S1")
+    with (tmp_path / "products.jsonl").open("a", encoding="utf-8") as f:
+        f.write("\n" + json.dumps({"product_id": "P3", "seller_id": "S1", "title": "کوله سفری", "product_type": "کوله"},
+                                  ensure_ascii=False))
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.products_changed == 0 and "P3" not in eng.catalog.pid_index
+    assert eng.store.get("waiting_payment")["sellers"]["S1"]["products"] == 1
+    wallets.ids.clear()
+    r = eng.run_once(now=T0 + timedelta(hours=2))
+    assert r.products_changed == 1 and "P3" in eng.catalog.pid_index

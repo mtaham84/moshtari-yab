@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS {s}.opportunities (
     opportunity_id TEXT PRIMARY KEY, seq BIGINT NOT NULL, status TEXT, payload JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS opportunities_seq_idx ON {s}.opportunities (seq);
+CREATE TABLE IF NOT EXISTS {s}.deferred (business_id TEXT, need_id TEXT, ts DOUBLE PRECISION, PRIMARY KEY (business_id, need_id));
 """
 
 
@@ -142,6 +143,12 @@ class Store:
                           (len(msgs), len(msgs)))
 
         self._run(tx)
+
+    def pending_count(self, chat_id: str) -> int:
+        return int(self._all("SELECT COUNT(*) AS n FROM {s}.pending WHERE chat_id = %s", (chat_id,))[0]["n"])
+
+    def drop_pending(self, chat_id: str, ids: list[int]) -> int:
+        return self._exec("DELETE FROM {s}.pending WHERE chat_id = %s AND message_id = ANY(%s)", (chat_id, list(ids))) if ids else 0
 
     def recent(self, chat_id: str, before_id: int, limit: int) -> list[ChatMessage]:
         rows = self._all("SELECT payload FROM {s}.recent WHERE chat_id = %s AND message_id < %s ORDER BY message_id DESC LIMIT %s",
@@ -313,6 +320,30 @@ class Store:
         else:
             self._exec("INSERT INTO {s}.quota VALUES (%s, %s, %s) ON CONFLICT (day, model) DO UPDATE SET n = {s}.quota.n + EXCLUDED.n",
                        (day, model, n))
+
+    # ── needs waiting for a seller's payment («در انتظار پرداخت») ───────────
+    def defer(self, need_id: str, sellers: Iterable[str]) -> None:
+        sellers = sorted({str(b) for b in sellers})
+        if sellers:
+            self._exec("""INSERT INTO {s}.deferred (business_id, need_id, ts) SELECT b, %s, %s FROM unnest(%s::text[]) AS b
+                          ON CONFLICT DO NOTHING""", (need_id, time.time(), sellers))
+
+    def deferred_sellers(self) -> list[str]:
+        return [r["business_id"] for r in self._all("SELECT DISTINCT business_id FROM {s}.deferred ORDER BY business_id")]
+
+    def deferred_needs(self, business_id: str, limit: int = 200) -> list[str]:
+        rows = self._all("SELECT need_id FROM {s}.deferred WHERE business_id = %s ORDER BY ts LIMIT %s", (str(business_id), limit))
+        return [r["need_id"] for r in rows]
+
+    def undefer(self, business_id: str, need_ids: list[str]) -> None:
+        self._exec("DELETE FROM {s}.deferred WHERE business_id = %s AND need_id = ANY(%s)", (str(business_id), list(need_ids)))
+
+    def deferred_counts(self) -> dict[str, int]:
+        """Queued needs per seller that are still open (closed ones are dropped here)."""
+        self._exec("""DELETE FROM {s}.deferred d WHERE NOT EXISTS
+                      (SELECT 1 FROM {s}.needs n WHERE n.need_id = d.need_id AND n.status = 'open')""")
+        return {r["business_id"]: int(r["n"]) for r in
+                self._all("SELECT business_id, COUNT(*) AS n FROM {s}.deferred GROUP BY business_id")}
 
     # ── emitted / published opportunities ───────────────────────────────────
     def emitted(self, opp_id: str) -> tuple[str, str] | None:
