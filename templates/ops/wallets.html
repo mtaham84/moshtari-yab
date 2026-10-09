@@ -1,0 +1,21 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}کیف پول‌ها{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>کیف پول فروشنده‌ها</h1>
+  <div class="toolbar">
+    <form class="toolbar" method="get"><input class="ops-input" name="q" value="{{ q }}" placeholder="جستجوی نام یا ایمیل"><button class="btn">جستجو</button></form>
+    <form class="inline" method="post" action="{% url 'ops:charge_now' %}">{% csrf_token %}<button class="btn primary">کسر هزینه‌های جدید (الان)</button></form>
+  </div>
+</div>
+<p class="muted">هزینه‌ها هر ~۱۰ ثانیه توسط سرویس sync خودکار کسر می‌شوند. {% if settings.enforce_balance %}فروشنده‌ای که موجودی‌اش به {{ settings.min_balance_toman|toman }} تومان یا کمتر برسد، تا شارژ بعدی تحلیل و فرصت جدید نمی‌گیرد.{% else %}توقف تحلیل با اتمام اعتبار خاموش است.{% endif %}</p>
+<div class="card">
+<table><tr><th>فروشنده</th><th>ایمیل</th><th class="n">موجودی (تومان)</th><th class="n">مجموع شارژ</th><th class="n">مجموع مصرف</th><th>وضعیت</th><th></th></tr>
+{% for w in wallets %}<tr>
+  <td>{{ w.business.name }}</td><td class="muted">{{ w.business.user.email }}</td>
+  <td class="n {% if w.balance_toman <= settings.min_balance_toman %}neg{% endif %}">{{ w.balance_toman|toman }}</td>
+  <td class="n">{{ w.paid|toman }}</td><td class="n">{{ w.used|toman }}</td>
+  <td>{% if settings.enforce_balance and w.balance_toman <= settings.min_balance_toman %}<span class="st down">بدون اعتبار</span>{% else %}<span class="st ok">فعال</span>{% endif %}</td>
+  <td><a class="btn sm" href="{% url 'ops:wallet_detail' w.business_id %}">شارژ / تراکنش‌ها</a></td>
+</tr>{% empty %}<tr><td class="muted" colspan="7">فروشنده‌ای نیست.</td></tr>{% endfor %}</table>
+</div>
+{% endblock %}

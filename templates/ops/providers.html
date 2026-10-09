@@ -1,0 +1,40 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}سرویس‌دهنده‌ها و مدل‌ها{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>سرویس‌دهنده‌ها و مدل‌ها</h1>
+  <div class="toolbar">
+    <a class="btn primary" href="{% url 'ops:provider_new' %}">+ سرویس‌دهنده‌ی جدید</a>
+    <form class="inline" method="post" action="{% url 'ops:provider_import_env' %}">{% csrf_token %}<button class="btn">ایمپورت از ‎.env</button></form>
+  </div>
+</div>
+<p class="muted">هر سرویس‌دهنده یک endpoint سازگار با OpenAI است (Base URL + API Key). برای هر نقش (استخراج، تطبیق، پاسخ) فعال‌ترین مدل با کمترین عدد اولویت استفاده می‌شود؛
+اگر برای نقشی مدلی نباشد، موتور از تنظیمات NE_* فایل ‎.env استفاده می‌کند. تغییرات حداکثر تا یک دقیقه بعد در موتور اعمال می‌شوند.
+قیمت‌ها دلار به‌ازای یک میلیون توکن هستند.</p>
+{% if orphan_hint %}<div class="msg">هنوز سرویس‌دهنده‌ای ثبت نشده. با «ایمپورت از ‎.env» تنظیمات فعلی موتور به این‌جا منتقل می‌شود.</div>{% endif %}
+
+{% for p in providers %}
+<div class="card provider">
+  <div class="provider-head">
+    <div><h2 style="margin:0">{{ p.name }} {% if not p.is_active %}<span class="pill">غیرفعال</span>{% endif %}</h2>
+      <div class="muted"><code>{{ p.base_url }}</code> · کلید: <code>{{ p.masked_key }}</code>{% if p.notes %} · {{ p.notes }}{% endif %}</div></div>
+    <div class="toolbar">
+      <a class="btn sm primary" href="{% url 'ops:model_new' %}?provider={{ p.pk }}">+ مدل</a>
+      <form class="inline" method="post" action="{% url 'ops:provider_test' p.pk %}">{% csrf_token %}<button class="btn sm">تست اتصال</button></form>
+      <a class="btn sm" href="{% url 'ops:provider_edit' p.pk %}">ویرایش</a>
+      <form class="inline" method="post" action="{% url 'ops:provider_delete' p.pk %}" onsubmit="return confirm('سرویس‌دهنده و همه‌ی مدل‌هایش حذف شوند؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form>
+    </div>
+  </div>
+  <table style="margin-top:10px"><tr><th>مدل</th><th>نقش</th><th class="n">ورودی $/1M</th><th class="n">خروجی $/1M</th><th class="n">اولویت</th><th class="n">RPM/TPM/RPD</th><th>وضعیت</th><th></th></tr>
+  {% for m in p.models.all %}<tr>
+    <td><code>{{ m.name }}</code>{% if m.label %} <span class="muted">{{ m.label }}</span>{% endif %}</td><td>{{ m.roles_display }}</td>
+    <td class="n">{{ m.input_price_usd }}</td><td class="n">{{ m.output_price_usd }}</td><td class="n">{{ m.priority }}</td>
+    <td class="n muted">{{ m.rpm|default:"∞" }}/{{ m.tpm|default:"∞" }}/{{ m.rpd|default:"∞" }}</td>
+    <td><form class="inline" method="post" action="{% url 'ops:model_toggle' m.pk %}">{% csrf_token %}
+      <button class="btn sm"><span class="st {% if m.is_active %}ok{% else %}PAUSED{% endif %}">{% if m.is_active %}فعال{% else %}غیرفعال{% endif %}</span></button></form></td>
+    <td class="toolbar"><a class="btn sm" href="{% url 'ops:model_edit' m.pk %}">ویرایش</a>
+      <form class="inline" method="post" action="{% url 'ops:model_delete' m.pk %}" onsubmit="return confirm('مدل حذف شود؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form></td>
+  </tr>{% empty %}<tr><td class="muted" colspan="8">مدلی ثبت نشده.</td></tr>{% endfor %}</table>
+</div>
+{% endfor %}
+<p class="muted">مدل embedding (‏NE_EMBED_MODEL) را هم می‌توانید با همان نام و بدون نقش این‌جا ثبت کنید تا قیمت و کلیدش از پنل خوانده شود. تغییر خود مدل embedding نیازمند ساخت دوباره‌ی بردارهاست و از .env انجام می‌شود.</p>
+{% endblock %}

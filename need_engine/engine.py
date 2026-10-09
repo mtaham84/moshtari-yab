@@ -91,7 +91,7 @@ class NeedEngine:
         self.messages = messages or message_source(self.cfg)
         self.products = products or product_source(self.cfg)
         self.sink = sink or (JsonlSink(self.cfg.output_jsonl) if self.cfg.output_jsonl else None)
-        self.access = SourceAccess(self.cfg)
+        self.access = SourceAccess(self.cfg, registry=self.llm.registry)
         self.style_source = styles or StyleSource(self.cfg)
         self.styles: dict[str, MessageStyle] = {}
 
@@ -134,7 +134,8 @@ class NeedEngine:
                 self._finish_and_emit(n, matches, report, extra_cost=toman / max(1, len(hits)))
 
     def _match(self, n: NeedCard, qvecs: np.ndarray | None, report: RunReport) -> None:
-        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=self.access.sellers(n.chat_id))
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=self.access.sellers(n.chat_id),
+                       excluded=self.access.blocked)
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
         report.cost_matching_toman += toman
         n.cost_toman += toman
@@ -258,6 +259,10 @@ class NeedEngine:
             report.errors.append(f"quota: {e}")
             log.error("%s — pending messages stay queued and are processed on the next run", e)
         log.info(report.summary())
+        try:   # read by the admin panel («وضعیت سرویس‌ها»)
+            self.store.set("heartbeat", {"ts": time.time(), "summary": report.summary(), "errors": report.errors[-5:]})
+        except Exception:  # pragma: no cover
+            log.exception("heartbeat not saved")
         return report
 
     def run_forever(self) -> None:  # pragma: no cover

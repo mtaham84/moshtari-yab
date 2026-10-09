@@ -3,13 +3,19 @@
     python manage.py sync_opportunities              # import new/changed opportunities once
     python manage.py sync_opportunities --follow     # keep importing while the engine runs
     python manage.py sync_opportunities --from-start # re-import everything (idempotent)
+
+Every round also charges sellers' wallets for new LLM costs (pay-as-you-go, apps/billing) unless --no-billing.
 """
+import logging
 import time
 
 from django.core.management.base import BaseCommand
 
 from apps.discovery.engine_bridge import import_opportunity, published_after
+from apps.billing.services import charge_pending_usage, heartbeat
 from apps.discovery.models import EngineSyncCursor
+
+log = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -19,6 +25,7 @@ class Command(BaseCommand):
         parser.add_argument("--follow", action="store_true")
         parser.add_argument("--interval", type=float, default=10.0)
         parser.add_argument("--from-start", action="store_true")
+        parser.add_argument("--no-billing", action="store_true", help="do not charge wallets in this process")
 
     def handle(self, *args, **opts):
         cursor, _ = EngineSyncCursor.objects.get_or_create(name="opportunities")
@@ -38,6 +45,12 @@ class Command(BaseCommand):
                     break
             if n:
                 self.stdout.write(f"imported {n} opportunity updates")
+            if not opts["no_billing"]:
+                try:
+                    charge_pending_usage()
+                except Exception:   # billing must never stop the import
+                    log.exception("charging wallets failed")
+            heartbeat("sync")
             if not opts["follow"]:
                 break
             time.sleep(opts["interval"])

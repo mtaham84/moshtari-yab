@@ -51,7 +51,7 @@
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
           <span>سایر شبکه‌ها</span>
         </span>
-        <span class="p-badge" style="font-size: 0.65rem; background: rgba(148,163,184,0.15); color: var(--stone-text-muted);">فاز ۲</span>
+        <span class="p-badge" style="font-size: 0.65rem; background: rgba(148,163,184,0.15); color: var(--stone-text-muted);">به‌زودی</span>
       </button>
     </nav>
   </div>
@@ -89,17 +89,17 @@
 
           <div style="margin-bottom: 18px;">
             <label class="form-label">حوزه و صنعت فعالیت</label>
-            <input type="text" name="business_domain" class="form-input" value="{{ business.business_domain }}" placeholder="مثال: پوشاک و مد، لپ‌تاپ و تجهیزات دیجیتال، آموزش برنامه‌نویسی" required>
+            <input type="text" name="business_domain" class="form-input" value="{{ business.business_domain }}" placeholder="مثال: پوشاک زنانه" required>
           </div>
 
           <div style="margin-bottom: 18px;">
             <label class="form-label">ارزش پیشنهادی و مزیت رقابتی اصلی</label>
-            <textarea name="description" class="form-input" rows="3" placeholder="توضیح دهید فروشگاه شما چه نیازی را با چه مزیتی (کیفیت، قیمت، ارسال سریع، پشتیبانی) برطرف می‌کند...">{{ business.description }}</textarea>
+            <textarea name="description" class="form-input" rows="3" placeholder="مثال: لباس روزمره و مجلسی زنانه با پارچه‌ی باکیفیت، ارسال سریع و امکان تعویض تا ۷ روز.">{{ business.description }}</textarea>
           </div>
 
           <div style="margin-bottom: 22px;">
-            <label class="form-label">شرح مشتریان ایده‌آل (ICP)</label>
-            <textarea name="target_customer_description" class="form-input" rows="3" placeholder="مشتریان هدف شما معمولاً چه کسانی هستند؟ (مثال: برنامه‌نویسان نیازمند لپ‌تاپ قدرتمند، گیمرها، دانشجویان...)">{{ business.target_customer_description }}</textarea>
+            <label class="form-label">مشتریان هدف</label>
+            <textarea name="target_customer_description" class="form-input" rows="3" placeholder="مثال: خانم‌هایی که لباس راحت برای محل کار یا مهمانی می‌خواهند.">{{ business.target_customer_description }}</textarea>
           </div>
 
           <div style="display: flex; justify-content: flex-end;">
@@ -203,7 +203,7 @@
 
           <div style="margin-bottom: 18px;">
             <label class="form-label" for="style_signature">امضا (اختیاری)</label>
-            <input type="text" name="signature" id="style_signature" maxlength="100" class="form-input" value="{{ style.signature }}" placeholder="مثال: فروشگاه آفتاب">
+            <input type="text" name="signature" id="style_signature" maxlength="100" class="form-input" value="{{ style.signature }}" placeholder="مثال: فروشگاه نیلا">
             <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">لینک، آیدی و شماره تلفن داخل امضا حذف می‌شوند.</span>
           </div>
 
@@ -248,7 +248,7 @@
       <div class="p-card" style="padding: 26px;">
         <div style="border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 14px; margin-bottom: 20px;">
           <h2 style="font-size: 1.05rem; font-weight: 850; color: var(--panel-text-main); margin: 0 0 4px 0;">وضعیت اتصال سایر شبکه‌ها و پلتفرم‌ها</h2>
-          <span style="font-size: 0.78rem; color: var(--stone-text-muted);">پلتفرم‌های تحت توسعه برای فاز دوم پروژه پیدا.</span>
+          <span style="font-size: 0.78rem; color: var(--stone-text-muted);">این شبکه‌ها به‌زودی اضافه می‌شوند.</span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -263,7 +263,7 @@
                 <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پایش توییت‌ها و مکالمات تقاضای خرید در توییتر فارسی</span>
               </div>
             </div>
-            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به زودی در فاز ۲</span>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به‌زودی</span>
           </div>
 
           <!-- Instagram -->
@@ -277,7 +277,7 @@
                 <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پایش کامنت‌ها و سوالات خرید زیر پست‌های مرتبط</span>
               </div>
             </div>
-            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به زودی در فاز ۲</span>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به‌زودی</span>
           </div>
 
           <!-- Divar -->
@@ -291,7 +291,7 @@
                 <span style="font-size: 0.76rem; color: var(--stone-text-muted);">پایش آگهی‌های تقاضای خرید در دسته‌بندی‌های کالا و خدمات</span>
               </div>
             </div>
-            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به زودی در فاز ۲</span>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.12); color: var(--stone-text-muted);">به‌زودی</span>
           </div>
         </div>
       </div>

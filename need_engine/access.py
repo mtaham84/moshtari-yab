@@ -6,6 +6,9 @@
 
 The rule is read from the panel's ``discovery_monitoredcommunity`` table (read-only) once per engine run.
 ``NE_SOURCE_ACCESS=open`` (tests, offline demo, crawler used without the panel) disables the rule.
+
+Pay-as-you-go: sellers whose prepaid balance is used up (``ModelRegistry.blocked``) are left out — their products are
+not matched, they pay for nothing, and a private chat whose owners are all blocked is not analysed.
 """
 from __future__ import annotations
 
@@ -19,8 +22,9 @@ ALL = "*"   # marker: every seller
 
 
 class SourceAccess:
-    def __init__(self, cfg: EngineConfig, db: Any = None):
-        self.cfg = cfg
+    def __init__(self, cfg: EngineConfig, db: Any = None, registry: Any = None):
+        self.cfg, self.registry = cfg, registry
+        self.blocked: frozenset[str] = frozenset()
         self.enabled = cfg.source_access != "open" and cfg.messages_source == "db"
         self._db = db
         self.rules: dict[str, Any] = {}       # chat_id → ALL | frozenset(business_id)
@@ -33,6 +37,8 @@ class SourceAccess:
         return self._db
 
     def refresh(self) -> None:
+        if self.registry is not None:
+            self.blocked = self.registry.blocked()
         if not self.enabled:
             return
         from need_engine.sources import _ident
@@ -61,7 +67,12 @@ class SourceAccess:
         return self.enabled and self.loaded
 
     def analysed(self, chat_id: str) -> bool:
-        return not self._active() or str(chat_id) in self.rules
+        if not self._active():
+            return True
+        rule = self.rules.get(str(chat_id))
+        if rule is None:
+            return False
+        return rule == ALL or bool(rule - self.blocked)
 
     def sellers(self, chat_id: str) -> frozenset[str] | None:
         """None = every seller; otherwise the business ids whose products may be matched."""
@@ -71,10 +82,12 @@ class SourceAccess:
         return None if rule == ALL else rule
 
     def allows(self, chat_id: str, business_id: str | None) -> bool:
+        if business_id is not None and str(business_id) in self.blocked:
+            return False
         allowed = self.sellers(chat_id)
         return allowed is None or (business_id is not None and str(business_id) in allowed)
 
     def owners(self, chat_id: str) -> list[str]:
         """Sellers that pay for analysing this chat (empty for global/platform chats)."""
         allowed = self.sellers(chat_id)
-        return sorted(allowed) if allowed else []
+        return sorted(allowed - self.blocked) if allowed else []

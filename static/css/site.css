@@ -2964,3 +2964,18 @@ input, textarea, select {
   font-size: 3rem;
   margin-bottom: 14px;
 }
+
+
+/* RTL inputs (login / signup / public pages): text and placeholders start on the right */
+.form-input,
+input, textarea {
+  text-align: right;
+}
+.form-input::placeholder,
+input::placeholder,
+textarea::placeholder {
+  text-align: right;
+  direction: rtl;
+}
+input[dir="ltr"]:placeholder-shown { direction: rtl; text-align: right; }
+input[dir="ltr"]:not(:placeholder-shown) { text-align: left; }

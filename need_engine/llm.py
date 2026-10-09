@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from need_engine.config import EngineConfig
+from need_engine.registry import ModelRegistry
 from need_engine.store import Store
 
 log = logging.getLogger("need_engine.llm")
@@ -58,8 +59,8 @@ def _pacific_day() -> str:
 class RateLimiter:
     """Sliding-window RPM/TPM + persisted daily RPD per model (Gemini free tier resets at Pacific midnight)."""
 
-    def __init__(self, cfg: EngineConfig, store: Store):
-        self.cfg, self.store = cfg, store
+    def __init__(self, cfg: EngineConfig, store: Store, registry: ModelRegistry | None = None):
+        self.cfg, self.store, self.registry = cfg, store, registry
         self.lock = threading.Lock()
         self.win: dict[str, list[tuple[float, int]]] = defaultdict(list)
         self.cool: dict[str, float] = defaultdict(float)
@@ -68,7 +69,8 @@ class RateLimiter:
         self.waited = 0.0
 
     def _limits(self, model: str) -> tuple[int, float, int | None]:
-        lim = dict(self.cfg.rate_limits.get(model) or self.cfg.default_rate_limit)
+        panel = self.registry.rate_limit(model) if self.registry else None
+        lim = dict(panel or self.cfg.rate_limits.get(model) or self.cfg.default_rate_limit)
         f = self.cfg.rate_safety * self.scale[model]
         rpm = max(1, int((lim.get("rpm") or 10**9) * f))
         tpm = (lim.get("tpm") or 10**12) * self.cfg.rate_safety
@@ -123,15 +125,20 @@ def _est_tokens(*texts: str) -> int:
 class LLMClient:
     """``complete_json(stage, model, system, user)`` → (dict | None, usage). ``mock`` replaces the network (tests/demo)."""
 
-    def __init__(self, cfg: EngineConfig, store: Store, mock: Callable[[str, str, str], dict] | None = None):
+    def __init__(self, cfg: EngineConfig, store: Store, mock: Callable[[str, str, str], dict] | None = None,
+                 registry: ModelRegistry | None = None):
         self.cfg, self.store, self.mock = cfg, store, mock
-        self.rl = RateLimiter(cfg, store)
+        self.registry = registry or ModelRegistry(cfg)
+        self.rl = RateLimiter(cfg, store, self.registry)
 
-    # cost helpers
+    # cost helpers (prices: admin panel first, then NE_PRICES)
     def price(self, model: str, pt: int, ct: int) -> tuple[float, float]:
-        pin, pout = (self.cfg.prices.get(model) or (0.0, 0.0))
+        pin, pout = self.registry.price(model)
         usd = pt / 1e6 * pin + ct / 1e6 * pout
-        return usd, usd * self.cfg.usd_to_toman
+        return usd, self.toman(usd)
+
+    def toman(self, usd: float) -> float:
+        return usd * self.registry.usd_to_toman()
 
     def _record(self, stage: str, model: str, pt: int, ct: int, cached: bool, ref: str,
                 businesses: list[str | None] | None = None) -> float:
@@ -140,8 +147,9 @@ class LLMClient:
         return toman
 
     def _post(self, path: str, body: dict, timeout: float) -> tuple[int, str]:
-        req = urllib.request.Request(self.cfg.llm_base_url.rstrip("/") + path, data=json.dumps(body).encode(),
-                                     headers={"Authorization": f"Bearer {self.cfg.llm_api_key}", "Content-Type": "application/json"})
+        base_url, api_key = self.registry.endpoint(body.get("model", ""))
+        req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(body).encode(),
+                                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.status, r.read().decode("utf-8", "replace")
@@ -152,7 +160,9 @@ class LLMClient:
                       temperature: float = 0.0, parse_retries: int = 1, ref: str = "",
                       businesses: list[str | None] | None = None) -> tuple[dict | None, dict]:
         """Returns (data, usage) where usage = {"toman", "cached", "pt", "ct"}. Equivalent cost is recorded even on cache hits.
-        ``businesses``: sellers who pay for the call, split equally (None/empty = platform cost)."""
+        ``businesses``: sellers who pay for the call, split equally (None/empty = platform cost).
+        The model chosen for the stage's role in the admin panel (extract / verify / reply) replaces ``model``."""
+        model = self.registry.model_for(stage) or model
         key = hashlib.sha256(json.dumps([model, system, user, max_tokens, temperature, self.cfg.reasoning_effort],
                                         ensure_ascii=False).encode()).hexdigest()
         hit = self.store.cache_get(key)
@@ -165,8 +175,8 @@ class LLMClient:
             self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})
             toman = self._record(stage, model, pt, ct, False, ref, businesses)
             return parse_json(content), {"toman": toman, "cached": False, "pt": pt, "ct": ct}
-        if not self.cfg.llm_api_key:
-            raise LLMError("NE_LLM_API_KEY / GEMINI_API_KEY is not set")
+        if not self.registry.endpoint(model)[1]:
+            raise LLMError(f"no API key for {model}: add its provider in the admin panel or set NE_LLM_API_KEY")
 
         body: dict[str, Any] = {"model": model, "temperature": temperature, "max_tokens": max_tokens,
                                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],

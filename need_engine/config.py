@@ -75,6 +75,13 @@ class EngineConfig:
     default_rate_limit: dict = field(default_factory=lambda: {"rpm": 5, "tpm": 100000, "rpd": None})
     rate_safety: float = _f("NE_RATE_SAFETY", 0.9)
     usd_to_toman: float = _f("NE_USD_TO_TOMAN", 100000.0)
+    # Providers / models / prices / wallets from the admin panel (/ops/); NE_* values above are the fallback
+    model_registry: bool = _f("NE_MODEL_REGISTRY", True)
+    registry_ttl: float = _f("NE_REGISTRY_TTL", 60.0)
+    providers_table: str = _f("NE_PROVIDERS_TABLE", "public.billing_provider")
+    models_table: str = _f("NE_MODELS_TABLE", "public.billing_aimodel")
+    billing_settings_table: str = _f("NE_BILLING_SETTINGS_TABLE", "public.billing_billingsettings")
+    wallets_table: str = _f("NE_WALLETS_TABLE", "public.billing_wallet")
 
     # ── Embeddings (API only; no local model on the server) ────────────────
     embed_backend: str = _f("NE_EMBED_BACKEND", "gemini")                   # gemini | cloudflare | hash (tests)
