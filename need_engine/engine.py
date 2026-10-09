@@ -27,7 +27,7 @@ from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, Chat
 from need_engine.sources import MessageSource, ProductSource, message_source, product_source
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
-from need_engine.windowing import build_windows, is_ready
+from need_engine.windowing import build_windows, ready_batch
 
 log = logging.getLogger("need_engine")
 
@@ -191,11 +191,11 @@ class NeedEngine:
         now = now or datetime.now(timezone.utc)
         for chat_id in self.store.pending_chats():
             pending = self.store.pending(chat_id)
-            ready, why = is_ready(pending, now, self.cfg)
-            if not (ready or flush):
+            batch, why = (pending, "flush") if flush else ready_batch(pending, now, self.cfg)
+            if not batch:
                 continue
-            log.info("chat %s: analysing %d messages (%s)", chat_id, len(pending), why if ready else "flush")
-            for w in build_windows(chat_id, pending, self.store, self.cfg):
+            log.info("chat %s: analysing %d of %d pending messages (%s)", chat_id, len(batch), len(pending), why)
+            for w in build_windows(chat_id, batch, self.store, self.cfg):
                 try:
                     cards, toman = extract_window(w, self.llm, self.cfg, now)
                 except QuotaExhausted:

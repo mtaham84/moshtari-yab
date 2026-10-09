@@ -99,11 +99,10 @@ class EngineConfig:
     poll_seconds: int = _f("NE_POLL_SECONDS", 20)
 
     # ── When to analyse a chat (streaming triggers) ─────────────────────────
-    window_size: int = _f("NE_WINDOW_SIZE", 40)          # new messages per LLM call
+    window_size: int = _f("NE_WINDOW_SIZE", 50)          # new messages per LLM call
     context_messages: int = _f("NE_CONTEXT_MESSAGES", 10)  # already-analysed messages shown as context
-    trigger_count: int = _f("NE_TRIGGER_COUNT", 40)        # analyse when this many new messages are pending…
-    silence_minutes: float = _f("NE_SILENCE_MINUTES", 10.0)  # …or the chat has been quiet this long…
-    max_wait_minutes: float = _f("NE_MAX_WAIT_MINUTES", 30.0)  # …or the oldest pending message is this old
+    trigger_count: int = _f("NE_TRIGGER_COUNT", 50)        # analyse a chat every N new messages (count only, no timers)
+    max_wait_minutes: float = _f("NE_MAX_WAIT_MINUTES", 0.0)  # optional fallback, 0 = off: analyse leftovers this old
     gap_marker_minutes: float = _f("NE_GAP_MARKER_MINUTES", 20.0)  # show «⏸ N hours later» markers
     min_text_chars: int = _f("NE_MIN_TEXT_CHARS", 2)
 
