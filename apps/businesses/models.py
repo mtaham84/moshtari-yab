@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.core.validators import MaxValueValidator, MinValueValidator
 
 class Business(models.Model):
     BUSINESS_TYPE_CHOICES = [
@@ -94,3 +95,40 @@ class Business(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.get_business_type_display()})"
+
+
+class MessageStyle(models.Model):
+    """How the agent writes reply drafts for this seller. Only tone/format: the engine's fixed rules always win."""
+
+    TONE_CHOICES = [("FORMAL", "رسمی"), ("FRIENDLY", "دوستانه"), ("CASUAL", "خودمانی")]
+
+    business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="message_style",
+                                    verbose_name="کسب‌وکار")
+    tone = models.CharField(max_length=10, choices=TONE_CHOICES, default="FRIENDLY", verbose_name="لحن")
+    max_sentences = models.PositiveSmallIntegerField(
+        default=3, validators=[MinValueValidator(1), MaxValueValidator(5)], verbose_name="حداکثر تعداد جمله")
+    use_emoji = models.BooleanField(default=False, verbose_name="استفاده از ایموجی")
+    signature = models.CharField(max_length=100, blank=True, default="", verbose_name="امضا")
+    include_link = models.BooleanField(default=True, verbose_name="لینک محصول در پیام")
+    extra_instructions = models.TextField(max_length=500, blank=True, default="", verbose_name="توضیحات سبک (اختیاری)")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "سبک پیام"
+        verbose_name_plural = "سبک‌های پیام"
+
+    @classmethod
+    def for_business(cls, business: Business) -> "MessageStyle":
+        """Saved style, or an unsaved default one."""
+        try:
+            return business.message_style
+        except cls.DoesNotExist:
+            return cls(business=business)
+
+    def as_engine_dict(self) -> dict:
+        return {"tone": self.tone, "max_sentences": self.max_sentences, "use_emoji": self.use_emoji,
+                "signature": self.signature, "include_link": self.include_link,
+                "extra_instructions": self.extra_instructions}
+
+    def __str__(self):
+        return f"سبک پیام {self.business}"

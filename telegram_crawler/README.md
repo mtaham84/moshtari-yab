@@ -14,7 +14,12 @@ python -m telegram_crawler.main --links-file groups.txt --hours 48 --limit 500
 اتصال به پنل (`telegram_crawler/panel.py`): هر `TG_PANEL_POLL_SECONDS` جدول `TG_PANEL_TABLE`
 (`public.discovery_monitoredcommunity`) خوانده می‌شود؛ لینک‌های فعال جدید join و backfill می‌شوند، غیرفعال‌ها متوقف
 می‌شوند و `telegram_chat_id`، `sync_status`، `sync_error`، `members_count`، `messages_scanned_count` و
-`last_scanned_at` در همان جدول به‌روز می‌شوند. اگر session لاگین نباشد کراولر پیام راهنما چاپ می‌کند و منتظر می‌ماند.
+`last_scanned_at` در همان جدول به‌روز می‌شوند.
+یک گروه هر چند ردیف (عمومی یا اختصاصی چند فروشنده) داشته باشد فقط یک بار join می‌شود. joinها در صف‌اند: بین دو join
+حداقل `TG_JOIN_INTERVAL_SECONDS` (پیش‌فرض ۶۰) فاصله است، FloodWait کل صف را عقب می‌اندازد و حداکثر `TG_MAX_GROUPS`
+(پیش‌فرض ۱۰۰) گروه پایش می‌شود. گروه‌هایی که حساب از قبل عضوشان است بعد از ری‌استارت بدون join دوباره استفاده می‌شوند.
+`sync_error` یک کد است که پنل ترجمه می‌کند: `INVALID_LINK`، `NO_ACCESS`، `NOT_A_GROUP`، `BANNED`، `LIMIT_REACHED`،
+`FLOOD_WAIT:<ثانیه>`، `UNKNOWN:<متن>`. خطاهای دائمی تا وقتی فروشنده منبع را دوباره فعال نکند تکرار نمی‌شوند. اگر session لاگین نباشد کراولر پیام راهنما چاپ می‌کند و منتظر می‌ماند.
 
 | آرگومان | پیش‌فرض | توضیح |
 |---|---|---|

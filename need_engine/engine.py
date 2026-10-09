@@ -16,6 +16,7 @@ from typing import Callable
 
 import numpy as np
 
+from need_engine.access import SourceAccess
 from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
@@ -24,10 +25,11 @@ from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.retrieve import retrieve
 from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, ChatMessage, Cost, Evidence, MatchedProduct,
                                  NeedCard, NeedOut, Opportunity, Source)
-from need_engine.sources import MessageSource, ProductSource, message_source, product_source
+from need_engine.reply import MessageStyle
+from need_engine.sources import MessageSource, ProductSource, StyleSource, message_source, product_source
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
-from need_engine.windowing import build_windows, is_ready
+from need_engine.windowing import build_windows, ready_batch
 
 log = logging.getLogger("need_engine")
 
@@ -79,7 +81,8 @@ def _message_url(m: ChatMessage) -> str | None:
 class NeedEngine:
     def __init__(self, cfg: EngineConfig | None = None, messages: MessageSource | None = None,
                  products: ProductSource | None = None, sink: Sink | None = None,
-                 mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None):
+                 mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None,
+                 styles: StyleSource | None = None):
         self.cfg = cfg or EngineConfig()
         self.store = store or Store(self.cfg.database_url, self.cfg.state_schema)
         self.llm = LLMClient(self.cfg, self.store, mock=mock_llm)
@@ -88,6 +91,9 @@ class NeedEngine:
         self.messages = messages or message_source(self.cfg)
         self.products = products or product_source(self.cfg)
         self.sink = sink or (JsonlSink(self.cfg.output_jsonl) if self.cfg.output_jsonl else None)
+        self.access = SourceAccess(self.cfg)
+        self.style_source = styles or StyleSource(self.cfg)
+        self.styles: dict[str, MessageStyle] = {}
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
@@ -97,7 +103,8 @@ class NeedEngine:
             batch = self.messages.fetch_after(cursor, self.cfg.fetch_batch)
             if not batch:
                 break
-            total += self.store.add_pending(batch)
+            keep = [m for m in batch if self.access.analysed(m.chat_id)]   # chats without an active source: skipped
+            total += self.store.add_pending(keep) if keep else 0
             cursor = max(m.row_id for m in batch)
             self.store.set("fetch_cursor", cursor)
             if len(batch) < self.cfg.fetch_batch:
@@ -112,7 +119,10 @@ class NeedEngine:
             return
         needs = self.store.open_needs()
         for pid in changed:
-            hits, toman = verify_new_product(pid, needs, self.catalog, self.llm, self.cfg)
+            j = self.catalog.pid_index.get(pid)
+            owner = self.catalog.products[j].business_id if j is not None else None
+            visible = [(n, v) for n, v in needs if self.access.allows(n.chat_id, owner)]
+            hits, toman = verify_new_product(pid, visible, self.catalog, self.llm, self.cfg)
             report.cost_matching_toman += toman
             for need_id, mp in hits.items():
                 n = self.store.need(need_id)
@@ -124,7 +134,7 @@ class NeedEngine:
                 self._finish_and_emit(n, matches, report, extra_cost=toman / max(1, len(hits)))
 
     def _match(self, n: NeedCard, qvecs: np.ndarray | None, report: RunReport) -> None:
-        ret = retrieve(n, qvecs, self.catalog, self.cfg)
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=self.access.sellers(n.chat_id))
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
         report.cost_matching_toman += toman
         n.cost_toman += toman
@@ -137,7 +147,10 @@ class NeedEngine:
         if self.cfg.write_replies:
             for mp in matches[:self.cfg.reply_top_n]:
                 if mp.reply_draft is None:
-                    mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg)
+                    j = self.catalog.pid_index.get(mp.product_id)
+                    owner = self.catalog.products[j].business_id if j is not None else None
+                    mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg,
+                                                    style=self.styles.get(str(owner)))
                     report.cost_matching_toman += t
                     n.cost_toman += t
                     n.llm_calls += 1
@@ -190,14 +203,16 @@ class NeedEngine:
     def process(self, report: RunReport, now: datetime | None = None, flush: bool = False) -> None:
         now = now or datetime.now(timezone.utc)
         for chat_id in self.store.pending_chats():
-            pending = self.store.pending(chat_id)
-            ready, why = is_ready(pending, now, self.cfg)
-            if not (ready or flush):
+            if not self.access.analysed(chat_id):      # source removed/paused since the messages were queued
                 continue
-            log.info("chat %s: analysing %d messages (%s)", chat_id, len(pending), why if ready else "flush")
-            for w in build_windows(chat_id, pending, self.store, self.cfg):
+            pending = self.store.pending(chat_id)
+            batch, why = (pending, "flush") if flush else ready_batch(pending, now, self.cfg)
+            if not batch:
+                continue
+            log.info("chat %s: analysing %d of %d pending messages (%s)", chat_id, len(batch), len(pending), why)
+            for w in build_windows(chat_id, batch, self.store, self.cfg):
                 try:
-                    cards, toman = extract_window(w, self.llm, self.cfg, now)
+                    cards, toman = extract_window(w, self.llm, self.cfg, now, payers=self.access.owners(chat_id))
                 except QuotaExhausted:
                     raise
                 except Exception as e:  # keep the messages pending; they are retried next run
@@ -233,6 +248,8 @@ class NeedEngine:
     def run_once(self, now: datetime | None = None, flush: bool = False) -> RunReport:
         report = RunReport()
         try:
+            self.access.refresh()
+            self.styles = {b: MessageStyle.from_dict(d) for b, d in self.style_source.all().items()}
             self.sync_products(report)
             report.ingested = self.ingest()
             self.process(report, now=now, flush=flush)

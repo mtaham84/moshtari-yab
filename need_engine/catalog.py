@@ -33,6 +33,17 @@ def _vec_texts(p: Product, c: ProductCard) -> tuple[list[str], list[str]]:
     return texts, kinds
 
 
+def card_from_dict(pid: str, c: dict) -> ProductCard:
+    def opt(v):
+        v = "" if v is None else str(v).strip()
+        return None if v in ("", "null") else v
+
+    return ProductCard(product_id=pid, what_it_is=str(c.get("what_it_is") or ""),
+                       aliases=[str(x) for x in c.get("aliases") or [] if str(x).strip()][:5],
+                       problems_solved=[str(x) for x in c.get("problems_solved") or [] if str(x).strip()][:4],
+                       audience=opt(c.get("audience")), use=opt(c.get("use")), level=opt(c.get("level")))
+
+
 class Catalog:
     def __init__(self, cfg: EngineConfig, store: Store, llm: LLMClient, emb: Embedder):
         self.cfg, self.store, self.llm, self.emb = cfg, store, llm, emb
@@ -51,11 +62,15 @@ class Catalog:
         def run(batch: list[Product]) -> list[dict]:
             user = json.dumps({"listings": [_listing(p) for p in batch]}, ensure_ascii=False)
             data, _ = self.llm.complete_json("product_cards", self.cfg.extract_model, PRODUCT_CARD_SYSTEM, user, max_tokens=4096,
-                                             ref=",".join(p.product_id for p in batch))
+                                             ref=",".join(p.product_id for p in batch),
+                                             businesses=[p.business_id for p in batch])
             return [c for c in (data or {}).get("cards", []) if isinstance(c, dict)]
 
         got: dict[str, ProductCard] = {}
-        todo = prods
+        for p in prods:   # the seller edited the card → used as is, no LLM call
+            if p.card_override:
+                got[p.product_id] = card_from_dict(p.product_id, p.card_override)
+        todo = [p for p in prods if p.product_id not in got]
         for size in (10, 3, 1):  # products the model skipped are retried in smaller batches
             if not todo:
                 break
@@ -65,10 +80,7 @@ class Catalog:
                     for c in cards:
                         pid = str(c.get("product_id"))
                         try:
-                            got[pid] = ProductCard(product_id=pid, what_it_is=str(c.get("what_it_is") or ""),
-                                                   aliases=[str(x) for x in c.get("aliases") or []][:5],
-                                                   problems_solved=[str(x) for x in c.get("problems_solved") or []][:4],
-                                                   audience=c.get("audience"), use=c.get("use"), level=c.get("level"))
+                            got[pid] = card_from_dict(pid, c)
                         except Exception:
                             continue
             todo = [p for p in todo if p.product_id not in got]
@@ -97,6 +109,9 @@ class Catalog:
             for p, c, s, ln, k in spans:
                 self.store.save_product(p, c, V[s:s + ln], k)
         self._load()
+        for p in self.products:   # url is not in the hash: always take the current one
+            if p.product_id in current:
+                p.url = current[p.product_id].url
         return [p.product_id for p in changed]
 
     def _load(self) -> None:

@@ -24,7 +24,7 @@ def adaptive_threshold(dense: np.ndarray, cfg: EngineConfig, gap: float | None =
     """threshold = mean similarity of the top-N products − gap, never below the floor."""
     gap = cfg.sim_gap if gap is None else gap
     floor = cfg.effective_sim_floor() if floor is None else floor
-    top = np.sort(dense)[::-1][:cfg.sim_top_n]
+    top = np.sort(dense[np.isfinite(dense)])[::-1][:cfg.sim_top_n]   # -inf = product the chat may not see
     m = float(top.mean()) if len(top) else 0.0
     return max(floor, m - gap), m
 
@@ -63,14 +63,21 @@ class Retrieval:
     dropped_budget: int = 0
 
 
-def retrieve(n: NeedCard, qvecs: np.ndarray, cat: Catalog, cfg: EngineConfig) -> Retrieval:
+def retrieve(n: NeedCard, qvecs: np.ndarray, cat: Catalog, cfg: EngineConfig,
+             allowed: frozenset[str] | None = None) -> Retrieval:
+    """``allowed`` = business ids whose products this need's chat may be matched against (None = all sellers)."""
     if cat.n == 0 or qvecs is None or len(qvecs) == 0:
         return Retrieval()
     dense = cat.dense_scores(qvecs)
+    if allowed is not None:
+        visible = np.array([p.business_id in allowed for p in cat.products], dtype=bool)
+        if not visible.any():
+            return Retrieval()
+        dense = np.where(visible, dense, -np.inf).astype(np.float32)
     L = max(cfg.cand_max * 2, 100)
     d_rank = [int(j) for j in np.argsort(-dense)[:L]]
     bm = cat.bm25.scores(" ".join(n.solution_queries)) if cat.bm25 else np.zeros(cat.n)
-    b_rank = [int(j) for j in np.argsort(-bm)[:L] if bm[j] > 0]
+    b_rank = [int(j) for j in np.argsort(-bm)[:L] if bm[j] > 0 and np.isfinite(dense[j])]
     fused = rrf(d_rank, b_rank, k=cfg.rrf_k, weights=[1.0, cfg.bm25_weight])
     pos = {j: r for r, j in enumerate(fused)}
     sel = sorted(select_candidates(dense, b_rank, cfg), key=lambda j: pos.get(j, 10**9))

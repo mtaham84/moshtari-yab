@@ -8,22 +8,34 @@ from pathlib import Path
 from typing import Any, Tuple
 from telethon import TelegramClient
 from telethon.errors import (
+    ChannelPrivateError,
+    ChannelsTooMuchError,
     InviteHashExpiredError,
     InviteHashInvalidError,
+    InviteRequestSentError,
     UserAlreadyParticipantError,
+    UserBannedInChannelError,
 )
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import (
     CheckChatInviteRequest,
     ImportChatInviteRequest,
 )
-from telethon.tl.types import ChatInviteAlready
+from telethon.tl.types import ChatInviteAlready, User
 
 from telegram_crawler.config import settings
 from telegram_crawler.models import GroupInfo
 from telegram_crawler.ratelimit import FloodWaitTooLong, with_flood_retry
 
 log = logging.getLogger("telegram_crawler.client")
+
+
+class JoinError(RuntimeError):
+    """A link that cannot be monitored. ``code`` is one of the panel error codes (see telegram_crawler.panel)."""
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(f"{code}: {detail}" if detail else code)
+        self.code = code
 
 
 def create_telegram_client(
@@ -113,19 +125,22 @@ async def join_and_resolve_group(
             else:
                 raise RuntimeError("Could not resolve chat from invite hash while already participant.")
         except (InviteHashExpiredError, InviteHashInvalidError) as exc:
-            raise ValueError(f"Invite link is invalid or expired: {exc}") from exc
+            raise JoinError("NO_ACCESS", f"invite link is invalid or expired: {exc}") from exc
 
     elif link_type in ("public", "id"):
         target_ref: Any = int(identifier) if link_type == "id" else identifier
         log.info("Resolving entity: %s", target_ref)
         entity = await with_flood_retry(lambda: client.get_entity(target_ref), what="get_entity")
+        if isinstance(entity, User):
+            raise JoinError("NOT_A_GROUP", f"{target_ref} is a user or bot")
 
         try:
             await with_flood_retry(lambda: client(JoinChannelRequest(entity)), what="join(public)")
             log.info("Joined public channel/group: %s", getattr(entity, "title", target_ref))
         except UserAlreadyParticipantError:
             log.info("Already a member of %s", getattr(entity, "title", target_ref))
-        except FloodWaitTooLong:
+        except (FloodWaitTooLong, ChannelPrivateError, ChannelsTooMuchError, InviteRequestSentError,
+                UserBannedInChannelError):
             raise
         except Exception as exc:
             log.debug("JoinChannelRequest note (may already be in or not needed): %s", exc)

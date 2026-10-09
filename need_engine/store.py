@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS {s}.product_vectors (
 CREATE TABLE IF NOT EXISTS {s}.llm_cache (k TEXT PRIMARY KEY, payload JSONB NOT NULL);
 CREATE TABLE IF NOT EXISTS {s}.costs (id BIGSERIAL PRIMARY KEY, ts DOUBLE PRECISION, stage TEXT, model TEXT,
     prompt_tokens INTEGER, completion_tokens INTEGER, cached BOOLEAN, usd DOUBLE PRECISION, toman DOUBLE PRECISION, ref TEXT);
+ALTER TABLE {s}.costs ADD COLUMN IF NOT EXISTS business_id TEXT;
+ALTER TABLE {s}.costs ADD COLUMN IF NOT EXISTS part SMALLINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS costs_business_idx ON {s}.costs (business_id);
+CREATE TABLE IF NOT EXISTS {s}.chat_analysed (chat_id TEXT PRIMARY KEY, n BIGINT NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS {s}.emitted (opportunity_id TEXT PRIMARY KEY, fingerprint TEXT, ts DOUBLE PRECISION, payload JSONB);
 CREATE TABLE IF NOT EXISTS {s}.quota (day TEXT, model TEXT, n INTEGER, PRIMARY KEY (day, model));
 CREATE SEQUENCE IF NOT EXISTS {s}.opportunities_seq;
@@ -130,6 +134,9 @@ class Store:
                 c.execute(f"""DELETE FROM {self._t('recent')} WHERE chat_id = %s AND message_id NOT IN
                               (SELECT message_id FROM {self._t('recent')} WHERE chat_id = %s ORDER BY message_id DESC LIMIT %s)""",
                           (chat_id, chat_id, max(keep_recent, 1)))
+                c.execute(f"""INSERT INTO {self._t('chat_analysed')} (chat_id, n) VALUES (%s, %s)
+                              ON CONFLICT (chat_id) DO UPDATE SET n = {self._t('chat_analysed')}.n + EXCLUDED.n""",
+                          (chat_id, len(msgs)))
                 c.execute(f"""INSERT INTO {self._t('kv')} (k, v) VALUES ('messages_analysed', to_jsonb(%s::bigint))
                               ON CONFLICT (k) DO UPDATE SET v = to_jsonb(({self._t('kv')}.v #>> '{{}}')::bigint + %s)""",
                           (len(msgs), len(msgs)))
@@ -255,23 +262,46 @@ class Store:
         self._exec("INSERT INTO {s}.llm_cache (k, payload) VALUES (%s, %s) ON CONFLICT (k) DO UPDATE SET payload = EXCLUDED.payload",
                    (k, Jsonb(v)))
 
-    def add_cost(self, stage: str, model: str, pt: int, ct: int, cached: bool, usd: float, toman: float, ref: str = "") -> None:
-        self._exec("""INSERT INTO {s}.costs (ts, stage, model, prompt_tokens, completion_tokens, cached, usd, toman, ref)
-                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""", (time.time(), stage, model, pt, ct, bool(cached), usd, toman, ref))
+    def add_cost(self, stage: str, model: str, pt: int, ct: int, cached: bool, usd: float, toman: float, ref: str = "",
+                 businesses: list[str | None] | None = None) -> None:
+        """One ledger row per payer. ``businesses`` = sellers sharing the call equally (None entries / empty = platform)."""
+        payers = list(businesses) if businesses else [None]
+        k = len(payers)
+        now = time.time()
+        for i, b in enumerate(payers):
+            share_pt, share_ct = pt // k + (1 if i < pt % k else 0), ct // k + (1 if i < ct % k else 0)
+            self._exec("""INSERT INTO {s}.costs (ts, stage, model, prompt_tokens, completion_tokens, cached, usd, toman, ref,
+                                                business_id, part)
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                       (now, stage, model, share_pt, share_ct, bool(cached), usd / k, toman / k, ref, str(b) if b else None, i))
 
-    def cost_summary(self, since_ts: float = 0.0) -> list[dict]:
-        rows = self._all("""SELECT stage, model, COUNT(*) AS calls, SUM(cached::int) AS cached, SUM(prompt_tokens) AS pt,
+    def cost_summary(self, since_ts: float = 0.0, business_id: str | None = None) -> list[dict]:
+        where, params = ("AND business_id = %s", (since_ts, str(business_id))) if business_id else ("", (since_ts,))
+        once = "TRUE" if business_id else "part = 0"    # a call shared by several sellers counts once overall
+        rows = self._all(f"""SELECT stage, model, COUNT(*) FILTER (WHERE {once}) AS calls,
+                            SUM(cached::int) FILTER (WHERE {once}) AS cached, SUM(prompt_tokens) AS pt,
                             SUM(completion_tokens) AS ct, SUM(usd) AS usd, SUM(toman) AS toman
-                            FROM {s}.costs WHERE ts >= %s GROUP BY stage, model ORDER BY stage, model""", (since_ts,))
+                            FROM {{s}}.costs WHERE ts >= %s {where} GROUP BY stage, model ORDER BY stage, model""", params)
         return [{k: (float(v) if k in ("usd", "toman") and v is not None else (int(v) if v is not None and k in ("calls", "cached", "pt", "ct") else v))
                  for k, v in r.items()} for r in rows]
 
-    def totals(self) -> dict:
-        """Lifetime numbers for the dashboard: messages reviewed, LLM calls and total cost."""
-        r = self._all("SELECT COUNT(*) AS calls, COALESCE(SUM(toman), 0) AS toman, COALESCE(SUM(usd), 0) AS usd FROM {s}.costs")[0]
-        n = int(self.get("messages_analysed", 0) or 0)
+    def totals(self, business_id: str | None = None, chat_ids: list[str] | None = None) -> dict:
+        """Lifetime numbers: messages reviewed, LLM calls and cost. With ``business_id``: that seller's share of the cost
+        over the messages of ``chat_ids`` (the chats reviewed on the seller's behalf)."""
+        if business_id is None:
+            r = self._all("""SELECT COUNT(*) FILTER (WHERE part = 0) AS calls, COALESCE(SUM(toman), 0) AS toman,
+                             COALESCE(SUM(usd), 0) AS usd FROM {s}.costs""")[0]
+            n = int(self.get("messages_analysed", 0) or 0)
+        else:
+            r = self._all("""SELECT COUNT(*) AS calls, COALESCE(SUM(toman), 0) AS toman, COALESCE(SUM(usd), 0) AS usd
+                             FROM {s}.costs WHERE business_id = %s""", (str(business_id),))[0]
+            n = self.messages_in_chats(chat_ids or [])
         return {"messages_analysed": n, "llm_calls": int(r["calls"]), "cost_toman": float(r["toman"]), "cost_usd": float(r["usd"]),
                 "cost_per_message_toman": float(r["toman"]) / n if n else 0.0}
+
+    def messages_in_chats(self, chat_ids: list[str]) -> int:
+        rows = self._all("SELECT COALESCE(SUM(n), 0) AS n FROM {s}.chat_analysed WHERE chat_id = ANY(%s)", ([str(c) for c in chat_ids],))
+        return int(rows[0]["n"]) if rows else 0
 
     def quota_used(self, day: str, model: str) -> int:
         rows = self._all("SELECT n FROM {s}.quota WHERE day = %s AND model = %s", (day, model))

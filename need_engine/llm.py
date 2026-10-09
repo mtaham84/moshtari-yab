@@ -133,9 +133,10 @@ class LLMClient:
         usd = pt / 1e6 * pin + ct / 1e6 * pout
         return usd, usd * self.cfg.usd_to_toman
 
-    def _record(self, stage: str, model: str, pt: int, ct: int, cached: bool, ref: str) -> float:
+    def _record(self, stage: str, model: str, pt: int, ct: int, cached: bool, ref: str,
+                businesses: list[str | None] | None = None) -> float:
         usd, toman = self.price(model, pt, ct)
-        self.store.add_cost(stage, model, pt, ct, cached, usd, toman, ref)
+        self.store.add_cost(stage, model, pt, ct, cached, usd, toman, ref, businesses)
         return toman
 
     def _post(self, path: str, body: dict, timeout: float) -> tuple[int, str]:
@@ -148,19 +149,21 @@ class LLMClient:
             return e.code, e.read().decode("utf-8", "replace")
 
     def complete_json(self, stage: str, model: str, system: str, user: str, max_tokens: int = 4096,
-                      temperature: float = 0.0, parse_retries: int = 1, ref: str = "") -> tuple[dict | None, dict]:
-        """Returns (data, usage) where usage = {"toman", "cached", "pt", "ct"}. Equivalent cost is recorded even on cache hits."""
+                      temperature: float = 0.0, parse_retries: int = 1, ref: str = "",
+                      businesses: list[str | None] | None = None) -> tuple[dict | None, dict]:
+        """Returns (data, usage) where usage = {"toman", "cached", "pt", "ct"}. Equivalent cost is recorded even on cache hits.
+        ``businesses``: sellers who pay for the call, split equally (None/empty = platform cost)."""
         key = hashlib.sha256(json.dumps([model, system, user, max_tokens, temperature, self.cfg.reasoning_effort],
                                         ensure_ascii=False).encode()).hexdigest()
         hit = self.store.cache_get(key)
         if hit is not None:
-            toman = self._record(stage, model, hit["pt"], hit["ct"], True, ref)
+            toman = self._record(stage, model, hit["pt"], hit["ct"], True, ref, businesses)
             return parse_json(hit["content"]), {"toman": toman, "cached": True, "pt": hit["pt"], "ct": hit["ct"]}
         if self.mock is not None:
             content = json.dumps(self.mock(stage, system, user), ensure_ascii=False)
             pt, ct = len(system + user) // 3, len(content) // 3
             self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})
-            toman = self._record(stage, model, pt, ct, False, ref)
+            toman = self._record(stage, model, pt, ct, False, ref, businesses)
             return parse_json(content), {"toman": toman, "cached": False, "pt": pt, "ct": ct}
         if not self.cfg.llm_api_key:
             raise LLMError("NE_LLM_API_KEY / GEMINI_API_KEY is not set")
@@ -207,7 +210,7 @@ class LLMClient:
             pt, ct, tot = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0), int(u.get("total_tokens") or 0)
             if tot > pt + ct:
                 ct = tot - pt  # thinking tokens are billed as output
-            spent += self._record(stage, model, pt, ct, False, ref)
+            spent += self._record(stage, model, pt, ct, False, ref, businesses)
             data = parse_json(content)
             if data is not None:
                 self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})

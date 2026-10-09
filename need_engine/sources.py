@@ -167,8 +167,18 @@ class JsonlProductSource:
                 product_type=o.get("product_type") or "", price_toman=_price(o.get("price_toman", o.get("price"))),
                 city=o.get("city"), ships_nationwide=bool(o.get("ships_nationwide", True)),
                 attributes=o.get("attributes") if isinstance(o.get("attributes"), dict) else {},
-                tags=o.get("tags") if isinstance(o.get("tags"), list) else []))
+                tags=o.get("tags") if isinstance(o.get("tags"), list) else [], url=o.get("url") or None,
+                card_override=_json_dict(o.get("card_override"))))
         return out
+
+
+def _json_dict(v: Any) -> dict | None:
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            return None
+    return v if isinstance(v, dict) and v else None
 
 
 class SQLProductSource:
@@ -178,7 +188,8 @@ class SQLProductSource:
         self.cfg, self.db = cfg, _DB(dsn or cfg.database_url)
 
     def all(self) -> list[Product]:
-        rows = self.db.all(f"""SELECT id, business_id, name, description, product_type, price, attributes, target_customer
+        rows = self.db.all(f"""SELECT id, business_id, name, description, product_type, price, attributes, target_customer,
+                                      url, agent_card_override
                                FROM {_ident(self.cfg.products_table)} WHERE status = 'ACTIVE' AND is_discovery_active = %s""", (True,))
         out = []
         for r in rows:
@@ -191,8 +202,25 @@ class SQLProductSource:
             desc = " ".join(x for x in [r.get("description") or "", r.get("target_customer") or ""] if x)
             out.append(Product(product_id=str(r["id"]), business_id=str(r.get("business_id") or "") or None, title=r.get("name") or "",
                                description=desc, product_type=str(r.get("product_type") or ""), price_toman=_price(r.get("price")),
-                               attributes=attrs if isinstance(attrs, dict) else {}))
+                               attributes=attrs if isinstance(attrs, dict) else {}, url=(r.get("url") or None),
+                               card_override=_json_dict(r.get("agent_card_override"))))
         return out
+
+
+class StyleSource:
+    """Sellers' reply styles from Django's ``businesses_messagestyle`` (read-only). {} when not available."""
+
+    def __init__(self, cfg: EngineConfig, db: Any = None):
+        self.cfg, self._db = cfg, db
+
+    def all(self) -> dict[str, dict]:
+        if self.cfg.products_source != "db" and self._db is None:
+            return {}
+        if self._db is None:
+            self._db = _DB(self.cfg.database_url)
+        rows = self._db.all(f"""SELECT business_id, tone, max_sentences, use_emoji, signature, include_link, extra_instructions
+                                FROM {_ident(self.cfg.styles_table)}""")
+        return {str(r["business_id"]): dict(r) for r in rows}
 
 
 def product_source(cfg: EngineConfig) -> ProductSource:

@@ -4,6 +4,10 @@ The panel table (``public.discovery_monitoredcommunity``) is the list of groups 
 the crawler polls it, joins new links, pauses inactive ones and writes back status and counters
 (telegram_chat_id, sync_status, sync_error, members_count, messages_scanned_count, last_scanned_at).
 Nothing needs a restart: add a community in the panel and it is picked up on the next poll.
+
+Rows may belong to a seller (PRIVATE) or to nobody (GLOBAL, business_id NULL); the crawler does not care:
+a group is joined once however many rows point to it. ``sync_error`` holds a code the panel translates:
+INVALID_LINK, NO_ACCESS, NOT_A_GROUP, BANNED, LIMIT_REACHED, FLOOD_WAIT:<seconds>, UNKNOWN:<detail>.
 """
 
 from __future__ import annotations
@@ -25,6 +29,39 @@ class Community:
     is_active: bool
     chat_id: int | None
     status: str = "PENDING"
+    error: str = ""
+
+
+# Errors that will not go away by retrying the same link: retried only after the seller re-activates the row.
+PERMANENT_ERRORS = {"INVALID_LINK", "NO_ACCESS", "NOT_A_GROUP", "BANNED"}
+
+
+def classify_join_error(exc: BaseException) -> tuple[str, int]:
+    """Exception raised while joining → (panel error code, seconds to wait before retrying; 0 = see PERMANENT_ERRORS)."""
+    from telethon import errors as tg
+
+    from telegram_crawler.ratelimit import FloodWaitTooLong
+    from telegram_crawler.telegram_client import JoinError
+
+    if isinstance(exc, (FloodWaitTooLong, tg.FloodWaitError)):
+        seconds = int(getattr(exc, "seconds", 0) or 0) or 60
+        return f"FLOOD_WAIT:{seconds}", seconds
+    if isinstance(exc, JoinError):
+        return exc.code, 0
+    if isinstance(exc, (tg.UsernameNotOccupiedError, tg.UsernameInvalidError, tg.ChannelInvalidError,
+                        tg.ChatInvalidError, tg.PeerIdInvalidError)):
+        return "INVALID_LINK", 0
+    if isinstance(exc, (tg.InviteHashExpiredError, tg.InviteHashInvalidError, tg.ChannelPrivateError,
+                        tg.InviteRequestSentError)):
+        return "NO_ACCESS", 0
+    if isinstance(exc, tg.UserBannedInChannelError):
+        return "BANNED", 0
+    if isinstance(exc, tg.ChannelsTooMuchError):
+        return "LIMIT_REACHED", 3600
+    text = str(exc) or exc.__class__.__name__
+    if isinstance(exc, ValueError) and ("No user has" in text or "Cannot find any entity" in text):
+        return "INVALID_LINK", 0     # what Telethon's get_entity raises for an unknown username
+    return f"UNKNOWN:{text[:200]}", 600
 
 
 def normalize_link(link: str) -> str:
@@ -57,10 +94,10 @@ class PanelCommunities:
         if not self.available():
             return []
         rows = self.conn.execute(
-            f"SELECT id, handle_or_link, is_active, telegram_chat_id, sync_status FROM {self.table} "
+            f"SELECT id, handle_or_link, is_active, telegram_chat_id, sync_status, sync_error FROM {self.table} "
             "WHERE platform = 'telegram' ORDER BY id").fetchall()
-        return [Community(r["id"], r["handle_or_link"], r["is_active"], r["telegram_chat_id"], r["sync_status"])
-                for r in rows]
+        return [Community(r["id"], r["handle_or_link"], r["is_active"], r["telegram_chat_id"], r["sync_status"],
+                          r["sync_error"] or "") for r in rows]
 
     def mark_joined(self, community_id: int, chat_id: int, title: str | None, members: int | None) -> None:
         self.conn.execute(
@@ -69,9 +106,16 @@ class PanelCommunities:
             "name = CASE WHEN name = '' OR name = handle_or_link THEN COALESCE(%s, name) ELSE name END "
             "WHERE id = %s", (chat_id, members, title, community_id))
 
-    def mark_error(self, community_id: int, error: str) -> None:
-        self.conn.execute(f"UPDATE {self.table} SET sync_status = 'ERROR', sync_error = %s WHERE id = %s",
-                          (error[:500], community_id))
+    def mark_error(self, community_ids: int | list[int], error: str) -> None:
+        ids = [community_ids] if isinstance(community_ids, int) else list(community_ids)
+        self.conn.execute(f"UPDATE {self.table} SET sync_status = 'ERROR', sync_error = %s WHERE id = ANY(%s)",
+                          (error[:500], ids))
+
+    def mark_waiting(self, community_ids: list[int], note: str) -> None:
+        """Still queued (PENDING) but with a reason shown to the seller, e.g. FLOOD_WAIT:<s> or LIMIT_REACHED."""
+        if community_ids:
+            self.conn.execute(f"UPDATE {self.table} SET sync_status = 'PENDING', sync_error = %s "
+                              "WHERE id = ANY(%s) AND telegram_chat_id IS NULL", (note[:500], community_ids))
 
     def mark_paused(self, community_ids: list[int]) -> None:
         if community_ids:

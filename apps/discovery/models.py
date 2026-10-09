@@ -1,5 +1,6 @@
 from django.db import models
 from apps.businesses.models import Business
+from .sources import GLOBAL, PRIVATE, SCOPE_CHOICES, display_link, normalize_link, sync_error_message
 from apps.products.models import Product, Category
 
 class ProductDailyMetric(models.Model):
@@ -565,9 +566,19 @@ class MonitoredCommunity(models.Model):
     business = models.ForeignKey(
         Business,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="monitored_communities",
-        verbose_name="کسب‌وکار"
+        verbose_name="کسب‌وکار (برای منبع عمومی خالی)"
     )
+    scope = models.CharField(
+        max_length=10,
+        choices=SCOPE_CHOICES,
+        default=PRIVATE,
+        db_index=True,
+        verbose_name="نوع منبع"
+    )
+    normalized_link = models.CharField(max_length=255, blank=True, default="", db_index=True, editable=False)
     platform = models.CharField(
         max_length=20,
         default="telegram",
@@ -582,6 +593,8 @@ class MonitoredCommunity(models.Model):
     )
     name = models.CharField(
         max_length=255,
+        blank=True,
+        default="",
         verbose_name="نام کانال یا گروه"
     )
     handle_or_link = models.CharField(
@@ -637,12 +650,40 @@ class MonitoredCommunity(models.Model):
     )
 
     class Meta:
-        verbose_name = "جامعه آنلاین پایش‌شده"
-        verbose_name_plural = "جوامع آنلاین پایش‌شده"
+        verbose_name = "منبع پایش (گروه/کانال تلگرام)"
+        verbose_name_plural = "منابع پایش (گروه‌ها و کانال‌های تلگرام)"
         ordering = ["-is_active", "-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(scope=GLOBAL, business__isnull=True) | models.Q(scope=PRIVATE, business__isnull=False)),
+                name="community_scope_matches_owner",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.scope = GLOBAL if self.business_id is None else PRIVATE
+        self.normalized_link = normalize_link(self.handle_or_link)
+        if self.normalized_link:
+            self.handle_or_link = display_link(self.handle_or_link)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"scope", "normalized_link", "handle_or_link"}
+        super().save(*args, **kwargs)
+
+    @property
+    def is_global(self) -> bool:
+        return self.scope == GLOBAL
+
+    @property
+    def display_name(self) -> str:
+        return self.name or self.handle_or_link
+
+    @property
+    def sync_error_display(self) -> str:
+        return sync_error_message(self.sync_error)
 
     def __str__(self):
-        return f"{self.name} ({self.handle_or_link})"
+        return f"{self.display_name} ({self.handle_or_link})"
 
 
 class EngineSyncCursor(models.Model):
