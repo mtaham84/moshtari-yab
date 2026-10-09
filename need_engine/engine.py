@@ -25,7 +25,8 @@ from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.retrieve import retrieve
 from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, ChatMessage, Cost, Evidence, MatchedProduct,
                                  NeedCard, NeedOut, Opportunity, Source)
-from need_engine.sources import MessageSource, ProductSource, message_source, product_source
+from need_engine.reply import MessageStyle
+from need_engine.sources import MessageSource, ProductSource, StyleSource, message_source, product_source
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
 from need_engine.windowing import build_windows, ready_batch
@@ -80,7 +81,8 @@ def _message_url(m: ChatMessage) -> str | None:
 class NeedEngine:
     def __init__(self, cfg: EngineConfig | None = None, messages: MessageSource | None = None,
                  products: ProductSource | None = None, sink: Sink | None = None,
-                 mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None):
+                 mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None,
+                 styles: StyleSource | None = None):
         self.cfg = cfg or EngineConfig()
         self.store = store or Store(self.cfg.database_url, self.cfg.state_schema)
         self.llm = LLMClient(self.cfg, self.store, mock=mock_llm)
@@ -90,6 +92,8 @@ class NeedEngine:
         self.products = products or product_source(self.cfg)
         self.sink = sink or (JsonlSink(self.cfg.output_jsonl) if self.cfg.output_jsonl else None)
         self.access = SourceAccess(self.cfg)
+        self.style_source = styles or StyleSource(self.cfg)
+        self.styles: dict[str, MessageStyle] = {}
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
@@ -143,7 +147,10 @@ class NeedEngine:
         if self.cfg.write_replies:
             for mp in matches[:self.cfg.reply_top_n]:
                 if mp.reply_draft is None:
-                    mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg)
+                    j = self.catalog.pid_index.get(mp.product_id)
+                    owner = self.catalog.products[j].business_id if j is not None else None
+                    mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg,
+                                                    style=self.styles.get(str(owner)))
                     report.cost_matching_toman += t
                     n.cost_toman += t
                     n.llm_calls += 1
@@ -242,6 +249,7 @@ class NeedEngine:
         report = RunReport()
         try:
             self.access.refresh()
+            self.styles = {b: MessageStyle.from_dict(d) for b, d in self.style_source.all().items()}
             self.sync_products(report)
             report.ingested = self.ingest()
             self.process(report, now=now, flush=flush)

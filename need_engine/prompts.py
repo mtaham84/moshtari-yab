@@ -33,6 +33,6 @@ For each person decide (do NOT give scores; ignore budget and city, code checks 
 - req: for each of that person's numbered requirements, in order: "met" | "unmet" | "unknown".
 Return ONLY people with solves yes/partly. JSON: {"matches":[{"need_id":..,"solves":"yes|partly","req":["met",..],"reason":"short Persian"}]}  ({"matches":[]} if none)."""
 
-REPLY_SYSTEM = """Write a short, friendly, helpful Persian reply (max 3 sentences) to this person in the group chat.
-Address their situation first, then mention the product naturally as one option. If mismatches are given (e.g. above budget, other city), mention them honestly and briefly. No pressure, no exaggeration, no phone numbers or other links. Put the placeholder {{LINK}} once where the link should go.
+REPLY_SYSTEM = """Write a short, helpful Persian reply to this person in the group chat.
+Address their situation first, then mention the product naturally as one option. If mismatches are given (e.g. above budget, other city), mention them honestly and briefly. Use only facts from the product data. No pressure, no exaggeration, no phone numbers, usernames or links of your own. {LINK_RULE}
 JSON: {"reply":"..."}"""

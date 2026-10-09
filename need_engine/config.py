@@ -96,6 +96,7 @@ class EngineConfig:
     # which sellers may see a chat's needs (need_engine/access.py): "panel" = discovery_monitoredcommunity, "open" = all
     source_access: str = _f("NE_SOURCE_ACCESS", "panel")
     communities_table: str = _f("NE_COMMUNITIES_TABLE", "public.discovery_monitoredcommunity")
+    styles_table: str = _f("NE_STYLES_TABLE", "public.businesses_messagestyle")   # sellers' reply style
     # engine-private state, pgvector vectors and the opportunities table the panel syncs from
     state_schema: str = _f("NE_STATE_SCHEMA", "need_engine")
     output_jsonl: str = _f("NE_OUTPUT_JSONL", "")          # optional extra copy of every opportunity (debug/demo)

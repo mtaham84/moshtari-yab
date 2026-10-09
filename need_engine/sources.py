@@ -195,6 +195,22 @@ class SQLProductSource:
         return out
 
 
+class StyleSource:
+    """Sellers' reply styles from Django's ``businesses_messagestyle`` (read-only). {} when not available."""
+
+    def __init__(self, cfg: EngineConfig, db: Any = None):
+        self.cfg, self._db = cfg, db
+
+    def all(self) -> dict[str, dict]:
+        if self.cfg.products_source != "db" and self._db is None:
+            return {}
+        if self._db is None:
+            self._db = _DB(self.cfg.database_url)
+        rows = self._db.all(f"""SELECT business_id, tone, max_sentences, use_emoji, signature, include_link, extra_instructions
+                                FROM {_ident(self.cfg.styles_table)}""")
+        return {str(r["business_id"]): dict(r) for r in rows}
+
+
 def product_source(cfg: EngineConfig) -> ProductSource:
     s = cfg.products_source
     if s.startswith("jsonl:"):
