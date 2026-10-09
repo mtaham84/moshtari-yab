@@ -62,34 +62,6 @@
           </a>
         </div>
 
-        <!-- Center: Connected Pipeline Stepper Rail (Direct from Reference Image) -->
-        <div class="pipeline-stepper-wrap" aria-label="مراحل فرآیند ایجنتیک کشف مشتری">
-          <div class="pipeline-stepper-track">
-            <div class="stepper-rail-line"></div>
-            
-            <a href="{% url 'discovery:communities_list' %}" class="stepper-node active" title="مرحله ۱: رصد مداوم پیام‌های جوامع آنلاین تلگرام">
-              <span class="stepper-node-dot"></span>
-              <span>۱. رصد جوامع (تلگرام)</span>
-            </a>
-            <a href="{% url 'accounts:dashboard' %}#فیلتر" class="stepper-node" title="مرحله ۲: فیلتر نیت و شناسایی نیاز مخاطب">
-              <span class="stepper-node-dot"></span>
-              <span>۲. فیلتر نیاز</span>
-            </a>
-            <a href="{% url 'products:list' %}" class="stepper-node" title="مرحله ۳: تطبیق هوشمند با کاتالوگ فروشنده">
-              <span class="stepper-node-dot"></span>
-              <span>۳. تطبیق کالا</span>
-            </a>
-            <a href="{% url 'accounts:dashboard' %}#کیفیت" class="stepper-node" title="مرحله ۴: محاسبه امتیاز کیفیت و هزینه دلاری/تومانی">
-              <span class="stepper-node-dot"></span>
-              <span>۴. کیفیت و هزینه</span>
-            </a>
-            <a href="{% url 'discovery:opportunity_list' %}" class="stepper-node" title="مرحله ۵: فرصت‌های کشف‌شده و پیش‌نویس پاسخ">
-              <span class="stepper-node-dot"></span>
-              <span>۵. فرصت‌ها و پیش‌نویس</span>
-            </a>
-          </div>
-        </div>
-
         <!-- Left: System Status, Theme & Profile -->
         <div class="console-actions-section">
           <!-- Live Agent Status Chip -->
@@ -284,14 +256,8 @@
         </div>
 
         <div class="topbar-right">
-          <!-- Active Agent Status Indicator -->
-          <div class="agent-status-pill" title="وضعیت ایجنت هوشمند">
-            <span class="agent-dot-pulse"></span>
-            <span>ایجنت: آماده کاوش</span>
-          </div>
-
           <!-- Quick Discovery Button -->
-          <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="topbar-discovery-btn">
+          <a href="{% url 'discovery:communities_list' %}" class="topbar-discovery-btn" title="افزودن منبع جدید برای رصد">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             <span>کشف مشتری جدید</span>
           </a>
