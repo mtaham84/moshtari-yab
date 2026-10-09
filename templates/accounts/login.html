@@ -32,7 +32,7 @@
 
       <h1 class="auth-title">ورود به حساب کاربری</h1>
       <p class="auth-subtitle">
-        با رمز عبور یا کد یکبار مصرف اختصاصی به پنل فروشنده خود وارد شوید.
+        با ایمیل و رمز عبور به پنل فروشنده خود وارد شوید.
       </p>
 
       {% if messages %}
@@ -45,30 +45,9 @@
         </div>
       {% endif %}
 
-      <!-- Auth Method Tabs -->
-      <div class="auth-tabs" style="display: flex; gap: 8px; background: var(--bg-surface-elevated, rgba(255,255,255,0.06)); padding: 4px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--border-light, rgba(255,255,255,0.1));">
-        <button 
-          type="button" 
-          id="tab-btn-pwd" 
-          class="auth-tab-btn {% if active_tab != 'otp' %}active{% endif %}" 
-          style="flex: 1; padding: 9px 12px; border: none; border-radius: 9px; font-weight: 750; font-size: 0.88rem; cursor: pointer; transition: all 0.2s;"
-          onclick="switchLoginTab('password')">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-left: 5px;"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3"></path></svg>ورود با کلمه عبور
-        </button>
-        <button 
-          type="button" 
-          id="tab-btn-otp" 
-          class="auth-tab-btn {% if active_tab == 'otp' %}active{% endif %}" 
-          style="flex: 1; padding: 9px 12px; border: none; border-radius: 9px; font-weight: 750; font-size: 0.88rem; cursor: pointer; transition: all 0.2s;"
-          onclick="switchLoginTab('otp')">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-left: 5px;"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>کد یکبار مصرف ایمیل
-        </button>
-      </div>
-
       <!-- Tab 1: Password Login Form (Default) -->
-      <form method="POST" action="{% url 'accounts:login' %}" class="auth-form" id="form-password" style="display: {% if active_tab == 'otp' %}none{% else %}flex{% endif %}; flex-direction: column; gap: 18px;" novalidate>
+      <form method="POST" action="{% url 'accounts:login' %}" class="auth-form" id="form-password" style="display: flex; flex-direction: column; gap: 18px;" novalidate>
         {% csrf_token %}
-        <input type="hidden" name="auth_method" value="password">
         {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
         <!-- Username or Email -->
@@ -190,39 +169,6 @@
         </button>
       </form>
 
-      <!-- Tab 2: OTP Login Form -->
-      <form method="POST" action="{% url 'accounts:login' %}" class="auth-form" id="form-otp" style="display: {% if active_tab == 'otp' %}flex{% else %}none{% endif %}; flex-direction: column; gap: 18px;" novalidate>
-        {% csrf_token %}
-        <input type="hidden" name="auth_method" value="otp">
-        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-
-        <div class="form-group">
-          <label for="login-email-otp" class="form-label">آدرس ایمیل ثبت‌شده <span class="req">*</span></label>
-          <div class="input-with-icon">
-            <input 
-              type="email" 
-              name="email" 
-              id="login-email-otp" 
-              class="form-input" 
-              placeholder="seller@moshtariyab.com" 
-              dir="ltr" 
-              required>
-            <span class="input-icon">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
-              </svg>
-            </span>
-          </div>
-          <span class="form-hint" style="margin-top: 6px; display: block; font-size: 0.8rem; color: var(--text-faint, #64748b);">یک کد تأیید ۶ رقمی به این ایمیل ارسال خواهد شد.</span>
-        </div>
-
-        <button type="submit" class="auth-submit-btn" style="margin-top: 6px;">
-          <span>ارسال کد یکبار مصرف به ایمیل</span>
-          <span aria-hidden="true">←</span>
-        </button>
-      </form>
-
       <div class="auth-card-footer" style="margin-top: 24px;">
         <span>هنوز ثبت‌نام نکرده‌اید؟</span>
         <a href="{% url 'accounts:signup' %}" class="auth-link">ثبت‌نام و معرفی کسب‌وکار</a>
@@ -250,27 +196,6 @@
 </style>
 
 <script>
-  function switchLoginTab(tab) {
-    const pwdForm = document.getElementById('form-password');
-    const otpForm = document.getElementById('form-otp');
-    const btnPwd = document.getElementById('tab-btn-pwd');
-    const btnOtp = document.getElementById('tab-btn-otp');
-
-    if (tab === 'password') {
-      pwdForm.style.display = 'flex';
-      otpForm.style.display = 'none';
-      btnPwd.classList.add('active');
-      btnOtp.classList.remove('active');
-      document.getElementById('login-username')?.focus();
-    } else {
-      pwdForm.style.display = 'none';
-      otpForm.style.display = 'flex';
-      btnOtp.classList.add('active');
-      btnPwd.classList.remove('active');
-      document.getElementById('login-email-otp')?.focus();
-    }
-  }
-
   function togglePasswordVisibility() {
     const pwdInput = document.getElementById('login-password');
     if (pwdInput) {
@@ -283,7 +208,6 @@
   }
 
   function fillDemoAccount(username = 'barista@peyda.ir', password = 'Barista_2026_Demo!') {
-    switchLoginTab('password');
     const usernameInput = document.getElementById('login-username');
     const passwordInput = document.getElementById('login-password');
     if (usernameInput && passwordInput) {

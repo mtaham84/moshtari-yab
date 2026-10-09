@@ -13,7 +13,6 @@ class AuthAndOnboardingTestCase(TestCase):
     def setUp(self):
         self.client = Client()
         self.signup_url = reverse("accounts:signup")
-        self.verify_url = reverse("accounts:verify")
         self.login_url = reverse("accounts:login")
         self.logout_url = reverse("accounts:logout")
         self.dashboard_url = reverse("accounts:dashboard")
@@ -59,81 +58,6 @@ class AuthAndOnboardingTestCase(TestCase):
         self.client.post(self.signup_url, self._signup_data(password=""))
         self.assertFalse(User.objects.filter(email="sara.m@example.com").exists())
 
-    def test_verification_success_creates_user_and_business(self):
-        # Create pending verification
-        verification = EmailVerification.objects.create(
-            email="ali.reza@example.com",
-            code="654321",
-            session_data={
-                "first_name": "علی",
-                "last_name": "رضایی",
-                "business_name": "پوشاک دنیم استایل",
-                "business_type": "PHYSICAL",
-                "business_domain": "پوشاک و مد",
-            },
-            expires_at=timezone.now() + timedelta(minutes=10)
-        )
-
-        session = self.client.session
-        session["pending_verification_id"] = verification.id
-        session["pending_verification_email"] = verification.email
-        session.save()
-
-        # Submit correct code
-        response = self.client.post(self.verify_url, {"code": "654321"}, follow=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "accounts/dashboard.html")
-
-        # Verify User was created
-        user = User.objects.filter(email="ali.reza@example.com").first()
-        self.assertIsNotNone(user)
-        self.assertEqual(user.first_name, "علی")
-        self.assertEqual(user.last_name, "رضایی")
-
-        # Verify Business was created and linked
-        business = Business.objects.filter(user=user).first()
-        self.assertIsNotNone(business)
-        self.assertEqual(business.name, "پوشاک دنیم استایل")
-        self.assertEqual(business.business_type, "PHYSICAL")
-        self.assertEqual(business.business_domain, "پوشاک و مد")
-
-        # Verify EmailVerification status
-        verification.refresh_from_db()
-        self.assertTrue(verification.is_verified)
-
-    def test_brute_force_protection_blocks_after_5_failed_attempts(self):
-        verification = EmailVerification.objects.create(
-            email="test.brute@example.com",
-            code="112233",
-            session_data={"first_name": "تست", "last_name": "کاربر"},
-            expires_at=timezone.now() + timedelta(minutes=10)
-        )
-
-        session = self.client.session
-        session["pending_verification_id"] = verification.id
-        session["pending_verification_email"] = verification.email
-        session.save()
-
-        # Try 4 wrong attempts
-        for i in range(1, 5):
-            response = self.client.post(self.verify_url, {"code": "000000"})
-            verification.refresh_from_db()
-            self.assertEqual(verification.attempts, i)
-            self.assertFalse(verification.is_blocked()[0])
-
-        # 5th wrong attempt triggers block
-        response = self.client.post(self.verify_url, {"code": "000000"})
-        verification.refresh_from_db()
-        self.assertEqual(verification.attempts, 5)
-        is_blocked, remaining = verification.is_blocked()
-        self.assertTrue(is_blocked)
-        self.assertGreater(remaining, 0)
-        self.assertLessEqual(remaining, 120)
-
-        # 6th attempt should be blocked and rejected
-        response = self.client.post(self.verify_url, {"code": "112233"})
-        self.assertIn("مسدود", response.content.decode("utf-8"))
-
     def test_dashboard_requires_login(self):
         response = self.client.get(self.dashboard_url)
         self.assertEqual(response.status_code, 302)
@@ -177,16 +101,16 @@ class AuthAndOnboardingTestCase(TestCase):
         self.assertTemplateUsed(response, "accounts/login.html")
         self.assertIn("نادرست", response.content.decode("utf-8"))
 
-    def test_otp_login_request(self):
-        User.objects.create_user(
-            username="seller3@moshtariyab.com",
-            email="seller3@moshtariyab.com",
-        )
-        response = self.client.post(self.login_url, {
-            "auth_method": "otp",
-            "email": "seller3@moshtariyab.com",
-        }, follow=True)
+    def test_login_has_no_email_code_flow(self):
+        """No page waits for an email: the code tab and the resend/verify pages are gone."""
+        response = self.client.get(self.login_url)
+        self.assertNotContains(response, "auth_method")
+        self.assertNotContains(response, "کد یکبار مصرف")
+        from django.urls import NoReverseMatch
+        for name in ("accounts:verify", "accounts:resend"):
+            with self.assertRaises(NoReverseMatch):
+                reverse(name)
+        # an old form posting auth_method=otp is treated as a normal (failed) password login
+        response = self.client.post(self.login_url, {"auth_method": "otp", "email": "x@y.com"})
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "accounts/verify.html")
-        self.assertTrue(EmailVerification.objects.filter(email="seller3@moshtariyab.com").exists())
-
+        self.assertTemplateUsed(response, "accounts/login.html")
