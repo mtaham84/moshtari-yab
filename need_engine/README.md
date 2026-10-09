@@ -57,6 +57,11 @@ TEST_DATABASE_URL=postgresql://… python -m pytest need_engine/tests -q
 
 لیست کامل در `config.py` است؛ هر فیلد با `NE_<نام فیلد با حروف بزرگ>` قابل override است.
 
+## ورودی X (آزمایشی)
+- NE_X_PREFILTER=shadow فقط تصمیم‌ها را در need_engine.x_filter_decisions ثبت می‌کند؛ حالت on برای رد واقعی است و باید بعد از بازبینی فعال شود. گزارش: python -m need_engine x-prefilter-report.
+- پست‌های مستقل X با NE_X_BATCH_SIZE و سقف نویسه دسته‌بندی می‌شوند؛ شواهد هر نیاز باید متعلق به همان نویسنده باشد. هزینه batch در گزارش اجرا کل و بین postها به‌طور مساوی تقسیم می‌شود.
+- Finglish به‌طور قابل‌اتکا تشخیص داده نمی‌شود و گزارش false-negative هنوز کامل نیست. intent URL و وزن شمارنده پاسخ UNVERIFIED هستند؛ پاسخ خودکار ارسال نمی‌شود.
+
 ## کارهای باز
 - منبع X (خروجی `workers/x_collector`) به‌عنوان ورودی دوم.
 - gate ارزان (مدل خیلی ارزان یا Jev) قبل از استخراج برای کاهش هزینه به ~۱–۱.۵ تومان/پیام.

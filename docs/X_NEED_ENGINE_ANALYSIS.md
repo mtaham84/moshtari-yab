@@ -1,5 +1,12 @@
 # اتصال X به need_engine — تحلیل و تصمیم‌ها
 
+## کیفیت جست‌وجو، فیلتر و پاسخ‌های X
+
+- استقرار پیشنهادی: ابتدا X_QUERY_MODE=both و NE_X_PREFILTER=shadow نگه دارید؛ پس از چند روز داده، تصمیم‌های فیلتر را دستی بررسی کنید و فقط با سنجش خطای منفی، NE_X_PREFILTER=on را فعال کنید. سپس می‌توان X_QUERY_MODE=intent را ارزیابی کرد.
+- NE_X_BATCH_SIZE=8 تعداد فراخوانی استخراج را کم می‌کند؛ هزینه واقعی توکن و کیفیت باید روی دادهٔ واقعی سنجیده شود. هزینه batch برای پیام‌های ورودی مساوی تقسیم می‌شود.
+- query operators، خروجی واقعی CLI، intent URL و شمارش کاراکتر X هنوز UNVERIFIED هستند. اجرای live همچنان NO-GO تا CLI/ToS، مجوز DB، هزینه و smoke test پنل تأیید شوند.
+- این نسخه هنوز LLM-generated problem queries، dedupe بین پاسخ‌ها و گزارش false-negative کامل را ندارد؛ فیلترها heuristic هستند و نمی‌توانند خرید واقعی را تضمین کنند.
+
 ## مسیر فعلی و فرض‌های پلتفرم
 
 مسیر تولید فعلی تلگرام این است: `telegram_crawler` جدول‌های `crawler.tg_*` را می‌نویسد؛ `SQLMessageSource` پیام‌های جدید را با `tg_messages.id` می‌خواند؛ `NeedEngine.ingest()` آن‌ها را در `need_engine.pending` می‌گذارد؛ windowing و استخراج، نیاز و فرصت را می‌سازند؛ `Store` خروجی را در `need_engine.opportunities` منتشر می‌کند؛ `sync_opportunities` از طریق `apps/discovery/engine_bridge.py` آن را به مدل‌های پنل می‌رساند. Source پل پیش‌فرضش را Telegram فرض می‌کرد و برای URL، شناسه و پروفایل `t.me` می‌ساخت. پنل همین حالا گزینه/برچسب X دارد، اما لینک کاربر در فهرست به‌صورت ثابت `t.me` بود.

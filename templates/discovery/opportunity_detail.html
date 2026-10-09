@@ -49,6 +49,25 @@
   
   <!-- Right / Main Column (70%) -->
   <div style="display: flex; flex-direction: column; gap: 20px;">
+
+    {% if opportunity.source_platform == 'x' and x_reply_cards %}
+    <div class="p-card" style="padding: 20px 22px;">
+      <h3>پیشنویس پاسخ X — قبل از ارسال بازبینی کنید</h3>
+      <p>هیچ پاسخی خودکار ارسال نمی‌شود. متن تکراری نفرستید و قوانین X را رعایت کنید.</p>
+      {% for card in x_reply_cards %}
+        {% for key,text in card.variants.items %}
+        <div class="x-reply-wrap">
+        <label class="form-label">{% if key == 'public' %}پاسخ عمومی{% elif key == 'dm' %}پیام خصوصی{% else %}پاسخ کوتاه{% endif %}</label>
+        <textarea class="form-input x-reply-text" dir="rtl" rows="3">{{ text }}</textarea>
+        <small class="x-reply-counter" data-limit="280"></small>
+        <button type="button" class="p-btn p-btn-sm x-copy-reply">کپی</button>
+        {% if key == 'public' and card.public_url %}<a class="p-btn p-btn-sm x-intent-link" target="_blank" rel="noopener noreferrer" data-base="{{ x_intent_base_url }}" data-tweet-id="{{ opportunity.source_message_id }}">باز کردن X برای پاسخ</a>{% endif %}
+        {% if key == 'short' and card.short_url %}<a class="p-btn p-btn-sm x-intent-link" target="_blank" rel="noopener noreferrer" data-base="{{ x_intent_base_url }}" data-tweet-id="{{ opportunity.source_message_id }}">باز کردن X برای پاسخ</a>{% endif %}
+        </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+    {% endif %}
     
     <!-- 1. Customer Identity Card -->
     <div class="p-card" style="padding: 22px 26px;">
@@ -105,6 +124,15 @@
         </div>
       </div>
     </div>
+
+    {% if opportunity.source_platform == 'x' and customer.contact_channels %}
+    <div class="p-card" style="padding:22px 26px">
+      <h3>راه‌های تماس درج‌شده در bio عمومی X</h3>
+      <p>این راه‌ها را خود کاربر اعلام کرده؛ تطبیق هویت مستقل تأیید نشده است. یک پیام مرتبط و محترمانه کافی است؛ پیام انبوه نفرستید و به درخواست عدم تماس احترام بگذارید.</p>
+      {% for channel in customer.contact_channels %}<div style="padding:6px 0"><a href="{{ channel.url }}" target="_blank" rel="noopener noreferrer">{{ channel.display }}</a> <small>خوداظهاری‌شده</small></div>{% endfor %}
+      {% for identity in customer.linked_identities %}<span class="p-badge">همچنین در تلگرام (خوداظهاری‌شده و تأییدنشده): @{{ identity.username }}</span>{% endfor %}
+    </div>
+    {% endif %}
 
     <!-- 2. Customer Raw Message Quote Box -->
     <div class="p-card" style="padding: 22px 26px;">
@@ -426,6 +454,29 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
+  document.querySelectorAll(".x-reply-text").forEach(function(area) {
+    const counter = area.nextElementSibling;
+    const update = function() {
+      const value = area.value.replace(/https?:\/\/\S+|www\.\S+/g, "x".repeat(23));
+      let length = 0;
+      for (const ch of value) length += (ch.codePointAt(0) > 0xffff ? 2 : 1);
+      counter.textContent = length + " / 280";
+      counter.style.color = length > 280 ? "#DC2626" : "";
+    };
+    area.addEventListener("input", update); update();
+    area.parentElement.querySelectorAll(".x-copy-reply").forEach(function(button) {
+      button.addEventListener("click", function() { navigator.clipboard.writeText(area.value); });
+    });
+  });
+  document.querySelectorAll(".x-intent-link").forEach(function(link) {
+    const area = link.closest(".x-reply-wrap")?.querySelector(".x-reply-text");
+    if (!area || !link.dataset.tweetId) return;
+    link.addEventListener("click", function(event) {
+      event.preventDefault();
+      const params = new URLSearchParams({in_reply_to: link.dataset.tweetId, text: area.value});
+      window.open(link.dataset.base + "?" + params.toString(), "_blank", "noopener");
+    });
+  });
   document.querySelectorAll(".feedback-button").forEach(function(button) {
     button.addEventListener("click", function() {
       fetch("{% url 'discovery:opportunity_feedback' opportunity.id %}", {

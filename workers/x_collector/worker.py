@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from . import cli_mapping as mapping
 from .client import XCliClient, XCliError
+from need_engine.x_filters import PROMOTIONAL_PATTERNS, is_promotional_post
 
 log = logging.getLogger("x_collector")
 RATE_LIMIT_COOLDOWN_SECONDS = 15 * 60
@@ -22,16 +23,6 @@ PROMOTIONAL_PATTERNS = (
     r"(?:buy now|shop now|limited offer|order now|use code|discount|promo code|sponsored|giveaway)",
     r"(?:تخفیف|فروش ویژه|ثبت سفارش|سفارش دهید|خرید کنید|همین حالا بخرید|ارسال رایگان|کد تخفیف|فروش فوری|موجود شد|برای خرید|دایرکت بدهید|دایرکت دهید|تماس بگیرید|قیمت ویژه)",
 )
-
-
-def is_promotional_post(text: str) -> bool:
-    lowered = text.casefold()
-    if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in PROMOTIONAL_PATTERNS):
-        return True
-    has_url = bool(re.search(r"https?://|www\.", lowered))
-    has_purchase_cta = bool(re.search(r"(?:خرید|سفارش|فروش|order|buy|shop)", lowered, re.IGNORECASE))
-    has_contact_cta = bool(re.search(r"(?:دایرکت|تماس|واتساپ|تلگرام|DM|contact)", lowered, re.IGNORECASE))
-    return has_url and (has_purchase_cta or has_contact_cta)
 
 
 def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
@@ -121,6 +112,8 @@ class SeenStore:
             connection.execute("CREATE TABLE IF NOT EXISTS seen_tweets (tweet_key TEXT PRIMARY KEY, first_seen TEXT NOT NULL)")
             connection.execute("CREATE TABLE IF NOT EXISTS daily_counts (day TEXT PRIMARY KEY, collected INTEGER NOT NULL)")
             connection.execute("CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("CREATE TABLE IF NOT EXISTS query_runs (query TEXT PRIMARY KEY, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
+            connection.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             connection.commit()
 
     @staticmethod
@@ -171,6 +164,30 @@ class SeenStore:
             connection.execute("INSERT INTO collector_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
             connection.commit()
 
+    def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        with closing(sqlite3.connect(self.path)) as connection:
+            for item in queries:
+                connection.execute("INSERT INTO query_runs(query,kind,priority) VALUES(?,?,?) ON CONFLICT(query) DO UPDATE SET kind=excluded.kind,priority=excluded.priority",
+                                   (item["query"], item.get("kind", "product"), item.get("priority", 1.0)))
+            rows = connection.execute("SELECT query,kind,priority,last_run_at,runs FROM query_runs WHERE query IN (%s)" % ",".join("?" for _ in queries),
+                                      [item["query"] for item in queries]).fetchall() if queries else []
+            by_query = {row[0]: row for row in rows}
+            def score(item):
+                row = by_query[item["query"]]
+                last, kind = row[3], row[1]
+                stale = 1e12 if not last else max(1.0, (now - datetime.fromisoformat(last)).total_seconds())
+                return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(kind, 1.0)), item["query"]
+            selected = sorted(queries, key=score)[:max(0, budget)]
+            connection.commit()
+            return selected
+
+    def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None) -> None:
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=? WHERE query=?",
+                               (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, query))
+            connection.commit()
+
 
 class XCollector:
     def __init__(self, client: Any | None = None, output_dir: str | Path | None = None, state_path: str | Path | None = None, max_per_query: int | None = None, daily_cap: int | None = None, sleep_min: float | None = None, sleep_max: float | None = None, max_retries: int | None = None, circuit_breaker: int | None = None, sleeper: Callable[[float], None] = time.sleep, jitter: Callable[[float, float], float] = random.uniform):
@@ -185,6 +202,7 @@ class XCollector:
         self.max_retries = max_retries if max_retries is not None else int(os.getenv("X_COLLECT_MAX_RETRIES", "3"))
         self.circuit_breaker = circuit_breaker if circuit_breaker is not None else int(os.getenv("X_COLLECT_CIRCUIT_BREAKER", "4"))
         self.sleeper, self.jitter = sleeper, jitter
+        self.queries_per_cycle = int(os.getenv("X_COLLECT_QUERIES_PER_CYCLE", "12"))
 
     @staticmethod
     def load_queries(query_file: str | Path | None = None) -> list[str]:
@@ -194,11 +212,14 @@ class XCollector:
         lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
         return list(dict.fromkeys(line for line in lines if line and not line.startswith("#")))
 
-    def run(self, queries: list[str], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        invalid_queries = [query for query in queries if query.lstrip().startswith("-")]
+    def run(self, queries: list[str | dict[str, Any]], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        normalized_queries = [dict(item) if isinstance(item, dict) else {"query": item, "kind": "product", "priority": 1.0} for item in queries]
+        original_queries = [item["query"] for item in normalized_queries]
+        invalid_queries = [query for query in original_queries if query.lstrip().startswith("-")]
         for query in invalid_queries:
             log.warning("Skipping query starting with '-': %s", query)
-        queries = [query for query in queries if not query.lstrip().startswith("-")]
+        normalized_queries = [item for item in normalized_queries if not item["query"].lstrip().startswith("-")]
+        queries = [item["query"] for item in normalized_queries]
         today = date.today().isoformat()
         output_path = self.output_dir / f"{today}.jsonl"
         if dry_run:
@@ -210,17 +231,27 @@ class XCollector:
                         collected_today = int(row[0]) if row else 0
                 except sqlite3.Error:
                     pass
-            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "output": str(output_path), "cli_called": False}
+            planned = sorted(normalized_queries, key=lambda item: (-(item.get("priority", 1) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(item.get("kind"), 1.0)), item["query"]))[:self.queries_per_cycle]
+            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "planned_queries": [{**item, "weight": item.get("priority", 1.0) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(item.get("kind"), 1.0), "reason": "priority; stale history is considered on live runs"} for item in planned], "output": str(output_path), "cli_called": False}
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.state = SeenStore(self.state_path)
+        if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
+            log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
+        scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle)
+        queries = [item["query"] for item in scheduled]
+        query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
         collected, failures, failed_queries, consecutive_failures = [], 0, 0, 0
         stop_reason = None
         daily_remaining = max(0, self.daily_cap - self.state.count_today())
         cooldown = self.state.get_setting("rate_limit_until")
         if cooldown and datetime.now(timezone.utc) < datetime.fromisoformat(cooldown):
-            return {"status": "RATE_LIMITED", "collected": 0, "failures": 0, "output": str(output_path), "cooldown_until": cooldown}
+            result = {"status": "RATE_LIMITED", "collected": 0, "failures": 0, "output": str(output_path), "cooldown_until": cooldown}
+            self._write_status(result)
+            return result
         if daily_remaining == 0:
-            return {"status": "DAILY_CAP_REACHED", "collected": 0, "output": str(output_path)}
+            result = {"status": "DAILY_CAP_REACHED", "collected": 0, "output": str(output_path)}
+            self._write_status(result)
+            return result
         latest_path = self.output_dir / "latest.jsonl"
         with output_path.open("a+", encoding="utf-8") as stream, latest_path.open("a", encoding="utf-8") as latest:
             stream.seek(0)
@@ -243,11 +274,14 @@ class XCollector:
                             raw_items = mock_records
                         else:
                             raw_items = self.client.search(query, min(self.max_per_query, daily_remaining - len(collected)))
+                        fetched_count = len(raw_items)
+                        new_before = len(collected)
                         consecutive_failures = 0
                         for raw in raw_items[: self.max_per_query]:
                             normalized = normalize_tweet(raw, query=query)
                             if normalized is None or normalized["id"] in already_written or self.state.has_seen(normalized):
                                 continue
+                            normalized["metadata"]["query_kind"] = query_kinds.get(query, "product")
                             if len(collected) >= daily_remaining:
                                 break
                             write_offset = stream.tell()
@@ -264,8 +298,10 @@ class XCollector:
                             os.fsync(latest.fileno())
                             already_written.add(normalized["id"])
                             collected.append(normalized)
+                        self.state.record_query(query, fetched_count, len(collected) - new_before)
                         break
                     except XCliError as exc:
+                        self.state.record_query(query, 0, 0, str(exc)[:300])
                         failures += 1
                         consecutive_failures += 1
                         if exc.kind == "rate_limit":
@@ -293,7 +329,25 @@ class XCollector:
                     break
                 self.sleeper(self.jitter(self.sleep_min, self.sleep_max))
         status = stop_reason or ("RATE_LIMITED" if self.state.get_setting("rate_limit_until") and datetime.now(timezone.utc) < datetime.fromisoformat(self.state.get_setting("rate_limit_until")) else "CIRCUIT_OPEN" if consecutive_failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
-        return {"status": status, "collected": len(collected), "failures": failures, "failed_queries": failed_queries, "output": str(output_path)}
+        result = {"status": status, "collected": len(collected), "failures": failures, "failed_queries": failed_queries, "output": str(output_path)}
+        self._write_status(result)
+        return result
+
+    def _write_status(self, result: dict[str, Any]) -> None:
+        target = Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json")))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".tmp")
+        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until")}
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        payload["collected_today"] = self.state.count_today() if self.state else 0
+        payload["daily_cap"] = self.daily_cap
+        payload["last_cycle_at"] = payload["updated_at"]
+        if self.state:
+            with closing(sqlite3.connect(self.state_path)) as connection:
+                payload["queries"] = [dict(zip(("query", "kind", "last_run_at", "fetched", "new_posts"), row))
+                                          for row in connection.execute("SELECT query,kind,last_run_at,fetched,new_posts FROM query_runs ORDER BY query").fetchall()]
+        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(temporary, target)
 
 
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:

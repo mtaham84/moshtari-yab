@@ -21,3 +21,9 @@ OUTPUT_CREATED_KEYS = ("createdAtISO", "created_at", "timestamp", "date")
 OUTPUT_AUTHOR_ID_KEYS = ("author_id",)
 OUTPUT_LANG_KEYS = ("lang",)
 OUTPUT_QUERY_KEY = "query"
+
+# Thread collection contract is intentionally isolated and unverified against Agent Reach.
+THREAD_STRATEGY = os.getenv("X_THREAD_STRATEGY", "search")
+THREAD_SEARCH_QUERY_PREFIX = "conversation_id:"
+THREAD_COMMAND = os.getenv("X_CLI_THREAD_SUBCOMMAND", "")
+THREAD_OUTPUT_ITEMS_KEYS = OUTPUT_ITEMS_KEYS

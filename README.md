@@ -88,6 +88,10 @@ docker compose logs -f crawler engine sync
 - X collector آزمایشی است: `docker compose --profile x up -d x`.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
 
+Query generation supports X_QUERY_MODE=product|intent|both (default both), a per-cycle budget, query length/count caps, and an optional suffix. Use --print-queries to review generated queries and --dry-run to inspect the next cycle without invoking the CLI. LLM-generated problem phrases are not implemented yet (X_QUERY_LLM=false).
+
+For X analysis, NE_X_PREFILTER=shadow records decisions without dropping posts; switch to on only after reviewing need_engine x-prefilter-report. NE_X_BATCH_SIZE and NE_X_BATCH_MAX_CHARS bound independent-post batches. Reply variants are drafts only; Open on X uses an unverified web intent URL and never sends from the server. Finglish detection and false-negative auditing remain limitations.
+
 ## هزینه و کیفیت
 - هزینه‌ی هر فراخوانی LLM/embedding در `need_engine.costs` ثبت می‌شود؛ `python -m need_engine stats` مجموع هزینه، تعداد پیام تحلیل‌شده و **هزینه‌ی هر پیام** را نشان می‌دهد و داشبورد همین عدد را می‌خواند.
 - هر فرصت امتیاز تطبیق محصول، شواهد (پیام‌های اصلی)، نیاز استخراج‌شده و هزینه‌ی خودش را دارد.

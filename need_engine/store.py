@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS {s}.costs (id BIGSERIAL PRIMARY KEY, ts DOUBLE PRECIS
     prompt_tokens INTEGER, completion_tokens INTEGER, cached BOOLEAN, usd DOUBLE PRECISION, toman DOUBLE PRECISION, ref TEXT);
 CREATE TABLE IF NOT EXISTS {s}.emitted (opportunity_id TEXT PRIMARY KEY, fingerprint TEXT, ts DOUBLE PRECISION, payload JSONB);
 CREATE TABLE IF NOT EXISTS {s}.quota (day TEXT, model TEXT, n INTEGER, PRIMARY KEY (day, model));
+CREATE TABLE IF NOT EXISTS {s}.x_filter_decisions (chat_id TEXT NOT NULL, message_id BIGINT NOT NULL, author_id TEXT NOT NULL, keep BOOLEAN NOT NULL, reason TEXT NOT NULL, signals JSONB NOT NULL, mode TEXT NOT NULL, decided_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(chat_id,message_id));
+CREATE TABLE IF NOT EXISTS {s}.x_reply_fingerprints (business_id TEXT NOT NULL, need_id TEXT NOT NULL, fingerprint JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(business_id,need_id));
+CREATE TABLE IF NOT EXISTS {s}.x_thread_requests (root_tweet_id BIGINT PRIMARY KEY, root_author_id TEXT NOT NULL, root_need_id TEXT NOT NULL, opportunity_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE SEQUENCE IF NOT EXISTS {s}.opportunities_seq;
 CREATE TABLE IF NOT EXISTS {s}.opportunities (
     opportunity_id TEXT PRIMARY KEY, seq BIGINT NOT NULL, status TEXT, payload JSONB NOT NULL,
@@ -134,6 +137,35 @@ class Store:
                               ON CONFLICT (k) DO UPDATE SET v = to_jsonb(({self._t('kv')}.v #>> '{{}}')::bigint + %s)""",
                           (len(msgs), len(msgs)))
 
+        self._run(tx)
+
+    def record_x_filter_decision(self, msg: ChatMessage, keep: bool, reason: str, signals: dict, mode: str) -> None:
+        self._exec("""INSERT INTO {s}.x_filter_decisions(chat_id,message_id,author_id,keep,reason,signals,mode) VALUES(%s,%s,%s,%s,%s,%s,%s)
+                     ON CONFLICT(chat_id,message_id) DO UPDATE SET keep=EXCLUDED.keep,reason=EXCLUDED.reason,signals=EXCLUDED.signals,mode=EXCLUDED.mode,decided_at=now()""",
+                   (msg.chat_id, msg.message_id, msg.author_id, keep, reason, Jsonb(signals), mode))
+
+    def x_filter_summary(self) -> list[dict]:
+        return self._all("SELECT reason,mode,COUNT(*) AS count FROM {s}.x_filter_decisions GROUP BY reason,mode ORDER BY mode,reason")
+
+    def request_x_thread(self, root_tweet_id: int, root_author_id: str, root_need_id: str, opportunity_id: str) -> None:
+        self._exec("INSERT INTO {s}.x_thread_requests(root_tweet_id,root_author_id,root_need_id,opportunity_id) VALUES(%s,%s,%s,%s) ON CONFLICT(root_tweet_id) DO NOTHING",
+                   (root_tweet_id, root_author_id, root_need_id, opportunity_id))
+
+    def drop_x_pending(self, messages: list[ChatMessage], decisions: dict[int, Any], mode: str = "on") -> None:
+        if not messages:
+            return
+        chat_id = messages[0].chat_id
+        ids = [m.message_id for m in messages]
+        def tx(c):
+            with c.transaction():
+                for msg in messages:
+                    decision = decisions[msg.message_id]
+                    c.execute(f"""INSERT INTO {self._t('x_filter_decisions')}(chat_id,message_id,author_id,keep,reason,signals,mode)
+                                  VALUES(%s,%s,%s,FALSE,%s,%s,%s) ON CONFLICT(chat_id,message_id) DO UPDATE
+                                  SET keep=FALSE,reason=EXCLUDED.reason,signals=EXCLUDED.signals,mode=EXCLUDED.mode,decided_at=now()""",
+                              (chat_id,msg.message_id,msg.author_id,decision.reason,Jsonb(decision.signals),mode))
+                c.execute(f"DELETE FROM {self._t('pending')} WHERE chat_id=%s AND message_id=ANY(%s)",(chat_id,ids))
+                c.execute(f"INSERT INTO {self._t('kv')}(k,v) VALUES('messages_analysed',to_jsonb(%s::bigint)) ON CONFLICT(k) DO UPDATE SET v=to_jsonb(({self._t('kv')}.v #>> '{{}}')::bigint + %s)",(len(messages),len(messages)))
         self._run(tx)
 
     def recent(self, chat_id: str, before_id: int, limit: int) -> list[ChatMessage]:

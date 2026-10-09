@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--print-queries", action="store_true")
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval", type=float, default=300)
     parser.add_argument("--output-dir", default=os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
@@ -38,7 +39,15 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(str(exc))
     if not queries:
         parser.error(f"No queries found. Add UTF-8 queries (one per line) to {args.queries}.")
-    queries = [query for query in queries if not query.lstrip().startswith("-")]
+    if args.print_queries:
+        grouped = {}
+        for item in queries:
+            query = item["query"] if isinstance(item, dict) else item
+            kind = item.get("kind", "product") if isinstance(item, dict) else "product"
+            grouped.setdefault(kind, []).append(query)
+        print(json.dumps({kind: {"count": len(items), "queries": items} for kind, items in grouped.items()}, ensure_ascii=False, indent=2))
+        return 0
+    queries = [item for item in queries if not (item["query"] if isinstance(item, dict) else item).lstrip().startswith("-")]
     if not queries:
         parser.error("All X search queries were skipped because they start with '-'.")
     output_dir = "data/x_collected_mock" if args.mock else args.output_dir
@@ -80,10 +89,11 @@ def _print_commands(queries: list[str]) -> None:
     from . import cli_mapping
 
     for query in queries:
-        if query.lstrip().startswith("-"):
+        value = query["query"] if isinstance(query, dict) else query
+        if value.lstrip().startswith("-"):
             logging.warning("Skipping query starting with '-' in dry-run: %s", query)
             continue
-        command = [cli_mapping.CLI_COMMAND, cli_mapping.CLI_SEARCH_SUBCOMMAND, query, "-t", cli_mapping.CLI_TIME_FILTER,
+        command = [cli_mapping.CLI_COMMAND, cli_mapping.CLI_SEARCH_SUBCOMMAND, value, "-t", cli_mapping.CLI_TIME_FILTER,
                    cli_mapping.CLI_EXCLUDE_RETWEETS_FLAG, cli_mapping.CLI_EXCLUDE_RETWEETS_VALUE,
                    cli_mapping.CLI_LIMIT_FLAG, str(int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))), cli_mapping.CLI_OUTPUT_FLAG]
         print("CLI dry-run command: " + subprocess.list2cmdline(command), file=sys.stderr)

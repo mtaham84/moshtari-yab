@@ -38,6 +38,28 @@ class ChatMessage(BaseModel):
     search_query: str | None = None
     author_verified: bool = False
     author_bio: str | None = None
+    lang: str | None = None
+    date_estimated: bool = False
+    kind: str = "post"
+    conversation_id: int | None = None
+    in_reply_to_author_id: str | None = None
+
+
+class ContactChannel(BaseModel):
+    type: Literal["telegram", "instagram", "website", "email", "phone", "whatsapp"]
+    value: str
+    display: str
+    url: str | None = None
+    source: str = "x_bio"
+    basis: str = "self_declared"
+
+
+class LinkedIdentity(BaseModel):
+    platform: str
+    external_user_id: str
+    username: str
+    basis: str = "bio_declared"
+    confidence: str = "self_declared_unverified"
 
 
 class Product(BaseModel):
@@ -107,6 +129,9 @@ class NeedCard(BaseModel):
     updated_at: datetime
     cost_toman: float = 0.0
     llm_calls: int = 0
+    evidence_posted_at: datetime | None = None
+    evidence_time_estimated: bool = False
+    author_bio: str | None = None
 
     def summary_text(self) -> str:
         return " ".join([self.situation or "", self.need or ""] + self.solution_queries[:3])
@@ -130,6 +155,7 @@ class MatchedProduct(BaseModel):
     similarity: float                    # retrieval similarity (not a quality score)
     verdict: Verdict
     reply_draft: str | None = None
+    reply_variants: dict[str, str] | None = None
 
 
 class Candidate(BaseModel):
@@ -138,6 +164,8 @@ class Candidate(BaseModel):
     username: str | None = None
     profile_url: str | None = None
     phone_number: str | None = None      # optional; only if public
+    contacts: list[ContactChannel] = Field(default_factory=list)
+    linked_identities: list[LinkedIdentity] = Field(default_factory=list)
 
 
 class Evidence(BaseModel):
@@ -181,3 +209,7 @@ class Opportunity(BaseModel):
     need: NeedOut
     matched_products: list[MatchedProduct] = Field(default_factory=list)
     cost: Cost = Field(default_factory=Cost)
+    source_posted_at: datetime | None = None
+    source_posted_at_estimated: bool = False
+    source_query: str | None = None
+    thread: dict[str, Any] | None = None

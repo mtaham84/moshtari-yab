@@ -87,6 +87,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.discovery.context_processors.x_panel",
             ],
         },
     },
@@ -128,6 +129,9 @@ SERVE_MEDIA = os.environ.get("DJANGO_SERVE_MEDIA", "true").lower() in {"1", "tru
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+X_INTENT_BASE_URL = os.getenv("X_INTENT_BASE_URL", "https://x.com/intent/post")
+X_PANEL_ENABLED = os.getenv("X_PANEL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

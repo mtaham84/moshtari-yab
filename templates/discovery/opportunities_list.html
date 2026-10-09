@@ -153,6 +153,7 @@
           ⚡️ مرتب‌سازی نتایج:
         </label>
         <select id="sort-select" name="sort" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="source_newest" {% if selected_sort == 'source_newest' %}selected{% endif %}>جدیدترین پست منبع</option>
           <option value="intent_desc" {% if selected_sort == 'intent_desc' %}selected{% endif %}>بیشترین احتمال خرید (نیت مشتری) ⚡️</option>
           <option value="newest" {% if selected_sort == 'newest' %}selected{% endif %}>جدیدترین زمان (تقویم شمسی) ⏱</option>
           <option value="oldest" {% if selected_sort == 'oldest' %}selected{% endif %}>قدیمی‌ترین زمان (تقویم شمسی)</option>
@@ -326,6 +327,7 @@
                 <strong style="color: var(--panel-text-main); font-size: 0.88rem;">
                   {{ opp.customer.display_identifier }}
                 </strong>
+                {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="p-badge" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
 
                 <!-- Contact link / phone -->
                 {% if opp.customer.source_username and opp.source_platform == 'x' %}

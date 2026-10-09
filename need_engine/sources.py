@@ -44,6 +44,9 @@ class _DB:
             self.__init__(self.dsn)
             return self.conn.execute(sql, params).fetchall()
 
+    def close(self) -> None:
+        self.conn.close()
+
 
 def _ident(name: str) -> str:
     if not re.fullmatch(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?", name):
@@ -103,9 +106,12 @@ class XMessageSource:
     def __init__(self, cfg: EngineConfig, dsn: str | None = None, conn: Any = None):
         self.cfg = cfg
         self.db = _DB(dsn or cfg.database_url) if conn is None else conn
-        self.sql = f"""SELECT row_id, tweet_id, author_id, author_handle, author_name, text, created_at, url, query, author_verified, author_bio
-                         FROM {_ident(cfg.crawler_schema)}.x_posts WHERE row_id > %s AND author_id IS NOT NULL AND author_id <> ''
-                         ORDER BY row_id LIMIT %s"""
+        schema = _ident(cfg.crawler_schema)
+        self.sql = f"""SELECT x.row_id, x.tweet_id, x.author_id, x.author_handle, x.author_name, x.text, x.created_at, x.loaded_at, x.url, x.query, x.lang, x.author_verified, x.author_bio,
+                                x.kind, x.conversation_id, x.in_reply_to_tweet_id, x.in_reply_to_author_id, p.text AS parent_text, p.created_at AS parent_date, p.author_id AS parent_author_id
+                         FROM {schema}.x_posts x LEFT JOIN {schema}.x_posts p ON p.tweet_id=x.in_reply_to_tweet_id
+                         WHERE x.row_id > %s AND x.author_id IS NOT NULL AND x.author_id <> ''
+                         ORDER BY x.row_id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
         rows = self.db.all(self.sql, (cursor, limit))
@@ -116,10 +122,15 @@ class XMessageSource:
                 chat_id="x:public", message_id=int(row["tweet_id"]), row_id=int(row["row_id"]),
                 author_id=f"x_{row['author_id']}",
                 author_name=row.get("author_name"), author_username=handle, text=row.get("text") or "",
-                date=parse_dt(row.get("created_at") or datetime.fromtimestamp(0, timezone.utc)),
+                date=parse_dt(row.get("created_at") or row.get("loaded_at") or datetime.now(timezone.utc)),
                 chat_title="X", platform="x", url=row.get("url"),
                 profile_url=f"https://x.com/{handle}" if handle else None, search_query=row.get("query"),
-                author_verified=bool(row.get("author_verified")), author_bio=row.get("author_bio")))
+                author_verified=bool(row.get("author_verified")), author_bio=row.get("author_bio"), lang=row.get("lang"),
+                date_estimated=not bool(row.get("created_at")), kind=row.get("kind") or "post",
+                conversation_id=row.get("conversation_id"), reply_to=row.get("in_reply_to_tweet_id"),
+                in_reply_to_author_id=row.get("in_reply_to_author_id"), reply_to_text=row.get("parent_text"),
+                reply_to_author_id=str(row.get("parent_author_id") or row.get("in_reply_to_author_id") or "") or None,
+                reply_to_date=parse_dt(row["parent_date"]) if row.get("parent_date") else None))
         return messages
 
 
@@ -160,6 +171,8 @@ def message_source(cfg: EngineConfig) -> MessageSource:
         return JsonlMessageSource(cfg.messages_source[6:])
     if cfg.messages_source != "db":
         raise ValueError(f"unsupported NE_MESSAGES_SOURCE: {cfg.messages_source}")
+    if not cfg.x_enabled:
+        return SQLMessageSource(cfg)
     return SQLMessageSource(cfg)
 
 

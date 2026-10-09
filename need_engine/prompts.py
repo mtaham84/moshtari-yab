@@ -21,6 +21,8 @@ For X posts, set buyer_intent_confirmed=true only when the author's own post exp
 Return JSON: {"needs":[{"author_id":"..","evidence_message_ids":[..],"label":"explicit_need|implicit_need|on_behalf_need|resolved|joke|seller|curiosity|no_buy_complaint|advice_giver|past_need","buyer_intent_confirmed":true/false,"author_type":"individual|organization|unknown","promotional_content":true/false,"is_opportunity":true/false,"situation":"Persian, one sentence","need":"Persian or null","solution_queries":[..],"problem_queries":[..],"requirements":[{"text":"..","must":true/false}],"constraints":{"budget_toman":int|null,"city":str|null,"use":"home|commercial|personal|null","level":"beginner|intermediate|advanced|null","other":str|null},"strength":"strong|medium|weak","emotion":"short Persian or null"}]}
 Return {"needs":[]} if nobody qualifies."""
 
+NEED_SYSTEM_X = """You review a JSON list of independent public X posts. Each post is independent, not a conversation. For each author, report only explicit current purchase intent or an explicit request on behalf of someone. Use only the author's own post; do not infer intent from search queries. Set author_type individual only with evidence, organization for brands, unknown if unsure. Mark promotional_content true for ads, promotions, calls to action or affiliate links. Never invent identity/contact data. Evidence ids must be post_ids in this list and belong to the same author_id as the need. Return the same JSON needs schema as the standard extractor."""
+
 VERIFY_SYSTEM = """You check candidate products against a specific person's need, from what they said in a chat. Do NOT give scores.
 For each candidate decide:
 - solves: "yes" if it directly solves the core need, "partly" if it clearly helps but only part of it, "no" otherwise. Be strict.
@@ -37,3 +39,5 @@ Return ONLY people with solves yes/partly. JSON: {"matches":[{"need_id":..,"solv
 REPLY_SYSTEM = """Write a short, friendly, helpful Persian reply (max 3 sentences) to this person in the group chat.
 Address their situation first, then mention the product naturally as one option. If mismatches are given (e.g. above budget, other city), mention them honestly and briefly. No pressure, no exaggeration, no phone numbers or other links. Put the placeholder {{LINK}} once where the link should go.
 JSON: {"reply":"..."}"""
+
+REPLY_SYSTEM_X = """Write three respectful Persian draft variants for a human to review. Never send anything. Never pretend to be a neutral unrelated user; do not fabricate experience, reviews, or price claims. public: no URL, phone, or email, acknowledge the need first, mention the product as one option, end with a light question. dm: first-message draft, may include {{LINK}}. short: shortest useful public response. Avoid pressure and use at most one emoji. Return JSON {"public":"...","dm":"...","short":"..."}."""

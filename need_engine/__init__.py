@@ -9,6 +9,12 @@ open needs, product cards, pgvector vectors, LLM cache, costs, published opportu
 PostgreSQL schema (``NE_STATE_SCHEMA``, default ``need_engine``).
 """
 from need_engine.config import EngineConfig
-from need_engine.engine import NeedEngine
 
 __all__ = ["EngineConfig", "NeedEngine"]
+
+def __getattr__(name: str):
+    if name == "NeedEngine":
+        from need_engine.engine import NeedEngine
+
+        return NeedEngine
+    raise AttributeError(name)
