@@ -61,6 +61,12 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(record["metadata"]["query"], None)
         self.assertEqual(record["metadata"]["raw_cli"], self.fixture[0])
 
+    def test_normalization_preserves_author_verified_as_boolean(self):
+        verified = normalize_tweet({**self.fixture[0], "author": {**self.fixture[0]["author"], "verified": True}})
+        unverified = normalize_tweet({**self.fixture[0], "author": {**self.fixture[0]["author"], "verified": False}})
+        self.assertIs(verified["author_verified"], True)
+        self.assertIs(unverified["author_verified"], False)
+
     def test_jsonl_records_are_x_messages(self):
         result = self.collector().run(["اسپرسوساز"])
         records = load_file(result["output"])

@@ -331,6 +331,24 @@ def opportunity_status_update_view(request, pk):
 
 
 @login_required
+def opportunity_feedback_view(request, pk):
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
+
+    business = getattr(request.user, "business", None)
+    opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
+    feedback = request.POST.get("feedback", "").strip()
+    if feedback not in {"relevant", "irrelevant"}:
+        return JsonResponse({"status": "error", "message": "بازخورد نامعتبر است."}, status=400)
+
+    metadata = dict(opportunity.trace_metadata or {})
+    metadata["seller_feedback"] = feedback
+    opportunity.trace_metadata = metadata
+    opportunity.save(update_fields=["trace_metadata", "updated_at"])
+    return JsonResponse({"status": "success", "feedback": feedback})
+
+
+@login_required
 def communities_list_view(request):
     """
     Manages monitored online communities (Telegram public channels & groups).

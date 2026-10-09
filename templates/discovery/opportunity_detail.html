@@ -308,6 +308,14 @@
     <!-- Status Management Card -->
     <div class="p-card" style="padding: 20px 22px;">
       <h3 style="font-size: 0.95rem; color: var(--panel-text-main); margin: 0 0 12px 0; font-weight: 700;">
+        پیشنهاد مشتری چقدر مرتبط بود؟
+      </h3>
+      <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+        <button type="button" class="p-btn p-btn-sm p-btn-primary feedback-button" data-feedback="relevant">مشتری مرتبط بود</button>
+        <button type="button" class="p-btn p-btn-sm p-btn-secondary feedback-button" data-feedback="irrelevant">نامرتبط بود</button>
+      </div>
+      <div id="feedback-toast" style="display: none; margin-bottom: 16px; font-size: 0.76rem; color: #10B981; text-align: center;">بازخورد ذخیره شد.</div>
+      <h3 style="font-size: 0.95rem; color: var(--panel-text-main); margin: 0 0 12px 0; font-weight: 700;">
         وضعیت پیگیری فرصت
       </h3>
 
@@ -418,6 +426,24 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
+  document.querySelectorAll(".feedback-button").forEach(function(button) {
+    button.addEventListener("click", function() {
+      fetch("{% url 'discovery:opportunity_feedback' opportunity.id %}", {
+        method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": "{{ csrf_token }}"},
+        body: "feedback=" + encodeURIComponent(button.dataset.feedback)
+      }).then(function(response) { return response.json(); }).then(function(data) {
+        if (data.status === "success") {
+          document.getElementById("feedback-toast").style.display = "block";
+          document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = false; });
+          button.disabled = true;
+        } else {
+          alert(data.message || "ذخیره بازخورد ناموفق بود.");
+        }
+      }).catch(function() { alert("ذخیره بازخورد ناموفق بود."); });
+    });
+  });
+
   // 1. Copy reply to clipboard
   const copyBtn = document.getElementById("btn-copy-reply");
   const copyBtnText = document.getElementById("copy-btn-text");

@@ -236,6 +236,17 @@ class PanelViewTests(TestCase):
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "MATCHED"})
         self.assertEqual(r.status_code, 400)
 
+    def test_opportunity_feedback_is_saved_and_scoped_to_business(self):
+        url = reverse("discovery:opportunity_feedback", args=[self.mine.pk])
+        response = self.client.post(url, {"feedback": "relevant"})
+        self.assertEqual(response.status_code, 200)
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.trace_metadata["seller_feedback"], "relevant")
+        self.assertEqual(self.client.post(url, {"feedback": "invalid"}).status_code, 400)
+        theirs = Opportunity.objects.get(business=self.other)
+        self.assertEqual(self.client.post(reverse("discovery:opportunity_feedback", args=[theirs.pk]),
+                                          {"feedback": "irrelevant"}).status_code, 404)
+
     def test_dashboard_shows_real_numbers_only(self):
         r = self.client.get(reverse("accounts:dashboard"))
         self.assertEqual(r.status_code, 200)
