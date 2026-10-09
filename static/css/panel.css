@@ -2646,3 +2646,25 @@ html[data-theme="light"] select {
   .opp-item-body { grid-template-columns: 1fr; }
   .opp-actions { width: 100%; }
 }
+
+
+/* ==========================================================================
+   RTL inputs: text and placeholders start on the right; links/phones typed LTR
+   ========================================================================== */
+.panel-app-container .form-input,
+.panel-app-container textarea.form-input {
+  text-align: right;
+}
+.panel-app-container .form-input::placeholder {
+  text-align: right;
+  direction: rtl;
+  color: var(--panel-text-faint);
+  opacity: 1;
+}
+.panel-app-container input[dir="ltr"]:placeholder-shown {
+  direction: rtl;
+  text-align: right;
+}
+.panel-app-container input[dir="ltr"]:not(:placeholder-shown) {
+  text-align: left;
+}

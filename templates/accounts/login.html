@@ -59,7 +59,7 @@
               name="username_or_email" 
               id="login-username" 
               class="form-input" 
-              placeholder="seller@moshtariyab.com" 
+              placeholder="ایمیل خود را وارد کنید" 
               value="{{ username_or_email|default:'' }}" 
               dir="ltr" 
               required 
@@ -99,7 +99,8 @@
           </div>
         </div>
 
-        <!-- Quick Demo Accounts Showcase -->
+        {% if SHOW_DEMO_ACCOUNTS %}
+        <!-- Quick Demo Accounts Showcase (only when DJANGO_DEBUG=True) -->
         <div class="demo-accounts-container" style="background: rgba(121, 40, 202, 0.05); border: 1px solid rgba(121, 40, 202, 0.25); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 6px;">
           <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px;">
             <div style="display: flex; align-items: center; gap: 6px;">
@@ -161,6 +162,8 @@
             دسترسی مدیر سیستم (Superuser): <code style="color: #a78bfa;">admin</code> / <code style="color: #a78bfa;">Admin_2026_Secure!</code>
           </div>
         </div>
+
+        {% endif %}
 
         <!-- Submit Button -->
         <button type="submit" class="auth-submit-btn" style="margin-top: 4px;">

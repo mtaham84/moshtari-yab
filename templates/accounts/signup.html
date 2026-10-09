@@ -41,7 +41,7 @@
       <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 10px 14px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: #10B981;">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
         <span>
-          <strong>حالت دمو (آزمایشی):</strong> با توجه به نسخه دمو، نیازی به احراز هویت یا تایید ایمیل نیست؛ با ثبت فرم بلافاصله وارد پنل می‌شوید.
+          بعد از ثبت‌نام، بدون نیاز به تأیید ایمیل مستقیم وارد پنل می‌شوید.
         </span>
       </div>
 
@@ -67,7 +67,7 @@
               name="first_name" 
               id="first_name" 
               class="form-input" 
-              placeholder="مثال: علی" 
+              placeholder="نام" 
               value="{{ first_name|default:'' }}" 
               required>
           </div>
@@ -79,7 +79,7 @@
               name="last_name" 
               id="last_name" 
               class="form-input" 
-              placeholder="مثال: رضایی" 
+              placeholder="نام خانوادگی" 
               value="{{ last_name|default:'' }}" 
               required>
           </div>
@@ -136,7 +136,7 @@
             name="business_name" 
             id="business_name" 
             class="form-input" 
-            placeholder="مثال: آکادمی تخصصی پایتون یا بوتیک شیک‌پوش" 
+            placeholder="مثال: فروشگاه پوشاک نیلا" 
             value="{{ business_name|default:'' }}" 
             required>
         </div>
@@ -187,7 +187,7 @@
             name="business_domain" 
             id="business_domain" 
             class="form-input" 
-            placeholder="مثلاً: پوشاک مردانه، آموزش هوش مصنوعی، تجهیزات عکاسی" 
+            placeholder="مثال: پوشاک زنانه" 
             value="{{ business_domain|default:'' }}" 
             required>
           <div class="domain-quick-chips">
