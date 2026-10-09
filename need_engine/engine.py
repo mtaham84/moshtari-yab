@@ -16,6 +16,7 @@ from typing import Callable
 
 import numpy as np
 
+from need_engine.access import SourceAccess
 from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
@@ -88,6 +89,7 @@ class NeedEngine:
         self.messages = messages or message_source(self.cfg)
         self.products = products or product_source(self.cfg)
         self.sink = sink or (JsonlSink(self.cfg.output_jsonl) if self.cfg.output_jsonl else None)
+        self.access = SourceAccess(self.cfg)
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
@@ -97,7 +99,8 @@ class NeedEngine:
             batch = self.messages.fetch_after(cursor, self.cfg.fetch_batch)
             if not batch:
                 break
-            total += self.store.add_pending(batch)
+            keep = [m for m in batch if self.access.analysed(m.chat_id)]   # chats without an active source: skipped
+            total += self.store.add_pending(keep) if keep else 0
             cursor = max(m.row_id for m in batch)
             self.store.set("fetch_cursor", cursor)
             if len(batch) < self.cfg.fetch_batch:
@@ -112,7 +115,10 @@ class NeedEngine:
             return
         needs = self.store.open_needs()
         for pid in changed:
-            hits, toman = verify_new_product(pid, needs, self.catalog, self.llm, self.cfg)
+            j = self.catalog.pid_index.get(pid)
+            owner = self.catalog.products[j].business_id if j is not None else None
+            visible = [(n, v) for n, v in needs if self.access.allows(n.chat_id, owner)]
+            hits, toman = verify_new_product(pid, visible, self.catalog, self.llm, self.cfg)
             report.cost_matching_toman += toman
             for need_id, mp in hits.items():
                 n = self.store.need(need_id)
@@ -124,7 +130,7 @@ class NeedEngine:
                 self._finish_and_emit(n, matches, report, extra_cost=toman / max(1, len(hits)))
 
     def _match(self, n: NeedCard, qvecs: np.ndarray | None, report: RunReport) -> None:
-        ret = retrieve(n, qvecs, self.catalog, self.cfg)
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=self.access.sellers(n.chat_id))
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
         report.cost_matching_toman += toman
         n.cost_toman += toman
@@ -190,6 +196,8 @@ class NeedEngine:
     def process(self, report: RunReport, now: datetime | None = None, flush: bool = False) -> None:
         now = now or datetime.now(timezone.utc)
         for chat_id in self.store.pending_chats():
+            if not self.access.analysed(chat_id):      # source removed/paused since the messages were queued
+                continue
             pending = self.store.pending(chat_id)
             batch, why = (pending, "flush") if flush else ready_batch(pending, now, self.cfg)
             if not batch:
@@ -233,6 +241,7 @@ class NeedEngine:
     def run_once(self, now: datetime | None = None, flush: bool = False) -> RunReport:
         report = RunReport()
         try:
+            self.access.refresh()
             self.sync_products(report)
             report.ingested = self.ingest()
             self.process(report, now=now, flush=flush)

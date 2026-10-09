@@ -33,6 +33,7 @@ def cfg_for(tmp_path, pg_dsn, pg_schema):
         c.crawler_schema = kw.pop("crawler_schema", "crawler")
         c.products_source = f"jsonl:{tmp_path / 'products.jsonl'}"
         c.max_workers = 1
+        c.source_access = "open"
         for k, v in kw.items():
             setattr(c, k, v)
         return c
@@ -236,3 +237,56 @@ def test_store_keeps_vectors_in_pgvector(cfg_for):
     assert card.need_id == "need_x" and np.allclose(vec, q[0], atol=1e-6)
     typ = st._all("SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute WHERE attrelid = '{s}.need_vectors'::regclass AND attname = 'vec'")
     assert typ[0]["t"] == "vector"
+
+
+def test_source_access_rule_is_applied_before_the_llm(tmp_path, cfg_for, crawler):
+    """no source → chat not analysed; PRIVATE → only its owners' products; GLOBAL → everyone's."""
+    t = f"{crawler.schema}.communities"
+    crawler.conn.execute(f"CREATE TABLE {t} (telegram_chat_id bigint, scope text, business_id text, is_active boolean)")
+    products_file(tmp_path / "products.jsonl")
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 0)
+    calls: list[str] = []
+
+    def counting_llm(stage, system, user):
+        calls.append(stage)
+        return mock_llm(stage, system, user)
+
+    def engine():
+        return NeedEngine(cfg_for(crawler_schema=crawler.schema, trigger_count=1, source_access="panel",
+                                  communities_table=t),       # fresh state schema each time
+                          mock_llm=counting_llm)
+
+    r = engine().run_once(now=T0 + timedelta(hours=1))
+    assert r.ingested == 0 and r.analysed_messages == 0 and set(calls) == {"product_cards"}   # no message LLM call
+
+    crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, 'PRIVATE', 'S2', TRUE)", (int(CHAT),))
+    r = engine().run_once(now=T0 + timedelta(hours=1))
+    assert r.analysed_messages == 1
+    assert all(m.product_id != "P1" for o in r.opportunities for m in o.matched_products)   # S1 does not watch this chat
+
+    crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, 'GLOBAL', NULL, TRUE)", (int(CHAT),))
+    r = engine().run_once(now=T0 + timedelta(hours=1))
+    assert any(m.product_id == "P1" for o in r.opportunities for m in o.matched_products)
+
+
+def test_source_access_rules():
+    from need_engine.access import SourceAccess
+
+    class FakeDB:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self, sql, params=()):
+            return [{"t": "x"}] if "to_regclass" in sql else self.rows
+
+    c = EngineConfig()
+    c.source_access, c.messages_source = "panel", "db"
+    a = SourceAccess(c, FakeDB([{"telegram_chat_id": -1, "scope": "PRIVATE", "business_id": 7},
+                                {"telegram_chat_id": -1, "scope": "PRIVATE", "business_id": 8},
+                                {"telegram_chat_id": -2, "scope": "GLOBAL", "business_id": None},
+                                {"telegram_chat_id": -2, "scope": "PRIVATE", "business_id": 7}]))
+    a.refresh()
+    assert a.sellers("-1") == {"7", "8"} and a.owners("-1") == ["7", "8"]
+    assert a.sellers("-2") is None and a.owners("-2") == []
+    assert not a.analysed("-3") and a.analysed("-1")
+    assert a.allows("-1", "7") and not a.allows("-1", "9") and a.allows("-2", "9") and not a.allows("-3", "7")
