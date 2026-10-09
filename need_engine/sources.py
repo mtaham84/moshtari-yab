@@ -1,8 +1,9 @@
-"""Read-only sources. Messages come from the crawler's table (SQLite now, PostgreSQL later); products from
-JSONL or Django's products table. Nothing here ever writes to those databases."""
+"""Read-only sources: messages from the crawler archive, products from Django's table (same PostgreSQL database),
+or JSONL files for tests and the offline demo. Connections are READ ONLY; nothing here ever writes."""
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Protocol
@@ -20,34 +21,34 @@ def parse_dt(v: Any) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-# ── DB-API helpers (sqlite3 / psycopg) ─────────────────────────────────────────
+# ── read-only PostgreSQL access ──────────────────────────────────────────────
 class _DB:
+    """Read-only connection: every transaction is READ ONLY, so the engine cannot modify crawler/Django tables."""
+
     def __init__(self, dsn: str):
+        import psycopg
+        from psycopg.rows import dict_row
+
         self.dsn = dsn
-        if dsn.startswith("sqlite:///") or dsn.startswith("sqlite://"):
-            import sqlite3
-
-            path = dsn.split("sqlite:///", 1)[-1] if "sqlite:///" in dsn else dsn.split("sqlite://", 1)[-1]
-            self.conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, check_same_thread=False) if path != ":memory:" else sqlite3.connect(":memory:")
-            self.conn.row_factory = sqlite3.Row
-            self.ph = "?"
-        elif dsn.startswith("postgres"):
-            import psycopg
-            from psycopg.rows import dict_row
-
-            self.conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
-            try:
-                self.conn.execute("SET default_transaction_read_only = on")
-            except Exception:  # pragma: no cover
-                pass
-            self.ph = "%s"
-        else:
-            raise ValueError(f"unsupported DSN: {dsn}")
+        self.conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
+        self.conn.execute("SET default_transaction_read_only = on")
 
     def all(self, sql: str, params: tuple = ()) -> list[dict]:
-        sql = sql.replace("?", self.ph)
-        cur = self.conn.execute(sql, params)
-        return [dict(r) for r in cur.fetchall()]
+        import psycopg
+
+        try:
+            return self.conn.execute(sql, params).fetchall()
+        except psycopg.errors.UndefinedTable:   # crawler / panel not migrated yet → nothing to read
+            return []
+        except psycopg.OperationalError:        # database restarted → reconnect once
+            self.__init__(self.dsn)
+            return self.conn.execute(sql, params).fetchall()
+
+
+def _ident(name: str) -> str:
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?", name):
+        raise ValueError(f"invalid SQL identifier: {name!r}")
+    return name
 
 
 # ── messages ─────────────────────────────────────────────────────────────────
@@ -56,43 +57,44 @@ class MessageSource(Protocol):
 
 
 class SQLMessageSource:
-    """Reads ``messages`` incrementally by its monotonic row id (arrival order)."""
+    """Reads the crawler archive (``crawler.tg_messages`` + users + chats) incrementally by its row id.
+
+    Service messages and parents fetched only as context are skipped as input; a reply's parent text is
+    joined in so the model sees what the message answers even when the parent is old.
+    """
 
     def __init__(self, cfg: EngineConfig, dsn: str | None = None, conn: Any = None):
         self.cfg = cfg
-        self.db = _DB(dsn or cfg.messages_dsn) if conn is None else conn
-        self.c = cfg.messages_columns
-        self._groups: dict[str, dict] = {}
-
-    def _load_groups(self) -> None:
-        try:
-            rows = self.db.all(f"SELECT group_id, title, link FROM {self.cfg.groups_table}")
-        except Exception:
-            return
-        for r in rows:
-            link = r.get("link") or ""
-            username = None
-            if link and "/+" not in link and "joinchat" not in link:
-                username = link.rstrip("/").split("/")[-1].lstrip("@") or None
-            self._groups[str(r["group_id"])] = {"title": r.get("title"), "username": username}
+        self.db = _DB(dsn or cfg.database_url) if conn is None else conn
+        s = _ident(cfg.crawler_schema)
+        self.sql = f"""
+            SELECT m.id AS row_id, m.chat_id, m.message_id, m.date, m.text, m.reply_to_msg_id,
+                   COALESCE(m.sender_user_id, m.sender_chat_id) AS author_id,
+                   COALESCE(NULLIF(concat_ws(' ', u.first_name, u.last_name), ''), sc.title, u.username) AS author_name,
+                   COALESCE(u.username, sc.username) AS author_username, COALESCE(u.is_bot, FALSE) AS is_bot,
+                   c.title AS chat_title, c.username AS chat_username,
+                   p.text AS parent_text, p.date AS parent_date, COALESCE(p.sender_user_id, p.sender_chat_id) AS parent_author_id,
+                   COALESCE(NULLIF(concat_ws(' ', pu.first_name, pu.last_name), ''), pu.username) AS parent_author_name
+            FROM {s}.tg_messages m
+            JOIN {s}.tg_chats c ON c.chat_id = m.chat_id
+            LEFT JOIN {s}.tg_users u ON u.user_id = m.sender_user_id
+            LEFT JOIN {s}.tg_chats sc ON sc.chat_id = m.sender_chat_id
+            LEFT JOIN {s}.tg_messages p ON p.chat_id = m.chat_id AND p.message_id = m.reply_to_msg_id
+            LEFT JOIN {s}.tg_users pu ON pu.user_id = p.sender_user_id
+            WHERE m.id > %s AND NOT m.is_context AND NOT m.is_service
+            ORDER BY m.id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
-        c = self.c
-        cols = ", ".join(f"{v} AS {k}" for k, v in c.items())
-        rows = self.db.all(f"SELECT {cols} FROM {self.cfg.messages_table} WHERE {c['row_id']} > ? ORDER BY {c['row_id']} LIMIT ?",
-                           (cursor, limit))
-        if rows:
-            self._load_groups()
-        out = []
-        for r in rows:
-            g = self._groups.get(str(r["chat_id"]), {})
-            out.append(ChatMessage(
-                chat_id=str(r["chat_id"]), message_id=int(r["message_id"]), row_id=int(r["row_id"]),
-                author_id=str(r["author_id"] or ""), author_name=r.get("author_name"), author_username=r.get("author_username"),
-                is_bot=bool(r.get("is_bot")), text=r.get("text") or "", date=parse_dt(r["date"]),
-                reply_to=int(r["reply_to"]) if r.get("reply_to") not in (None, "") else None,
-                chat_title=g.get("title"), chat_username=g.get("username")))
-        return out
+        rows = self.db.all(self.sql, (cursor, limit))
+        return [ChatMessage(
+            chat_id=str(r["chat_id"]), message_id=int(r["message_id"]), row_id=int(r["row_id"]),
+            author_id=str(r["author_id"] or ""), author_name=r.get("author_name"), author_username=r.get("author_username"),
+            is_bot=bool(r.get("is_bot")), text=r.get("text") or "", date=parse_dt(r["date"]),
+            reply_to=int(r["reply_to_msg_id"]) if r.get("reply_to_msg_id") is not None else None,
+            chat_title=r.get("chat_title"), chat_username=r.get("chat_username"),
+            reply_to_text=r.get("parent_text"), reply_to_author_id=str(r["parent_author_id"]) if r.get("parent_author_id") else None,
+            reply_to_author_name=r.get("parent_author_name"),
+            reply_to_date=parse_dt(r["parent_date"]) if r.get("parent_date") else None) for r in rows]
 
 
 class JsonlMessageSource:
@@ -128,8 +130,10 @@ class JsonlMessageSource:
 
 
 def message_source(cfg: EngineConfig) -> MessageSource:
-    if cfg.messages_dsn.startswith("jsonl:"):
-        return JsonlMessageSource(cfg.messages_dsn[6:])
+    if cfg.messages_source.startswith("jsonl:"):
+        return JsonlMessageSource(cfg.messages_source[6:])
+    if cfg.messages_source != "db":
+        raise ValueError(f"unsupported NE_MESSAGES_SOURCE: {cfg.messages_source}")
     return SQLMessageSource(cfg)
 
 
@@ -170,12 +174,12 @@ class JsonlProductSource:
 class SQLProductSource:
     """Read-only view of Django's ``products_product`` (active, discovery-enabled products)."""
 
-    def __init__(self, cfg: EngineConfig, dsn: str):
-        self.cfg, self.db = cfg, _DB(dsn)
+    def __init__(self, cfg: EngineConfig, dsn: str | None = None):
+        self.cfg, self.db = cfg, _DB(dsn or cfg.database_url)
 
     def all(self) -> list[Product]:
         rows = self.db.all(f"""SELECT id, business_id, name, description, product_type, price, attributes, target_customer
-                               FROM {self.cfg.products_table} WHERE status = 'ACTIVE' AND is_discovery_active = ?""", (True,))
+                               FROM {_ident(self.cfg.products_table)} WHERE status = 'ACTIVE' AND is_discovery_active = %s""", (True,))
         out = []
         for r in rows:
             attrs = r.get("attributes")
@@ -195,8 +199,8 @@ def product_source(cfg: EngineConfig) -> ProductSource:
     s = cfg.products_source
     if s.startswith("jsonl:"):
         return JsonlProductSource(s[6:])
-    if s.startswith("sql:"):
-        return SQLProductSource(cfg, s[4:])
+    if s == "db":
+        return SQLProductSource(cfg)
     raise ValueError(f"unsupported NE_PRODUCTS_SOURCE: {s}")
 
 

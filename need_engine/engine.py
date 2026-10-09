@@ -1,7 +1,7 @@
 """Orchestration: ingest new messages → analyse ready chats → match → emit Opportunity objects.
 
-Output goes to a sink (default: JSONL file). Writing opportunities to the application database is
-intentionally left out for now; plug a sink callable when the backend endpoint/model is ready.
+Every emitted Opportunity is published to ``<state schema>.opportunities`` (the panel imports it with
+``manage.py sync_opportunities``); an extra sink (e.g. a JSONL file for the demo) can be plugged in.
 """
 from __future__ import annotations
 
@@ -81,13 +81,13 @@ class NeedEngine:
                  products: ProductSource | None = None, sink: Sink | None = None,
                  mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None):
         self.cfg = cfg or EngineConfig()
-        self.store = store or Store(self.cfg.state_path)
+        self.store = store or Store(self.cfg.database_url, self.cfg.state_schema)
         self.llm = LLMClient(self.cfg, self.store, mock=mock_llm)
         self.emb = Embedder(self.cfg, self.llm)
         self.catalog = Catalog(self.cfg, self.store, self.llm, self.emb)
         self.messages = messages or message_source(self.cfg)
         self.products = products or product_source(self.cfg)
-        self.sink = sink or JsonlSink(self.cfg.output_path)
+        self.sink = sink or (JsonlSink(self.cfg.output_jsonl) if self.cfg.output_jsonl else None)
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
@@ -172,7 +172,9 @@ class NeedEngine:
         if prev and prev[0] == fp:
             return
         self.store.mark_emitted(opp.opportunity_id, fp, opp.model_dump_json())
-        self.sink(opp)
+        self.store.publish(opp)
+        if self.sink:
+            self.sink(opp)
         report.opportunities.append(opp)
 
     def _close(self, n: NeedCard, report: RunReport) -> None:

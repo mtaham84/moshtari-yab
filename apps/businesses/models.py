@@ -79,14 +79,6 @@ class Business(models.Model):
         default="DIRECT",
         verbose_name="روش ترجیحی ارسال پیام"
     )
-    taxonomy_version = models.PositiveIntegerField(
-        default=1,
-        verbose_name="نسخه تاکسونومی دسته‌بندی‌ها"
-    )
-    catalog_version = models.PositiveIntegerField(
-        default=1,
-        verbose_name="نسخه کاتالوگ محصولات"
-    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاریخ ایجاد")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
 

@@ -56,27 +56,6 @@ class Category(models.Model):
         default=1,
         verbose_name="عمق دسته‌بندی (۱ تا ۵)"
     )
-    embedding = models.JSONField(
-        default=list,
-        blank=True,
-        verbose_name="بردار تعبیه‌شده دسته (Embedding)"
-    )
-    embedding_model = models.CharField(
-        max_length=100,
-        blank=True,
-        default="text-embedding-3-small",
-        verbose_name="مدل بردارساز"
-    )
-    embedding_version = models.CharField(
-        max_length=50,
-        blank=True,
-        default="v1",
-        verbose_name="نسخه بردار"
-    )
-    taxonomy_version = models.PositiveIntegerField(
-        default=1,
-        verbose_name="نسخه تاکسونومی"
-    )
     keywords = models.JSONField(
         default=list,
         blank=True,
@@ -111,8 +90,8 @@ class Category(models.Model):
             unique_suffix = uuid.uuid4().hex[:6]
             self.slug = f"{base_slug}-{unique_suffix}"
 
-        from apps.discovery.taxonomy.normalizer import normalize_persian_text
-        self.normalized_name = normalize_persian_text(self.name)
+        from need_engine.text import norm
+        self.normalized_name = norm(self.name)
 
         if self.parent:
             if self.parent_id == self.id:
@@ -125,14 +104,6 @@ class Category(models.Model):
 
         self.full_path = self.get_full_path()
         super().save(*args, **kwargs)
-
-        # Invalidate taxonomy cache & increment version on Business if changed
-        if self.business_id:
-            try:
-                from apps.discovery.taxonomy.cache import invalidate_seller_taxonomy_cache
-                invalidate_seller_taxonomy_cache(self.business)
-            except (ImportError, Exception):
-                pass
 
     def get_ancestors(self):
         """Returns ancestor categories from root down to parent."""
@@ -266,26 +237,6 @@ class Product(models.Model):
         for k, v in self.attributes.items():
             items.append({"key": k, "value": v})
         return items
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        if self.business_id:
-            try:
-                from apps.discovery.taxonomy.cache import invalidate_seller_taxonomy_cache
-                invalidate_seller_taxonomy_cache(self.business)
-            except Exception:
-                pass
-
-    def delete(self, *args, **kwargs):
-        b = self.business
-        res = super().delete(*args, **kwargs)
-        if b:
-            try:
-                from apps.discovery.taxonomy.cache import invalidate_seller_taxonomy_cache
-                invalidate_seller_taxonomy_cache(b)
-            except Exception:
-                pass
-        return res
 
     def __str__(self):
         return f"{self.name} - {self.business.name}"

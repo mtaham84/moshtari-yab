@@ -48,27 +48,31 @@ def signup_view(request):
                 "business_domain": business_domain,
             })
 
+        form_values = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "business_name": business_name,
+            "business_type": business_type,
+            "business_domain": business_domain,
+        }
+        if len(password) < 8:
+            messages.error(request, "کلمه عبور باید حداقل ۸ کاراکتر باشد.")
+            return render(request, "accounts/signup.html", form_values)
+
+        # Without email verification an existing account must never be taken over by signing up again.
+        if User.objects.filter(email__iexact=email).exists() or User.objects.filter(username__iexact=email).exists():
+            messages.error(request, "این ایمیل قبلاً ثبت شده است. لطفاً وارد شوید.")
+            return render(request, "accounts/signup.html", form_values)
+
         # Direct Signup for Demo Mode (No OTP / Verification needed)
-        username = email
-        user, created = User.objects.get_or_create(
+        user = User.objects.create_user(
+            username=email,
             email=email,
-            defaults={
-                "username": username,
-                "first_name": first_name,
-                "last_name": last_name,
-                "is_active": True,
-            }
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
         )
-
-        if not created:
-            user.first_name = first_name
-            user.last_name = last_name
-            user.is_active = True
-            user.save(update_fields=["first_name", "last_name", "is_active"])
-
-        if password:
-            user.set_password(password)
-            user.save()
 
         # Create or update associated business
         Business.objects.update_or_create(

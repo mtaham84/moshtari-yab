@@ -70,11 +70,6 @@
             </div>
           {% endif %}
 
-          {% if discount_percent > 0 %}
-            <div style="position: absolute; top: 12px; right: 12px; background: #ef4444; color: #fff; font-weight: 800; font-size: 0.78rem; padding: 3px 9px; border-radius: 999px;">
-              {{ discount_percent }}٪ پیشنهاد ویژه
-            </div>
-          {% endif %}
         </div>
 
         <!-- Thumbnails Slider -->
@@ -224,7 +219,7 @@
 
       <form id="checkout-form" onsubmit="handleOrderSubmit(event)">
         {% csrf_token %}
-        <input type="hidden" name="lead_id" value="{{ lead_id }}">
+        <input type="hidden" name="ref" value="{{ ref }}">
 
         <div style="display: flex; flex-direction: column; gap: 12px;">
           <div>
