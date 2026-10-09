@@ -9,6 +9,7 @@ from apps.products.views import product_click_view, public_product_card_view
  
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("ops/", include("apps.billing.urls")),
     path("p/<int:pk>/", public_product_card_view, name="short_public_card"),
     path("r/<int:pk>/", product_click_view, name="product_click"),
     path("accounts/", include("apps.accounts.urls")),

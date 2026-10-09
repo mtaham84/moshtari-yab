@@ -64,13 +64,15 @@ class Retrieval:
 
 
 def retrieve(n: NeedCard, qvecs: np.ndarray, cat: Catalog, cfg: EngineConfig,
-             allowed: frozenset[str] | None = None) -> Retrieval:
-    """``allowed`` = business ids whose products this need's chat may be matched against (None = all sellers)."""
+             allowed: frozenset[str] | None = None, excluded: frozenset[str] = frozenset()) -> Retrieval:
+    """``allowed`` = business ids whose products this need's chat may be matched against (None = all sellers).
+    ``excluded`` = sellers left out anyway (prepaid balance used up, see need_engine/registry.py)."""
     if cat.n == 0 or qvecs is None or len(qvecs) == 0:
         return Retrieval()
     dense = cat.dense_scores(qvecs)
-    if allowed is not None:
-        visible = np.array([p.business_id in allowed for p in cat.products], dtype=bool)
+    if allowed is not None or excluded:
+        visible = np.array([(allowed is None or p.business_id in allowed) and p.business_id not in excluded
+                            for p in cat.products], dtype=bool)
         if not visible.any():
             return Retrieval()
         dense = np.where(visible, dense, -np.inf).astype(np.float32)

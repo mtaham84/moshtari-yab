@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.businesses.apps.BusinessesConfig",
     "apps.products.apps.ProductsConfig",
     "apps.discovery.apps.DiscoveryConfig",
+    "apps.billing.apps.BillingConfig",
 ]
 
 MIDDLEWARE = [
@@ -88,6 +89,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.flags",
+                "apps.billing.context_processors.wallet",
             ],
         },
     },

@@ -67,8 +67,18 @@
           <!-- Live Agent Status Chip -->
           <div class="console-status-chip" title="وضعیت ایجنت هوشمند">
             <span class="console-pulse-beacon"></span>
-            <span>ایجنت فعال</span>
+            <span>{% if wallet_blocked %}ایجنت متوقف (اعتبار تمام شده){% else %}ایجنت فعال{% endif %}</span>
           </div>
+
+          <!-- Pay-as-you-go balance (apps/billing) -->
+          {% if wallet_balance is not None %}
+          <div class="console-status-chip" title="اعتبار کیف پول؛ هزینه‌ی هر تحلیل به‌ازای مصرف از آن کسر می‌شود"{% if wallet_blocked %} style="color: #d93a3a;"{% endif %}>
+            <span>اعتبار: {{ wallet_balance|floatformat:"0g" }} تومان</span>
+          </div>
+          {% endif %}
+          {% if is_ops %}
+          <a href="{% url 'ops:dashboard' %}" class="console-status-chip" title="پنل مدیریت" style="text-decoration: none;">پنل مدیریت</a>
+          {% endif %}
 
           <!-- 3-State Theme Switcher -->
           <div class="theme-switch-pill" role="group" aria-label="تغییر پوسته">

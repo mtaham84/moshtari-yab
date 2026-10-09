@@ -13,6 +13,7 @@ from django.db import connection
 from psycopg.conninfo import make_conninfo
 
 from need_engine.config import EngineConfig
+from need_engine.registry import ModelRegistry
 from need_engine.llm import LLMClient, LLMError
 from need_engine.reply import MessageStyle as EngineStyle
 from need_engine.reply import write_reply
@@ -38,14 +39,16 @@ def panel_llm() -> Iterator[tuple[EngineConfig, LLMClient]]:
     cfg = EngineConfig()
     cfg.state_schema = settings.NEED_ENGINE_SCHEMA
     cfg.public_base_url = settings.PUBLIC_BASE_URL
+    cfg.database_url = _dsn()   # providers / models / prices of the admin panel are read from the same database
     mock = None
+    registry = ModelRegistry(cfg)
     if settings.PANEL_MOCK_LLM:
         from need_engine.mock import mock_llm as mock
-    elif not cfg.llm_api_key:
-        raise AgentUnavailable("کلید مدل زبانی (NE_LLM_API_KEY) روی سرور تنظیم نشده است.")
+    elif not registry.has_credentials():
+        raise AgentUnavailable("کلید مدل زبانی روی سرور تنظیم نشده است (پنل مدیریت ← مدل‌ها، یا NE_LLM_API_KEY).")
     store = Store(_dsn(), cfg.state_schema)
     try:
-        yield cfg, LLMClient(cfg, store, mock=mock)
+        yield cfg, LLMClient(cfg, store, mock=mock, registry=registry)
     except AgentUnavailable:
         raise
     except LLMError as e:

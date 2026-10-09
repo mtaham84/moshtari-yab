@@ -1,0 +1,24 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}کیف پول {{ business.name }}{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>کیف پول {{ business.name }}</h1><a class="btn" href="{% url 'ops:wallets' %}">بازگشت</a></div>
+<div class="grid g2">
+  <div class="card stat"><div class="label">موجودی</div>
+    <div class="value {% if blocked %}neg{% endif %}">{{ wallet.balance_toman|toman }} <small>تومان</small></div>
+    <div class="sub">{% if blocked %}<span class="st down">اعتبار تمام شده؛ تحلیل برای این فروشنده متوقف است</span>{% else %}<span class="st ok">فعال</span>{% endif %}
+      · <a href="{% url 'ops:costs' %}?business={{ business.pk }}">دفتر هزینه‌ها</a></div></div>
+  <div class="card"><h2>ثبت تراکنش</h2>
+    <form method="post">{% csrf_token %}
+      {% for f in form %}<div class="field">{{ f.label_tag }} {{ f }}{% if f.help_text %}<div class="help">{{ f.help_text }}</div>{% endif %}
+        {% for e in f.errors %}<div class="err">{{ e }}</div>{% endfor %}</div>{% endfor %}
+      <button class="btn primary">ثبت</button>
+    </form></div>
+</div>
+<div class="card" style="margin-top:14px"><h2>تراکنش‌ها</h2>
+<table><tr><th>زمان</th><th>نوع</th><th>توضیح</th><th class="n">فراخوانی</th><th class="n">هزینه‌ی واقعی</th><th class="n">مبلغ</th><th class="n">موجودی</th><th>ثبت‌کننده</th></tr>
+{% for t in transactions %}<tr><td class="muted">{{ t.created_at|date:"Y-m-d H:i" }}</td><td>{{ t.get_kind_display }}</td><td class="muted">{{ t.description }}</td>
+  <td class="n">{{ t.calls|default:"" }}</td><td class="n">{% if t.cost_usd %}{{ t.cost_usd|usd }}{% endif %}</td>
+  <td class="n {% if t.amount_toman < 0 %}neg{% else %}pos{% endif %}">{{ t.amount_toman|toman }}</td><td class="n">{{ t.balance_after|toman }}</td>
+  <td class="muted">{{ t.created_by.email|default:"سیستم" }}</td></tr>
+{% empty %}<tr><td class="muted" colspan="8">تراکنشی نیست.</td></tr>{% endfor %}</table></div>
+{% endblock %}
