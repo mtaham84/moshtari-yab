@@ -181,13 +181,13 @@
       <!-- Min Score Filter -->
       <div>
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
-          حداقل احتمال خرید:
+          حداقل انطباق با کالا:
         </label>
         <select name="min_score" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
-          <option value="">همه نیت‌ها</option>
-          <option value="85" {% if selected_min_score == '85' %}selected{% endif %}>قصد فوری و حتمی (≥ ۸۵٪)</option>
-          <option value="70" {% if selected_min_score == '70' %}selected{% endif %}>قصد بالا (≥ ۷۰٪)</option>
-          <option value="50" {% if selected_min_score == '50' %}selected{% endif %}>نیاز مشخص (≥ ۵۰٪)</option>
+          <option value="">همه</option>
+          <option value="85" {% if selected_min_score == '85' %}selected{% endif %}>انطباق خیلی بالا (≥ ۸۵٪)</option>
+          <option value="70" {% if selected_min_score == '70' %}selected{% endif %}>انطباق بالا (≥ ۷۰٪)</option>
+          <option value="50" {% if selected_min_score == '50' %}selected{% endif %}>انطباق متوسط (≥ ۵۰٪)</option>
         </select>
       </div>
 
@@ -199,11 +199,12 @@
         <select name="status" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
           <option value="">همه وضعیت‌ها</option>
           <option value="NEW" {% if selected_status == 'NEW' %}selected{% endif %}>جدید (New)</option>
-          <option value="QUALIFIED" {% if selected_status == 'QUALIFIED' %}selected{% endif %}>تأیید شده (Qualified)</option>
           <option value="REVIEWED" {% if selected_status == 'REVIEWED' %}selected{% endif %}>بررسی شده (Reviewed)</option>
           <option value="CONTACTED" {% if selected_status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده (Contacted)</option>
           <option value="CONVERTED" {% if selected_status == 'CONVERTED' %}selected{% endif %}>مشتری نهایی (Converted)</option>
           <option value="REJECTED" {% if selected_status == 'REJECTED' %}selected{% endif %}>رد شده (Rejected)</option>
+          <option value="RESOLVED" {% if selected_status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد (Resolved)</option>
+          <option value="EXPIRED" {% if selected_status == 'EXPIRED' %}selected{% endif %}>منقضی شده (Expired)</option>
         </select>
       </div>
     </div>
@@ -574,6 +575,10 @@
             <span class="p-badge" style="background: rgba(16, 185, 129, 0.25); color: #047857; font-weight: 700;">مشتری نهایی</span>
           {% elif opp.status == 'REJECTED' %}
             <span class="p-badge" style="background: rgba(239, 68, 68, 0.15); color: #DC2626;">رد شده</span>
+          {% elif opp.status == 'RESOLVED' %}
+            <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6;">نیاز برطرف شد</span>
+          {% elif opp.status == 'EXPIRED' %}
+            <span class="p-badge" style="background: rgba(120, 113, 108, 0.15); color: #78716C;">منقضی شده</span>
           {% endif %}
         </div>
       </div>

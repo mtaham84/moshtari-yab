@@ -7,8 +7,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from apps.businesses.models import Business
-from apps.discovery.models import ProductDailyMetric, ProductOrder, DiscoveredLead
-from apps.core.jalali import format_jalali_date, to_persian_digits
+from apps.discovery.models import Opportunity, ProductDailyMetric, ProductOrder
 from .models import Category, Product, ProductImage
 from .services import suggest_category_for_product
 
@@ -422,14 +421,13 @@ def public_product_card_view(request, pk):
     today = timezone.now().date()
     metric, _ = ProductDailyMetric.objects.get_or_create(product=product, date=today)
 
-    ref_lead_id = request.GET.get("lead_id") or request.GET.get("ref")
-    lead_obj = None
-    if ref_lead_id and str(ref_lead_id).isdigit():
-        lead_obj = DiscoveredLead.objects.filter(id=int(ref_lead_id), product=product).first()
+    # ?ref=<engine opportunity id> is added by need_engine to every reply-draft link
+    ref = (request.GET.get("ref") or "").strip()
+    opportunity = Opportunity.objects.filter(engine_opportunity_id=ref, business=product.business).first() if ref else None
 
     # Track metrics
     metric.views_count += 1
-    if request.GET.get("src") == "agent" or lead_obj or request.GET.get("ref"):
+    if opportunity:
         metric.clicks_count += 1
     metric.save(update_fields=["views_count", "clicks_count"])
 
@@ -450,9 +448,9 @@ def public_product_card_view(request, pk):
             total_price = unit_price * quantity
             tracking_code = f"ORD-{secrets.randbelow(900000) + 100000}"
 
-            order = ProductOrder.objects.create(
+            ProductOrder.objects.create(
                 product=product,
-                lead=lead_obj,
+                opportunity=opportunity,
                 customer_name=customer_name,
                 customer_phone=customer_phone,
                 shipping_address=shipping_address,
@@ -468,9 +466,9 @@ def public_product_card_view(request, pk):
             metric.sales_amount += total_price
             metric.save(update_fields=["orders_count", "sales_amount"])
 
-            if lead_obj:
-                lead_obj.status = "CONVERTED"
-                lead_obj.save(update_fields=["status", "updated_at"])
+            if opportunity:
+                opportunity.status = "CONVERTED"
+                opportunity.save(update_fields=["status", "updated_at"])
 
             if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
                 return JsonResponse({
@@ -482,17 +480,13 @@ def public_product_card_view(request, pk):
                     "message": "سفارش شما با موفقیت ثبت شد."
                 })
 
-            return render(request, "products/order_success.html", {
-                "product": product,
-                "order": order,
-            })
+            messages.success(request, f"سفارش شما ثبت شد. کد پیگیری: {tracking_code}")
+            return redirect(request.get_full_path())
 
     images = list(product.images.all())
     main_image = product.main_image
     other_images = [img for img in images if img != main_image]
 
-    # Calculate discount / badge
-    discount_percent = 15 if (product.price and product.price > 100000) else 0
 
     return render(request, "products/public_product_card.html", {
         "product": product,
@@ -500,8 +494,7 @@ def public_product_card_view(request, pk):
         "main_image": main_image,
         "images": images,
         "other_images": other_images,
-        "discount_percent": discount_percent,
-        "lead_id": ref_lead_id or "",
+        "ref": ref,
     })
 
 

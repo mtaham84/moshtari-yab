@@ -1,139 +1,100 @@
 # مشتری‌یاب (Moshtari-Yab)
-> **سامانه هوشمند کشف معکوس مشتری بالقوه در جوامع آنلاین (مسابقه buildX — مسئله شماره ۱)**  
-> *Autonomous Agentic Customer Discovery Platform for Online Communities (Telegram & X)*
+> سامانه‌ی ایجنتیک کشف مشتری بالقوه در گروه‌های تلگرام و X — مسابقه buildX، مسئله ۱
 
-«مشتری‌یاب» یک پلتفرم ایجنتیک پیشرفته است که به کسب‌وکارها کمک می‌کند تا با رصد هوشمند مکالمات در شبکه‌های اجتماعی (توییتر/X و سوپرگروه‌های تلگرام)، متقاضیان و خریداران بالقوه محصولات و خدمات خود را کشف کنند، زمینه و قصد خرید را ارزیابی و اولویت‌بندی نمایند، هزینه بررسی هر پیام را به تفکیک توکن و تومان محاسبه کنند، و پاسخی طبیعی همراه با لینک مستقیم صفحه محصول ارسال نمایند.
+مشتری‌یاب پیام‌های گروه‌های عمومی را آرشیو می‌کند، نیازهای **صریح و ضمنی** افراد را با LLM استخراج می‌کند،
+آن‌ها را با محصولات فروشنده تطبیق می‌دهد و فرصت‌های فروش را همراه با شواهد، امتیاز کیفیت، پیش‌نویس پاسخ
+و **هزینه‌ی واقعی تحلیل هر پیام (تومان)** در پنل فروشنده نشان می‌دهد.
 
----
-
-## 📑 مستندات فنی و راهنماهای مهندسی
-
-| سند فنی | مخاطب و هدف | لینک مستقیم |
-| :--- | :--- | :---: |
-| **سند جامع مهندسی ایجنت و LLM** | ویژه تیم دو نفره هوش مصنوعی؛ معماری LangGraph، اتصال Groq API، مهندسی پرامپت، گاردریل امنیتی و محاسبه توکن | [AI_AGENT_ENGINEERING_SPEC.md](AI_AGENT_ENGINEERING_SPEC.md) |
-| **راهنمای داده‌ها و معماری بک‌اند** | ساختار مدل‌ها، دسته‌بندی ۵ سطحی، ویژگی‌های داینامیک، فیدهای JSON، اندپوینت‌های دریافت و ثبت سرنخ | [AGENT_DATA_GUIDE.md](AGENT_DATA_GUIDE.md) |
-
----
-
-## ✨ ویژگی‌های برجسته و شاخص‌های مسابقه buildX
-
-### ۱. معماری تمام‌ایرجنتیک (Agentic Architecture - Zero No-Code)
-- عدم استفاده از هرگونه ابزار آماده (مانند n8n)؛ کدنویسی شده بر پایه **LangGraph StateGraph** و اعتبارسنجی ساختاریافته **Pydantic**.
-- بهره‌گیری از **Groq Cloud API** با مدل‌های پیشرفته `llama-3.3-70b-versatile` و `llama-3.1-8b-instant` (عدم اجرای مدل محلی).
-- تصمیم‌گیری چندمرحله‌ای ایجنت: آیا این پیام ارزش بررسی عمیق و پاسخ دارد یا باید نادیده گرفته شود؟ (`Discard` در برابر `Respond`).
-
-### ۲. شفافیت دقیق هزینه تحلیل هر پیام و کیفیت فرصت‌ها (الزام صریح buildX)
-- محاسبه بی‌درنگ تعداد توکن‌های مصرفی (`prompt_tokens` و `completion_tokens`).
-- تبدیل دقیق به دلار و تومان و نمایش شفاف در پنل کاربری کنار نمره احتمال خرید (`intent_score`).
-- مکانیزم هش یکتای SHA-256 (`ProcessedMessageHash`) جهت جلوگیری از هرگونه پردازش تکراری و اتلاف هزینه (Zero-Waste).
-
-### ۳. قوانین سهمیه‌ها و تعامل هوشمند
-- **سقف ۱۰ پیام روزانه به ازای هر حساب کاربری:** در هر دو شبکه تلگرام و X، مکالمه با هر کاربر محدود به حداکثر ۱۰ پیام در روز است و با شروع روز جدید تقویمی به صورت خودکار ریست می‌شود.
-- **سقف ۱۰۰ پیام روزانه به ازای هر محصول:** در پیمایش روزانه، اگر سرنخ‌ها زیر ۱۰۰ باشد به همه پیام داده می‌شود؛ در صورت بیش از ۱۰۰ مورد، پیام‌ها بر اساس اولویت نیت خرید (`READY_TO_BUY` > `COMPARING` > `INITIAL_NEED`) و بالاترین درصد مرتب شده و به ۱۰۰ فرصت برتر پیام ارسال می‌گردد.
-- **استراتژی کامنت‌اول در شبکه X:** پاسخ اولیه به صورت ریپلای عمومی حاوی لینک اختصاصی کارت محصول و دعوت مشروط به دایرکت؛ عدم ارسال دایرکت ناخواسته طبق پالیسی‌های ضداسپم.
-- **گاردریل امنیتی کاتالوگ (Strict Catalog Guardrails):** رد مؤدبانه و فوری مباحث نامرتبط با محصولات (مانند سوالات آشپزی و دستور پخت قرمه سبزی).
-
-### ۴. کارت عمومی محصول دیجی‌کالایی و ثبت سفارش سریع (`/p/<id>/`)
-- صفحه اختصاصی واکنش‌گرا و مدرن الهام‌گرفته از دیجی‌کالا.
-- گالری تصاویر چندگانه با سقف ۱۰ تصویر و تغییر عکس اصلی.
-- جعبه خرید شناور، رهگیری خودکار کلیک‌ها و بازدیدها (`ProductDailyMetric`).
-- مودال ثبت سفارش و خرید قطعی بدون نیاز به احراز هویت پیچیده (`ProductOrder`).
-
-### ۵. موتور آمار و تقویم شمسی مستقل (Zero-Dependency Jalali Engine)
-- موتور محاسباتی تاریخ جلالی در `apps/core/jalali.py` بدون نیاز به پکیج‌های خارجی ناپایدار.
-- گزارش عملکرد دوره‌ای با فیلتر بازه تاریخ شمسی و محاسبه نرخ تبدیل (Conversion Rate).
-
-### ۶. اسکریپت‌های آماده رصد و شنود شبکه‌های اجتماعی
-- `scripts/crawlers/telegram_listener.py`: ورکر رصد گروه‌های عمومی تلگرام با Telethon/Pyrogram.
-- `scripts/crawlers/x_listener.py`: بات جستجو و پایش توییت‌های شبکه X با Tweepy.
-- `scripts/crawlers/mock_social_feed.py`: اسکریپت اجرای شبیه‌سازی زنده کل جریان برای روز مسابقه.
-
----
-
-## 🛠 پشته فناوری (Tech Stack)
+## معماری (یک مسیر، یک دیتابیس PostgreSQL + pgvector)
 
 ```
-┌─────────────────┬────────────────────────────────────────────────────────────┐
-│ لایه             │ ابزارها و فناوری‌ها                                       │
-├─────────────────┼────────────────────────────────────────────────────────────┤
-│ بک‌اند و پایگاه داده│ Python 3.12, Django 5.x/6.x, SQLite / PostgreSQL           │
-│ فرانت‌اند و طراحی│ Neumorphic Design System (Stone & Obsidian), Vazirmatn Font│
-│ هسته هوش مصنوعی │ LangGraph, Pydantic, Groq Cloud API, Llama-3.3-70B         │
-│ رصد و خزنده‌ها  │ Telethon, Tweepy, SHA-256 Deduplication                   │
-│ تقویم و بومی‌سازی│ موتور تقویم جلالی اختصاصی (Pure Python Jalali Engine)     │
-└─────────────────┴────────────────────────────────────────────────────────────┘
+telegram_crawler ──(write)──► crawler.tg_users / tg_chats / tg_messages
+                                        │ (read-only)
+Django products ──(read-only)──► need_engine ──► need_engine.* (state، بردارها با pgvector، هزینه‌ها)
+                                        │
+                                        └──► need_engine.opportunities
+                                                   │
+                          manage.py sync_opportunities
+                                                   ▼
+                 پنل Django: فرصت‌ها، داشبورد، هزینه هر پیام، کارت محصول /p/<id>/?ref=<opportunity>
 ```
 
----
+| بخش | مسیر | نقش |
+|---|---|---|
+| کراولر تلگرام | `telegram_crawler/` | backfill + live؛ کاربر، چت، پیام و پیام والد را کامل ذخیره می‌کند (schema `crawler`) |
+| موتور نیاز | `need_engine/` | تنها pipeline تحلیل؛ فقط در schema `need_engine` می‌نویسد، بقیه را read-only می‌خواند |
+| پل به پنل | `apps/discovery/engine_bridge.py` + `sync_opportunities` | فرصت‌های منتشرشده را idempotent در مدل‌های Django می‌نویسد (به تفکیک کسب‌وکار) |
+| پنل | `apps/` + `templates/` | ثبت‌نام/ورود، محصولات، فرصت‌ها، داشبورد با اعداد واقعی |
+| جمع‌آوری X (آزمایشی) | `workers/x_collector/` | read-only، خروجی JSONL — هنوز به need_engine وصل نیست |
 
-## 🚀 راهنمای نصب و راه‌اندازی محلی
+## راه‌اندازی
 
-### ۱. کلون ریپازیتوری و آماده‌سازی محیط
 ```bash
-git clone https://github.com/mtaham84/moshtari-yab.git
-cd moshtari-yab
-
-# ساخت و فعال‌سازی محیط مجازی
-python3 -m venv .venv
-source .venv/bin/activate
-
-# نصب وابستگی‌ها
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### ۲. تنظیم متغیرهای محیطی
-فایل `.env` را بر اساس نمونه بسازید:
-```env
-DEBUG=True
-SECRET_KEY=your_secure_secret_key_here
-GROQ_API_KEY=gsk_your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-DOLLAR_TO_TOMAN_RATE=70000
-```
-
-### ۳. اعمال مایگریشن‌ها و اجرای سرور
-```bash
+cp .env.example .env          # POSTGRES_*، NE_LLM_API_KEY و TG_API_ID/TG_API_HASH را پر کنید
+# PostgreSQL 16 با افزونه‌ی pgvector لازم است (ساده‌ترین راه: بخش Docker پایین)
 python manage.py migrate
-python manage.py runserver
+python manage.py seed_products   # اختیاری: دسته‌بندی‌ها + محصولات نمونه (seller@moshtariyab.com / demo123456)
 ```
-به آدرس `http://127.0.0.1:8000` در مرورگر مراجعه فرمایید.  
-حساب کاربری پیش‌فرض: `seller@moshtariyab.com` با رمز `demo123456`.
 
----
+چهار فرایند (هر کدام در یک ترمینال):
 
-## 🧪 اجرای آزمون‌های خودکار (Automated Tests)
-
-تمام ۴۲ آزمون خودکار ماژول‌ها، سرویس‌ها، سهمیه‌ها و اندپوینت‌ها با موفقیت پاس می‌شوند:
 ```bash
-python manage.py test
+python -m telegram_crawler.main                              # ۱) آرشیو پیام‌های گروه‌هایی که در پنل («جوامع آنلاین») اضافه شده‌اند
+python -m need_engine run                                     # ۲) تحلیل و تولید فرصت‌ها
+python manage.py sync_opportunities --follow                  # ۳) ورود فرصت‌ها به پنل
+python manage.py runserver                                    # ۴) پنل
 ```
 
----
+دموی آفلاین بدون API و تلگرام (state در یک schema موقت، خروجی JSONL):
 
-## X Collector Worker (آزمایشی)
+```bash
+python -m need_engine demo --chats chats.jsonl --products products.jsonl --mock --out data/demo.jsonl
+```
 
-این worker داده‌های قابل‌مشاهده‌ی X را به JSONL می‌نویسد و از تحلیل و پنل Django جداست. فقط خواندنی است و هیچ پست، پاسخ، لایک، دنبال‌کردن یا پیام خصوصی ارسال نمی‌کند.
+## اجرا با Docker
 
-اجرای نمونه بدون Agent Reach:
+```bash
+cp .env.example .env     # حتماً: POSTGRES_PASSWORD، DJANGO_SECRET_KEY، NE_LLM_API_KEY، TG_API_ID، TG_API_HASH
 
-~~~bash
-python -m workers.x_collector --mock --once
-~~~
+docker compose run --rm crawler login   # فقط بار اول: ورود به تلگرام (شماره + کد)؛ session در volume می‌ماند
+docker compose up -d --build            # postgres + پنل + sync + need_engine + کراولر تلگرام
+docker compose logs -f crawler engine sync
+```
 
-برای اجرای زنده با CLI، ابتدا Agent Reach را بررسی کنید. نام `X_CLI_CMD` احتمالاً `twitter` است (طبق README مربوط به Agent Reach)، اما باید پیش از اولین اجرا با `agent-reach doctor` و `twitter --help` تأیید شود. مقادیر فعلی در `workers/x_collector/cli_mapping.py` تغییر نکرده و تأییدنشده‌اند؛ dry-run خط فرمان نهایی (بدون secrets) را نمایش می‌دهد.
+بعد از آن هیچ دستوری لازم نیست: در پنل → «جوامع آنلاین (تلگرام)» گروه را اضافه کنید.
+کراولر هر `TG_PANEL_POLL_SECONDS` (پیش‌فرض ۳۰ ثانیه) جدول جوامع را می‌خواند، عضو گروه می‌شود، تاریخچه‌ی اخیر را آرشیو
+می‌کند و پیام‌های زنده را می‌گیرد؛ وضعیت («در صف اتصال» / «در حال پایش» / «خطا در اتصال»)، تعداد اعضا و پیام‌های
+رصدشده در همان صفحه نمایش داده می‌شود. «توقف پایش» پیام‌های آن گروه را کنار می‌گذارد و «فعال‌سازی» پیام‌های جاافتاده را
+دوباره می‌گیرد. need_engine هر ۲۰ ثانیه پیام‌های جدید را برمی‌دارد و sync فرصت‌ها را وارد پنل می‌کند.
+(فایل اختیاری `data/groups.txt` داخل volume هم مثل قبل خوانده می‌شود.)
 
-کوکی‌های TWITTER_AUTH_TOKEN و TWITTER_CT0 را فقط در متغیرهای محیطی امن تنظیم کنید و حتماً حساب آزمایشی اختصاصی (burner) به‌کار ببرید؛ هرگز حساب اصلی را استفاده نکنید. عبارت‌های جست‌وجو را در data/x_queries.txt بگذارید؛ این فایل UTF-8 اولویت دارد و در نبود آن worker از کلیدواژه‌های کاتالوگ نمونه استفاده می‌کند.
+- یک image برای همه‌ی سرویس‌ها؛ نقش با `command` تعیین می‌شود (`web`، `sync`، `engine`، `crawler`، `login`، `x`).
+- دیتابیس: `pgvector/pgvector:pg16`؛ همه‌ی داده‌ها (پنل، آرشیو تلگرام، state و بردارهای موتور، فرصت‌ها) در volume `pgdata`.
+  `appdata` فقط session تلگرام را نگه می‌دارد و `media` عکس محصولات را.
+- `web` موقع بالا آمدن خودش `migrate` می‌زند؛ با `DJANGO_SEED_DEMO=true` داده‌ی نمونه هم ساخته می‌شود.
+- need_engine پیام‌ها و محصولات را با اتصال read-only می‌خواند؛ تا کراولر داده‌ای ننوشته باشد کاری انجام نمی‌دهد.
+- X collector آزمایشی است: `docker compose --profile x up -d x`.
+- پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
 
-~~~bash
-python -m workers.x_collector --once
-python -m workers.x_collector --loop --interval 300
-python -m sources.file_adapter data/x_collected/YYYY-MM-DD.jsonl --source x
-~~~
-در loop، auth failure، rate limit و circuit breaker باعث توقف با exit code غیرصفر می‌شوند. Rate limit تا ۱۵ دقیقه در state ذخیره می‌شود و اجراهای بعدی در این مدت درخواست CLI نمی‌فرستند. `--mock` از مسیر و state جداگانه‌ی `data/x_collected_mock/` استفاده می‌کند و با `--enqueue` قابل ترکیب نیست.
+## هزینه و کیفیت
+- هزینه‌ی هر فراخوانی LLM/embedding در `need_engine.costs` ثبت می‌شود؛ `python -m need_engine stats` مجموع هزینه، تعداد پیام تحلیل‌شده و **هزینه‌ی هر پیام** را نشان می‌دهد و داشبورد همین عدد را می‌خواند.
+- هر فرصت امتیاز تطبیق محصول، شواهد (پیام‌های اصلی)، نیاز استخراج‌شده و هزینه‌ی خودش را دارد.
+- وقتی فرد بگوید نیازش برطرف شده یا TTL تمام شود، وضعیت فرصت در پنل به «نیاز برطرف شد» / «منقضی شده» تغییر می‌کند (مگر فروشنده قبلاً با او تماس گرفته باشد).
+- کلیک و سفارش از لینک `?ref=` به همان فرصت متصل می‌شود و سفارش، فرصت را «مشتری نهایی» می‌کند.
 
-خواندن با کوکی ممکن است با شرایط استفاده‌ی X مغایر باشد، باعث محدودیت یا مسدودشدن حساب شود و با تغییر X از کار بیفتد. سقف و تأخیر ریسک را حذف نمی‌کنند. برای محصول عملیاتی از API رسمی یا تأمین‌کننده‌ی داده‌ی دارای مجوز استفاده کنید. جزئیات mapping و ریسک‌ها در docs/X_COLLECTION_ANALYSIS.md آمده است.
+## تست
 
-## 👥 تیم توسعه و ارائه در مسابقه buildX
-- **مهندس ۱:** سیستم‌های ایجنتیک، جریان کار و رصد داده‌ها (Agentic Systems & Data Scrapers)
-- **مهندس ۲:** مدل‌های زبانی، مهندسی پرامپت، بهینه‌سازی کانتکست و امنیت (LLMs & Guardrails)
-- **توسعه‌دهنده بک‌اند و وب:** پیاده‌سازی زیرساخت جنگو، پایگاه داده و رابط کاربری نئومورفیک
+تست‌های ذخیره‌سازی روی PostgreSQL واقعی (با pgvector) و در schemaهای موقت اجرا می‌شوند:
+
+```bash
+docker compose run --rm web python -m pytest            # crawler + need_engine + x_collector
+docker compose run --rm web python manage.py test apps  # پنل و sync
+# بیرون از Docker: TEST_DATABASE_URL=postgresql://postgres:pass@127.0.0.1:5432/postgres python -m pytest
+```
+
+## X Collector (آزمایشی)
+`python -m workers.x_collector --mock --once` بدون شبکه اجرا می‌شود. اجرای زنده با کوکی (حساب burner) ریسک
+محدودیت/ban دارد و نگاشت CLI هنوز باید با نسخه‌ی نصب‌شده‌ی `twitter-cli` تطبیق داده شود؛ جزئیات در
+`docs/X_COLLECTION_ANALYSIS.md`.

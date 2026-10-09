@@ -133,9 +133,10 @@ async def join_and_resolve_group(
     if entity is None:
         raise ValueError(f"Could not resolve group entity for link: {group_link}")
 
-    # Telethon entity.id is the bare (positive) id. Supergroups/channels are
-    # Channel objects (they have a "megagroup" attribute); legacy groups are Chat.
-    group_id = entity.id
+    # Marked peer id: -100<id> for supergroups/channels (Channel objects), -<id> for legacy groups (Chat).
+    from telethon import utils
+
+    group_id = utils.get_peer_id(entity)
     is_supergroup = hasattr(entity, "megagroup") or hasattr(entity, "broadcast")
 
     group_title = getattr(entity, "title", str(group_id))

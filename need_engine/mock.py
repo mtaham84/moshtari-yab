@@ -30,7 +30,7 @@ def mock_llm(stage: str, system: str, user: str) -> dict:
         ids = re.findall(r"^\[([^\]]+)\] ", user, re.M)[:2]
         return {"matches": [{"product_id": i, "solves": "yes", "req": ["met"], "reason": "آزمایشی"} for i in ids]}
     if stage == "new_product_verify":
-        ids = re.findall(r"^\[(need_\d+)\]", user, re.M)[:1]
+        ids = re.findall(r"^\[(need_[^\]]+)\]", user, re.M)[:1]
         return {"matches": [{"need_id": i, "solves": "partly", "req": ["unknown"], "reason": "آزمایشی"} for i in ids]}
     if stage == "reply":
         return {"reply": "سلام! شاید این به کارت بیاد: {{LINK}}"}

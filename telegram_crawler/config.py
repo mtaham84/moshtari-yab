@@ -1,4 +1,4 @@
-"""Configuration management for Telegram Lead Crawler."""
+"""Configuration of the Telegram crawler (archive only)."""
 
 from __future__ import annotations
 
@@ -31,30 +31,25 @@ def _float(key: str, default: float) -> float:
         return default
 
 
-def _keywords(key: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    raw = os.getenv(key, "")
-    if not raw.strip():
-        return default
-    return tuple(k.strip() for k in raw.split(",") if k.strip())
+def _bool(key: str, default: bool) -> bool:
+    raw = (os.getenv(key) or "").strip().lower()
+    return default if not raw else raw in {"1", "true", "yes", "on"}
 
 
-DEFAULT_KEYWORDS = (
-    "روغن موتور",
-    "خریدارم",
-    "خریدار هستم",
-    "دنبال",
-    "میخوام بخرم",
-    "می خوام بخرم",
-    "قصد خرید",
-    "نیاز دارم",
-    "لازم دارم",
-    "قیمت چنده",
-    "سراغ دارید",
-    "کسی سراغ داره",
-    "کسی داره",
-    "خرید",
-    "فروشنده",
-)
+def database_dsn() -> str:
+    url = os.getenv("TG_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if url:
+        return url
+    from psycopg.conninfo import make_conninfo
+
+    params = {
+        "host": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        "port": os.getenv("POSTGRES_PORT", "5432"),
+        "dbname": os.getenv("POSTGRES_DB", "customer_yab"),
+        "user": os.getenv("POSTGRES_USER", "postgres"),
+        "password": os.getenv("POSTGRES_PASSWORD", ""),
+    }
+    return make_conninfo(**{k: v for k, v in params.items() if v})
 
 
 @dataclass(frozen=True)
@@ -68,33 +63,19 @@ class Settings:
         )
     )
 
-    # Database
-    db_path: str = field(
-        default_factory=lambda: os.getenv("DB_PATH", str(ROOT / "data" / "leads.db"))
-    )
+    # Database (PostgreSQL). TG_DATABASE_URL / DATABASE_URL, or the POSTGRES_* variables shared with Django.
+    database_url: str = field(default_factory=lambda: database_dsn())
+    db_schema: str = field(default_factory=lambda: os.getenv("TG_DB_SCHEMA", "crawler"))
 
-    # Django Webhook Integration (Microservice)
-    django_webhook_url: str = field(
-        default_factory=lambda: os.getenv(
-            "DJANGO_WEBHOOK_URL", "http://localhost:8000/discovery/api/leads/submit/"
-        )
-    )
-    # Legacy: push raw candidates directly to Django (disabled; verdicts go via the analysis agent)
-    django_webhook_enabled: bool = field(
-        default_factory=lambda: os.getenv("DJANGO_WEBHOOK_ENABLED", "false").strip().lower() == "true"
-    )
-
-    # Shared analysis inbox (see analysis/store.py)
-    analysis_enabled: bool = field(
-        default_factory=lambda: os.getenv("ANALYSIS_ENQUEUE_ENABLED", "true").strip().lower() == "true"
-    )
-
-    # Candidate filter: "basic" (drop empty/very short/bot messages; the agent decides the rest)
-    # or "keyword" (legacy: only messages containing TARGET_KEYWORDS)
-    filter_mode: str = field(
-        default_factory=lambda: os.getenv("CRAWLER_FILTER_MODE", "basic").strip().lower()
-    )
-    min_text_chars: int = field(default_factory=lambda: _int("MIN_TEXT_CHARS", 8) or 8)
+    # What to store
+    fetch_profiles: bool = field(default_factory=lambda: _bool("TG_FETCH_PROFILES", True))   # bio via GetFullUser, once per user
+    profile_delay: float = field(default_factory=lambda: _float("TG_PROFILE_DELAY_SECONDS", 3.0))
+    parent_depth: int = field(default_factory=lambda: _int("TG_PARENT_DEPTH", 3))             # reply chain levels to fetch
+    store_raw: bool = field(default_factory=lambda: _bool("TG_STORE_RAW", True))
+    # groups to watch come from the panel («جوامع آنلاین») table, polled every TG_PANEL_POLL_SECONDS
+    panel_enabled: bool = field(default_factory=lambda: _bool("TG_PANEL_COMMUNITIES", True))
+    panel_table: str = field(default_factory=lambda: os.getenv("TG_PANEL_TABLE", "public.discovery_monitoredcommunity"))
+    panel_poll: float = field(default_factory=lambda: _float("TG_PANEL_POLL_SECONDS", 30.0))
 
     # Rate limiting
     flood_sleep_threshold: int = field(default_factory=lambda: _int("FLOOD_SLEEP_THRESHOLD", 60))
@@ -108,14 +89,6 @@ class Settings:
     )
     backfill_limit: int = field(
         default_factory=lambda: _int("BACKFILL_LIMIT", 200) or 200
-    )
-    context_msg_count: int = field(
-        default_factory=lambda: _int("CONTEXT_MSG_COUNT", 5) or 5
-    )
-
-    # Keywords for default detector
-    keywords: tuple[str, ...] = field(
-        default_factory=lambda: _keywords("TARGET_KEYWORDS", DEFAULT_KEYWORDS)
     )
 
     def require(self, *keys: str) -> None:

@@ -24,25 +24,40 @@ class AuthAndOnboardingTestCase(TestCase):
         self.assertTemplateUsed(response, "accounts/signup.html")
         self.assertIn("ثبت‌نام و معرفی کسب‌وکار", response.content.decode("utf-8"))
 
-    def test_signup_submission_creates_verification_and_sends_email(self):
+    def _signup_data(self, **kw):
         data = {
             "first_name": "سارا",
             "last_name": "محمدی",
             "email": "sara.m@example.com",
+            "password": "secret-pass-1",
             "business_name": "آکادمی کدنویسی سارا",
             "business_type": "SERVICE",
             "business_domain": "آموزش و برنامه‌نویسی",
         }
-        response = self.client.post(self.signup_url, data, follow=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "accounts/verify.html")
+        data.update(kw)
+        return data
 
-        # Check EmailVerification created in DB
-        verification = EmailVerification.objects.filter(email="sara.m@example.com").first()
-        self.assertIsNotNone(verification)
-        self.assertEqual(len(verification.code), 6)
-        self.assertEqual(verification.session_data["business_name"], "آکادمی کدنویسی سارا")
-        self.assertEqual(verification.session_data["business_type"], "SERVICE")
+    def test_signup_creates_account_and_logs_in_without_email(self):
+        response = self.client.post(self.signup_url, self._signup_data(), follow=True)
+        self.assertTemplateUsed(response, "accounts/dashboard.html")
+        user = User.objects.get(email="sara.m@example.com")
+        self.assertTrue(user.check_password("secret-pass-1"))
+        self.assertEqual(Business.objects.get(user=user).business_type, "SERVICE")
+        self.assertEqual(len(mail.outbox), 0)
+        self.client.logout()
+        self.assertTrue(self.client.login(username="sara.m@example.com", password="secret-pass-1"))
+
+    def test_signup_cannot_take_over_an_existing_account(self):
+        owner = User.objects.create_user(username="owner@example.com", email="owner@example.com", password="original-pass")
+        response = self.client.post(self.signup_url, self._signup_data(email="Owner@example.com", password="attacker-pass"))
+        self.assertTemplateUsed(response, "accounts/signup.html")
+        owner.refresh_from_db()
+        self.assertTrue(owner.check_password("original-pass"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_signup_requires_a_password(self):
+        self.client.post(self.signup_url, self._signup_data(password=""))
+        self.assertFalse(User.objects.filter(email="sara.m@example.com").exists())
 
     def test_verification_success_creates_user_and_business(self):
         # Create pending verification

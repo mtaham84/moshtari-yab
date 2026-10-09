@@ -1,132 +1,44 @@
-# کراولر و سیستم پایش لید گروه‌های تلگرام (Telegram Lead Crawler)
+# telegram_crawler — آرشیو کامل پیام‌های گروه‌های تلگرام (PostgreSQL)
 
-یک ابزار پایش خودکار برای شناسایی مشتریان بالقوه (Leads) در گروه‌های تلگرامی، استخراج عمیق کانتکست (اطلاعات کاربر، ۵ پیام قبل، و زنجیره کامل ریپلای‌ها)، و ذخیره‌سازی ساخت‌یافته در دیتابیس SQLite.
+کراولر همه‌ی پیام‌های گروه‌های مشخص‌شده (تاریخچه‌ی اخیر + پیام‌های زنده) را با اطلاعات چت، فرستنده و پیام والد
+در schema `crawler` همان دیتابیس پنل ذخیره می‌کند. هیچ فیلتر یا تحلیلی انجام نمی‌دهد؛ `need_engine` این جدول‌ها را
+فقط‌خواندنی می‌خواند.
 
----
-
-## قابلیت‌های کلیدی
-
-1. **عضویت و اتصال خودکار با لینک**:
-   - پشتیبانی از لینک‌های عمومی (`https://t.me/groupname` یا `@groupname`)
-   - پشتیبانی از لینک‌های خصوصی/دعوت (`https://t.me/+hash` یا `https://t.me/joinchat/hash`)
-   - مدیریت خطاهای تلگرام نظیر `UserAlreadyParticipantError` و `FloodWaitError`
-
-2. **پایش دو مرحله‌ای (Hybrid)**:
-   - **بک‌فیل (Backfill)**: اسکن پیام‌های گذشته گروه بر اساس محدودیت زمانی (مثلاً پیام‌های ۲۴ ساعت گذشته) و سقف تعداد (مثلاً ۲۰۰ پیام اخیر)
-   - **مانیتورینگ زنده (Live Stream)**: گوش دادن پیوسته به پیام‌های جدید گروه به صورت لحظه‌ای با `events.NewMessage`
-
-3. **ارزیابی پیام هدف (Target Detector)**:
-   - تابع غیرهمگام `is_target_message(text, metadata)` با قابلیت نرمال‌سازی حروف فارسی و عربی
-   - طراحی ماژولار جهت اتصال آسان به مدل‌های زبانی (LLM / Gemini / OpenAI) یا سرویس‌های هوش مصنوعی در آینده
-
-4. **استخراج عمیق بافت پیام (Deep Context Extraction)**:
-   - **اطلاعات فرستنده**: نام، نام خانوادگی، نام کاربری، شناسه عددی، شماره تماس، وضعیت پرمیوم
-   - **کانتکست چت**: ۵ پیام پیش از پیام هدف در همان گروه جهت درک جریان گفتگو
-   - **ترد ریپلای‌ها**:
-     - ردیابی زنجیره پیام‌های والد (Ancestors) تا رسیدن به ریشه گفتگو
-     - استخراج پاسخ‌های داده شده به این پیام (Child Replies)
-
-5. **خروجی ساخت‌یافته و دیتابیس پایدار**:
-   - مدل داده استاندارد مبتنی بر **Pydantic v2** (`LeadContext`)
-   - ذخیره پایدار در دیتابیس SQLite با قابلیت WAL Mode برای بازدهی بالا
-   - ثبت وضعیت اسکن هر گروه در جدول `group_monitors`
-
----
-
-## پیش‌نیازها و راه‌اندازی
-
-### ۱. فعال‌سازی محیط مجازی و نصب وابستگی‌ها
 ```bash
-source .venv/bin/activate
-pip install -r requirements.txt
+python -m telegram_crawler.main --login            # بار اول: ورود به تلگرام
+python -m telegram_crawler.main                    # گروه‌ها از جدول «جوامع آنلاین» پنل، بدون نیاز به ری‌استارت
+python -m telegram_crawler.main --link https://t.me/group_name --link @other_group --no-panel
+python -m telegram_crawler.main --links-file groups.txt --hours 48 --limit 500
 ```
 
-### ۲. تنظیم متغیرهای محیطی
-یک کپی از `.env.example` با نام `.env` بسازید:
-```bash
-cp .env.example .env
-```
-مقادیر `TG_API_ID` و `TG_API_HASH` را از [my.telegram.org](https://my.telegram.org) دریافت کرده و در فایل `.env` وارد کنید:
-```ini
-TG_API_ID=12345678
-TG_API_HASH=abcdef0123456789abcdef0123456789
-TG_SESSION=data/telegram_crawler_session
-DB_PATH=data/leads.db
+اتصال به پنل (`telegram_crawler/panel.py`): هر `TG_PANEL_POLL_SECONDS` جدول `TG_PANEL_TABLE`
+(`public.discovery_monitoredcommunity`) خوانده می‌شود؛ لینک‌های فعال جدید join و backfill می‌شوند، غیرفعال‌ها متوقف
+می‌شوند و `telegram_chat_id`، `sync_status`، `sync_error`، `members_count`، `messages_scanned_count` و
+`last_scanned_at` در همان جدول به‌روز می‌شوند. اگر session لاگین نباشد کراولر پیام راهنما چاپ می‌کند و منتظر می‌ماند.
 
-BACKFILL_HOURS=24
-BACKFILL_LIMIT=200
-CONTEXT_MSG_COUNT=5
-
-TARGET_KEYWORDS="روغن موتور,خریدارم,دنبال,قیمت چنده,سراغ دارید"
-```
-
----
-
-## نحوه اجرا
-
-### اجرای سریع با لینک گروه:
-```bash
-python -m telegram_crawler.main --link "https://t.me/+YourInviteHash"
-```
-یا برای یک گروه عمومی:
-```bash
-python -m telegram_crawler.main --link "https://t.me/group_username"
-```
-
-### پارامترهای اختیاری خط فرمان:
-| آرگومان | پیش‌فرض | توضیحات |
+| آرگومان | پیش‌فرض | توضیح |
 |---|---|---|
-| `--link` | ورودی دستی | لینک عمومی یا لینک دعوت خصوصی گروه |
-| `--hours` | `24.0` | بررسی پیام‌های گذشته تا چند ساعت قبل |
-| `--limit` | `200` | حداکثر تعداد پیام‌های گذشته برای اسکن |
-| `--context-count` | `5` | تعداد پیام‌های قبل از پیام تارگت برای کانتکست |
-| `--keywords` | کلیدواژه‌های `.env` | کلمات کلیدی دلخواه جدا شده با کاما |
-| `--no-live` | خیر | فقط اسکن گذشته‌نگر و خروج (بدون گوش دادن زنده) |
-| `--db-path` | `data/leads.db` | مسیر فایل دیتابیس SQLite |
+| `--link` | — | لینک عمومی/دعوت گروه (قابل تکرار) |
+| `--links-file` | — | فایل متنی، هر خط یک لینک |
+| `--hours` / `--limit` | ۲۴ / ۲۰۰ | بازه و حداکثر تاریخچه‌ی هر گروه |
+| `--no-resume` | خیر | نادیده گرفتن آخرین پیام اسکن‌شده |
+| `--no-live` | خیر | فقط تاریخچه و خروج |
+| `--no-profiles` | خیر | bio کاربران گرفته نشود |
+| `--no-panel` | خیر | گروه‌ها از پنل خوانده نشوند |
+| `--login` | — | فقط ورود به تلگرام و ذخیره‌ی session |
 
----
+## جدول‌ها (`crawler.*`)
+| جدول | محتوا |
+|---|---|
+| `tg_users` | هر کاربر یک بار، اولین باری که دیده می‌شود (snapshot، بدون تاریخچه): username(ها)، نام، زبان، bot/premium/verified/scam/fake/deleted، bio، raw |
+| `tg_chats` | گروه‌های پایش‌شده (نوع، عنوان، username، توضیحات، تعداد اعضا، کانال/گروه متصل، forum، آخرین پیام اسکن‌شده) + چت‌هایی که فرستنده‌ی پیام‌اند |
+| `tg_messages` | `id` افزایشی (cursor موتور)، فرستنده (کاربر یا چت)، متن/caption، entityها، reply و thread، forward، آلبوم، نوع و متادیتای مدیا، views، پیام‌های سرویسی، raw |
 
-## نحوه اتصال به سایر سیستم‌ها (Integration)
+ترتیب ذخیره‌ی هر پیام: **چت → فرستنده → پیام والد → خود پیام**؛ پس هر پیام به کاربر/چتی اشاره می‌کند که از قبل ثبت شده.
+- پیام والدی که قدیمی‌تر از بازه‌ی backfill است یک بار (به‌صورت دسته‌ای) گرفته و با `is_context = true` ذخیره می‌شود (تا `TG_PARENT_DEPTH` سطح).
+- اگر تلگرام اطلاعات فرستنده را نداد، یک ردیف خالی با همان `user_id` ساخته و اولین بار که اطلاعاتش آمد پر می‌شود.
+- bio هر کاربر جدید یک بار و آهسته (`TG_PROFILE_DELAY_SECONDS`) در پس‌زمینه گرفته می‌شود؛ خطای privacy دوباره تلاش نمی‌شود.
+- ویرایش و حذف پیام‌ها دنبال نمی‌شود؛ خود فایل‌های مدیا دانلود نمی‌شوند (فقط متادیتا). شماره‌ی تلفن فقط اگر برای حساب کراولر قابل‌مشاهده باشد ثبت می‌شود.
+- اجرای دوباره از آخرین پیام ادامه می‌دهد؛ FloodWait مدیریت می‌شود.
 
-شما می‌توانید به راحتی تابع کال‌بک دلخواه خود را به `LeadMonitor` متصل کنید. مثال:
-
-```python
-from telegram_crawler.models import LeadContext
-from telegram_crawler.monitor import LeadMonitor
-from telegram_crawler.telegram_client import create_telegram_client
-
-async def my_custom_handler(lead: LeadContext):
-    # ارسال به بات تلگرام، پیامک، CRM یا وب‌هوک
-    print(f"مشتری پیدا شد: {lead.user.display_name} - @{lead.user.username}")
-    print(f"پیام: {lead.target_message.text}")
-    # دریافت ساختار دیکشنری یا JSON
-    lead_dict = lead.model_dump()
-    # یا lead.model_dump_json()
-
-async def run():
-    client = create_telegram_client()
-    await client.start()
-    
-    monitor = LeadMonitor(
-        client=client,
-        group_link="https://t.me/...",
-        on_lead_detected=my_custom_handler
-    )
-    await monitor.run()
-```
-
----
-
-## اجرای تست‌های خودکار
-```bash
-pytest -v
-```
-تمام ۶ تست پوشش‌دهنده مدل‌ها، دیتابیس، تشخیص کلمات، پارسر لینک، استخراج کانتکست و پایپ‌لاین کلی را اجرا می‌کند.
-
----
-
-## تغییرات مرحله تحویل ۱ (مهم)
-- فیلتر پیش‌فرض دیگر کلمه کلیدی نیست (`CRAWLER_FILTER_MODE=basic`)؛ همه پیام‌ها آرشیو و پیام‌های قابل بررسی در صف ایجنت مشترک (`analysis/`) قرار می‌گیرند.
-- چند گروه: `--link` تکراری یا `--links-file`. ادامه خودکار از آخرین پیام (`--no-resume` برای غیرفعال کردن).
-- شماره تلفن جمع‌آوری نمی‌شود. وبهوک مستقیم جنگو پیش‌فرض خاموش است.
-- جزئیات: `docs/MILESTONE_1.md`. تحلیل پیام‌ها: `python -m analysis.worker run` (`docs/MILESTONE_2.md`).
+تست‌ها روی PostgreSQL واقعی و با آبجکت‌های واقعی Telethon اجرا می‌شوند: `TEST_DATABASE_URL=... python -m pytest telegram_crawler/tests`.

@@ -69,6 +69,9 @@ def build_windows(chat_id: str, pending: list[ChatMessage], store: Store, cfg: E
         for m in chunk:
             if m.reply_to and m.reply_to not in seen:
                 p = store.message(chat_id, m.reply_to)
+                if p is None and m.reply_to_text:   # parent older than the engine's state: use the archived copy
+                    p = ChatMessage(chat_id=chat_id, message_id=m.reply_to, author_id=m.reply_to_author_id or "",
+                                    author_name=m.reply_to_author_name, text=m.reply_to_text, date=m.reply_to_date or m.date)
                 if p and p.text.strip():
                     parents.append(p)
                     seen.add(p.message_id)

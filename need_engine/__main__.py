@@ -3,17 +3,17 @@
     python -m need_engine run --once            # one pass (ingest → analyse ready chats → match)
     python -m need_engine run                   # loop every NE_POLL_SECONDS
     python -m need_engine run --once --flush    # analyse everything pending now (backfill / tests)
-    python -m need_engine stats                 # cost ledger
+    python -m need_engine stats                 # cost ledger + messages analysed + cost per message
     python -m need_engine demo --chats data/chats.jsonl --products data/products.jsonl [--mock]
+                                                # throw-away schema in the same database, output to JSONL
 """
 from __future__ import annotations
 
 import argparse
 import json
 import logging
-import os
+import secrets
 import sys
-import tempfile
 
 from need_engine.config import EngineConfig
 from need_engine.engine import NeedEngine
@@ -43,15 +43,20 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "stats":
         from need_engine.store import Store
 
-        for row in Store(cfg.state_path).cost_summary():
+        st = Store(cfg.database_url, cfg.state_schema)
+        for row in st.cost_summary():
             print(json.dumps(row, ensure_ascii=False))
+        print(json.dumps(st.totals(), ensure_ascii=False))
         return 0
     if a.cmd == "demo":
-        cfg.messages_dsn, cfg.products_source = f"jsonl:{a.chats}", f"jsonl:{a.products}"
-        cfg.state_path = os.path.join(tempfile.mkdtemp(prefix="need_engine_"), "state.db")
-        cfg.output_path = a.out
+        cfg.messages_source, cfg.products_source = f"jsonl:{a.chats}", f"jsonl:{a.products}"
+        cfg.state_schema = f"need_engine_demo_{secrets.token_hex(4)}"
+        cfg.output_jsonl = a.out
         eng = NeedEngine(cfg, mock_llm=mock_llm if a.mock else None)
-        rep = eng.run_once(flush=True)
+        try:
+            rep = eng.run_once(flush=True)
+        finally:
+            eng.store.conn.execute(f"DROP SCHEMA IF EXISTS {cfg.state_schema} CASCADE")
         print(rep.summary())
         print(f"→ {len(rep.opportunities)} opportunities written to {a.out}")
         return 0
