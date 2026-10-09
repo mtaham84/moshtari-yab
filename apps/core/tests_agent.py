@@ -150,6 +150,9 @@ class PanelAgentTests(EngineSchemaMixin, TestCase):
             "what_it_is": "دستکش موتورسواری ضدآب", "aliases": ["دستکش موتور", "دستکش گرم"],
             "problems_solved": ["سرمای دست", "خیس شدن دست"], "audience": "پیک‌ها", "use": "personal", "level": None})
         self.assertEqual(card_state(self.with_url)["state"], "seller")
+        page = self.client.get(reverse("products:detail", args=[self.with_url.pk])).content.decode()
+        self.assertIn(">سرمای دست\nخیس شدن دست</textarea>", page)
+        self.assertNotIn("problems_solved|join", page)
 
         self.client.post(url, {"action": "revert"})
         self.with_url.refresh_from_db()

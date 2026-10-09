@@ -136,8 +136,8 @@
       </div>
       <div class="form-group" style="margin-bottom: 14px;">
         <label class="form-label" for="ac_problems">چه نیازی را برطرف می‌کند (هر مورد در یک خط، حداکثر ۴)</label>
-        <textarea id="ac_problems" name="problems_solved" class="form-input" rows="3">{{ agent_card.card.problems_solved|join:"
-" }}</textarea>
+        <textarea id="ac_problems" name="problems_solved" class="form-input" rows="3">{% for p in agent_card.card.problems_solved %}{{ p }}{% if not forloop.last %}
+{% endif %}{% endfor %}</textarea>
       </div>
       <div class="form-row-2" style="margin-bottom: 14px;">
         <div class="form-group">
