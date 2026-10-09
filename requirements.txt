@@ -2,12 +2,15 @@
 Django>=5.2,<7.0
 psycopg[binary]>=3.2,<4.0
 pillow>=10.2.0
+gunicorn>=22.0
+whitenoise>=6.6
 
 # Telegram crawler + need_engine
 telethon>=1.36,<2.0
 pydantic>=2.6,<3.0
 python-dotenv>=1.0
 numpy>=1.26
+pgvector>=0.3
 
 # Tests
 pytest>=8.0

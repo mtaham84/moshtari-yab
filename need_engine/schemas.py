@@ -28,6 +28,10 @@ class ChatMessage(BaseModel):
     reply_to: int | None = None
     chat_title: str | None = None
     chat_username: str | None = None     # public group username → public message links
+    reply_to_text: str | None = None     # parent message (joined from the archive, may be older than the engine's state)
+    reply_to_author_id: str | None = None
+    reply_to_author_name: str | None = None
+    reply_to_date: datetime | None = None
 
 
 class Product(BaseModel):

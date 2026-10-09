@@ -29,6 +29,18 @@ def _env(name: str, default: Any) -> Any:
     return raw
 
 
+def database_dsn() -> str:
+    url = os.environ.get("NE_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if url:
+        return url
+    from psycopg.conninfo import make_conninfo
+
+    params = {"host": os.environ.get("POSTGRES_HOST", "127.0.0.1"), "port": os.environ.get("POSTGRES_PORT", "5432"),
+              "dbname": os.environ.get("POSTGRES_DB", "customer_yab"), "user": os.environ.get("POSTGRES_USER", "postgres"),
+              "password": os.environ.get("POSTGRES_PASSWORD", "")}
+    return make_conninfo(**{k: v for k, v in params.items() if v})
+
+
 def _f(name: str, default: Any):
     return field(default_factory=lambda: _env(name, default))
 
@@ -72,25 +84,18 @@ class EngineConfig:
     cf_api_token: str = _f("NE_CF_API_TOKEN", "")
     cf_model: str = _f("NE_CF_MODEL", "@cf/baai/bge-m3")
 
-    # ── Sources (read-only) ─────────────────────────────────────────────────
-    # sqlite:///data/leads.db  |  postgresql://user:pass@host:5432/db  |  jsonl:path/to/chats.jsonl
-    messages_dsn: str = _f("NE_MESSAGES_DSN", "sqlite:///data/leads.db")
-    messages_table: str = _f("NE_MESSAGES_TABLE", "messages")
-    groups_table: str = _f("NE_GROUPS_TABLE", "group_monitors")
-    # column names in the messages table (override if the Postgres schema renames them)
-    messages_columns: dict = _f("NE_MESSAGES_COLUMNS", {
-        "row_id": "id", "chat_id": "group_id", "message_id": "msg_id", "author_id": "sender_id",
-        "author_name": "sender_name", "author_username": "sender_username", "is_bot": "sender_is_bot",
-        "text": "text", "date": "date", "reply_to": "reply_to_msg_id",
-    })
-    # jsonl:path/to/products.jsonl  |  sql:<dsn>  (reads Django's products_product table read-only)
-    products_source: str = _f("NE_PRODUCTS_SOURCE", "sql:sqlite:///db.sqlite3")  # Django panel DB, or jsonl:path
-    products_table: str = _f("NE_PRODUCTS_TABLE", "products_product")
+    # ── Storage: one PostgreSQL database (Django + crawler + engine) ─────────
+    # NE_DATABASE_URL / DATABASE_URL, or the POSTGRES_* variables shared with Django.
+    database_url: str = field(default_factory=lambda: database_dsn())
+    # sources (read-only): "db" = crawler tables / Django products in the same database, or "jsonl:path" (tests, demo)
+    messages_source: str = _f("NE_MESSAGES_SOURCE", "db")
+    crawler_schema: str = _f("NE_CRAWLER_SCHEMA", "crawler")
+    products_source: str = _f("NE_PRODUCTS_SOURCE", "db")
+    products_table: str = _f("NE_PRODUCTS_TABLE", "public.products_product")
     fetch_batch: int = _f("NE_FETCH_BATCH", 2000)
-
-    # ── Engine-private storage and output ───────────────────────────────────
-    state_path: str = _f("NE_STATE_PATH", "data/need_engine_state.db")
-    output_path: str = _f("NE_OUTPUT_PATH", "data/opportunities.jsonl")    # JSONL sink (DB write comes later)
+    # engine-private state, pgvector vectors and the opportunities table the panel syncs from
+    state_schema: str = _f("NE_STATE_SCHEMA", "need_engine")
+    output_jsonl: str = _f("NE_OUTPUT_JSONL", "")          # optional extra copy of every opportunity (debug/demo)
     poll_seconds: int = _f("NE_POLL_SECONDS", 20)
 
     # ── When to analyse a chat (streaming triggers) ─────────────────────────

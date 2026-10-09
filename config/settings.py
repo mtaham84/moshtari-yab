@@ -27,6 +27,14 @@ if not SECRET_KEY:
         raise ImproperlyConfigured("Set DJANGO_SECRET_KEY before running with DJANGO_DEBUG=False.")
     SECRET_KEY = "development-only-customer-yab-key"
 
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip() for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()
+]
+if os.environ.get("DJANGO_BEHIND_HTTPS_PROXY", "").lower() in {"1", "true", "yes"}:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost,testserver").split(",")
@@ -49,6 +57,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -78,33 +87,19 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-database_engine = os.environ.get(
-    "DJANGO_DATABASE",
-    "postgresql" if not DEBUG or os.environ.get("POSTGRES_PASSWORD") else "sqlite",
-).lower()
-
-if database_engine == "sqlite":
-    if not DEBUG:
-        raise ImproperlyConfigured("SQLite is only available in development; configure PostgreSQL for production.")
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
+# One PostgreSQL database for everything: Django (public schema), crawler (crawler schema) and need_engine
+# (need_engine schema, with pgvector). The same POSTGRES_* variables are read by the crawler and the engine.
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "customer_yab"),
+        "USER": os.environ.get("POSTGRES_USER", "postgres"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": int(os.environ.get("POSTGRES_CONN_MAX_AGE", "60")),
     }
-elif database_engine == "postgresql":
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("POSTGRES_DB", "customer_yab"),
-            "USER": os.environ.get("POSTGRES_USER", "postgres"),
-            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
-            "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
-            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-        }
-    }
-else:
-    raise ImproperlyConfigured("DJANGO_DATABASE must be either 'sqlite' or 'postgresql'.")
+}
 
 LANGUAGE_CODE = "fa-ir"
 TIME_ZONE = "Asia/Tehran"
@@ -114,6 +109,14 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+                    if not DEBUG else "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+# Serve uploaded product images from Django itself (fine for the MVP; use a CDN/nginx later).
+SERVE_MEDIA = os.environ.get("DJANGO_SERVE_MEDIA", "true").lower() in {"1", "true", "yes"}
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -137,5 +140,5 @@ LOGIN_REDIRECT_URL = "accounts:dashboard"
 LOGOUT_REDIRECT_URL = "core:landing"
 
 # need_engine (analysis core) — same env names the engine itself uses
-NEED_ENGINE_OUTPUT_PATH = os.environ.get("NE_OUTPUT_PATH", str(BASE_DIR / "data" / "opportunities.jsonl"))
-NEED_ENGINE_STATE_PATH = os.environ.get("NE_STATE_PATH", str(BASE_DIR / "data" / "need_engine_state.db"))
+# need_engine's schema in the same database (opportunities to import, cost ledger for the dashboard).
+NEED_ENGINE_SCHEMA = os.environ.get("NE_STATE_SCHEMA", "need_engine")

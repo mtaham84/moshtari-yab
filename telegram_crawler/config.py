@@ -1,4 +1,4 @@
-"""Configuration management for Telegram Lead Crawler."""
+"""Configuration of the Telegram crawler (archive only)."""
 
 from __future__ import annotations
 
@@ -31,6 +31,27 @@ def _float(key: str, default: float) -> float:
         return default
 
 
+def _bool(key: str, default: bool) -> bool:
+    raw = (os.getenv(key) or "").strip().lower()
+    return default if not raw else raw in {"1", "true", "yes", "on"}
+
+
+def database_dsn() -> str:
+    url = os.getenv("TG_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if url:
+        return url
+    from psycopg.conninfo import make_conninfo
+
+    params = {
+        "host": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        "port": os.getenv("POSTGRES_PORT", "5432"),
+        "dbname": os.getenv("POSTGRES_DB", "customer_yab"),
+        "user": os.getenv("POSTGRES_USER", "postgres"),
+        "password": os.getenv("POSTGRES_PASSWORD", ""),
+    }
+    return make_conninfo(**{k: v for k, v in params.items() if v})
+
+
 @dataclass(frozen=True)
 class Settings:
     # Telegram credentials (Userbot)
@@ -42,10 +63,15 @@ class Settings:
         )
     )
 
-    # Database
-    db_path: str = field(
-        default_factory=lambda: os.getenv("DB_PATH", str(ROOT / "data" / "leads.db"))
-    )
+    # Database (PostgreSQL). TG_DATABASE_URL / DATABASE_URL, or the POSTGRES_* variables shared with Django.
+    database_url: str = field(default_factory=lambda: database_dsn())
+    db_schema: str = field(default_factory=lambda: os.getenv("TG_DB_SCHEMA", "crawler"))
+
+    # What to store
+    fetch_profiles: bool = field(default_factory=lambda: _bool("TG_FETCH_PROFILES", True))   # bio via GetFullUser, once per user
+    profile_delay: float = field(default_factory=lambda: _float("TG_PROFILE_DELAY_SECONDS", 3.0))
+    parent_depth: int = field(default_factory=lambda: _int("TG_PARENT_DEPTH", 3))             # reply chain levels to fetch
+    store_raw: bool = field(default_factory=lambda: _bool("TG_STORE_RAW", True))
 
     # Rate limiting
     flood_sleep_threshold: int = field(default_factory=lambda: _int("FLOOD_SLEEP_THRESHOLD", 60))

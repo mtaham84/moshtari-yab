@@ -1,9 +1,7 @@
-"""Offline tests: fake LLM (need_engine.mock) + hash embeddings; no network."""
+"""Offline tests: fake LLM (need_engine.mock) + hash embeddings; state + vectors in PostgreSQL/pgvector (throw-away schemas)."""
 from __future__ import annotations
 
-import hashlib
 import json
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,37 +17,47 @@ from need_engine.scoring import score_match
 from need_engine.sources import JsonlProductSource, SQLMessageSource
 from need_engine.store import Store
 from need_engine.windowing import build_windows, is_ready, render
+from telegram_crawler.db import Archive
 
-SCHEMA = Path(__file__).resolve().parents[2] / "telegram_crawler" / "schema.sql"
 T0 = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
+CHAT = -1001001
 
 
-def cfg_for(tmp_path, **kw) -> EngineConfig:
-    c = EngineConfig()
-    c.embed_backend = "hash"
-    c.state_path = str(tmp_path / "state.db")
-    c.output_path = str(tmp_path / "opps.jsonl")
-    c.messages_dsn = f"sqlite:///{tmp_path / 'leads.db'}"
-    c.products_source = f"jsonl:{tmp_path / 'products.jsonl'}"
-    c.max_workers = 1
-    for k, v in kw.items():
-        setattr(c, k, v)
-    return c
+@pytest.fixture
+def cfg_for(tmp_path, pg_dsn, pg_schema):
+    def make(**kw) -> EngineConfig:
+        c = EngineConfig()
+        c.embed_backend = "hash"
+        c.database_url = pg_dsn
+        c.state_schema = pg_schema("ne")
+        c.crawler_schema = kw.pop("crawler_schema", "crawler")
+        c.products_source = f"jsonl:{tmp_path / 'products.jsonl'}"
+        c.max_workers = 1
+        for k, v in kw.items():
+            setattr(c, k, v)
+        return c
+    return make
+
+
+@pytest.fixture
+def crawler(pg_dsn, pg_schema):
+    """A real crawler archive (telegram_crawler.db) in its own schema, with one monitored group."""
+    a = Archive(pg_dsn, pg_schema("cr"))
+    a.upsert_chat({"chat_id": CHAT, "type": "supergroup", "title": "گروه تست", "username": "testgroup"}, monitored=True)
+    yield a
+    a.close()
+
+
+def add(a: Archive, mid: int, uid: int, text: str, minutes: int, *, name: str = "علی", username: str | None = "ali",
+        bot: bool = False, reply: int | None = None, **kw) -> None:
+    a.add_user({"user_id": uid, "first_name": name, "username": username, "is_bot": bot})
+    a.add_message({"chat_id": CHAT, "message_id": mid, "sender_user_id": uid, "text": text,
+                   "date": T0 + timedelta(minutes=minutes), "reply_to_msg_id": reply, **kw})
 
 
 def msg(i, text, author="u1", minutes=0, chat="-1001", reply=None, bot=False) -> ChatMessage:
     return ChatMessage(chat_id=chat, message_id=i, row_id=i, author_id=author, author_name=f"name_{author}", text=text,
                        date=T0 + timedelta(minutes=minutes), reply_to=reply, is_bot=bot)
-
-
-def crawler_db(path: Path, rows: list[tuple]) -> None:
-    conn = sqlite3.connect(path)
-    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    conn.execute("INSERT OR IGNORE INTO group_monitors (group_id, title, link) VALUES (1001, 'گروه تست', 'https://t.me/testgroup')")
-    conn.executemany("""INSERT INTO messages (group_id, msg_id, sender_id, sender_name, sender_username, sender_is_bot, text, date, reply_to_msg_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", rows)
-    conn.commit()
-    conn.close()
 
 
 def products_file(path: Path) -> None:
@@ -63,8 +71,8 @@ def products_file(path: Path) -> None:
 
 
 # ── windowing ────────────────────────────────────────────────────────────────
-def test_triggers(tmp_path):
-    c = cfg_for(tmp_path, trigger_count=3, silence_minutes=10, max_wait_minutes=30)
+def test_triggers(cfg_for):
+    c = cfg_for(trigger_count=3, silence_minutes=10, max_wait_minutes=30)
     p = [msg(1, "a", minutes=0), msg(2, "b", minutes=1)]
     assert not is_ready(p, T0 + timedelta(minutes=5), c)[0]
     assert is_ready(p, T0 + timedelta(minutes=12), c)[0]                 # quiet
@@ -74,9 +82,9 @@ def test_triggers(tmp_path):
     assert is_ready(busy, T0 + timedelta(minutes=31), c)[0]               # max wait (oldest at 5 min)
 
 
-def test_windows_context_noise_and_gaps(tmp_path):
-    c = cfg_for(tmp_path, window_size=2, context_messages=1, gap_marker_minutes=60)
-    st = Store(str(tmp_path / "s.db"))
+def test_windows_context_noise_and_gaps(cfg_for):
+    c = cfg_for(window_size=2, context_messages=1, gap_marker_minutes=60)
+    st = Store(c.database_url, c.state_schema)
     st.mark_analysed("-1001", [msg(1, "قبلاً گفتم موتور دارم")], keep_recent=10)
     pend = [msg(2, "مرسی"), msg(3, "فردا میرم سفر", minutes=5), msg(4, "[sticker]", bot=True, minutes=6),
             msg(5, "دستام یخ می‌زنه", minutes=200), msg(6, "دنبال دستکشم", minutes=201)]
@@ -124,16 +132,14 @@ def iso(minutes: int) -> str:
     return (T0 + timedelta(minutes=minutes)).isoformat()
 
 
-def test_streaming_end_to_end_read_only(tmp_path):
-    db = tmp_path / "leads.db"
-    crawler_db(db, [
-        (1001, 1, 11, "علی", "ali", 0, "سلام بچه‌ها", iso(0), None),
-        (1001, 2, 11, "علی", "ali", 0, "دنبال دستکش گرم موتورم بودجه 1 میلیون", iso(1), None),
-        (1001, 3, 12, "سارا", None, 0, "😂", iso(2), None),
-    ])
+def test_streaming_end_to_end_read_only(tmp_path, cfg_for, crawler):
+    add(crawler, 1, 11, "سلام بچه‌ها", 0)
+    add(crawler, 2, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 1)
+    add(crawler, 3, 12, "😂", 2, name="سارا", username=None)
     products_file(tmp_path / "products.jsonl")
-    c = cfg_for(tmp_path, trigger_count=100, silence_minutes=10)
-    before = hashlib.sha1(db.read_bytes()).hexdigest()
+    c = cfg_for(crawler_schema=crawler.schema, trigger_count=100, silence_minutes=10)
+    snapshot = lambda: crawler.conn.execute(f"SELECT md5(string_agg(t::text, '|' ORDER BY id)) AS h FROM {crawler.schema}.tg_messages t").fetchone()["h"]
+    before = snapshot()
     eng = NeedEngine(c, mock_llm=mock_llm)
 
     r1 = eng.run_once(now=T0 + timedelta(minutes=3))           # not quiet long enough → nothing analysed
@@ -148,23 +154,33 @@ def test_streaming_end_to_end_read_only(tmp_path):
     assert o.cost.toman > 0 and o.cost.llm_calls >= 2
     ids = [m.product_id for m in o.matched_products]
     assert "P1" in ids and "P2" not in ids   # P2 costs 4x the budget -> dropped before the LLM
-    assert hashlib.sha1(db.read_bytes()).hexdigest() == before  # source DB untouched
-    assert Path(c.output_path).read_text(encoding="utf-8").count("\n") == 1
+    assert snapshot() == before              # crawler archive untouched
+    published = eng.store.published_after(0)
+    assert [p["payload"]["opportunity_id"] for p in published] == [o.opportunity_id]
+    vec_rows = eng.store._all("SELECT count(*) AS n FROM {s}.product_vectors")[0]["n"]
+    assert vec_rows >= 2 and eng.store.totals()["messages_analysed"] == 3
 
     # same person later says it's solved → status change is emitted for the same opportunity
-    conn = sqlite3.connect(db)
-    conn.execute("INSERT INTO messages (group_id, msg_id, sender_id, sender_name, sender_username, text, date) VALUES (1001, 4, 11, 'علی', 'ali', 'گرفتمش ممنون، دستکش', ?)", (iso(60),))
-    conn.commit(); conn.close()
+    add(crawler, 4, 11, "گرفتمش ممنون، دستکش", 60)
     r3 = eng.run_once(now=T0 + timedelta(minutes=80))
     assert r3.analysed_messages == 1
     assert [x.status for x in r3.opportunities] == ["resolved"] and r3.opportunities[0].opportunity_id == o.opportunity_id
+    latest = eng.store.published_after(published[0]["seq"])
+    assert len(latest) == 1 and latest[0]["payload"]["status"] == "resolved"
 
 
-def test_new_product_back_matches_stored_needs(tmp_path):
-    crawler_db(tmp_path / "leads.db", [(1001, 1, 11, "علی", None, 0, "دنبال یه کوله سفری سبکم", iso(0), None)])
+def test_engine_cannot_write_to_the_crawler_archive(cfg_for, crawler):
+    import psycopg
+
+    src = SQLMessageSource(cfg_for(crawler_schema=crawler.schema))
+    with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+        src.db.conn.execute(f"DELETE FROM {crawler.schema}.tg_messages")
+
+
+def test_new_product_back_matches_stored_needs(tmp_path, cfg_for, crawler):
+    add(crawler, 1, 11, "دنبال یه کوله سفری سبکم", 0)
     products_file(tmp_path / "products.jsonl")
-    c = cfg_for(tmp_path)
-    eng = NeedEngine(c, mock_llm=mock_llm)
+    eng = NeedEngine(cfg_for(crawler_schema=crawler.schema), mock_llm=mock_llm)
     eng.run_once(now=T0 + timedelta(hours=1))
     with (tmp_path / "products.jsonl").open("a", encoding="utf-8") as f:
         f.write("\n" + json.dumps({"product_id": "P3", "title": "کوله سفری سبک", "product_type": "کوله", "price_toman": 700000}, ensure_ascii=False))
@@ -173,22 +189,44 @@ def test_new_product_back_matches_stored_needs(tmp_path):
     assert any("P3" in [m.product_id for m in o.matched_products] for o in r.opportunities)
 
 
-def test_jsonl_sources_and_person_merge(tmp_path):
+def test_jsonl_sources_and_person_merge(tmp_path, cfg_for):
     chats = tmp_path / "chats.jsonl"
     chats.write_text(json.dumps({"chat_id": "C1", "group_title": "g", "messages": [
         {"message_id": 1, "date": iso(0), "author_id": "u1", "author_name": "a", "text": "دنبال دستکش موتورم", "reply_to": None},
         {"message_id": 2, "date": iso(300), "author_id": "u1", "author_name": "a", "text": "هنوز دنبال دستکش موتورم", "reply_to": None},
     ], "labels": []}, ensure_ascii=False), encoding="utf-8")
     products_file(tmp_path / "products.jsonl")
-    c = cfg_for(tmp_path, messages_dsn=f"jsonl:{chats}", window_size=1, context_messages=0, person_merge_sim=0.5)
+    c = cfg_for(messages_source=f"jsonl:{chats}", window_size=1, context_messages=0, person_merge_sim=0.5)
     r = NeedEngine(c, mock_llm=mock_llm).run_once(flush=True)
     assert r.windows == 2 and r.needs_new == 1 and r.needs_updated == 1   # same person, same need → one card
     assert len(JsonlProductSource(str(tmp_path / "products.jsonl")).all()) == 2
 
 
-def test_sql_source_column_mapping(tmp_path):
-    crawler_db(tmp_path / "leads.db", [(1001, 7, 5, "x", None, 1, "bot says hi", iso(0), None)])
-    src = SQLMessageSource(cfg_for(tmp_path))
+def test_sql_source_reads_archive_with_users_chats_and_old_parents(cfg_for, crawler):
+    add(crawler, 3, 12, "کسی کوله کوهنوردی سراغ داره؟", -3000, name="سارا", username=None, is_context=True)  # old parent
+    add(crawler, 6, 5, "bot says hi", 0, name="Bot", username="promo_bot", bot=True)
+    add(crawler, 7, 11, "منم دنبالشم", 1, reply=3)
+    add(crawler, 8, 11, "", 2, is_service=True, service_action="ChatAddUser")
+    c = cfg_for(crawler_schema=crawler.schema, context_messages=0)
+    src = SQLMessageSource(c)
     m = src.fetch_after(0, 10)
-    assert m[0].message_id == 7 and m[0].is_bot and m[0].chat_username == "testgroup"
-    assert src.fetch_after(m[0].row_id, 10) == []
+    assert [x.message_id for x in m] == [6, 7]                           # context-only parent and service message skipped
+    assert m[0].is_bot and m[0].chat_username == "testgroup" and m[0].chat_id == str(CHAT)
+    assert (m[1].author_name, m[1].author_username, m[1].reply_to_text, m[1].reply_to_author_name) == \
+        ("علی", "ali", "کسی کوله کوهنوردی سراغ داره؟", "سارا")
+    assert src.fetch_after(m[-1].row_id, 10) == []
+    w = build_windows(str(CHAT), [m[1]], Store(c.database_url, c.state_schema), c)[0]
+    assert [p.message_id for p in w.parents] == [3] and "کوله کوهنوردی" in render(w, c)   # old parent shown to the model
+
+
+def test_store_keeps_vectors_in_pgvector(cfg_for):
+    c = cfg_for()
+    st = Store(c.database_url, c.state_schema)
+    n = NeedCard(need_id="need_x", chat_id="c", author_id="u", label="explicit_need", is_opportunity=True, created_at=T0, updated_at=T0)
+    q = np.random.default_rng(0).normal(size=(3, 16)).astype(np.float32)
+    st.save_need(n, q[0], q)
+    assert np.allclose(st.query_vecs("need_x"), q, atol=1e-6)
+    (card, vec), = st.person_needs("c", "u")
+    assert card.need_id == "need_x" and np.allclose(vec, q[0], atol=1e-6)
+    typ = st._all("SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute WHERE attrelid = '{s}.need_vectors'::regclass AND attname = 'vec'")
+    assert typ[0]["t"] == "vector"

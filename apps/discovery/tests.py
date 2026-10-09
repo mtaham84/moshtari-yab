@@ -1,9 +1,12 @@
-"""Panel side of the pipeline: need_engine JSONL → panel records → views, dashboard and product-card tracking."""
+"""Panel side of the pipeline: need_engine.opportunities → panel records → views, dashboard and product-card tracking."""
 import json
 import tempfile
+import uuid
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
+
+from django.db import connection
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -18,6 +21,35 @@ from .models import Customer, Opportunity, ProductOrder
 
 User = get_user_model()
 T0 = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
+
+
+class EngineSchemaMixin:
+    """A throw-away need_engine schema inside Django's test database (same DB, like production)."""
+
+    def tearDown(self):
+        st = getattr(self, "_ne_store", None)
+        if st is not None:               # schema stays until the test database is destroyed (Django holds locks on it)
+            st.close()
+            self._override.disable()
+        super().tearDown()
+
+    def dsn(self) -> str:
+        from psycopg.conninfo import make_conninfo
+
+        sd = connection.settings_dict
+        params = {"host": sd["HOST"], "port": sd["PORT"], "dbname": sd["NAME"], "user": sd["USER"], "password": sd["PASSWORD"]}
+        return make_conninfo(**{k: v for k, v in params.items() if v})
+
+    def store(self):
+        """Engine state in a fresh schema; the panel (NEED_ENGINE_SCHEMA) reads the same schema."""
+        from need_engine.store import Store
+
+        if getattr(self, "_ne_store", None) is None:
+            schema = f"ne_{uuid.uuid4().hex[:10]}"
+            self._override = override_settings(NEED_ENGINE_SCHEMA=schema)
+            self._override.enable()
+            self._ne_store = Store(self.dsn(), schema)
+        return self._ne_store
 
 
 def seller(email: str, name: str) -> tuple:
@@ -45,7 +77,7 @@ def engine_payload(opp_id: str, product_ids: list[int], status: str = "open") ->
     }
 
 
-class EngineImportTests(TestCase):
+class EngineImportTests(EngineSchemaMixin, TestCase):
     def setUp(self):
         self.user, self.biz = seller("a@example.com", "فروشگاه الف")
         _, self.other = seller("b@example.com", "فروشگاه ب")
@@ -83,19 +115,21 @@ class EngineImportTests(TestCase):
         self.assertEqual(import_opportunity(engine_payload("need_000003_ab", [999999])), [])
         self.assertFalse(Opportunity.objects.exists())
 
-    def test_sync_command_reads_new_complete_lines_only(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "opps.jsonl"
-            line = json.dumps(engine_payload("need_000004_ab", [self.p1.id]), ensure_ascii=False)
-            path.write_text(line + "\n" + line[:20], encoding="utf-8")      # second line still being written
-            call_command("sync_opportunities", path=str(path), stdout=StringIO())
-            self.assertEqual(Opportunity.objects.count(), 1)
-            offset = int(Path(str(path) + ".offset").read_text())
-            self.assertEqual(offset, len((line + "\n").encode()))
-            with path.open("a", encoding="utf-8") as fh:                   # finish line 2 (a status update)
-                fh.write(json.dumps(engine_payload("need_000004_ab", [self.p1.id], "expired"), ensure_ascii=False)[20:] + "\n")
-            call_command("sync_opportunities", path=str(path), stdout=StringIO())
-            self.assertEqual(Opportunity.objects.get().status, "EXPIRED")
+    def test_sync_command_imports_published_versions_once(self):
+        from need_engine.schemas import Opportunity as EngineOpportunity
+
+        st = self.store()
+        call_command("sync_opportunities", stdout=StringIO())             # engine tables not there yet → no error
+        st.publish(EngineOpportunity.model_validate(engine_payload("need_000004_ab", [self.p1.id])))
+        call_command("sync_opportunities", stdout=StringIO())
+        self.assertEqual(Opportunity.objects.count(), 1)
+        st.publish(EngineOpportunity.model_validate(engine_payload("need_000004_ab", [self.p1.id], "expired")))
+        out = StringIO()
+        call_command("sync_opportunities", stdout=out)
+        self.assertIn("imported 1", out.getvalue())                         # only the new version is read
+        self.assertEqual(Opportunity.objects.get().status, "EXPIRED")
+        call_command("sync_opportunities", "--from-start", stdout=StringIO())   # re-import is idempotent
+        self.assertEqual(Opportunity.objects.count(), 1)
 
     def test_engine_end_to_end_with_mock_llm(self):
         """Real need_engine run (offline mock LLM) on chat JSON + this panel's products → panel records."""
@@ -113,15 +147,13 @@ class EngineImportTests(TestCase):
                  "price_toman": int(p.price)}, ensure_ascii=False) for p in Product.objects.all()), encoding="utf-8")
             cfg = EngineConfig()
             cfg.embed_backend, cfg.max_workers = "hash", 1
-            cfg.state_path, cfg.output_path = str(d / "state.db"), str(d / "opps.jsonl")
-            cfg.messages_dsn, cfg.products_source = f"jsonl:{d / 'chats.jsonl'}", f"jsonl:{d / 'products.jsonl'}"
-            report = NeedEngine(cfg, mock_llm=mock_llm).run_once(flush=True)
+            cfg.messages_source, cfg.products_source = f"jsonl:{d / 'chats.jsonl'}", f"jsonl:{d / 'products.jsonl'}"
+            report = NeedEngine(cfg, mock_llm=mock_llm, store=self.store()).run_once(flush=True)
             self.assertGreaterEqual(len(report.opportunities), 1)
 
-            call_command("sync_opportunities", path=cfg.output_path, stdout=StringIO())
+            call_command("sync_opportunities", stdout=StringIO())
             self.assertTrue(Opportunity.objects.filter(source_platform="telegram").exists())
-            with override_settings(NEED_ENGINE_STATE_PATH=cfg.state_path):
-                totals = engine_totals()
+            totals = engine_totals()
             self.assertEqual(totals["messages_analysed"], 1)
             self.assertGreater(totals["cost_toman"], 0)
 

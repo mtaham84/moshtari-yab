@@ -1,40 +1,41 @@
-"""Import need_engine output (JSONL) into the panel.
+"""Import opportunities published by need_engine (``need_engine.opportunities``) into the panel.
 
-    python manage.py sync_opportunities              # import new lines once
-    python manage.py sync_opportunities --follow     # keep importing as the engine writes
-    python manage.py sync_opportunities --from-start # re-import the whole file (idempotent)
+    python manage.py sync_opportunities              # import new/changed opportunities once
+    python manage.py sync_opportunities --follow     # keep importing while the engine runs
+    python manage.py sync_opportunities --from-start # re-import everything (idempotent)
 """
 import time
-from pathlib import Path
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from apps.discovery.engine_bridge import import_opportunity, iter_jsonl
+from apps.discovery.engine_bridge import import_opportunity, published_after
+from apps.discovery.models import EngineSyncCursor
 
 
 class Command(BaseCommand):
-    help = "Import opportunities written by need_engine into the panel database."
+    help = "Import opportunities published by need_engine into the panel database."
 
     def add_arguments(self, parser):
-        parser.add_argument("--path", default=settings.NEED_ENGINE_OUTPUT_PATH)
         parser.add_argument("--follow", action="store_true")
         parser.add_argument("--interval", type=float, default=10.0)
         parser.add_argument("--from-start", action="store_true")
 
     def handle(self, *args, **opts):
-        path = Path(opts["path"])
-        cursor = path.with_name(path.name + ".offset")
-        offset = 0 if opts["from_start"] or not cursor.exists() else int(cursor.read_text() or 0)
+        cursor, _ = EngineSyncCursor.objects.get_or_create(name="opportunities")
+        if opts["from_start"]:
+            cursor.position = 0
         while True:
-            if path.exists() and path.stat().st_size < offset:  # file was rotated/recreated
-                offset = 0
             n = 0
-            if path.exists():
-                for offset, payload in iter_jsonl(path, offset):
+            while True:
+                batch = published_after(cursor.position)
+                for seq, payload in batch:
                     import_opportunity(payload)
-                    cursor.write_text(str(offset))
+                    cursor.position = seq
                     n += 1
+                if batch:
+                    cursor.save(update_fields=["position", "updated_at"])
+                if len(batch) < 500:
+                    break
             if n:
                 self.stdout.write(f"imported {n} opportunity updates")
             if not opts["follow"]:

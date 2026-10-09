@@ -1,33 +1,56 @@
-"""Archive-only crawler: backfill, resume, multiple groups, FloodWait, live messages."""
+"""Crawler → PostgreSQL archive with real Telethon objects: users, chats, parents, media, resume, FloodWait, live."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from telethon import utils
 from telethon.errors import FloodWaitError
+from telethon.tl import types
 
-from telegram_crawler import db as local_db
-from telegram_crawler.models import GroupInfo
+from telegram_crawler.db import Archive
 from telegram_crawler.monitor import CrawlerMonitor
 from telegram_crawler.ratelimit import FloodWaitTooLong, with_flood_retry
 from telegram_crawler.telegram_client import parse_group_link
 
+NOW = datetime.now(timezone.utc)
 
-def make_msg(mid: int, text: str, sender_id: int = 10, reply_to: int | None = None, minutes_ago: int = 5, bot: bool = False):
-    sender = MagicMock(id=sender_id, first_name=f"U{sender_id}", last_name=None, username=f"user{sender_id}", bot=bot)
-    reply = MagicMock(reply_to_msg_id=reply_to) if reply_to else None
-    return MagicMock(id=mid, sender_id=sender_id, sender=sender, message=text, reply_to=reply,
-                     date=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago))
+
+def channel(cid: int, title: str, username: str | None = None, megagroup: bool = True) -> types.Channel:
+    return types.Channel(id=cid, title=title, photo=types.ChatPhotoEmpty(), date=NOW, megagroup=megagroup,
+                         broadcast=not megagroup, username=username, access_hash=cid * 3)
+
+
+def user(uid: int, username: str | None = None, bot: bool = False, first: str | None = None) -> types.User:
+    return types.User(id=uid, first_name=first or f"U{uid}", last_name="L" if uid % 2 else None, username=username,
+                      bot=bot, premium=uid == 11, access_hash=uid * 7, lang_code="fa")
 
 
 class FakeClient:
-    """Minimal async Telethon stand-in. ``history`` maps entity.id -> messages."""
+    """Async Telethon stand-in. ``history[chat]`` = messages visible to iter_messages, ``old[chat]`` = older ones."""
 
-    def __init__(self, history: dict[int, list]):
-        self.history = history
+    _self_id = 999
+    _mb_entity_cache = None
+
+    def __init__(self, entities: list):
+        self.entities = {utils.get_peer_id(e): e for e in entities}
+        self.history: dict[int, list] = {}
+        self.old: dict[int, list] = {}
         self.flood_once = False
+        self.get_messages_calls: list[list[int]] = []
+        self.bios = {11: "فروشگاه لوازم موتور در تهران"}
+
+    def msg(self, chat: types.Channel, mid: int, text: str = "", uid: int | None = 10, reply_to: int | None = None,
+            minutes_ago: int = 5, cls=types.Message, **kw):
+        from_id = kw.pop("from_id", types.PeerUser(uid) if uid else None)
+        m = cls(id=mid, peer_id=types.PeerChannel(chat.id), date=NOW - timedelta(minutes=minutes_ago),
+                from_id=from_id, reply_to=types.MessageReplyHeader(reply_to_msg_id=reply_to) if reply_to else None,
+                **({"message": text} if cls is types.Message else {}), **kw)
+        m._finish_init(self, self.entities, None)
+        return m
 
     async def iter_messages(self, entity, limit=200, min_id=0, offset_id=0, **kwargs):
         count = 0
@@ -42,70 +65,161 @@ class FakeClient:
             if count >= limit:
                 return
 
+    async def get_messages(self, entity, ids):
+        self.get_messages_calls.append(list(ids))
+        pool = {m.id: m for m in self.history.get(entity.id, []) + self.old.get(entity.id, [])}
+        return [pool.get(i) for i in ids]
 
-def entity(eid: int, title: str):
-    return MagicMock(id=eid, title=title, username=None)
-
-
-def monitor(client, db_path, **kw):
-    return CrawlerMonitor(client, [], backfill_hours=24, backfill_limit=kw.pop("limit", 100), db_path=db_path, **kw)
-
-
-async def test_backfill_archives_every_message_in_order(tmp_path):
-    db_path = str(tmp_path / "crawler.db")
-    history = [make_msg(1, "سلام"), make_msg(2, "کسی دوره پایتون میشناسه؟", 2), make_msg(3, "👍", 3),
-               make_msg(4, "تبلیغ", 5, bot=True), make_msg(5, "مکتب‌خونه", 4, reply_to=2)]
-    mon = monitor(FakeClient({100: history}), db_path)
-    mon.add_resolved_group(entity(100, "Python IR"), GroupInfo(group_id=100, title="Python IR"))
-
-    assert await mon.run_backfill() == 5                                   # no filtering: need_engine decides
-    with local_db.get_connection(db_path) as conn:
-        rows = conn.execute("SELECT msg_id, sender_is_bot, reply_to_msg_id FROM messages ORDER BY id").fetchall()
-        gm = conn.execute("SELECT title, last_scanned_msg_id FROM group_monitors").fetchone()
-    assert [r["msg_id"] for r in rows] == [1, 2, 3, 4, 5]                  # oldest first → ids follow the conversation
-    assert rows[3]["sender_is_bot"] == 1 and rows[4]["reply_to_msg_id"] == 2
-    assert (gm["title"], gm["last_scanned_msg_id"]) == ("Python IR", 5)
+    async def __call__(self, request):
+        uid = getattr(request.id, "user_id", request.id)
+        if uid not in self.bios:
+            raise ValueError("USER_PRIVACY_RESTRICTED")
+        return SimpleNamespace(full_user=SimpleNamespace(about=self.bios[uid]))
 
 
-async def test_resume_skips_already_archived_messages(tmp_path):
-    db_path = str(tmp_path / "crawler.db")
-    history = [make_msg(i, f"پیام {i}", i) for i in range(1, 4)]
-    client = FakeClient({7: history})
-    first = monitor(client, db_path)
-    first.add_resolved_group(entity(7, "G"), GroupInfo(group_id=7, title="G"))
+@pytest.fixture
+def archive(pg_dsn, pg_schema):
+    a = Archive(pg_dsn, pg_schema("crawler"))
+    yield a
+    a.close()
+
+
+def rows(archive: Archive, sql: str, *params):
+    return archive.conn.execute(sql.replace("{s}", archive.schema), params).fetchall()
+
+
+def monitor(client, archive, **kw):
+    return CrawlerMonitor(client, [], backfill_hours=24, backfill_limit=kw.pop("limit", 100), archive=archive,
+                          fetch_profiles=kw.pop("fetch_profiles", False), **kw)
+
+
+async def test_backfill_stores_users_chat_parents_and_message_details(archive):
+    g = channel(100, "موتورسواران تهران", "motor_teh")
+    ali, sara, bot, other = user(11, "ali"), user(12), user(13, "spam_bot", bot=True), channel(555, "کانال فروش", "shop_ch", megagroup=False)
+    c = FakeClient([g, ali, sara, bot, other])
+    c.old[100] = [c.msg(g, 3, "کسی دستکش زمستونی خوب سراغ داره؟", 12, minutes_ago=3000)]       # outside the 24h window
+    photo = types.MessageMediaPhoto(photo=types.Photo(id=1, access_hash=2, file_reference=b"x", date=NOW, dc_id=1,
+                                                      sizes=[types.PhotoSize(type="x", w=800, h=600, size=51200)]))
+    c.history[100] = [
+        c.msg(g, 10, "سلام", 11),
+        c.msg(g, 11, "من دنبال دستکش گرم موتورم بودجه ۱ میلیون", 11, reply_to=3,
+              entities=[types.MessageEntityUrl(offset=0, length=2)]),
+        c.msg(g, 12, "این مدل خوبه؟", 12, reply_to=11, media=photo),
+        c.msg(g, 13, "تبلیغ", 13, fwd_from=types.MessageFwdHeader(date=NOW, from_id=types.PeerChannel(555))),
+        c.msg(g, 14, cls=types.MessageService, uid=12, action=types.MessageActionChatAddUser(users=[12])),
+        c.msg(g, 15, "پیام ادمین ناشناس", uid=None, from_id=types.PeerChannel(100), post_author="admin"),
+    ]
+    mon = monitor(c, archive, parent_depth=3)
+    full = types.ChannelFull(id=100, about="گروه موتورسواران", read_inbox_max_id=0, read_outbox_max_id=0, unread_count=0,
+                             chat_photo=types.PhotoEmpty(id=0), notify_settings=types.PeerNotifySettings(), bot_info=[], pts=1,
+                             participants_count=4200)
+    state = mon.add_resolved_group(g, "https://t.me/motor_teh", full)
+
+    assert await mon.run_backfill() == 6
+    assert mon.stats["context"] == 1 and c.get_messages_calls == [[3]]           # one batched request for old parents
+
+    chat = archive.get_chat(state.chat_id)
+    assert state.chat_id == -1000000000100
+    assert (chat["type"], chat["username"], chat["about"], chat["members_count"], chat["is_monitored"]) == \
+        ("supergroup", "motor_teh", "گروه موتورسواران", 4200, True)
+    assert chat["last_scanned_msg_id"] == 15
+
+    users = {r["user_id"]: r for r in rows(archive, "SELECT * FROM {s}.tg_users")}
+    assert set(users) == {11, 12, 13}
+    assert (users[11]["username"], users[11]["first_name"], users[11]["is_premium"], users[11]["lang_code"]) == ("ali", "U11", True, "fa")
+    assert users[13]["is_bot"] is True and users[12]["username"] is None and users[11]["raw"]["id"] == 11
+
+    msgs = rows(archive, "SELECT * FROM {s}.tg_messages ORDER BY id")
+    assert [m["message_id"] for m in msgs] == [3, 10, 11, 12, 13, 14, 15]           # parent first, then conversation order
+    by_id = {m["message_id"]: m for m in msgs}
+    assert by_id[3]["is_context"] is True and by_id[3]["sender_user_id"] == 12
+    assert by_id[11]["reply_to_msg_id"] == 3 and by_id[11]["entities"][0]["type"] == "Url"
+    assert by_id[12]["media_type"] == "photo" and by_id[12]["media"]["width"] == 800 and by_id[12]["text"] == "این مدل خوبه؟"
+    assert by_id[13]["fwd_from_id"] == -1000000000555
+    assert by_id[14]["is_service"] is True and by_id[14]["service_action"] == "ChatAddUser"
+    assert by_id[15]["sender_user_id"] is None and by_id[15]["sender_chat_id"] == state.chat_id and by_id[15]["post_author"] == "admin"
+    assert all(m["raw"]["id"] == m["message_id"] for m in msgs)
+
+
+async def test_user_is_a_snapshot_and_placeholders_are_completed(archive):
+    g = channel(7, "G")
+    c = FakeClient([g, user(21, "first_name_handle")])
+    mon = monitor(c, archive)
+    state = mon.add_resolved_group(g)
+    unknown = c.msg(g, 1, "sender entity missing", 22)                       # Telegram gave no entity for user 22
+    assert await mon.handle_live_message(state, unknown)
+    assert archive.get_user(22)["first_name"] is None                         # placeholder keeps the FK valid
+
+    c.entities[22] = user(22, "now_known")
+    await mon.handle_live_message(state, c.msg(g, 2, "hi", 22))
+    assert archive.get_user(22)["username"] == "now_known"                    # placeholder filled once
+
+    await mon.handle_live_message(state, c.msg(g, 3, "a", 21))
+    c.entities[21] = user(21, "renamed_later", first="Changed")
+    await mon.handle_live_message(state, c.msg(g, 4, "b", 21))
+    u = archive.get_user(21)
+    assert (u["username"], u["first_name"]) == ("first_name_handle", "U21")   # stored once, not overwritten
+
+
+async def test_live_reply_fetches_missing_parent_once_and_redelivery_is_ignored(archive):
+    g = channel(9, "Live", "livegrp")
+    c = FakeClient([g, user(1), user(2)])
+    c.old[9] = [c.msg(g, 5, "دنبال عینک آفتابی‌ام", 1, minutes_ago=600)]
+    mon = monitor(c, archive)
+    state = mon.add_resolved_group(g)
+    assert await mon.handle_live_message(state, c.msg(g, 20, "از کجا بخرم؟", 2, reply_to=5)) is True
+    assert await mon.handle_live_message(state, c.msg(g, 21, "منم", 1, reply_to=20)) is True
+    assert await mon.handle_live_message(state, c.msg(g, 20, "از کجا بخرم؟", 2, reply_to=5)) is False
+    assert c.get_messages_calls == [[5]]
+    assert archive.get_message(state.chat_id, 5)["is_context"] is True
+    assert archive.get_message(state.chat_id, 21)["reply_to_msg_id"] == 20
+    assert mon.stats["archived"] == 2 and archive.count_messages(state.chat_id) == 3
+
+
+async def test_resume_skips_already_archived_messages(archive):
+    g = channel(7, "G")
+    c = FakeClient([g] + [user(i) for i in range(1, 5)])
+    c.history[7] = [c.msg(g, i, f"پیام {i}", i) for i in range(1, 4)]
+    first = monitor(c, archive)
+    first.add_resolved_group(g)
     assert await first.run_backfill() == 3
 
-    history.append(make_msg(4, "پیام جدید", 4))
-    second = monitor(client, db_path)
-    state = second.add_resolved_group(entity(7, "G"), GroupInfo(group_id=7, title="G"))
+    c.history[7].append(c.msg(g, 4, "پیام جدید", 4))
+    second = monitor(c, archive)
+    state = second.add_resolved_group(g)
     assert state.resume_from == 3
     assert await second.run_backfill() == 1
-    assert local_db.count_local_messages(7, db_path=db_path) == 4
+    assert archive.count_messages(state.chat_id) == 4
 
 
-async def test_multiple_groups_and_flood_wait_during_backfill(tmp_path, monkeypatch):
+async def test_multiple_groups_and_flood_wait_during_backfill(archive, monkeypatch):
     import telegram_crawler.monitor as mon_mod
 
     monkeypatch.setattr(mon_mod.asyncio, "sleep", AsyncMock())
-    db_path = str(tmp_path / "crawler.db")
-    client = FakeClient({1: [make_msg(i, f"A{i}", i) for i in range(1, 6)], 2: [make_msg(i, f"B{i}", i) for i in range(1, 3)]})
-    client.flood_once = True
-    mon = monitor(client, db_path)
-    mon.add_resolved_group(entity(1, "A"), GroupInfo(group_id=1, title="A"))
-    mon.add_resolved_group(entity(2, "B"), GroupInfo(group_id=2, title="B"))
+    a, b = channel(1, "A"), channel(2, "B")
+    c = FakeClient([a, b] + [user(i) for i in range(1, 6)])
+    c.history = {1: [c.msg(a, i, f"A{i}", i) for i in range(1, 6)], 2: [c.msg(b, i, f"B{i}", i) for i in range(1, 3)]}
+    c.flood_once = True
+    mon = monitor(c, archive)
+    sa, _ = mon.add_resolved_group(a), mon.add_resolved_group(b)
     assert await mon.run_backfill() == 7                                   # FloodWait mid-scan resumed without losses
-    assert local_db.count_local_messages(1, db_path=db_path) == 5
+    assert archive.count_messages(sa.chat_id) == 5
 
 
-async def test_live_messages_are_archived_once(tmp_path):
-    db_path = str(tmp_path / "crawler.db")
-    mon = monitor(FakeClient({9: []}), db_path)
-    state = mon.add_resolved_group(entity(9, "Live"), GroupInfo(group_id=9, title="Live", username="livegrp"))
-    assert await mon.handle_live_message(state, make_msg(20, "دنبال یه عینک هستم", 1)) is True
-    assert await mon.handle_live_message(state, make_msg(21, "منم", 2, reply_to=20)) is True
-    assert await mon.handle_live_message(state, make_msg(20, "دنبال یه عینک هستم", 1)) is False   # re-delivery
-    assert local_db.get_local_message(9, 21, db_path=db_path).reply_to_msg_id == 20
-    assert mon.stats["archived"] == 2
+async def test_profile_worker_fills_bio_once(archive, monkeypatch):
+    import telegram_crawler.monitor as mon_mod
+
+    monkeypatch.setattr(mon_mod.asyncio, "sleep", AsyncMock())
+    g = channel(3, "G")
+    c = FakeClient([g, user(11, "ali"), user(12)])
+    mon = monitor(c, archive, fetch_profiles=True)
+    state = mon.add_resolved_group(g)
+    await mon.handle_live_message(state, c.msg(g, 1, "x", 11))
+    await mon.handle_live_message(state, c.msg(g, 2, "y", 12))
+    assert await mon.fetch_profiles_once() == 2
+    assert archive.get_user(11)["bio"] == "فروشگاه لوازم موتور در تهران"
+    assert archive.get_user(12)["bio"] is None and archive.get_user(12)["profile_fetched_at"] is not None  # privacy → not retried
+    assert await mon.fetch_profiles_once() == 0
 
 
 async def test_with_flood_retry_sleeps_then_succeeds_or_gives_up():

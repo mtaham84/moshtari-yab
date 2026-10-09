@@ -1,22 +1,20 @@
 """Bridge between need_engine (the analysis core) and the Django panel.
 
-need_engine never writes to the application database; it emits Opportunity JSON lines
-(``NE_OUTPUT_PATH``). ``import_opportunity`` turns one such line into panel records, split by the
-seller (business) that owns each matched product. It is idempotent: a later line for the same
-``opportunity_id`` (e.g. status → resolved) updates the existing records instead of duplicating them.
+need_engine never writes to the panel's tables; it publishes Opportunity JSON to its own schema
+(``need_engine.opportunities``, ``seq`` grows on every change). ``import_opportunity`` turns one payload into
+panel records, split by the seller (business) that owns each matched product. It is idempotent: a later version of
+the same ``opportunity_id`` (e.g. status → resolved) updates the existing records instead of duplicating them.
 """
 from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from collections import defaultdict
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils.dateparse import parse_datetime
 
 from apps.products.models import Product
@@ -130,35 +128,37 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
     return out
 
 
-def iter_jsonl(path: str | Path, offset: int = 0) -> Iterable[tuple[int, dict]]:
-    """Yield (end_offset, payload) for every complete line after ``offset``."""
-    with open(path, "rb") as fh:
-        fh.seek(offset)
-        while True:
-            line = fh.readline()
-            if not line or not line.endswith(b"\n"):  # stop at a partially written last line
-                return
-            offset = fh.tell()
-            if line.strip():
-                yield offset, json.loads(line)
+def _engine_table(name: str) -> str | None:
+    """Qualified name of a need_engine table, or None if the engine has not created it yet."""
+    schema = getattr(settings, "NEED_ENGINE_SCHEMA", "need_engine")
+    if not schema.replace("_", "").isalnum():
+        raise ValueError(f"invalid NEED_ENGINE_SCHEMA: {schema!r}")
+    with connection.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", [f"{schema}.{name}"])
+        return f"{schema}.{name}" if cur.fetchone()[0] else None
+
+
+def published_after(seq: int, limit: int = 500) -> list[tuple[int, dict]]:
+    """(seq, payload) of opportunities the engine published after ``seq`` (read-only)."""
+    table = _engine_table("opportunities")
+    if not table:
+        return []
+    with connection.cursor() as cur:
+        cur.execute(f"SELECT seq, payload FROM {table} WHERE seq > %s ORDER BY seq LIMIT %s", [seq, limit])
+        return [(int(s), p if isinstance(p, dict) else json.loads(p)) for s, p in cur.fetchall()]
 
 
 def engine_totals() -> dict:
-    """Read the engine's lifetime counters (read-only). Empty numbers if the engine has not run yet."""
-    path = Path(getattr(settings, "NEED_ENGINE_STATE_PATH", ""))
+    """The engine's lifetime counters (read-only). Zeros if the engine has not run yet."""
     empty = {"messages_analysed": 0, "llm_calls": 0, "cost_toman": 0.0, "cost_per_message_toman": 0.0}
-    if not path.is_file():
+    costs, kv = _engine_table("costs"), _engine_table("kv")
+    if not costs or not kv:
         return empty
-    try:
-        conn = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
-        try:
-            calls, toman = conn.execute("SELECT COUNT(*), COALESCE(SUM(toman), 0) FROM costs").fetchone()
-            row = conn.execute("SELECT v FROM kv WHERE k = 'messages_analysed'").fetchone()
-        finally:
-            conn.close()
-    except sqlite3.Error as exc:
-        log.warning("cannot read engine state %s: %s", path, exc)
-        return empty
-    n = int(json.loads(row[0])) if row else 0
+    with connection.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(toman), 0) FROM {costs}")
+        calls, toman = cur.fetchone()
+        cur.execute(f"SELECT (v #>> '{{}}')::bigint FROM {kv} WHERE k = 'messages_analysed'")
+        row = cur.fetchone()
+    n = int(row[0]) if row and row[0] is not None else 0
     return {"messages_analysed": n, "llm_calls": int(calls), "cost_toman": float(toman),
             "cost_per_message_toman": float(toman) / n if n else 0.0}

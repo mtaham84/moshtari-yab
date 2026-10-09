@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
                         help=f"Hours of history to archive on start (default: {settings.backfill_hours}).")
     parser.add_argument("--limit", type=int, default=settings.backfill_limit,
                         help=f"Max historical messages per group (default: {settings.backfill_limit}).")
-    parser.add_argument("--db-path", default=settings.db_path, help=f"SQLite archive path (default: {settings.db_path}).")
+    parser.add_argument("--no-profiles", action="store_true", help="Do not fetch user bios (users.GetFullUser).")
     parser.add_argument("--no-live", action="store_true", help="Only archive history and exit.")
     return parser.parse_args()
 
@@ -63,7 +63,8 @@ async def async_main() -> None:
     log.info("Authenticated as: %s (id=%s)", me.first_name, me.id)
 
     monitor = CrawlerMonitor(client=client, group_links=group_links, backfill_hours=args.hours,
-                             backfill_limit=args.limit, db_path=args.db_path, resume=not args.no_resume)
+                             backfill_limit=args.limit, resume=not args.no_resume,
+                             fetch_profiles=False if args.no_profiles else None)
     try:
         await monitor.run(live=not args.no_live)
     except KeyboardInterrupt:

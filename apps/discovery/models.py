@@ -609,4 +609,12 @@ class MonitoredCommunity(models.Model):
         return f"{self.name} ({self.handle_or_link})"
 
 
+class EngineSyncCursor(models.Model):
+    """Last ``need_engine.opportunities.seq`` imported by ``manage.py sync_opportunities``."""
 
+    name = models.CharField(max_length=64, unique=True, default="opportunities")
+    position = models.BigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name}: {self.position}"

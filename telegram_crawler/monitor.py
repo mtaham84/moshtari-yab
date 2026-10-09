@@ -1,9 +1,9 @@
-"""Backfill + live archiving of one or more Telegram groups.
+"""Backfill + live archiving of Telegram groups into PostgreSQL.
 
-For every monitored group:
-  1. resolve/join the group and resume from the last scanned message id;
-  2. backfill: archive recent history (time + count limits);
-  3. live: archive every new message.
+For every message the write order is: chat → sender (user or chat) → parent message → message,
+so a stored message always points to a user/chat (and, when it is a reply, a parent) that already exists.
+Parents older than the backfill window are fetched once and stored with ``is_context = TRUE``.
+A background worker fills each new user's bio once (users.GetFullUser), slowly, to avoid FloodWait.
 
 The crawler does no filtering or analysis: need_engine reads the archive and decides what is a need.
 """
@@ -18,34 +18,46 @@ from typing import Any
 
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
-from telethon.tl.types import Message
+from telethon.tl import types
+from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.tl.functions.messages import GetFullChatRequest
+from telethon.tl.functions.users import GetFullUserRequest
 
-from telegram_crawler import db as local_db
 from telegram_crawler.config import settings
-from telegram_crawler.extractor import message_to_snippet
-from telegram_crawler.models import GroupInfo
-from telegram_crawler.ratelimit import FloodWaitTooLong, pace
+from telegram_crawler.db import Archive
+from telegram_crawler.extractor import chat_record, message_record, peer_id, user_record
+from telegram_crawler.ratelimit import FloodWaitTooLong, pace, with_flood_retry
 from telegram_crawler.telegram_client import join_and_resolve_group
 
 log = logging.getLogger("telegram_crawler.monitor")
+PARENT_BATCH = 100
 
 
 @dataclass
 class GroupState:
-    link: str | None
     entity: Any
-    info: GroupInfo
+    chat_id: int
+    title: str
+    link: str | None = None
     resume_from: int = 0          # last message id already scanned in a previous run
     max_seen: int = 0
 
-    @property
-    def peer_id(self) -> int | None:
-        try:
-            from telethon import utils
 
-            return utils.get_peer_id(self.entity)
-        except Exception:
+async def fetch_full_chat(client: TelegramClient, entity: Any) -> Any:
+    """``ChannelFull``/``ChatFull`` (about, members count, linked chat) or None if not allowed."""
+    try:
+        if isinstance(entity, types.Channel):
+            res = await with_flood_retry(lambda: client(GetFullChannelRequest(entity)), what="get_full_channel")
+        elif isinstance(entity, types.Chat):
+            res = await with_flood_retry(lambda: client(GetFullChatRequest(entity.id)), what="get_full_chat")
+        else:
             return None
+        return getattr(res, "full_chat", None)
+    except FloodWaitTooLong:
+        raise
+    except Exception as exc:
+        log.warning("Could not fetch full info of %s: %s", getattr(entity, "title", entity), exc)
+        return None
 
 
 class CrawlerMonitor:
@@ -55,8 +67,10 @@ class CrawlerMonitor:
         group_links: list[str] | str | None = None,
         backfill_hours: float | None = None,
         backfill_limit: int | None = None,
-        db_path: str | None = None,
+        archive: Archive | None = None,
         resume: bool = True,
+        fetch_profiles: bool | None = None,
+        parent_depth: int | None = None,
     ) -> None:
         self.client = client
         if isinstance(group_links, str):
@@ -64,66 +78,112 @@ class CrawlerMonitor:
         self.group_links = [g for g in (group_links or []) if g and g.strip()]
         self.backfill_hours = settings.backfill_hours if backfill_hours is None else backfill_hours
         self.backfill_limit = settings.backfill_limit if backfill_limit is None else backfill_limit
-        self.db_path = db_path or settings.db_path
+        self.archive = archive or Archive()
         self.resume = resume
+        self.fetch_profiles = settings.fetch_profiles if fetch_profiles is None else fetch_profiles
+        self.parent_depth = settings.parent_depth if parent_depth is None else parent_depth
+        self.store_raw = settings.store_raw
         self.groups: list[GroupState] = []
-        self.stats = {"archived": 0}
-        local_db.init_db(self.db_path)
+        self.stats = {"archived": 0, "context": 0, "users": 0, "profiles": 0}
 
     # ----------------------------------------------------------------- setup
-    def add_resolved_group(self, entity: Any, info: GroupInfo, link: str | None = None) -> GroupState:
-        state = GroupState(link=link, entity=entity, info=info)
+    def add_resolved_group(self, entity: Any, link: str | None = None, full: Any = None) -> GroupState:
+        rec = chat_record(entity, full, store_raw=self.store_raw)
+        self.archive.upsert_chat(rec, monitored=True, join_link=link)
+        state = GroupState(entity=entity, chat_id=rec["chat_id"], title=rec["title"] or str(rec["chat_id"]), link=link)
         if self.resume:
-            saved = local_db.get_group_monitor(info.group_id, db_path=self.db_path)
-            if saved:
-                state.resume_from = int(saved.get("last_scanned_msg_id") or 0)
+            saved = self.archive.get_chat(state.chat_id)
+            state.resume_from = int((saved or {}).get("last_scanned_msg_id") or 0)
         state.max_seen = state.resume_from
         self.groups.append(state)
-        self._save_progress(state)  # registers title/link so need_engine can build message links
         return state
 
     async def initialize(self) -> None:
         for link in self.group_links:
             try:
-                entity, info = await join_and_resolve_group(self.client, link)
+                entity, _ = await join_and_resolve_group(self.client, link)
+                full = await fetch_full_chat(self.client, entity)
             except FloodWaitTooLong as exc:
                 log.error("Skipping %s: %s", link, exc)
                 continue
             except Exception as exc:
                 log.error("Could not join/resolve %s: %s", link, exc)
                 continue
-            state = self.add_resolved_group(entity, info, link)
-            log.info("Group ready: '%s' (id=%s, resume after msg %s)", info.title, info.group_id, state.resume_from)
+            state = self.add_resolved_group(entity, link, full)
+            log.info("Group ready: '%s' (id=%s, resume after msg %s)", state.title, state.chat_id, state.resume_from)
             await pace()
         if not self.groups:
             raise RuntimeError("No group could be resolved; nothing to monitor.")
 
     # ------------------------------------------------------------- internals
-    def _archive(self, state: GroupState, msg: Message) -> bool:
-        snippet = message_to_snippet(msg)
+    async def _sender(self, msg: Any) -> Any:
         sender = getattr(msg, "sender", None)
-        username = getattr(sender, "username", None)
-        inserted = local_db.save_message(
-            state.info.group_id, snippet,
-            sender_username=username if isinstance(username, str) else None,
-            sender_is_bot=getattr(sender, "bot", False) is True, db_path=self.db_path,
-        )
+        if sender is None and getattr(msg, "from_id", None) is not None and hasattr(msg, "get_sender"):
+            try:
+                sender = await msg.get_sender()
+            except Exception:
+                sender = None
+        return sender
+
+    async def _store_sender(self, state: GroupState, msg: Any, rec: dict[str, Any]) -> None:
+        sender = await self._sender(msg) if (rec["sender_user_id"] or rec["sender_chat_id"]) else None
+        if rec["sender_user_id"]:
+            if isinstance(sender, types.User) and sender.id == rec["sender_user_id"]:
+                if self.archive.add_user(user_record(sender, store_raw=self.store_raw)):
+                    self.stats["users"] += 1
+            else:
+                self.archive.ensure_user_id(rec["sender_user_id"])
+        if rec["sender_chat_id"] and rec["sender_chat_id"] != state.chat_id:
+            if isinstance(sender, (types.Channel, types.Chat)) and peer_id(sender) == rec["sender_chat_id"]:
+                self.archive.upsert_chat(chat_record(sender, store_raw=self.store_raw))
+            else:
+                self.archive.ensure_chat_id(rec["sender_chat_id"])
+
+    @staticmethod
+    def _parent_id(msg: Any) -> int | None:
+        reply = getattr(msg, "reply_to", None)
+        if reply is None or getattr(reply, "reply_to_peer_id", None) is not None:  # no reply / reply into another chat
+            return None
+        rid = getattr(reply, "reply_to_msg_id", None)
+        return rid if isinstance(rid, int) else None
+
+    async def _fetch_parents(self, state: GroupState, ids: set[int], depth: int) -> None:
+        """Fetch and store (as context) replied-to messages that are not archived yet."""
+        if depth > self.parent_depth:
+            return
+        missing = sorted(set(ids) - self.archive.existing_message_ids(state.chat_id, ids))
+        for i in range(0, len(missing), PARENT_BATCH):
+            chunk = missing[i:i + PARENT_BATCH]
+            try:
+                found = await with_flood_retry(lambda: self.client.get_messages(state.entity, ids=chunk), what="get_parents")
+            except FloodWaitTooLong as exc:
+                log.warning("Parents of '%s' skipped: %s", state.title, exc)
+                return
+            except Exception as exc:
+                log.warning("Could not fetch parent messages %s of '%s': %s", chunk, state.title, exc)
+                continue
+            found = [m for m in (found if isinstance(found, list) else [found]) if m is not None and not isinstance(m, types.MessageEmpty)]
+            for m in sorted(found, key=lambda m: m.id):
+                await self._store(state, m, is_context=True, depth=depth)
+            await pace()
+
+    async def _store(self, state: GroupState, msg: Any, *, is_context: bool = False, depth: int = 0) -> bool:
+        rec = message_record(msg, state.chat_id, is_context=is_context, store_raw=self.store_raw)
+        await self._store_sender(state, msg, rec)
+        parent = self._parent_id(msg)
+        if parent and self.parent_depth > depth:
+            await self._fetch_parents(state, {parent}, depth + 1)
+        inserted = self.archive.add_message(rec)
         if inserted:
-            self.stats["archived"] += 1
-        if msg.id > state.max_seen:
+            self.stats["context" if is_context else "archived"] += 1
+        if not is_context and msg.id > state.max_seen:
             state.max_seen = msg.id
         return inserted
 
-    def _save_progress(self, state: GroupState) -> None:
-        local_db.update_group_monitor(
-            group_id=state.info.group_id, title=state.info.title, link=state.link,
-            last_msg_id=state.max_seen, db_path=self.db_path,
-        )
-
-    async def _collect_history(self, state: GroupState) -> list[Message]:
+    async def _collect_history(self, state: GroupState) -> list[Any]:
         """Newest -> oldest, stopping at the time cutoff, the count limit, or the resume point."""
         cutoff = datetime.now(timezone.utc) - timedelta(hours=self.backfill_hours)
-        collected: list[Message] = []
+        collected: list[Any] = []
         offset_id = 0
         retries = 0
         while len(collected) < self.backfill_limit:
@@ -144,9 +204,9 @@ class CrawlerMonitor:
                 retries += 1
                 wait = int(getattr(exc, "seconds", 0) or 0) + 1
                 if wait > settings.flood_max_wait or retries > settings.flood_max_retries:
-                    log.error("Backfill of '%s' stopped by FloodWait (%ss). Partial history kept.", state.info.title, wait)
+                    log.error("Backfill of '%s' stopped by FloodWait (%ss). Partial history kept.", state.title, wait)
                     break
-                log.warning("FloodWait during backfill of '%s': sleeping %ss", state.info.title, wait)
+                log.warning("FloodWait during backfill of '%s': sleeping %ss", state.title, wait)
                 await asyncio.sleep(wait)
                 reached_end = False
             if reached_end:
@@ -162,30 +222,68 @@ class CrawlerMonitor:
                 total += await self.run_backfill(st)
             return total
         if self.backfill_limit <= 0:
-            log.info("Backfill limit is 0; skipping history for '%s'.", state.info.title)
+            log.info("Backfill limit is 0; skipping history for '%s'.", state.title)
             return 0
         history = await self._collect_history(state)
-        history.reverse()  # oldest first → archive ids follow conversation order
-        new = sum(1 for msg in history if self._archive(state, msg))
-        self._save_progress(state)
-        log.info("Backfill '%s': %s messages scanned (after msg %s), %s new archived.",
-                 state.info.title, len(history), state.resume_from, new)
+        history.reverse()  # oldest first → archive ids follow conversation order, parents before replies
+        in_window = {m.id for m in history}
+        older_parents = {p for p in (self._parent_id(m) for m in history) if p and p not in in_window}
+        if older_parents and self.parent_depth > 0:
+            await self._fetch_parents(state, older_parents, 1)       # one batched request instead of one per reply
+        before = self.stats["archived"]
+        for msg in history:
+            await self._store(state, msg)
+        new = self.stats["archived"] - before
+        self.archive.save_progress(state.chat_id, state.max_seen)
+        log.info("Backfill '%s': %s messages scanned (after msg %s), %s new archived, %s parents as context.",
+                 state.title, len(history), state.resume_from, new, self.stats["context"])
         return new
 
-    async def handle_live_message(self, state: GroupState, msg: Message) -> bool:
-        inserted = self._archive(state, msg)
-        self._save_progress(state)
+    async def handle_live_message(self, state: GroupState, msg: Any) -> bool:
+        inserted = await self._store(state, msg)
+        self.archive.save_progress(state.chat_id, state.max_seen)
         return inserted
+
+    async def fetch_profiles_once(self, batch: int = 20) -> int:
+        """Fill the bio of users we have not profiled yet. Returns how many were processed."""
+        done = 0
+        for uid in self.archive.users_without_profile(batch):
+            try:
+                full = await with_flood_retry(lambda: self.client(GetFullUserRequest(uid)), what="get_full_user")
+                bio = getattr(getattr(full, "full_user", None), "about", None)
+            except FloodWaitTooLong as exc:
+                log.warning("Profile worker paused: %s", exc)
+                break
+            except Exception as exc:  # privacy, deleted account, unknown access hash → don't retry forever
+                log.debug("No profile for user %s: %s", uid, exc)
+                bio = None
+            self.archive.set_profile(uid, bio if isinstance(bio, str) and bio else None)
+            done += 1
+            self.stats["profiles"] += 1
+            if settings.profile_delay > 0:
+                await asyncio.sleep(settings.profile_delay)
+        return done
+
+    async def _profile_worker(self) -> None:
+        while True:
+            try:
+                if not await self.fetch_profiles_once():
+                    await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.exception("Profile worker error: %s", exc)
+                await asyncio.sleep(60)
 
     def _state_for_chat(self, chat_id: Any) -> GroupState | None:
         for st in self.groups:
-            if chat_id is not None and chat_id in (st.peer_id, st.info.group_id):
+            if chat_id is not None and chat_id == st.chat_id:
                 return st
         return self.groups[0] if len(self.groups) == 1 else None
 
     async def start_live_monitoring(self) -> None:
         entities = [st.entity for st in self.groups]
-        log.info("🟢 Live monitoring %s group(s): %s", len(entities), ", ".join(st.info.title for st in self.groups))
+        log.info("🟢 Live monitoring %s group(s): %s", len(entities), ", ".join(st.title for st in self.groups))
 
         @self.client.on(events.NewMessage(chats=entities))
         async def handler(event: events.NewMessage.Event) -> None:
@@ -201,7 +299,17 @@ class CrawlerMonitor:
         await self.initialize()
         await self.run_backfill()
         log.info("Stats after backfill: %s", self.stats)
-        if live:
-            await self.start_live_monitoring()
-            log.info("Listening for new messages (Ctrl+C to stop)...")
+        if not live:
+            if self.fetch_profiles:
+                while await self.fetch_profiles_once():
+                    pass
+            return
+        await self.start_live_monitoring()
+        worker = asyncio.create_task(self._profile_worker()) if self.fetch_profiles else None
+        log.info("Listening for new messages (Ctrl+C to stop)...")
+        try:
             await self.client.run_until_disconnected()
+        finally:
+            if worker:
+                worker.cancel()
+
