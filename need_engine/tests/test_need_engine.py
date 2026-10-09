@@ -14,7 +14,7 @@ from need_engine.mock import mock_llm
 from need_engine.retrieve import select_candidates
 from need_engine.schemas import ChatMessage, Constraints, NeedCard, Product, Requirement
 from need_engine.scoring import score_match
-from need_engine.sources import JsonlProductSource, SQLMessageSource
+from need_engine.sources import JsonlProductSource, SQLMessageSource, XMessageSource
 from need_engine.store import Store
 from need_engine.windowing import build_windows, is_ready, render
 from telegram_crawler.db import Archive
@@ -80,6 +80,72 @@ def test_triggers(cfg_for):
     assert is_ready(p3, T0 + timedelta(minutes=3), c)[0]                 # count
     busy = [msg(i, "x", minutes=i * 5) for i in range(1, 3)]
     assert is_ready(busy, T0 + timedelta(minutes=31), c)[0]               # max wait (oldest at 5 min)
+
+
+def test_x_source_ordering_namespace_and_url(cfg_for):
+    class FakeDB:
+        def all(self, sql, params):
+            assert "ORDER BY row_id" in sql
+            assert params == (4, 10)
+            return [{"row_id": 5, "tweet_id": 1990000000000001001, "author_id": "81001",
+                     "author_handle": "@buyer", "author_name": "خریدار", "text": "نیاز دارم",
+                     "created_at": T0, "url": "https://x.com/buyer/status/1990000000000001001"}]
+
+    source = XMessageSource(cfg_for(), conn=FakeDB())
+    rows = source.fetch_after(4, 10)
+    assert len(rows) == 1
+    assert rows[0].chat_id == "x:public"
+    assert rows[0].message_id == 1990000000000001001
+    assert rows[0].author_id == "x_81001"
+    assert rows[0].url == "https://x.com/buyer/status/1990000000000001001"
+    assert rows[0].profile_url == "https://x.com/buyer"
+
+
+def test_independent_source_ingest_uses_distinct_cursors(cfg_for):
+    class FakeStore:
+        def __init__(self):
+            self.values = {"fetch_cursor": 12, "fetch_cursor_x": 4}
+            self.added = []
+
+        def get(self, key, default=0):
+            return self.values.get(key, default)
+
+        def set(self, key, value):
+            self.values[key] = value
+
+        def add_pending(self, rows):
+            self.added.extend(rows)
+            return len(rows)
+
+    class Source:
+        def __init__(self, row):
+            self.row = row
+
+        def fetch_after(self, cursor, limit):
+            assert cursor in (12, 4)
+            return [self.row] if self.row.row_id > cursor else []
+
+    from need_engine.engine import NeedEngine
+    engine = NeedEngine.__new__(NeedEngine)
+    engine.cfg = cfg_for(fetch_batch=10)
+    engine.store = FakeStore()
+    telegram = ChatMessage(chat_id="-1001", message_id=13, row_id=13, author_id="a", text="تلگرام", date=T0)
+    post = ChatMessage(chat_id="x:public", message_id=99, row_id=5, author_id="x_a", text="پست", date=T0, platform="x")
+    assert engine._ingest_source(Source(telegram), "fetch_cursor") == 1
+    assert engine._ingest_source(Source(post), "fetch_cursor_x", 2) == 1
+    assert engine.store.values == {"fetch_cursor": 13, "fetch_cursor_x": 5}
+
+
+def test_x_windows_never_include_other_posts_as_context(cfg_for):
+    c = cfg_for(window_size=1, context_messages=5)
+    st = Store(c.database_url, c.state_schema)
+    st.mark_analysed("x:public", [ChatMessage(chat_id="x:public", message_id=1, author_id="a", text="old post", date=T0, platform="x")], 10)
+    current = ChatMessage(chat_id="x:public", message_id=2, author_id="b", text="new post", date=T0, platform="x")
+    from need_engine.windowing import build_windows
+    window = build_windows("x:public", [current], st, c)[0]
+    assert window.context == []
+    assert "different authors" in render(window, c)
+    st.close()
 
 
 def test_windows_context_noise_and_gaps(cfg_for):

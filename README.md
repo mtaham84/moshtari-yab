@@ -11,6 +11,8 @@
 telegram_crawler ──(write)──► crawler.tg_users / tg_chats / tg_messages
                                         │ (read-only)
 Django products ──(read-only)──► need_engine ──► need_engine.* (state، بردارها با pgvector، هزینه‌ها)
+                                        ▲
+workers/x_collector → JSONL → x_ingest → crawler.x_posts ─┘ (NE_X_ENABLED=true)
                                         │
                                         └──► need_engine.opportunities
                                                    │
@@ -25,7 +27,7 @@ Django products ──(read-only)──► need_engine ──► need_engine.* (
 | موتور نیاز | `need_engine/` | تنها pipeline تحلیل؛ فقط در schema `need_engine` می‌نویسد، بقیه را read-only می‌خواند |
 | پل به پنل | `apps/discovery/engine_bridge.py` + `sync_opportunities` | فرصت‌های منتشرشده را idempotent در مدل‌های Django می‌نویسد (به تفکیک کسب‌وکار) |
 | پنل | `apps/` + `templates/` | ثبت‌نام/ورود، محصولات، فرصت‌ها، داشبورد با اعداد واقعی |
-| جمع‌آوری X (آزمایشی) | `workers/x_collector/` | read-only، خروجی JSONL — هنوز به need_engine وصل نیست |
+| جمع‌آوری X | `workers/x_collector/` + `x_ingest/` | worker فقط‌خواندنی، JSONL و upsert idempotent در `crawler.x_posts` |
 
 ## راه‌اندازی
 
@@ -44,6 +46,12 @@ python manage.py seed_products   # اختیاری: دسته‌بندی‌ها + 
 python -m telegram_crawler.main                              # ۱) آرشیو پیام‌های گروه‌هایی که در پنل («جوامع آنلاین») اضافه شده‌اند
 python -m need_engine run                                     # ۲) تحلیل و تولید فرصت‌ها
 python manage.py sync_opportunities --follow                  # ۳) ورود فرصت‌ها به پنل
+
+# مسیر اختیاری X: ابتدا NE_X_ENABLED=true را در محیط موتور فعال کنید
+python -m workers.x_collector --mock --once                    # ۱) جمع‌آوری آزمایشی X
+python -m x_ingest --path data/x_collected/latest.jsonl         # ۲) ورود به crawler.x_posts
+python -m need_engine run --once --flush --mock                 # ۳) تحلیل (برای X باید NE_X_ENABLED=true باشد)
+python manage.py sync_opportunities                            # ۴) نمایش فرصت‌ها در پنل
 python manage.py runserver                                    # ۴) پنل
 ```
 
@@ -75,6 +83,7 @@ docker compose logs -f crawler engine sync
   `appdata` فقط session تلگرام را نگه می‌دارد و `media` عکس محصولات را.
 - `web` موقع بالا آمدن خودش `migrate` می‌زند؛ با `DJANGO_SEED_DEMO=true` داده‌ی نمونه هم ساخته می‌شود.
 - need_engine پیام‌ها و محصولات را با اتصال read-only می‌خواند؛ تا کراولر داده‌ای ننوشته باشد کاری انجام نمی‌دهد.
+- اتصال X به‌صورت پیش‌فرض خاموش است (`NE_X_ENABLED=false`). رعایت شرایط استفادهٔ X الزامی است؛ از حساب اختصاصی کم‌ریسک استفاده کنید. این pipeline فقط می‌خواند و هرگز پست، پاسخ، لایک، فالو یا DM نمی‌فرستد.
 - X collector آزمایشی است: `docker compose --profile x up -d x`.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
 

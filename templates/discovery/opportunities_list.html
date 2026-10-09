@@ -307,7 +307,7 @@
                     </span>
                   {% elif opp.source_platform == 'x' %}
                     <span class="p-badge" style="background: rgba(15, 23, 42, 0.12); color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.3); font-size: 0.7rem; padding: 2px 7px;">
-                      X (فاز ۲)
+                      X
                     </span>
                   {% elif opp.source_platform == 'instagram' %}
                     <span class="p-badge" style="background: rgba(225, 48, 108, 0.12); color: #E1306C; border: 1px solid rgba(225, 48, 108, 0.3); font-size: 0.7rem; padding: 2px 7px;">
@@ -328,7 +328,9 @@
                 </strong>
 
                 <!-- Contact link / phone -->
-                {% if opp.customer.source_username %}
+                {% if opp.customer.source_username and opp.source_platform == 'x' %}
+                  <a href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer" style="font-size: 0.75rem; color: #1DA1F2; direction: ltr; text-align: right; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;">@{{ opp.customer.source_username|cut:'@' }}</a>
+                {% elif opp.customer.source_username %}
                   <a href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer" style="font-size: 0.75rem; color: #0088cc; direction: ltr; text-align: right; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;">
                     <span>@{{ opp.customer.source_username|cut:'@' }}</span>
                     <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>

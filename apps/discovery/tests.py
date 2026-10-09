@@ -99,6 +99,19 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         self.assertIn("https://t.me/moto/2", mine.evidence_items.values_list("source_reference", flat=True))
         self.assertEqual(Opportunity.objects.get(business=self.other).product_matches.get().product, self.q1)
 
+    def test_x_opportunity_keeps_x_customer_and_evidence_links(self):
+        payload = engine_payload("need_x_000001", [self.p1.id])
+        payload["candidate"].update(external_user_id="81001", username="buyer", profile_url="https://x.com/buyer")
+        payload["source"].update(platform="x", chat_id="x:public", evidence=[
+            {"message_id": "1990000000000001001", "timestamp": T0.isoformat(), "author": "خریدار",
+             "text": "دنبال دستگاه هستم", "url": "https://x.com/buyer/status/1990000000000001001"}])
+        import_opportunity(payload)
+        opportunity = Opportunity.objects.get(business=self.biz)
+        self.assertEqual(opportunity.source_platform, "x")
+        self.assertEqual(opportunity.customer.source_profile_url, "https://x.com/buyer")
+        self.assertIn("https://x.com/buyer/status/1990000000000001001",
+                      opportunity.evidence_items.get().source_reference)
+
     def test_reimport_is_idempotent_and_status_updates_respect_seller_choice(self):
         import_opportunity(engine_payload("need_000002_ab", [self.p1.id, self.q1.id]))
         import_opportunity(engine_payload("need_000002_ab", [self.p1.id, self.q1.id]))

@@ -24,7 +24,7 @@ from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.retrieve import retrieve
 from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, ChatMessage, Cost, Evidence, MatchedProduct,
                                  NeedCard, NeedOut, Opportunity, Source)
-from need_engine.sources import MessageSource, ProductSource, message_source, product_source
+from need_engine.sources import MessageSource, ProductSource, XMessageSource, message_source, product_source
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
 from need_engine.windowing import build_windows, is_ready
@@ -70,6 +70,8 @@ class RunReport:
 
 
 def _message_url(m: ChatMessage) -> str | None:
+    if m.url:
+        return m.url
     if m.chat_username:
         return f"https://t.me/{m.chat_username}/{m.message_id}"
     cid = m.chat_id[4:] if m.chat_id.startswith("-100") else m.chat_id.lstrip("-")
@@ -91,18 +93,39 @@ class NeedEngine:
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
-        cursor = int(self.store.get("fetch_cursor", 0))
+        total = self._ingest_source(self.messages, "fetch_cursor")
+        if self.cfg.x_enabled:
+            x_source = XMessageSource(self.cfg)
+            try:
+                total += self._ingest_source(x_source, "fetch_cursor_x", self.cfg.x_max_per_run)
+            finally:
+                conn = getattr(getattr(x_source, "db", None), "conn", None)
+                if conn is not None:
+                    conn.close()
+        return total
+
+    def _ingest_source(self, source: MessageSource, cursor_key: str, limit: int | None = None) -> int:
+        cursor = int(self.store.get(cursor_key, 0))
         total = 0
-        while True:
-            batch = self.messages.fetch_after(cursor, self.cfg.fetch_batch)
+        remaining = limit
+        while remaining is None or remaining > 0:
+            batch_limit = self.cfg.fetch_batch if remaining is None else min(self.cfg.fetch_batch, remaining)
+            batch = source.fetch_after(cursor, batch_limit)
             if not batch:
                 break
             total += self.store.add_pending(batch)
             cursor = max(m.row_id for m in batch)
-            self.store.set("fetch_cursor", cursor)
-            if len(batch) < self.cfg.fetch_batch:
+            self.store.set(cursor_key, cursor)
+            if remaining is not None:
+                remaining -= len(batch)
+            if len(batch) < batch_limit:
                 break
         return total
+
+    def ingest_x(self, source: MessageSource | None = None) -> int:
+        if not self.cfg.x_enabled:
+            return 0
+        return self._ingest_source(source or XMessageSource(self.cfg), "fetch_cursor_x", self.cfg.x_max_per_run)
 
     def sync_products(self, report: RunReport) -> None:
         changed = self.catalog.sync(self.products.all())
@@ -148,15 +171,19 @@ class NeedEngine:
 
     def _opportunity(self, n: NeedCard, matches: list[MatchedProduct]) -> Opportunity:
         ev = evidence_messages(n, self.store)
+        platform = next((m.platform for m in ev if m.platform), "telegram")
         title = next((m.chat_title for m in ev if m.chat_title), None)
+        username = next((m.author_username for m in ev if m.author_username), None)
+        profile_url = next((m.profile_url for m in ev if m.profile_url), None)
+        author_id = next((m.author_id for m in ev if m.author_id), n.author_id)
         best = matches[0].match_score if matches else 0.0
         return Opportunity(
             opportunity_id=n.need_id,
             status=n.status if n.status in ("open", "resolved", "expired") else "open",
             created_at=n.created_at, expires_at=n.updated_at + timedelta(days=self.cfg.need_ttl_days),
-            candidate=Candidate(external_user_id=f"telegram_{n.author_id}", customer_name=n.author_name, username=n.author_username,
-                                profile_url=f"https://t.me/{n.author_username}" if n.author_username else None),
-            source=Source(platform="telegram", chat_id=n.chat_id, chat_title=title,
+            candidate=Candidate(external_user_id=author_id if platform == "x" else f"telegram_{author_id}", customer_name=n.author_name, username=username,
+                                profile_url=profile_url or ((f"https://x.com/{username}" if platform == "x" else f"https://t.me/{username}") if username else None)),
+            source=Source(platform=platform, chat_id=n.chat_id, chat_title=title, profile_url=f"https://x.com/{username}" if platform == "x" and username else None,
                           evidence=[Evidence(message_id=str(m.message_id), timestamp=m.date, author=m.author_name, text=m.text,
                                              url=_message_url(m)) for m in ev]),
             need=NeedOut(label=n.label, strength=n.strength, situation=n.situation, summary=n.need, requirements=n.requirements,
@@ -191,6 +218,8 @@ class NeedEngine:
         now = now or datetime.now(timezone.utc)
         for chat_id in self.store.pending_chats():
             pending = self.store.pending(chat_id)
+            if chat_id.startswith("x:"):
+                pending = pending[:self.cfg.x_max_per_run]
             ready, why = is_ready(pending, now, self.cfg)
             if not (ready or flush):
                 continue

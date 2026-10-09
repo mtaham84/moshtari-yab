@@ -32,6 +32,9 @@ class ChatMessage(BaseModel):
     reply_to_author_id: str | None = None
     reply_to_author_name: str | None = None
     reply_to_date: datetime | None = None
+    platform: str = "telegram"
+    url: str | None = None
+    profile_url: str | None = None
 
 
 class Product(BaseModel):
@@ -142,6 +145,7 @@ class Source(BaseModel):
     platform: str = "telegram"
     chat_id: str
     chat_title: str | None = None
+    profile_url: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
 
 

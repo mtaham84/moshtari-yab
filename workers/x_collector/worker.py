@@ -27,10 +27,11 @@ def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
     return None
 
 
-def normalize_tweet(raw: dict[str, Any]) -> dict[str, Any] | None:
+def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, Any] | None:
+    author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
     tweet_id = _first(raw, mapping.OUTPUT_ID_KEYS)
     text = _first(raw, mapping.OUTPUT_TEXT_KEYS)
-    handle = _first(raw, mapping.OUTPUT_HANDLE_KEYS)
+    handle = _first(raw, mapping.OUTPUT_HANDLE_KEYS) or author.get("screenName")
     if not tweet_id or not handle or not isinstance(text, str) or not text.strip():
         missing = []
         if not tweet_id:
@@ -53,10 +54,11 @@ def normalize_tweet(raw: dict[str, Any]) -> dict[str, Any] | None:
         "source": "x",
         "text": text.strip(),
         "author_handle": f"@{handle}" if handle else None,
-        "author_name": _first(raw, mapping.OUTPUT_NAME_KEYS),
+        "author_name": _first(raw, mapping.OUTPUT_NAME_KEYS) or author.get("name"),
+        "author_id": str(_first(raw, mapping.OUTPUT_AUTHOR_ID_KEYS) or author.get("id") or ""),
         "created_at": str(created_at) if created_at else None,
         "url": tweet_url,
-        "metadata": {"collector": "agent-reach-cli", "raw_cli": raw},
+        "metadata": {"collector": "agent-reach-cli", "raw_cli": raw, "lang": _first(raw, mapping.OUTPUT_LANG_KEYS), "query": query},
     }
 
 
@@ -213,7 +215,7 @@ class XCollector:
                             raw_items = self.client.search(query, min(self.max_per_query, daily_remaining - len(collected)))
                         consecutive_failures = 0
                         for raw in raw_items[: self.max_per_query]:
-                            normalized = normalize_tweet(raw)
+                            normalized = normalize_tweet(raw, query=query)
                             if normalized is None or normalized["id"] in already_written or self.state.has_seen(normalized):
                                 continue
                             if len(collected) >= daily_remaining:

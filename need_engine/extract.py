@@ -33,7 +33,10 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime) 
     """One LLM call. Returns validated (not yet merged) need cards and the call's cost in Toman."""
     if not w.new:
         return [], 0.0
-    data, usage = llm.complete_json("need_extraction", cfg.extract_model, NEED_SYSTEM, render(w, cfg), max_tokens=6000,
+    system = NEED_SYSTEM if w.new[0].platform != "x" else NEED_SYSTEM.replace(
+        "You are a perceptive sales scout reading part of a Persian Telegram group chat.",
+        "You are a perceptive sales scout reading independent public Persian X posts. Posts are by different authors and are not a conversation. Never use one author's post as context for another author.")
+    data, usage = llm.complete_json("need_extraction", cfg.extract_model, system, render(w, cfg), max_tokens=6000,
                                     ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}")
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
     cards, dropped = [], 0

@@ -122,6 +122,9 @@
 
       <div style="background: var(--stone-surface-sunken); border-right: 4px solid var(--brand-purple); padding: 16px 20px; border-radius: 0 10px 10px 0;">
         <p style="margin: 0; font-size: 0.95rem; color: var(--panel-text-main); line-height: 1.8; white-space: pre-wrap;">«{{ opportunity.source_raw_message }}»</p>
+        {% if opportunity.source_platform == 'x' and opportunity.trace_metadata.engine.source.evidence.0.url %}
+          <a href="{{ opportunity.trace_metadata.engine.source.evidence.0.url }}" target="_blank" rel="noopener noreferrer">مشاهدهٔ پست در X</a>
+        {% endif %}
       </div>
 
       {% if opportunity.category_name_snapshot or analysis.need %}

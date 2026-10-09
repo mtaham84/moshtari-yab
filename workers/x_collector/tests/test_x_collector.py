@@ -53,16 +53,20 @@ class XCollectorTests(unittest.TestCase):
     def test_normalization_maps_exact_loader_contract(self):
         record = normalize_tweet(self.fixture[0])
         self.assertEqual(record["source"], "x")
-        self.assertEqual(record["id"], "mock-x-1001")
+        self.assertEqual(record["id"], "1990000000000001001")
         self.assertEqual(record["author_handle"], "@cafe_buyer_demo")
-        self.assertEqual(record["url"], "https://x.com/cafe_buyer_demo/status/mock-x-1001")
+        self.assertEqual(record["url"], "https://x.com/cafe_buyer_demo/status/1990000000000001001")
+        self.assertEqual(record["author_id"], "81001")
+        self.assertEqual(record["metadata"]["query"], None)
         self.assertEqual(record["metadata"]["raw_cli"], self.fixture[0])
 
     def test_jsonl_records_are_x_messages(self):
         result = self.collector().run(["اسپرسوساز"])
         records = load_file(result["output"])
         self.assertEqual(len(records), 2)
-        self.assertEqual(records[0]["id"], "mock-x-1001")
+        self.assertEqual(records[0]["id"], "1990000000000001001")
+        self.assertEqual(records[0]["author_id"], "81001")
+        self.assertEqual(records[0]["metadata"]["query"], "اسپرسوساز")
         self.assertEqual(records[0]["source"], "x")
 
     def test_supported_timestamps_are_normalised_to_utc(self):

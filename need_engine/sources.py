@@ -92,9 +92,33 @@ class SQLMessageSource:
             is_bot=bool(r.get("is_bot")), text=r.get("text") or "", date=parse_dt(r["date"]),
             reply_to=int(r["reply_to_msg_id"]) if r.get("reply_to_msg_id") is not None else None,
             chat_title=r.get("chat_title"), chat_username=r.get("chat_username"),
-            reply_to_text=r.get("parent_text"), reply_to_author_id=str(r["parent_author_id"]) if r.get("parent_author_id") else None,
+            reply_to_text=r.get("parent_text"), reply_to_author_id=str(r["parent_author_id"]) if r["parent_author_id"] else None,
             reply_to_author_name=r.get("parent_author_name"),
             reply_to_date=parse_dt(r["parent_date"]) if r.get("parent_date") else None) for r in rows]
+
+
+class XMessageSource:
+    """Read X posts from the collector-owned crawler table, ordered by its independent row id."""
+
+    def __init__(self, cfg: EngineConfig, dsn: str | None = None, conn: Any = None):
+        self.cfg = cfg
+        self.db = _DB(dsn or cfg.database_url) if conn is None else conn
+        self.sql = f"""SELECT row_id, tweet_id, author_id, author_handle, author_name, text, created_at, url
+                         FROM {_ident(cfg.crawler_schema)}.x_posts WHERE row_id > %s ORDER BY row_id LIMIT %s"""
+
+    def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
+        rows = self.db.all(self.sql, (cursor, limit))
+        messages = []
+        for row in rows:
+            handle = str(row.get("author_handle") or "").lstrip("@") or None
+            messages.append(ChatMessage(
+                chat_id="x:public", message_id=int(row["tweet_id"]), row_id=int(row["row_id"]),
+                author_id=f"x_{row.get('author_id') or handle or row['tweet_id']}",
+                author_name=row.get("author_name"), author_username=handle, text=row.get("text") or "",
+                date=parse_dt(row.get("created_at") or datetime.fromtimestamp(0, timezone.utc)),
+                chat_title="X", platform="x", url=row.get("url"),
+                profile_url=f"https://x.com/{handle}" if handle else None))
+        return messages
 
 
 class JsonlMessageSource:
