@@ -15,7 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 
 from apps.products.models import Product
@@ -173,15 +173,43 @@ def published_after(seq: int, limit: int = 500) -> list[tuple[int, dict]]:
         return [(int(s), p if isinstance(p, dict) else json.loads(p)) for s, p in cur.fetchall()]
 
 
-def engine_totals() -> dict:
-    """The engine's lifetime counters (read-only). Zeros if the engine has not run yet."""
+def _has_column(table: str, column: str) -> bool:
+    schema, name = table.split(".")
+    with connection.cursor() as cur:
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                    [schema, name, column])
+        return cur.fetchone() is not None
+
+
+def engine_totals(business=None) -> dict:
+    """The engine's lifetime counters (read-only). Zeros if the engine has not run yet.
+
+    With ``business``: the seller's share of the LLM cost (matching/replies of its products, analysis of its private
+    groups split among their owners) over the messages reviewed for it (its private groups + global groups).
+    """
     empty = {"messages_analysed": 0, "llm_calls": 0, "cost_toman": 0.0, "cost_per_message_toman": 0.0}
     costs, kv = _engine_table("costs"), _engine_table("kv")
     if not costs or not kv:
         return empty
+    if business is not None:
+        per_chat = _engine_table("chat_analysed")
+        if not per_chat or not _has_column(costs, "business_id"):
+            return empty
+        chats = [str(c) for c in MonitoredCommunity.objects.filter(telegram_chat_id__isnull=False).filter(
+            Q(scope=GLOBAL) | Q(business=business)).values_list("telegram_chat_id", flat=True).distinct()]
+        with connection.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*), COALESCE(SUM(toman), 0) FROM {costs} WHERE business_id = %s", [str(business.pk)])
+            calls, toman = cur.fetchone()
+            cur.execute(f"SELECT COALESCE(SUM(n), 0) FROM {per_chat} WHERE chat_id = ANY(%s)", [chats])
+            n = int(cur.fetchone()[0] or 0)
+        return {"messages_analysed": n, "llm_calls": int(calls), "cost_toman": float(toman),
+                "cost_per_message_toman": float(toman) / n if n else 0.0}
+    once = "WHERE part = 0" if _has_column(costs, "part") else ""
     with connection.cursor() as cur:
-        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(toman), 0) FROM {costs}")
-        calls, toman = cur.fetchone()
+        cur.execute(f"SELECT COALESCE(SUM(toman), 0) FROM {costs}")
+        toman = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) FROM {costs} {once}")
+        calls = cur.fetchone()[0]
         cur.execute(f"SELECT (v #>> '{{}}')::bigint FROM {kv} WHERE k = 'messages_analysed'")
         row = cur.fetchone()
     n = int(row[0]) if row and row[0] is not None else 0

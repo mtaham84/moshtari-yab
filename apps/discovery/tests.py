@@ -160,6 +160,22 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         self.assertEqual(import_opportunity(engine_payload("need_000003_ab", [999999])), [])
         self.assertFalse(Opportunity.objects.exists())
 
+    def test_cost_per_message_is_per_seller(self):
+        from .models import MonitoredCommunity
+
+        st = self.store()
+        MonitoredCommunity.objects.create(business=self.biz, handle_or_link="@my_private", telegram_chat_id=-1002)
+        st.add_cost("need_extraction", "m", 100, 10, False, 0.0, 30.0, businesses=[str(self.biz.id), str(self.other.id)])
+        st.add_cost("reply", "m", 10, 10, False, 0.0, 5.0, businesses=[str(self.biz.id)])
+        st.add_cost("need_extraction", "m", 10, 10, False, 0.0, 100.0)                      # global chat: platform
+        st._exec("INSERT INTO {s}.chat_analysed VALUES ('-1001', 10), ('-1002', 10), ('-1003', 50)")
+        mine = engine_totals(self.biz)
+        self.assertEqual((mine["messages_analysed"], mine["cost_toman"], mine["llm_calls"]), (20, 20.0, 2))
+        self.assertEqual(mine["cost_per_message_toman"], 1.0)
+        self.assertEqual(engine_totals(self.other)["cost_toman"], 15.0)
+        everything = engine_totals()
+        self.assertEqual((everything["cost_toman"], everything["llm_calls"]), (135.0, 3))   # a shared call counts once
+
     def test_sync_command_imports_published_versions_once(self):
         from need_engine.schemas import Opportunity as EngineOpportunity
 
