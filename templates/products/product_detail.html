@@ -69,9 +69,7 @@
       <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 12px;">
         شرح محصول
       </h2>
-      <p style="font-size: 0.98rem; line-height: 1.85; color: var(--panel-text-muted); margin: 0; white-space: pre-line;">
-        {{ product.description }}
-      </p>
+      <div class="product-desc js-clamp" data-lines="8">{{ product.description }}</div>
     </div>
 
     <!-- Commercial Value / Price Box -->
@@ -287,4 +285,22 @@
     {% endif %}
   </div>
 </div>
+<script>
+(() => {
+  document.querySelectorAll('.js-clamp').forEach(el => {
+    el.style.setProperty('--clamp', el.dataset.lines || 3);
+    el.classList.add('is-clamped');
+    requestAnimationFrame(() => {
+      if (el.scrollHeight - el.clientHeight < 4) { el.classList.remove('is-clamped'); return; }
+      const t = document.createElement('button');
+      t.type = 'button'; t.className = 'clamp-toggle'; t.textContent = 'نمایش کامل';
+      t.addEventListener('click', () => {
+        const open = el.classList.toggle('is-clamped') === false;
+        t.textContent = open ? 'نمایش کمتر' : 'نمایش کامل';
+      });
+      el.insertAdjacentElement('afterend', t);
+    });
+  });
+})();
+</script>
 {% endblock %}
