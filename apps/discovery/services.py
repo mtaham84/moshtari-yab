@@ -98,3 +98,55 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
         },
         "products": rows,
     }
+
+
+def _engine_cards(product_ids: list[int]) -> dict[str, dict]:
+    """product id → the card need_engine built (seller-edited cards come from the product itself)."""
+    import json
+
+    from django.db import connection
+
+    from .engine_bridge import _engine_table
+
+    table = _engine_table("products")
+    if not table or not product_ids:
+        return {}
+    with connection.cursor() as cur:
+        cur.execute(f"SELECT product_id, card FROM {table} WHERE product_id = ANY(%s)", [[str(i) for i in product_ids]])
+        return {pid: (json.loads(c) if isinstance(c, str) else c) or {} for pid, c in cur.fetchall()}
+
+
+def _short(text: str, n: int = 160) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
+
+
+def business_icp(business: Business) -> dict:
+    """The dashboard's «شناخت ایجنت» box, from the seller's real profile, products and the agent's product cards.
+    Empty values stay empty (the template shows a hint instead of made-up text)."""
+    products = list(Product.objects.filter(business=business, status="ACTIVE", is_discovery_active=True)
+                    .order_by("-created_at")[:30])
+    engine = _engine_cards([p.id for p in products])
+    cards = [p.agent_card_override or engine.get(str(p.id)) or {} for p in products]
+
+    def uniq(items, n):
+        seen, out = set(), []
+        for x in items:
+            x = " ".join(str(x or "").split())
+            if x and x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out[:n]
+
+    value = business.description or next((c.get("what_it_is") for c in cards if c.get("what_it_is")), "")
+    audience = business.target_customer_description or "، ".join(
+        uniq([p.target_customer for p in products] + [c.get("audience") for c in cards], 3))
+    triggers = "، ".join(uniq([x for c in cards for x in (c.get("problems_solved") or [])], 4))
+    return {
+        "domain": business.business_domain or "",
+        "value": _short(value),
+        "audience": _short(audience),
+        "triggers": _short(triggers),
+        "products_count": len(products),
+        "cards_count": sum(1 for c in cards if c),
+    }

@@ -7,6 +7,12 @@
 {% block bottom_nav_opportunities %}active{% endblock %}
 
 {% block panel_content %}
+<!-- «N فرصت جدید»: shown when the 20-second check finds opportunities newer than this page -->
+<a id="new-opps-bar" href="{{ request.get_full_path }}" role="status"
+   data-endpoint="{% url 'discovery:opportunity_new_count' %}" data-after="{{ latest_opportunity_id }}"
+   style="display: none; position: sticky; top: 12px; z-index: 50; margin: 0 auto 16px; max-width: 420px; text-align: center; padding: 10px 18px; border-radius: 999px; background: var(--brand-purple, #a855f7); color: #fff; font-weight: 800; font-size: 0.86rem; text-decoration: none; box-shadow: 0 6px 18px rgba(0,0,0,0.25);">
+  <span id="new-opps-text"></span> — برای دیدن کلیک کنید
+</a>
 <div class="p-page-header" style="margin-bottom: 24px;">
   <div class="p-header-titles">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -631,6 +637,27 @@
 <!-- Client-side Interactive Helpers -->
 <script>
 (() => {
+  // Check for new opportunities every 20 seconds
+  const bar = document.getElementById('new-opps-bar');
+  const barText = document.getElementById('new-opps-text');
+  const faDigits = n => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+  if (bar) {
+    const check = () => {
+      if (document.hidden) return;
+      fetch(`${bar.dataset.endpoint}?after=${encodeURIComponent(bar.dataset.after)}`, { headers: { 'Accept': 'application/json' } })
+        .then(r => r.ok ? r.json() : null)
+        .then(res => {
+          if (res && res.count > 0) {
+            barText.textContent = `${faDigits(res.count)} فرصت جدید`;
+            bar.style.display = 'block';
+          }
+        })
+        .catch(() => {});
+    };
+    setInterval(check, 20000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  }
+
   // 1-Click Copy to Clipboard for Suggested Replies
   document.querySelectorAll('.copy-reply-btn').forEach(btn => {
     btn.addEventListener('click', () => {

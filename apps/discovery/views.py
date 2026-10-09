@@ -7,6 +7,9 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
+
+from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
 
 from apps.businesses.models import Business
 from apps.core.jalali import format_jalali_date, parse_jalali_date
@@ -181,6 +184,7 @@ def opportunity_list_view(request):
         "search_query": filter_meta["q"],
         "view_mode": view_mode,
         "export_query_string": export_query.urlencode(),
+        "latest_opportunity_id": all_opps.order_by("-id").values_list("id", flat=True).first() or 0,
     }
     return render(request, "discovery/opportunities_list.html", context)
 
@@ -289,14 +293,49 @@ def opportunity_detail_view(request, pk):
         business=business
     )
 
+    matches = list(opportunity.product_matches.select_related("product").order_by("rank"))
+    drafts = drafts_for(opportunity)
+    analysis = getattr(opportunity, "ai_analysis", None)
+    if matches and analysis and analysis.suggested_reply and not drafts.get(str(matches[0].product_id)):
+        drafts[str(matches[0].product_id)] = analysis.suggested_reply
     context = {
         "opportunity": opportunity,
         "customer": opportunity.customer,
-        "analysis": getattr(opportunity, "ai_analysis", None),
-        "product_matches": opportunity.product_matches.select_related("product").order_by("rank"),
+        "analysis": analysis,
+        "product_matches": matches,
         "evidence_items": opportunity.evidence_items.all(),
+        "drafts": {str(m.product_id): drafts.get(str(m.product_id), "") for m in matches},
+        "first_draft": drafts.get(str(matches[0].product_id), "") if matches else (analysis.suggested_reply if analysis else ""),
     }
     return render(request, "discovery/opportunity_detail.html", context)
+
+
+@login_required
+@require_POST
+def opportunity_rewrite_view(request, pk):
+    """«دوباره بنویس»: a new draft for one matched product, with the seller's saved message style."""
+    business = getattr(request.user, "business", None)
+    opportunity = get_object_or_404(Opportunity.objects.select_related("business", "ai_analysis"), pk=pk, business=business)
+    pid = (request.POST.get("product_id") or "").strip()
+    matches = opportunity.product_matches.select_related("product").order_by("rank")
+    match = matches.filter(product_id=pid).first() if pid.isdigit() else matches.first()
+    if match is None:
+        return JsonResponse({"status": "error", "message": "برای این فرصت محصولی ثبت نشده است."}, status=400)
+    try:
+        text = rewrite_reply(opportunity, match)
+    except AgentUnavailable as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=503)
+    return JsonResponse({"status": "success", "product_id": match.product_id, "reply": text})
+
+
+@login_required
+def opportunity_new_count_view(request):
+    """Polled every 20 s by the opportunities list: how many opportunities arrived after ``after`` (an id)."""
+    business = getattr(request.user, "business", None)
+    raw = (request.GET.get("after") or "0").strip()
+    after = int(raw) if raw.isdigit() else 0
+    qs = Opportunity.objects.filter(business=business, id__gt=after) if business else Opportunity.objects.none()
+    return JsonResponse({"status": "success", "count": qs.count()})
 
 
 @login_required

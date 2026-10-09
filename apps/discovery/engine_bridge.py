@@ -27,6 +27,7 @@ from .sources import GLOBAL
 log = logging.getLogger(__name__)
 
 STRENGTH_INTENT = {"strong": 0.9, "medium": 0.7, "weak": 0.5}
+SELLER_KEYS = ("seller_drafts", "seller_drafts_n")   # trace_metadata keys written by the panel, kept on re-import
 ENGINE_OWNED_STATUSES = {"NEW", "RESOLVED", "EXPIRED"}  # seller-set statuses (REVIEWED, CONTACTED, …) are kept
 
 
@@ -113,8 +114,9 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         opp.source_message_timestamp = _dt(evidence[0]["timestamp"]) if evidence else None
         opp.source_raw_message = "\n".join(e.get("text", "") for e in evidence)
         opp.expires_at = _dt(payload.get("expires_at"))
+        kept = {k: v for k, v in (opp.trace_metadata or {}).items() if k in SELLER_KEYS}   # «دوباره بنویس» results
         opp.trace_metadata = {"engine": {k: v for k, v in payload.items() if k != "matched_products"},
-                              "matched_products": [m for m, _ in items]}
+                              "matched_products": [m for m, _ in items], **kept}
         opp.save()
         if is_new and str(source.get("chat_id") or "").lstrip("-").isdigit():
             MonitoredCommunity.objects.filter(business=business, telegram_chat_id=int(source["chat_id"])).update(
@@ -127,7 +129,7 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
             "product_fit_score": float(top_match.get("match_score") or 0),
             "confidence": float(need.get("priority") or 0),
             "why_selected": " — ".join(x for x in (need.get("situation"), verdict.get("reason")) if x),
-            "suggested_reply": top_match.get("reply_draft") or "",
+            "suggested_reply": (kept.get("seller_drafts") or {}).get(str(top_product.id)) or top_match.get("reply_draft") or "",
             "model_name": "need_engine",
             "cost_toman": round(float((payload.get("cost") or {}).get("toman") or 0)),
         })
