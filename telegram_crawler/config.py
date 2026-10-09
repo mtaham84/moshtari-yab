@@ -76,6 +76,8 @@ class Settings:
     panel_enabled: bool = field(default_factory=lambda: _bool("TG_PANEL_COMMUNITIES", True))
     panel_table: str = field(default_factory=lambda: os.getenv("TG_PANEL_TABLE", "public.discovery_monitoredcommunity"))
     panel_poll: float = field(default_factory=lambda: _float("TG_PANEL_POLL_SECONDS", 30.0))
+    join_interval: float = field(default_factory=lambda: _float("TG_JOIN_INTERVAL_SECONDS", 60.0))  # ≥ this between two joins
+    max_groups: int = field(default_factory=lambda: _int("TG_MAX_GROUPS", 100) or 100)               # distinct groups per account
 
     # Rate limiting
     flood_sleep_threshold: int = field(default_factory=lambda: _int("FLOOD_SLEEP_THRESHOLD", 60))
