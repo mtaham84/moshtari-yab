@@ -98,7 +98,7 @@ def draft_reply(n: NeedCard, mp: MatchedProduct, cat: Catalog, store: Store, llm
                 style: MessageStyle | None = None) -> tuple[str, float]:
     j = cat.pid_index[mp.product_id]
     p = cat.products[j]
-    link = cfg.product_url_template.format(product_id=mp.product_id, opportunity_id=n.need_id)
+    link = cfg.click_url(mp.product_id, n.need_id) if p.url else None   # no product page → draft without a link
     return write_reply(llm, cfg, person_messages=evidence_text(n, store), situation=n.situation, product_line=cat.line(j),
                        conflicts=mp.verdict.conflicts, style=style, link=link, ref=f"{n.need_id}:{mp.product_id}",
                        businesses=[p.business_id])

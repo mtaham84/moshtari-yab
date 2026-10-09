@@ -45,9 +45,13 @@ class Product(BaseModel):
     ships_nationwide: bool = True
     attributes: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+    url: str | None = None                   # seller's own product page (reply links go through /r/ to it)
+    card_override: dict[str, Any] | None = None   # the seller's edited «how the agent understood it» card
 
     def content_hash(self) -> str:
-        payload = self.model_dump(exclude={"business_id"})
+        """Changes that need a new card/vectors. ``url`` is not part of it (it never reaches the LLM)."""
+        skip = {"business_id", "url"} | ({"card_override"} if not self.card_override else set())  # old hashes stay valid
+        payload = self.model_dump(exclude=skip)
         return hashlib.sha1(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
 

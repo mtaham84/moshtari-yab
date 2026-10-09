@@ -142,7 +142,11 @@ class EngineConfig:
     # ── Replies ─────────────────────────────────────────────────────────────
     write_replies: bool = _f("NE_WRITE_REPLIES", True)
     reply_top_n: int = _f("NE_REPLY_TOP_N", 3)
-    product_url_template: str = _f("NE_PRODUCT_URL_TEMPLATE", "https://customerweb.ir/p/{product_id}?ref={opportunity_id}")
+    # links in drafts go to the seller's own page through the panel's click counter: {base}/r/<product>/?ref=<opp>
+    public_base_url: str = _f("NE_PUBLIC_BASE_URL", "http://localhost:8000")
+
+    def click_url(self, product_id: str, opportunity_id: str) -> str:
+        return f"{self.public_base_url.rstrip('/')}/r/{product_id}/?ref={opportunity_id}"
 
     def effective_sim_floor(self) -> float:
         if self.sim_floor >= 0:

@@ -91,12 +91,16 @@ def finish(raw: str, style: MessageStyle, link: str | None) -> str:
 
 def write_reply(llm: Any, cfg: EngineConfig, *, person_messages: str, situation: str, product_line: str,
                 conflicts: list[str], style: MessageStyle | None, link: str | None, ref: str,
-                businesses: list[str | None] | None = None, stage: str = "reply") -> tuple[str, float]:
-    """One LLM call → (draft, cost in Toman). ``link`` None → no link in the draft."""
+                businesses: list[str | None] | None = None, stage: str = "reply", variant: int = 0) -> tuple[str, float]:
+    """One LLM call → (draft, cost in Toman). ``link`` None → no link in the draft.
+    ``variant`` > 0 asks for a different wording («دوباره بنویس»; also bypasses the response cache)."""
     style = style or MessageStyle()
     link = link if style.include_link else None
-    user = json.dumps({"person_messages": person_messages, "situation": situation, "product": product_line,
-                       "mismatches_to_mention_honestly": conflicts}, ensure_ascii=False)
+    payload = {"person_messages": person_messages, "situation": situation, "product": product_line,
+               "mismatches_to_mention_honestly": conflicts}
+    if variant:
+        payload["write_a_new_version"] = variant
+    user = json.dumps(payload, ensure_ascii=False)
     data, usage = llm.complete_json(stage, cfg.reply_model, system_prompt(style, bool(link)), user, max_tokens=800,
-                                    temperature=0.4, ref=ref, businesses=businesses)
+                                    temperature=0.8 if variant else 0.4, ref=ref, businesses=businesses)
     return finish((data or {}).get("reply") or "", style, link), usage["toman"]
