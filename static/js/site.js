@@ -47,14 +47,36 @@
   // Mobile Navigation Menu Toggle
   const mobileToggle = document.querySelector('.mobile-menu-btn');
   const navMenu = document.querySelector('#main-nav-menu');
+  const landingBackdrop = document.querySelector('#landing-menu-backdrop');
 
-  mobileToggle?.addEventListener('click', () => {
+  const closeLandingMenu = () => {
+    mobileToggle?.setAttribute('aria-expanded', 'false');
+    navMenu?.classList.remove('is-open');
+    landingBackdrop?.classList.remove('is-active');
+    document.body.style.overflow = '';
+  };
+
+  const openLandingMenu = () => {
+    mobileToggle?.setAttribute('aria-expanded', 'true');
+    navMenu?.classList.add('is-open');
+    landingBackdrop?.classList.add('is-active');
+    document.body.style.overflow = 'hidden';
+  };
+
+  mobileToggle?.addEventListener('click', (e) => {
+    e.stopPropagation();
     const isExpanded = mobileToggle.getAttribute('aria-expanded') === 'true';
-    mobileToggle.setAttribute('aria-expanded', String(!isExpanded));
-    if (navMenu) {
-      navMenu.style.display = isExpanded ? 'none' : 'flex';
-      navMenu.classList.toggle('is-open', !isExpanded);
+    if (isExpanded) {
+      closeLandingMenu();
+    } else {
+      openLandingMenu();
     }
+  });
+
+  landingBackdrop?.addEventListener('click', closeLandingMenu);
+
+  navMenu?.querySelectorAll('a').forEach((link) => {
+    link.addEventListener('click', closeLandingMenu);
   });
 
   // Interactive Hero Search Pill Simulation

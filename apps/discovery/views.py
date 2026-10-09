@@ -1,13 +1,14 @@
+import csv
 import json
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from apps.businesses.models import Business
 from apps.products.models import Product, Category
-from apps.core.jalali import parse_jalali_date, format_jalali_date
+from apps.core.jalali import parse_jalali_date, format_jalali_date, format_jalali_datetime
 from .models import (
     DiscoveredLead,
     CategoryBranchMemory,
@@ -395,6 +396,98 @@ def api_submit_lead_view(request):
     }, status=201)
 
 
+def _filter_opportunities_queryset(business, params):
+    """
+    Unified filter and sort engine for opportunities table and Excel export.
+    Supports platform, status, catalog product filter, Jalali date range, search,
+    and sorting by Jalali time or purchase intent score.
+    """
+    from django.db.models import Q
+
+    qs = Opportunity.objects.filter(business=business).select_related(
+        "customer", "category", "ai_analysis"
+    ).prefetch_related("product_matches__product")
+
+    # Platform filter
+    platform_filter = params.get("platform", "").strip().lower()
+    if platform_filter in {"telegram", "x", "instagram", "divar", "other"}:
+        qs = qs.filter(source_platform=platform_filter)
+
+    # Status filter
+    status_filter = params.get("status", "").strip().upper()
+    if status_filter in {"NEW", "QUALIFIED", "REVIEWED", "CONTACTED", "CONVERTED", "REJECTED"}:
+        qs = qs.filter(status=status_filter)
+
+    # Product filter (specific catalog item)
+    product_id_str = params.get("product_id", "").strip()
+    selected_product_id = int(product_id_str) if product_id_str.isdigit() else None
+    if selected_product_id:
+        qs = qs.filter(product_matches__product_id=selected_product_id)
+
+    # Search query
+    q = params.get("q", "").strip()
+    if q:
+        qs = qs.filter(
+            Q(customer__name__icontains=q) |
+            Q(customer__source_username__icontains=q) |
+            Q(customer__phone_number__icontains=q) |
+            Q(source_raw_message__icontains=q) |
+            Q(ai_analysis__need__icontains=q) |
+            Q(category_name_snapshot__icontains=q) |
+            Q(product_matches__product__name__icontains=q)
+        ).distinct()
+
+    # Min score filter
+    min_score = params.get("min_score", "").strip()
+    if min_score.isdigit():
+        score_val = float(min_score) / 100.0
+        qs = qs.filter(ai_analysis__intent_score__gte=score_val)
+
+    # Date range filters (Persian calendar)
+    date_from_raw = params.get("date_from", "").strip()
+    date_to_raw = params.get("date_to", "").strip()
+    if date_from_raw:
+        d_from = parse_jalali_date(date_from_raw)
+        if d_from:
+            qs = qs.filter(created_at__date__gte=d_from)
+    if date_to_raw:
+        d_to = parse_jalali_date(date_to_raw)
+        if d_to:
+            qs = qs.filter(created_at__date__lte=d_to)
+
+    # Sorting
+    # If filtering by a specific product, default sort is highest purchase intent score first!
+    default_sort = "intent_desc" if selected_product_id else "newest"
+    sort_order = params.get("sort", default_sort).strip()
+
+    if sort_order == "newest":
+        qs = qs.order_by("-source_message_timestamp", "-created_at")
+    elif sort_order == "oldest":
+        qs = qs.order_by("source_message_timestamp", "created_at")
+    elif sort_order == "intent_desc":
+        qs = qs.order_by("-ai_analysis__intent_score", "-created_at")
+    elif sort_order == "intent_asc":
+        qs = qs.order_by("ai_analysis__intent_score", "-created_at")
+    elif sort_order == "fit_desc":
+        qs = qs.order_by("-ai_analysis__product_fit_score", "-created_at")
+    elif sort_order == "cost_desc":
+        qs = qs.order_by("-ai_analysis__cost_toman", "-created_at")
+    else:
+        qs = qs.order_by("-created_at")
+
+    filter_meta = {
+        "platform": platform_filter,
+        "status": status_filter,
+        "product_id": selected_product_id,
+        "min_score": min_score,
+        "q": q,
+        "date_from": date_from_raw,
+        "date_to": date_to_raw,
+        "sort": sort_order,
+    }
+    return qs, filter_meta
+
+
 @login_required
 def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
@@ -406,45 +499,21 @@ def opportunity_list_view(request):
             business_domain="عمومی"
         )
 
-    qs = Opportunity.objects.filter(business=business).select_related(
-        "customer", "category", "ai_analysis"
-    ).prefetch_related("product_matches__product")
+    qs, filter_meta = _filter_opportunities_queryset(business, request.GET)
 
-    # Platform filter
-    platform_filter = request.GET.get("platform", "").strip().lower()
-    if platform_filter in {"telegram", "x", "instagram", "divar", "other"}:
-        qs = qs.filter(source_platform=platform_filter)
+    # View layout mode (table vs cards)
+    view_mode = request.GET.get("view", "table").strip().lower()
+    if view_mode not in {"table", "cards"}:
+        view_mode = "table"
 
-    # Status filter
-    status_filter = request.GET.get("status", "").strip().upper()
-    if status_filter in {"NEW", "QUALIFIED", "REVIEWED", "CONTACTED", "CONVERTED", "REJECTED"}:
-        qs = qs.filter(status=status_filter)
+    # Seller's products for catalog filter dropdown
+    seller_products = Product.objects.filter(business=business).order_by("name")
 
-    # Search filter
-    q = request.GET.get("q", "").strip()
-    if q:
-        from django.db.models import Q
-        qs = qs.filter(
-            Q(customer__name__icontains=q) |
-            Q(customer__source_username__icontains=q) |
-            Q(customer__phone_number__icontains=q) |
-            Q(source_raw_message__icontains=q) |
-            Q(ai_analysis__need__icontains=q) |
-            Q(category_name_snapshot__icontains=q)
-        )
-
-    # Min score filter
-    min_score = request.GET.get("min_score", "").strip()
-    if min_score.isdigit():
-        score_val = float(min_score) / 100.0
-        qs = qs.filter(ai_analysis__intent_score__gte=score_val)
-
-    # Order
-    qs = qs.order_by("-created_at")
-
+    # Global summary stats
     all_opps = Opportunity.objects.filter(business=business)
     stats = {
         "total": all_opps.count(),
+        "filtered_count": qs.count(),
         "high_intent": all_opps.filter(ai_analysis__intent_score__gte=0.8).count(),
         "qualified": all_opps.filter(status="QUALIFIED").count(),
         "converted": all_opps.filter(status="CONVERTED").count(),
@@ -454,15 +523,117 @@ def opportunity_list_view(request):
         "divar_count": all_opps.filter(source_platform="divar").count(),
     }
 
+    # Query string without page or view for export link
+    export_query = request.GET.copy()
+    if "view" in export_query:
+        del export_query["view"]
+
     context = {
         "opportunities": qs,
         "stats": stats,
-        "selected_platform": platform_filter,
-        "selected_status": status_filter,
-        "selected_min_score": min_score,
-        "search_query": q,
+        "seller_products": seller_products,
+        "selected_platform": filter_meta["platform"],
+        "selected_status": filter_meta["status"],
+        "selected_product_id": filter_meta["product_id"],
+        "selected_min_score": filter_meta["min_score"],
+        "selected_sort": filter_meta["sort"],
+        "date_from": filter_meta["date_from"],
+        "date_to": filter_meta["date_to"],
+        "search_query": filter_meta["q"],
+        "view_mode": view_mode,
+        "export_query_string": export_query.urlencode(),
     }
     return render(request, "discovery/opportunities_list.html", context)
+
+
+@login_required
+def opportunity_export_view(request):
+    """
+    Exports filtered opportunities into an Excel-compatible CSV file (UTF-8 BOM).
+    Preserves all active search, product, date, and score filters.
+    """
+    business = getattr(request.user, "business", None)
+    if not business:
+        return HttpResponse("کسب‌وکار یافت نشد.", status=404)
+
+    qs, _ = _filter_opportunities_queryset(business, request.GET)
+
+    today_str = format_jalali_date(timezone.now().date(), persian_digits=False).replace("/", "-")
+    filename = f"peyda_customers_{today_str}.csv"
+
+    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    # UTF-8 BOM for seamless Persian rendering in MS Excel
+    response.write("\ufeff")
+
+    writer = csv.writer(response)
+    writer.writerow([
+        "ردیف",
+        "شناسه فرصت",
+        "پلتفرم",
+        "نام خریدار",
+        "نام کاربری / هندل",
+        "شماره تماس",
+        "پیام خریدار در شبکه اجتماعی",
+        "نیاز یا مسئله استخراج‌شده",
+        "کالای پیشنهادی کاتالوگ",
+        "شاخه دسته‌بندی کالا",
+        "درصد احتمال خرید (نیت)",
+        "درصد تطابق با کالا",
+        "وضعیت",
+        "دلیل انتخاب هوش مصنوعی",
+        "پیش‌نویس پاسخ آماده",
+        "تاریخ و زمان ثبت (شمسی)",
+        "هزینه پردازش (تومان)",
+        "توکن‌های مصرفی",
+    ])
+
+    for idx, opp in enumerate(qs, start=1):
+        primary_match = opp.primary_product_match
+        prod_name = primary_match.product.name if primary_match else "-"
+        analysis = getattr(opp, "ai_analysis", None)
+
+        need_text = analysis.need if analysis else "-"
+        why_selected = analysis.why_selected if analysis else "-"
+        suggested_reply = analysis.suggested_reply if analysis else "-"
+        cost_toman = analysis.cost_toman if analysis else 0
+        tokens_used = analysis.tokens_used if analysis else 0
+        intent_pct = f"{opp.intent_score_percentage}٪"
+        fit_pct = f"{opp.product_fit_score_percentage}٪"
+        phone = opp.customer.phone_number or "-"
+        username = f"@{opp.customer.source_username}" if opp.customer.source_username else "-"
+
+        platform_label = "تلگرام" if opp.source_platform == "telegram" else (
+            "ایکس (توییتر)" if opp.source_platform == "x" else (
+                "اینستاگرام" if opp.source_platform == "instagram" else (
+                    "دیوار" if opp.source_platform == "divar" else opp.source_platform
+                )
+            )
+        )
+
+        writer.writerow([
+            idx,
+            opp.id,
+            platform_label,
+            opp.customer.name or "ناشناس",
+            username,
+            phone,
+            opp.source_raw_message.replace("\n", " ").strip(),
+            need_text.replace("\n", " ").strip(),
+            prod_name,
+            opp.category_name_snapshot or (opp.category.name if opp.category else "-"),
+            intent_pct,
+            fit_pct,
+            opp.get_status_display(),
+            why_selected.replace("\n", " ").strip(),
+            suggested_reply.replace("\n", " ").strip(),
+            opp.created_at_jalali or "-",
+            cost_toman,
+            tokens_used,
+        ])
+
+    return response
 
 
 @login_required

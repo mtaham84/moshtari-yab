@@ -4,6 +4,7 @@
 {% block title %}پیشخوان کشف هوشمند مشتری | مشتری‌یاب{% endblock %}
 {% block breadcrumb %}پیشخوان اصلی{% endblock %}
 {% block nav_home %}active{% endblock %}
+{% block bottom_nav_home %}active{% endblock %}
 
 {% block panel_content %}
 <!-- Page Header -->
@@ -89,7 +90,7 @@
     </div>
   </div>
 
-  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 20px; border-radius: 16px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
+  <div class="icp-insights-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 20px; border-radius: 16px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
     <div>
       <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">حوزه و صنعت:</span>
       <strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ business.business_domain|default:"سبک زندگی دیجیتال و فناوری" }}</strong>
@@ -122,7 +123,7 @@
         <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">تشخیص هوشمند بر پایه کاتالوگ یا تنظیم دقیق فروشنده</span>
       </div>
 
-      <div style="display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 14px; align-items: start;">
+      <div class="targeting-fields-grid" style="display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 14px; align-items: start;">
         <!-- 31 Major Cities + Custom Typing -->
         <div>
           <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی (۳۱ مرکز استان یا شهر دلخواه)</label>
@@ -242,7 +243,7 @@
   </div>
 
   <!-- 4 Key Database Metrics Cards Grid -->
-  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;">
+  <div class="dashboard-stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;">
     <!-- Metric 1: Total Discovered Customers -->
     <div style="background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 14px; padding: 16px;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
@@ -384,7 +385,7 @@
 <!-- ========================================================================
      Step 4: Two-Column Workspace (فهرست راست + بررسی عمیق و پیام چپ)
      ======================================================================== -->
-<div style="display: grid; grid-template-columns: 0.95fr 1.35fr; gap: 24px; align-items: start;">
+<div class="dashboard-leads-split">
 
   <!-- Right: Discovered Leads Stream -->
   <div style="display: flex; flex-direction: column; gap: 14px;" id="leads-list-container">
@@ -503,13 +504,13 @@
   </div>
 
   <!-- Left: Opportunity Deep Inspector Card -->
-  <div class="p-card" style="padding: 26px;" id="lead-inspector-card">
+  <div class="p-card inspector-card" id="lead-inspector-card">
 
     <!-- Inspector Header -->
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle);">
+    <div class="inspector-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle); flex-wrap: wrap; gap: 12px;">
       <div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-          <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main); display: flex; align-items: center; gap: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+          <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
             <span id="insp-name">سارا امیری</span>
             <span id="insp-handle" dir="ltr" style="font-size: 0.8rem; color: var(--stone-text-muted); font-weight: 600; font-family: monospace;"><bdi>@sara_dev</bdi></span>
           </h3>
@@ -534,7 +535,7 @@
         تفکیک ابعاد شایستگی و انطباق ایجنت:
       </span>
 
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+      <div class="factors-breakdown-grid">
         <div class="factor-mini-card">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
             <span>نیاز و درد مخاطب</span>
@@ -653,7 +654,7 @@
       </div>
 
       <!-- Action Buttons -->
-      <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+      <div class="inspector-action-buttons">
         <button type="button" class="p-btn p-btn-primary" style="flex: 1;" id="btn-copy-outreach">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           <span id="btn-copy-label">کپی متن پیش‌نویس در حافظه</span>
@@ -674,7 +675,7 @@
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
           </div>
           <div>
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap;">
               <strong style="font-size: 0.82rem; color: var(--panel-text-main);">ماژول تعامل زنده و مذاکره خودکار با مشتری (فاز ۲ پروژه - Roadmap)</strong>
               <span class="p-badge p-badge-purple" style="font-size: 0.65rem;">خارج از دامنه دمو</span>
             </div>

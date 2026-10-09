@@ -355,10 +355,67 @@ input, textarea, select {
   box-shadow: 0 6px 25px rgba(232, 38, 142, 0.55);
 }
 
+/* Secondary Nav Login Button */
+.nav-login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.nav-login-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-2px);
+}
+
 .mobile-menu-btn {
   display: none;
+  align-items: center;
+  justify-content: center;
   color: #ffffff;
-  padding: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s;
+}
+
+.mobile-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.mobile-drawer-auth-item {
+  display: none;
+}
+
+/* Mobile Drawer Backdrop */
+.landing-menu-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 999;
+}
+
+.landing-menu-backdrop.is-active {
+  display: block;
 }
 
 /* ==========================================================================
@@ -1533,65 +1590,285 @@ input, textarea, select {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .navbar {
-    padding: 16px 20px;
+    padding: 12px 16px;
+    gap: 8px;
   }
-  
+
+  .brand {
+    gap: 8px;
+  }
+
+  .brand-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .brand-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .brand-name {
+    font-size: 1.05rem;
+  }
+
+  .brand-tagline {
+    display: none !important;
+  }
+
   .nav-menu {
     display: none;
+    position: fixed;
+    top: 68px;
+    right: 12px;
+    left: 12px;
+    background: rgba(11, 13, 28, 0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 20px;
+    padding: 20px 16px;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+    list-style: none;
   }
-  
-  .mobile-menu-btn {
+
+  .nav-menu.is-open {
+    display: flex !important;
+    animation: drawerFadeDown 0.22s ease-out forwards;
+  }
+
+  .nav-menu .nav-link {
     display: block;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    transition: background 0.15s ease;
   }
-  
+
+  .nav-menu .nav-link:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+  }
+
+  .nav-menu .nav-link::after {
+    display: none;
+  }
+
+  .mobile-drawer-auth-item {
+    display: block !important;
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .mobile-drawer-auth-group {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .mobile-drawer-auth-group .nav-login-btn,
+  .mobile-drawer-auth-group .nav-cta-btn {
+    min-height: 42px;
+    font-size: 0.88rem;
+  }
+
+  /* Compact Navbar Actions Row */
+  .nav-actions {
+    gap: 6px;
+  }
+
+  .theme-toggle-btn {
+    padding: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    justify-content: center;
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .theme-toggle-btn span[data-theme-label] {
+    display: none !important;
+  }
+
+  .nav-login-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    min-height: 36px;
+    border-radius: 9999px;
+  }
+
+  .nav-cta-btn {
+    padding: 6px 13px;
+    font-size: 0.8rem;
+    min-height: 36px;
+    gap: 4px;
+  }
+
+  .mobile-menu-btn {
+    display: flex !important;
+  }
+
   .hero-body {
-    padding: 20px 20px 80px;
+    padding: 24px 16px 80px;
+    gap: 28px;
   }
-  
+
   .hero-title {
-    font-size: 2.2rem;
+    font-size: clamp(2rem, 7vw, 2.6rem);
+    line-height: 1.3;
   }
-  
+
+  .hero-desc {
+    font-size: 0.95rem;
+    line-height: 1.75;
+    margin-bottom: 24px;
+  }
+
   .hero-search-capsule {
     flex-direction: column;
-    border-radius: 20px;
-    padding: 12px;
+    border-radius: 18px;
+    padding: 10px;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.08);
   }
-  
+
+  .search-input-icon {
+    display: none;
+  }
+
+  .hero-search-input {
+    width: 100%;
+    text-align: center;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+  }
+
   .hero-search-btn {
     width: 100%;
+    min-height: 44px;
     justify-content: center;
+    border-radius: 12px;
+    font-size: 0.92rem;
   }
-  
+
+  .hero-aux-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .hero-link-btn {
+    min-height: 38px;
+    font-size: 0.84rem;
+  }
+
+  .hero-metric-pill {
+    max-width: 100%;
+    text-align: center;
+    font-size: 0.74rem;
+    padding: 6px 12px;
+    line-height: 1.5;
+  }
+
+  .floating-explorer {
+    max-width: 260px;
+  }
+
+  .live-signal-bubble {
+    position: relative;
+    bottom: auto;
+    right: auto;
+    margin-top: 16px;
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
   .steps-grid {
     grid-template-columns: 1fr;
+    gap: 28px;
   }
-  
+
   .step-halo-circle {
-    width: 95px;
-    height: 95px;
+    width: 90px;
+    height: 90px;
   }
-  
+
   .score-breakdown-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
   }
-  
+
   .lead-card {
-    padding: 20px;
+    padding: 18px 14px;
   }
-  
+
   .sources-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .pipeline-diagram {
     grid-template-columns: 1fr;
   }
-  
+
   .cta-cosmic-card {
-    padding: 48px 20px;
+    padding: 36px 18px;
+  }
+
+  .cta-btn-main {
+    width: 100%;
+    min-height: 46px;
+    justify-content: center;
+    font-size: 0.92rem;
+  }
+}
+
+/* Extra Small Phones (<= 420px) */
+@media (max-width: 420px) {
+  .navbar {
+    padding: 10px 12px;
+  }
+
+  .brand-name {
+    font-size: 0.98rem;
+  }
+
+  .nav-login-btn {
+    padding: 5px 9px;
+    font-size: 0.76rem;
+  }
+
+  .nav-cta-btn {
+    padding: 5px 10px;
+    font-size: 0.76rem;
+  }
+
+  .nav-cta-btn span:last-child {
+    display: none; /* hide arrow icon on tiny screens */
+  }
+
+  .mobile-menu-btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+@keyframes drawerFadeDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

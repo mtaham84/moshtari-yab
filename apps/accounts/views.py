@@ -48,70 +48,45 @@ def signup_view(request):
                 "business_domain": business_domain,
             })
 
-        # Check existing active block on this email
-        recent_active = EmailVerification.objects.filter(email=email).first()
-        if recent_active:
-            is_blocked, remaining = recent_active.is_blocked()
-            if is_blocked:
-                messages.error(request, f"این آدرس ایمیل به دلیل تلاش‌های ناموفق مکرر مسدود است. لطفاً {remaining} ثانیه دیگر مجدداً تلاش نمایید.")
-                return render(request, "accounts/signup.html", {
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "email": email,
-                    "business_name": business_name,
-                    "business_type": business_type,
-                    "business_domain": business_domain,
-                })
-
-        # Rate limit: Max 5 code requests in last 10 minutes per email
-        ten_minutes_ago = timezone.now() - timedelta(minutes=10)
-        recent_requests_count = EmailVerification.objects.filter(
+        # Direct Signup for Demo Mode (No OTP / Verification needed)
+        username = email
+        user, created = User.objects.get_or_create(
             email=email,
-            created_at__gte=ten_minutes_ago
-        ).count()
-
-        if recent_requests_count >= 5:
-            messages.error(request, "تعداد درخواست‌های کد تأیید برای این ایمیل به سقف مجاز (۵ درخواست در ۱۰ دقیقه) رسیده است. لطفاً کمی صبر فرمایید.")
-            return render(request, "accounts/signup.html", {
+            defaults={
+                "username": username,
                 "first_name": first_name,
                 "last_name": last_name,
-                "email": email,
-                "business_name": business_name,
-                "business_type": business_type,
-                "business_domain": business_domain,
-            })
-
-        # Generate 6-digit numeric OTP
-        code = f"{secrets.randbelow(900000) + 100000}"
-        now = timezone.now()
-        expires_at = now + timedelta(minutes=EmailVerification.EXPIRATION_MINUTES)
-
-        session_data = {
-            "first_name": first_name,
-            "last_name": last_name,
-            "password": password,
-            "business_name": business_name,
-            "business_type": business_type,
-            "business_domain": business_domain,
-        }
-
-        verification = EmailVerification.objects.create(
-            email=email,
-            code=code,
-            session_data=session_data,
-            expires_at=expires_at,
+                "is_active": True,
+            }
         )
 
-        # Send email via Gmail SMTP
-        try:
-            send_verification_email(email=email, code=code, first_name=first_name)
-            messages.success(request, f"کد احراز هویت ۶ رقمی با موفقیت به {email} ارسال شد.")
-        except Exception as e:
-            messages.warning(request, f"خطا در ارسال ایمیل ({e}). برای تست در محیط توسعه، کد تأیید: {code}")
+        if not created:
+            user.first_name = first_name
+            user.last_name = last_name
+            user.is_active = True
+            user.save(update_fields=["first_name", "last_name", "is_active"])
 
-        request.session["pending_verification_id"] = verification.id
-        request.session["pending_verification_email"] = email
-        return redirect("accounts:verify")
+        if password:
+            user.set_password(password)
+            user.save()
+
+        # Create or update associated business
+        Business.objects.update_or_create(
+            user=user,
+            defaults={
+                "name": business_name,
+                "business_type": business_type,
+                "business_domain": business_domain,
+            }
+        )
+
+        # Immediate login
+        login(request, user)
+        messages.success(
+            request,
+            "ثبت‌نام با موفقیت انجام شد! با توجه به نسخه دمو، شرایط احراز هویت ایمیل غیرفعال شده و حساب کسب‌وکار شما فوراً فعال گردید."
+        )
+        return redirect("accounts:dashboard")
 
     return render(request, "accounts/signup.html")
 

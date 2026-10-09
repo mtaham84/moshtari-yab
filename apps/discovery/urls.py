@@ -6,6 +6,7 @@ app_name = "discovery"
 urlpatterns = [
     # Opportunities (Unified AI Contract Layer & Panel)
     path("opportunities/", views.opportunity_list_view, name="opportunity_list"),
+    path("opportunities/export/", views.opportunity_export_view, name="opportunity_export"),
     path("opportunities/<int:pk>/", views.opportunity_detail_view, name="opportunity_detail"),
     path("opportunities/<int:pk>/status/", views.opportunity_status_update_view, name="opportunity_status_update"),
     path("api/opportunities/process/", views.api_opportunity_process_view, name="opportunity_api_process"),

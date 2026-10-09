@@ -24,7 +24,7 @@
   </header>
 
   <main class="auth-main-container">
-    <div class="auth-card" style="max-width: 500px;">
+    <div class="auth-card" style="max-width: 540px;">
       <div class="auth-card-kicker">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
         <span>ورود به فضای کاری</span>
@@ -120,23 +120,71 @@
           </div>
         </div>
 
-        <!-- Quick Demo Account Fill Box -->
-        <div style="background: rgba(121, 40, 202, 0.08); border: 1px dashed rgba(121, 40, 202, 0.35); border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <div style="font-size: 0.8rem; line-height: 1.5; color: var(--text-muted, #94a3b8);">
-            <strong style="color: var(--brand-primary, #7928ca); display: block;">حساب تستی فروشنده:</strong>
-            <code>seller@moshtariyab.com</code> / <code>demo123456</code>
+        <!-- Quick Demo Accounts Showcase -->
+        <div class="demo-accounts-container" style="background: rgba(121, 40, 202, 0.05); border: 1px solid rgba(121, 40, 202, 0.25); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 6px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
+              <span style="font-size: 0.82rem; font-weight: 750; color: var(--text-main, #f8fafc);">اکانت‌های دمو و کسب‌وکارهای آماده</span>
+            </div>
+            <span style="font-size: 0.72rem; color: var(--text-faint, #64748b); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 20px;">انتخاب با ۱ کلیک</span>
           </div>
-          <button 
-            type="button" 
-            onclick="fillDemoAccount()" 
-            class="p-btn p-btn-sm" 
-            style="padding: 5px 12px; font-size: 0.78rem; background: var(--brand-primary, #7928ca); color: #fff; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap;">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-left: 4px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>تکمیل خودکار
-          </button>
+
+          <!-- Account 1: Coffee & Barista Equipment -->
+          <div class="demo-acc-card" style="background: var(--bg-surface-elevated, rgba(255,255,255,0.04)); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 12px; transition: border-color 0.2s;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px;">
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span style="font-size: 1.1rem; line-height: 1;">☕</span>
+                <strong style="font-size: 0.84rem; color: #f59e0b; font-weight: 750;">تجهیزات کافی‌شاپ و باریستا آرت</strong>
+              </div>
+              <button 
+                type="button" 
+                onclick="fillDemoAccount('barista@peyda.ir', 'Barista_2026_Demo!')" 
+                class="p-btn" 
+                style="padding: 4px 10px; font-size: 0.75rem; background: linear-gradient(135deg, #d97706, #b45309); color: #fff; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap; font-weight: 700;">
+                ورود با این اکانت
+              </button>
+            </div>
+            <p style="margin: 0 0 6px 0; font-size: 0.76rem; color: var(--text-muted, #94a3b8); line-height: 1.5;">
+              <strong>زمینه فعالیت:</strong> اسپرسوساز صنعتی و خانگی، آسیاب قهوه، اکسسوری‌های تخصصی باریستا و دان قهوه (۲۵ محصول با اطلاعات کامل + لیدهای خریدار از تلگرام)
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.74rem; background: rgba(0,0,0,0.25); padding: 4px 8px; border-radius: 6px; font-family: monospace;" dir="ltr">
+              <span>user: <code style="color: #67e8f9;">barista@peyda.ir</code></span>
+              <span>pass: <code style="color: #fcd34d;">Barista_2026_Demo!</code></span>
+            </div>
+          </div>
+
+          <!-- Account 2: Digital & Laptops -->
+          <div class="demo-acc-card" style="background: var(--bg-surface-elevated, rgba(255,255,255,0.04)); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 12px; transition: border-color 0.2s;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px;">
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span style="font-size: 1.1rem; line-height: 1;">💻</span>
+                <strong style="font-size: 0.84rem; color: #38bdf8; font-weight: 750;">لپ‌تاپ استوک و دیجیتال پایتخت</strong>
+              </div>
+              <button 
+                type="button" 
+                onclick="fillDemoAccount('digital@peyda.ir', 'Digital_2026_Demo!')" 
+                class="p-btn" 
+                style="padding: 4px 10px; font-size: 0.75rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap; font-weight: 700;">
+                ورود با این اکانت
+              </button>
+            </div>
+            <p style="margin: 0 0 6px 0; font-size: 0.76rem; color: var(--text-muted, #94a3b8); line-height: 1.5;">
+              <strong>زمینه فعالیت:</strong> لپ‌تاپ‌های مهندسی و استوک اروپایی A++ (ThinkPad, Dell, HP)، لپ‌تاپ گیمینگ، مانیتور 4K و داک‌استیشن (۲۵ محصول تخصصی + مشتریان هدف تلگرام)
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.74rem; background: rgba(0,0,0,0.25); padding: 4px 8px; border-radius: 6px; font-family: monospace;" dir="ltr">
+              <span>user: <code style="color: #67e8f9;">digital@peyda.ir</code></span>
+              <span>pass: <code style="color: #fcd34d;">Digital_2026_Demo!</code></span>
+            </div>
+          </div>
+
+          <div style="font-size: 0.72rem; color: var(--text-faint, #64748b); text-align: center; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 6px;">
+            دسترسی مدیر سیستم (Superuser): <code style="color: #a78bfa;">admin</code> / <code style="color: #a78bfa;">Admin_2026_Secure!</code>
+          </div>
         </div>
 
         <!-- Submit Button -->
-        <button type="submit" class="auth-submit-btn" style="margin-top: 6px;">
+        <button type="submit" class="auth-submit-btn" style="margin-top: 4px;">
           <span>ورود به پنل کاربری</span>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
         </button>
@@ -234,13 +282,25 @@
     }
   }
 
-  function fillDemoAccount() {
+  function fillDemoAccount(username = 'barista@peyda.ir', password = 'Barista_2026_Demo!') {
     switchLoginTab('password');
     const usernameInput = document.getElementById('login-username');
     const passwordInput = document.getElementById('login-password');
     if (usernameInput && passwordInput) {
-      usernameInput.value = 'seller@moshtariyab.com';
-      passwordInput.value = 'demo123456';
+      usernameInput.value = username;
+      passwordInput.value = password;
+
+      usernameInput.style.borderColor = 'var(--brand-primary, #7928ca)';
+      usernameInput.style.boxShadow = '0 0 0 3px rgba(121, 40, 202, 0.2)';
+      passwordInput.style.borderColor = 'var(--brand-primary, #7928ca)';
+      passwordInput.style.boxShadow = '0 0 0 3px rgba(121, 40, 202, 0.2)';
+      setTimeout(() => {
+        usernameInput.style.borderColor = '';
+        usernameInput.style.boxShadow = '';
+        passwordInput.style.borderColor = '';
+        passwordInput.style.boxShadow = '';
+      }, 1000);
+
       passwordInput.focus();
     }
   }

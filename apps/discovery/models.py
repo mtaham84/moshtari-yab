@@ -616,6 +616,28 @@ class Opportunity(models.Model):
             return int(self.ai_analysis.confidence * 100)
         return 0
 
+    @property
+    def created_at_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_datetime
+        if not self.created_at:
+            return ""
+        return format_jalali_datetime(self.created_at)
+
+    @property
+    def message_timestamp_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_datetime
+        dt = self.source_message_timestamp or self.created_at
+        if not dt:
+            return ""
+        return format_jalali_datetime(dt)
+
+    @property
+    def cost_toman_display(self) -> str:
+        if hasattr(self, "ai_analysis") and self.ai_analysis:
+            cost = self.ai_analysis.cost_toman
+            return f"{cost:,}".replace(",", "،") if cost else "۰"
+        return "۰"
+
 
 class AIAnalysis(models.Model):
     """

@@ -31,6 +31,26 @@
       <li><a class="nav-link" href="#هوش-محصول">هوش محصول</a></li>
       <li><a class="nav-link" href="#مسیر-ایجنت">معماری ایجنت</a></li>
       <li><a class="nav-link" href="#منابع">کانال‌ها</a></li>
+
+      <!-- Mobile-only Auth Links inside Drawer -->
+      <li class="mobile-drawer-auth-item">
+        {% if user.is_authenticated %}
+          <a class="nav-cta-btn" href="{% url 'accounts:dashboard' %}" style="width: 100%; justify-content: center;">
+            <span>ورود به پیشخوان کاربری</span>
+            <span aria-hidden="true">←</span>
+          </a>
+        {% else %}
+          <div class="mobile-drawer-auth-group">
+            <a class="nav-login-btn" href="{% url 'accounts:login' %}" style="flex: 1; text-align: center; justify-content: center;">
+              ورود به حساب
+            </a>
+            <a class="nav-cta-btn" href="{% url 'accounts:signup' %}" style="flex: 1.3; text-align: center; justify-content: center;">
+              <span>ثبت‌نام و شروع</span>
+              <span aria-hidden="true">←</span>
+            </a>
+          </div>
+        {% endif %}
+      </li>
     </ul>
 
     <div class="nav-actions">
@@ -49,17 +69,17 @@
           <span aria-hidden="true">←</span>
         </a>
       {% else %}
-        <a class="hero-link-btn" href="{% url 'accounts:login' %}" style="color: rgba(255,255,255,0.85); font-weight: 600; padding: 6px 12px;">
+        <a class="nav-login-btn" href="{% url 'accounts:login' %}">
           ورود
         </a>
         <a class="nav-cta-btn" href="{% url 'accounts:signup' %}">
-          <span>ثبت‌نام و شروع</span>
+          <span>ثبت‌نام</span>
           <span aria-hidden="true">←</span>
         </a>
       {% endif %}
 
       <button class="mobile-menu-btn" type="button" aria-expanded="false" aria-label="منوی موبایل">
-        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none">
+        <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.2" fill="none">
           <line x1="3" y1="12" x2="21" y2="12"></line>
           <line x1="3" y1="6" x2="21" y2="6"></line>
           <line x1="3" y1="18" x2="21" y2="18"></line>
@@ -67,6 +87,9 @@
       </button>
     </div>
   </nav>
+
+  <!-- Mobile Drawer Backdrop -->
+  <div id="landing-menu-backdrop" class="landing-menu-backdrop" aria-hidden="true"></div>
 
   <!-- Hero Content Body -->
   <div class="hero-body">

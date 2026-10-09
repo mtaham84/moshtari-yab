@@ -140,6 +140,8 @@
    ========================================================================== */
 .panel-app-container {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
   background-color: var(--stone-canvas);
   background-image: repeating-linear-gradient(45deg, var(--stone-canvas-rib) 0px, var(--stone-canvas-rib) 14px, transparent 14px, transparent 28px);
   padding: 24px;
@@ -150,6 +152,7 @@
   box-sizing: border-box;
   font-family: var(--font-vazir);
   transition: background-color 0.25s ease;
+  overflow-x: hidden;
 }
 
 /* Floating Stone Chassis (Inspired by reference console) */
@@ -715,6 +718,14 @@
   color: var(--panel-text-main);
   padding: 8px;
   cursor: pointer;
+}
+
+.console-mobile-hamburger {
+  display: none;
+}
+
+.mobile-table-scroll-hint {
+  display: none;
 }
 
 /* ==========================================================================
@@ -1539,21 +1550,62 @@
   line-height: 1.65;
 }
 
-/* Mobile Bottom Navigation Bar (Thumb zone) */
+/* Two-Column Lead Discovery & Inspector Split */
+.dashboard-leads-split {
+  display: grid;
+  grid-template-columns: 0.95fr 1.35fr;
+  gap: 24px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+#leads-list-container,
+#lead-inspector-card {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.inspector-card {
+  padding: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.factors-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.inspector-action-buttons {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+/* Mobile Bottom Navigation Bar (Uniform Native App Feel - Thumb Zone) */
 .panel-mobile-bottom-nav {
   display: none;
   position: fixed;
   bottom: 0;
   right: 0;
   left: 0;
-  height: 64px;
+  height: 60px;
   background-color: var(--panel-topbar);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-top: 1.5px solid var(--panel-border-subtle);
-  z-index: 50;
+  z-index: 9999;
   align-items: center;
   justify-content: space-around;
-  padding: 0 10px;
+  padding: 0 4px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
 }
 
 .bottom-nav-item {
@@ -1562,60 +1614,507 @@
   align-items: center;
   justify-content: center;
   gap: 3px;
-  color: var(--panel-text-faint);
-  font-size: 0.68rem;
+  color: var(--stone-text-muted, #94a3b8);
+  font-size: 0.72rem;
   font-weight: 600;
   text-decoration: none;
   flex: 1;
   height: 100%;
+  padding: 6px 0;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.bottom-nav-item svg {
+  transition: transform 0.2s ease, stroke 0.2s ease;
 }
 
 .bottom-nav-item.active {
-  color: var(--obsidian-cyan);
-  font-weight: 750;
+  color: var(--obsidian-cyan, #00f2fe) !important;
+  font-weight: 800 !important;
 }
 
-.bottom-nav-discovery {
-  position: relative;
-  top: -12px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--obsidian-bg);
-  border: 1.5px solid var(--obsidian-cyan);
-  color: var(--obsidian-cyan) !important;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 4px 18px rgba(0, 242, 254, 0.4);
+.bottom-nav-item.active svg {
+  stroke: var(--obsidian-cyan, #00f2fe) !important;
+  transform: translateY(-1px);
 }
 
-/* Responsive Adaptations */
+.bottom-nav-item.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--obsidian-cyan, #00f2fe);
+  box-shadow: 0 2px 8px rgba(0, 242, 254, 0.6);
+}
+
+/* ==========================================================================
+   Mobile Responsive System Overhaul (buildX Mobile Polish)
+   ========================================================================== */
+
+/* Drawer Backdrop Overlay */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 9998;
+}
+
+.sidebar-backdrop.is-active {
+  display: block;
+}
+
 @media (max-width: 1200px) {
   .pipeline-stepper-wrap {
-    display: none;
+    display: none !important;
   }
   .stone-stat-grid {
     grid-template-columns: 1fr;
   }
 }
 
+/* Tablet & Smaller Desktops */
+@media (max-width: 992px) {
+  .stone-console-header {
+    padding: 0 16px;
+    height: 64px;
+    gap: 10px;
+  }
+  .console-brand-badge {
+    display: none;
+  }
+  .console-status-chip span:last-child {
+    display: none;
+  }
+  .console-status-chip {
+    padding: 6px 8px;
+  }
+  .dashboard-leads-split {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 18px !important;
+    width: 100% !important;
+  }
+  #leads-list-container,
+  #lead-inspector-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Mobile & Tablet Devices (<= 768px) */
 @media (max-width: 768px) {
   .panel-app-container {
-    padding: 10px;
+    padding: 0 0 88px 0 !important;
+    background: var(--stone-canvas) !important;
   }
+
   .stone-chassis {
-    border-radius: 24px;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    min-height: 100vh;
+    background: var(--panel-bg);
   }
+
+  /* Console Header Mobile Optimization */
+  .stone-console-header {
+    height: 56px;
+    padding: 0 10px;
+    gap: 8px;
+    background: var(--panel-topbar);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+  }
+
+  /* Mobile Hamburger Menu in Upper Console */
+  .console-mobile-hamburger {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--stone-surface-sunken);
+    box-shadow: var(--stone-shadow-inset);
+    border: 1px solid var(--panel-border-subtle);
+    color: var(--panel-text-main);
+    margin-left: 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .console-brand-section {
+    display: flex;
+    align-items: center;
+  }
+
+  .console-brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .console-brand-logo svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .console-brand-name {
+    font-size: 0.95rem;
+  }
+  .console-brand-badge {
+    display: none !important;
+  }
+
+  /* Compact Actions Section */
+  .console-actions-section {
+    gap: 6px;
+  }
+
+  .console-status-chip {
+    display: none !important;
+  }
+
+  /* Compact Theme Switcher */
+  .theme-switch-pill {
+    padding: 2px 4px;
+    gap: 2px;
+  }
+  .theme-opt-btn {
+    padding: 3px 6px;
+    font-size: 0.68rem;
+  }
+  .theme-opt-btn[data-theme-set="system"] {
+    display: none;
+  }
+
+  /* Compact Profile Pill */
+  .console-profile-btn {
+    padding: 2px;
+    gap: 0;
+    box-shadow: none;
+    border: none;
+    background: transparent;
+  }
+  .console-profile-btn span {
+    display: none;
+  }
+  .console-avatar-ring {
+    width: 32px;
+    height: 32px;
+    font-size: 0.8rem;
+  }
+
+  .logout-icon-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+  }
+
+  /* Off-canvas Sidebar Drawer */
   .panel-sidebar {
     display: none;
   }
-  .panel-mobile-bottom-nav {
-    display: flex;
+
+  .panel-sidebar.is-open {
+    display: flex !important;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 290px;
+    max-width: 86vw;
+    z-index: 9999;
+    background: var(--panel-sidebar);
+    box-shadow: -8px 0 35px rgba(0, 0, 0, 0.65);
+    padding: 18px 14px;
+    overflow-y: auto;
+    animation: drawerSlideIn 0.22s ease-out forwards;
   }
+
+  .sidebar-mobile-header {
+    display: flex !important;
+  }
+
+  /* Mobile Workspace Topbar */
+  .panel-topbar {
+    height: auto;
+    min-height: 44px;
+    padding: 6px 12px;
+    gap: 8px;
+    border-radius: 0;
+  }
+
+  .topbar-breadcrumb {
+    font-size: 0.76rem;
+    max-width: 170px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar-breadcrumb .sep {
+    margin: 0 3px;
+  }
+
+  .topbar-right {
+    gap: 6px;
+  }
+  .agent-status-pill {
+    display: none !important;
+  }
+  .topbar-discovery-btn {
+    padding: 6px 10px;
+    font-size: 0.74rem;
+    height: 34px;
+  }
+
+  /* Main Workspace Content Area */
+  .panel-content-area {
+    padding: 16px 12px 84px 12px !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Responsive Cards */
+  .p-card {
+    padding: 16px 14px !important;
+    border-radius: 18px !important;
+    margin-bottom: 16px !important;
+  }
+
+  /* Page Headers & Titles */
+  .p-page-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 12px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .p-header-titles {
+    width: 100%;
+  }
+
+  .p-page-title {
+    font-size: 1.15rem !important;
+    line-height: 1.35 !important;
+  }
+
+  .p-page-subtitle {
+    font-size: 0.78rem !important;
+    line-height: 1.5 !important;
+  }
+
+  .p-header-actions {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px !important;
+  }
+
+  .p-header-actions .p-btn,
+  .p-header-actions a,
+  .p-header-actions form,
+  .p-header-actions button {
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  /* General Button Mobile Touch Enhancements */
+  .p-btn {
+    min-height: 42px;
+    font-size: 0.82rem;
+    padding: 8px 14px;
+    border-radius: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .p-btn-sm {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 0.76rem;
+  }
+
+  /* ======================================================================
+     All Grid Stacking Rules for Mobile (1 Column)
+     ====================================================================== */
+  /* Two-column dashboard leads split */
+  .dashboard-leads-split,
+  div[style*="0.95fr 1.35fr"] {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+    width: 100% !important;
+  }
+  #leads-list-container,
+  #lead-inspector-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  .inspector-card {
+    padding: 16px 14px !important;
+  }
+  .inspector-action-buttons {
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+  .inspector-action-buttons .p-btn,
+  .inspector-action-buttons a,
+  .inspector-action-buttons button {
+    width: 100% !important;
+    flex: none !important;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Settings Page sidebar + content */
+  div[style*="280px 1fr"] {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Opportunity Detail two columns */
+  div[style*="1fr 340px"] {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Targeting constraints 3-column */
+  .targeting-fields-grid,
+  div[style*="1.4fr 1.3fr 1fr"] {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* ICP Insights & 4-Column Grids */
+  .icp-insights-grid,
+  .dashboard-stats-grid,
+  div[style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* Factor Breakdowns & 3-Column Grids */
+  .factors-breakdown-grid,
+  div[style*="repeat(3, 1fr)"] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* Form Input Rows (2 columns to 1 column) */
+  div[style*="1fr 1fr"],
+  div[style*="repeat(2, 1fr)"] {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Products Grid & Catalog */
+  .products-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+  .catalog-toolbar {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .filter-tabs-group {
+    width: 100%;
+    overflow-x: auto;
+    display: flex;
+    padding: 3px;
+  }
+  .filter-tab {
+    flex: 1;
+    text-align: center;
+    white-space: nowrap;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+  .catalog-search-form {
+    width: 100%;
+  }
+
+  /* Obsidian control bar */
   .obsidian-control-bar {
     flex-direction: column;
     align-items: flex-start;
+    gap: 10px;
   }
+
+  /* Table Mobile Enhancements */
+  .mobile-table-scroll-hint {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    background: rgba(0, 242, 254, 0.08);
+    border: 1px solid rgba(0, 242, 254, 0.2);
+    font-size: 0.74rem;
+    color: var(--obsidian-cyan);
+    font-weight: 700;
+  }
+
+  .table-responsive-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    border-radius: 12px;
+    border: 1px solid var(--panel-border-subtle);
+  }
+
+  /* Mobile Bottom Navigation Bar Display */
+  .panel-mobile-bottom-nav {
+    display: flex !important;
+  }
+}
+
+/* Extra Small Phones (<= 480px) */
+@media (max-width: 480px) {
+  .icp-insights-grid,
+  .dashboard-stats-grid,
+  div[style*="repeat(4, 1fr)"] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .p-card {
+    padding: 14px 12px !important;
+    border-radius: 16px !important;
+  }
+
+  .stone-console-header {
+    padding: 0 8px;
+  }
+
+  .console-brand-name {
+    font-size: 0.9rem;
+  }
+
+  .topbar-breadcrumb {
+    max-width: 130px;
+  }
+}
+
+@keyframes drawerSlideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 
 /* ==========================================================================

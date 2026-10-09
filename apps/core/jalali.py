@@ -85,6 +85,19 @@ def format_jalali_date(d, persian_digits=True) -> str:
     return raw
 
 
+def format_jalali_datetime(dt, persian_digits=True) -> str:
+    """
+    Formats a datetime.datetime to Persian string YYYY/MM/DD - HH:MM.
+    """
+    if not dt:
+        return ""
+    date_part = format_jalali_date(dt, persian_digits=persian_digits)
+    time_part = f"{dt.hour:02d}:{dt.minute:02d}"
+    if persian_digits:
+        time_part = to_persian_digits(time_part)
+    return f"{date_part} - {time_part}"
+
+
 def parse_jalali_date(s: str) -> date | None:
     """
     Parses a Persian date string like '1403/07/15' or '۱۴۰۳/۰۷/۱۵' or '1403-07-15'
