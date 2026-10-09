@@ -205,10 +205,10 @@ class PanelAgentTests(EngineSchemaMixin, TestCase):
     # ── dashboard / login ─────────────────────────────────────────────────
     def test_dashboard_shows_real_data_only(self):
         html = self.client.get(reverse("accounts:dashboard")).content.decode()
-        for fake in ("سارا امیری", "علی رضایی", "محسن کریمی", "leadsData", "تأیید شناخت ایجنت", "کاهش خستگی مفرط"):
+        for fake in ("سارا امیری", "علی رضایی", "محسن کریمی", "leadsData", "تأیید شناخت ایجنت", "کاهش خستگی مفرط",
+                     "پرسونای خریدار", "تنظیم دستی هدف‌گذاری", "توضیح معماری دمو"):
             self.assertNotIn(fake, html)
         self.assertIn("هنوز فرصتی پیدا نشده", html)
-        self.assertIn("دستکش و لوازم گرم زمستانی برای موتورسواران", html)   # ICP from the business profile
         opp = self._opportunity()
         html = self.client.get(reverse("accounts:dashboard")).content.decode()
         self.assertIn(reverse("discovery:opportunity_detail", args=[opp.pk]), html)

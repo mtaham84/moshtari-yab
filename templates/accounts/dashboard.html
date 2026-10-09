@@ -55,9 +55,8 @@
   color: var(--obsidian-cyan, #00f2fe);
   font-weight: 700;
 }
-/* desktop layout of the ICP box and the metric cards (mobile rules live in panel.css) */
+/* desktop layout of the metric cards (mobile rules live in panel.css) */
 @media (min-width: 769px) {
-  .icp-insights-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
   .dashboard-stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
 }
 .stat-metric-card { padding: 14px 16px; border-radius: 12px; border: 1px solid var(--panel-border-subtle); background: var(--panel-card-inner, rgba(255,255,255,0.03)); }
@@ -70,143 +69,6 @@
   font-weight: 800 !important;
 }
 </style>
-
-<!-- ========================================================================
-     Business & ICP Understanding (شناخت ایجنت از پرسونای مشتری)
-     ======================================================================== -->
-<div class="p-card" style="padding: 22px 26px; margin-bottom: 24px;">
-  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-    <div style="display: flex; align-items: center; gap: 10px;">
-      <span class="console-pulse-beacon"></span>
-      <h2 style="font-size: 1.05rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">
-        شناخت ایجنت از پرسونای خریدار و کسب‌وکار شما (ICP)
-      </h2>
-    </div>
-    
-    <div style="display: flex; align-items: center; gap: 10px;">
-      <span class="p-badge p-badge-success">
-        <span>از اطلاعات کسب‌وکار و {{ icp.products_count }} محصول فعال</span>
-      </span>
-      <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-edit-target" title="تنظیم اختیاری محدودیت‌های سنی، جغرافیایی یا شبکه">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-        <span>تنظیم دستی هدف‌گذاری</span>
-      </button>
-    </div>
-  </div>
-
-  <div class="icp-insights-grid">
-    {% url 'accounts:settings' as settings_url %}
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">حوزه و صنعت:</span>
-      {% if icp.domain %}<strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ icp.domain }}</strong>
-      {% else %}<a href="{{ settings_url }}" style="font-size: 0.8rem; color: var(--stone-text-muted);">در تنظیمات وارد نشده</a>{% endif %}
-    </div>
-
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">ارزش پیشنهادی اصلی:</span>
-      {% if icp.value %}<strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ icp.value }}</strong>
-      {% else %}<a href="{{ settings_url }}" style="font-size: 0.8rem; color: var(--stone-text-muted);">توضیح کسب‌وکار را در تنظیمات بنویسید</a>{% endif %}
-    </div>
-
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">خریداران ایده‌آل:</span>
-      {% if icp.audience %}<strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ icp.audience }}</strong>
-      {% else %}<a href="{{ settings_url }}" style="font-size: 0.8rem; color: var(--stone-text-muted);">مشتریان هدف را در تنظیمات یا محصولات مشخص کنید</a>{% endif %}
-    </div>
-
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">نیازهایی که محصولات شما برطرف می‌کنند:</span>
-      {% if icp.triggers %}<strong style="font-size: 0.88rem; color: var(--obsidian-cyan);">{{ icp.triggers }}</strong>
-      {% else %}<span style="font-size: 0.8rem; color: var(--stone-text-muted);">بعد از بررسی محصولات توسط ایجنت نمایش داده می‌شود</span>{% endif %}
-    </div>
-  </div>
-
-  <!-- Manual Targeting Drawer (31 Cities + Custom Entry, Flexible Age, Auto Intent) -->
-  <div id="target-settings-drawer" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border-subtle);">
-    <form method="POST" action="">
-      {% csrf_token %}
-      <input type="hidden" name="update_targeting_constraints" value="1">
-
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-        <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری اختیاری (Target Constraints):</span>
-        <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">تشخیص هوشمند بر پایه کاتالوگ یا تنظیم دقیق فروشنده</span>
-      </div>
-
-      <div class="targeting-fields-grid" style="display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 14px; align-items: start;">
-        <!-- 31 Major Cities + Custom Typing -->
-        <div>
-          <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی (۳۱ مرکز استان یا شهر دلخواه)</label>
-          <input type="text" list="iran-provincial-cities" name="target_locations" class="form-input" style="padding: 8px 12px; font-size: 0.82rem;" value="{{ business.target_locations|default:'سراسر کشور' }}" placeholder="انتخاب از ۳۱ شهر یا تایپ هر شهر دیگر...">
-          <datalist id="iran-provincial-cities">
-            <option value="سراسر کشور">
-            <option value="تهران">
-            <option value="مشهد">
-            <option value="اصفهان">
-            <option value="کرج">
-            <option value="شیراز">
-            <option value="تبریز">
-            <option value="قم">
-            <option value="اهواز">
-            <option value="کرمانشاه">
-            <option value="ارومیه">
-            <option value="رشت">
-            <option value="زاهدان">
-            <option value="همدان">
-            <option value="کرمان">
-            <option value="یزد">
-            <option value="اردبیل">
-            <option value="بندرعباس">
-            <option value="اراک">
-            <option value="زنجان">
-            <option value="سنندج">
-            <option value="قزوین">
-            <option value="خرم‌آباد">
-            <option value="گرگان">
-            <option value="ساری">
-            <option value="بجنورد">
-            <option value="بوشهر">
-            <option value="بیرجند">
-            <option value="ایلام">
-            <option value="شهرکرد">
-            <option value="سمنان">
-            <option value="یاسوج">
-          </datalist>
-          <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">می‌توانید از لیست ۳۱ مرکز استان انتخاب یا شهر اختصاصی خود را تایپ فرمایید.</span>
-        </div>
-
-        <!-- Flexible Age Range -->
-        <div>
-          <label class="form-label" style="font-size: 0.75rem;">بازه سنی مخاطب (حداقل و حداکثر اختیاری)</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <div style="flex: 1;">
-              <input type="number" name="target_min_age" value="{{ business.target_min_age|default:'' }}" min="12" max="99" class="form-input" style="padding: 8px 10px; font-size: 0.82rem;" placeholder="از سن (بدون کف)">
-            </div>
-            <span style="color: var(--stone-text-muted); font-size: 0.8rem;">تا</span>
-            <div style="flex: 1;">
-              <input type="number" name="target_max_age" value="{{ business.target_max_age|default:'' }}" min="12" max="99" class="form-input" style="padding: 8px 10px; font-size: 0.82rem;" placeholder="تا سن (بدون سقف)">
-            </div>
-          </div>
-          <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">امکان تکمیل فقط حداقل، فقط حداکثر، هر دو، یا خالی گذاشتن هر دو.</span>
-        </div>
-
-        <!-- Autonomous Intent Priority Notice & Save -->
-        <div>
-          <label class="form-label" style="font-size: 0.75rem;">اولویت‌بندی نیت خرید (سیستمی)</label>
-          <div style="padding: 8px 10px; background: rgba(0, 242, 254, 0.05); border: 1px dashed rgba(0, 242, 254, 0.25); border-radius: 8px; font-size: 0.74rem; color: var(--obsidian-cyan); line-height: 1.5;">
-            <strong>ترتیب هوشمند ایجنت:</strong>
-            <span style="display: block; color: var(--stone-text-muted);">۱. آماده خرید ۲. مقایسه ۳. نیاز اولیه</span>
-          </div>
-          <div style="margin-top: 8px;">
-            <button type="submit" class="p-btn p-btn-primary p-btn-sm" style="width: 100%; font-size: 0.8rem;">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>ذخیره محدوده‌ها</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
 
 <!-- ========================================================================
      Discovered Customer Database & Pipeline Metrics Section
@@ -229,25 +91,6 @@
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
         <span>ورود به دیتابیس کامل فرصت‌ها</span>
       </a>
-    </div>
-  </div>
-
-  <!-- Phase 2 Roadmap Notice Banner (Explains why direct messaging / clicks are Phase 2) -->
-  <div style="background: rgba(168, 85, 247, 0.05); border: 1.5px dashed rgba(168, 85, 247, 0.35); border-radius: 14px; padding: 16px 20px; margin-bottom: 20px;">
-    <div style="display: flex; align-items: flex-start; gap: 12px;">
-      <div class="p-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-      </div>
-      <div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-          <strong style="font-size: 0.92rem; color: var(--panel-text-main);">توضیح معماری دمو: تمرکز فعلی بر استخراج و تشکیل دیتابیس مشتریان بالقوه است</strong>
-          <span class="p-badge p-badge-purple" style="font-size: 0.68rem;">فاز ۲ پروژه (نقشه راه تعامل و مذاکره)</span>
-        </div>
-        <p style="margin: 0; font-size: 0.8rem; color: var(--stone-text-muted); line-height: 1.65;">
-          در این نسخه و دموی حاضر، سیستم صرفاً به عنوان <strong>موتور هوشمند کشف و تشکیل پایگاه داده مشتریان بالقوه</strong> در حوزه‌های مختلف عمل می‌کند؛ داده‌های افراد نیازمند، پیام‌های تقاضا و شواهد نیت خرید را پایش و اعتبارسنجی کرده و در دیتابیس ذخیره می‌نماید.<br>
-          قابلیت‌های <strong>تعامل مستقیم ایجنت با کاربر، ارسال خودکار پیام در شبکه‌ها، مذاکره هوشمند، ترغیب به کلیک روی لینک و ثبت سفارش آنلاین</strong> مربوط به <strong>فاز دوم پروژه</strong> هستند و در دموی کنونی قرار ندارند.
-        </p>
-      </div>
     </div>
   </div>
 
@@ -416,19 +259,6 @@
 <!-- Client-side Interactive Logic -->
 <script>
   (() => {
-    // Toggle Manual Targeting Drawer
-    const btnEditTarget = document.getElementById("btn-edit-target");
-    const targetDrawer = document.getElementById("target-settings-drawer");
-    if (btnEditTarget && targetDrawer) {
-      btnEditTarget.addEventListener("click", () => {
-        const isHidden = targetDrawer.style.display === "none";
-        targetDrawer.style.display = isHidden ? "block" : "none";
-        btnEditTarget.innerHTML = isHidden 
-          ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>بستن تنظیمات</span>` 
-          : `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg><span>تنظیم دستی هدف‌گذاری</span>`;
-      });
-    }
-
     // Analytics Table Sorting
     const sortButtons = document.querySelectorAll(".analytics-sort-btn");
     const tableBody = document.getElementById("analytics-table-body");
