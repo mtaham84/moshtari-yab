@@ -312,4 +312,3 @@ class CrawlerMonitor:
         finally:
             if worker:
                 worker.cancel()
-
