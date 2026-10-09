@@ -668,6 +668,10 @@ class AIAnalysis(models.Model):
     why_selected = models.TextField(
         verbose_name="دلیل انتخاب این مشتری (توضیح کوتاه و شفاف)"
     )
+
+    @property
+    def decision_reason(self) -> str:
+        return self.why_selected or ""
     suggested_reply = models.TextField(
         blank=True,
         verbose_name="پیش‌نویس پیام پیشنهادی هوش مصنوعی برای ارسال توسط فروشنده"

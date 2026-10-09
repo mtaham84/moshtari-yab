@@ -90,7 +90,7 @@
     </div>
   </div>
 
-  <div class="icp-insights-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px 20px; border-radius: 16px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset);">
+  <div class="icp-insights-grid">
     <div>
       <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">حوزه و صنعت:</span>
       <strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ business.business_domain|default:"سبک زندگی دیجیتال و فناوری" }}</strong>
@@ -243,59 +243,59 @@
   </div>
 
   <!-- 4 Key Database Metrics Cards Grid -->
-  <div class="dashboard-stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;">
+  <div class="dashboard-stats-grid">
     <!-- Metric 1: Total Discovered Customers -->
-    <div style="background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 14px; padding: 16px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">کل مشتریان ثبت در دیتابیس</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--brand-purple)" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+    <div class="stat-metric-card stat-metric-purple">
+      <div class="stat-metric-header">
+        <span class="stat-metric-label">کل مشتریان ثبت در دیتابیس</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
       </div>
-      <div style="font-size: 1.45rem; font-weight: 900; color: var(--brand-purple); margin-bottom: 4px;" id="stat-total-sales">
+      <div class="stat-metric-val" id="stat-total-sales">
         {{ analytics.summary.total_leads_in_db|default:"۱۳۳" }} سرنخ
       </div>
-      <span style="font-size: 0.74rem; color: var(--p-success); font-weight: 700;">
+      <span class="stat-metric-sub stat-metric-success-text">
         شناسایی‌شده از منابع مختلف
       </span>
     </div>
 
     <!-- Metric 2: High Purchase Intent Customers -->
-    <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 14px; padding: 16px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">مشتریان با نیت خرید قطعی</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#10b981" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+    <div class="stat-metric-card stat-metric-green">
+      <div class="stat-metric-header">
+        <span class="stat-metric-label">مشتریان با نیت خرید قطعی</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
       </div>
-      <div style="font-size: 1.45rem; font-weight: 900; color: #10b981; margin-bottom: 4px;" id="stat-total-clicks">
+      <div class="stat-metric-val" id="stat-total-clicks">
         {{ analytics.summary.high_intent_leads_in_db|default:"۴۹" }} فرصت طلایی
       </div>
-      <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
+      <span class="stat-metric-sub">
         امتیاز نیت خرید بالای ۸۰٪
       </span>
     </div>
 
     <!-- Metric 3: Monitored Catalog & Categories -->
-    <div style="background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.18); border-radius: 14px; padding: 16px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">کاتالوگ و حوزه‌های هدف</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--obsidian-cyan)" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+    <div class="stat-metric-card stat-metric-cyan">
+      <div class="stat-metric-header">
+        <span class="stat-metric-label">کاتالوگ و حوزه‌های هدف</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
       </div>
-      <div style="font-size: 1.45rem; font-weight: 900; color: var(--obsidian-cyan); margin-bottom: 4px;" id="stat-total-views">
+      <div class="stat-metric-val" id="stat-total-views">
         {{ analytics.summary.monitored_products_count|default:"۳" }} محصول
       </div>
-      <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
+      <span class="stat-metric-sub">
         پوشش {{ analytics.summary.monitored_categories_count|default:"۲" }} شاخه دسته‌بندی
       </span>
     </div>
 
     <!-- Metric 4: Monitored Platforms -->
-    <div style="background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 14px; padding: 16px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.78rem; color: var(--stone-text-muted); font-weight: 700;">جوامع آنلاین رصدشده</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+    <div class="stat-metric-card stat-metric-amber">
+      <div class="stat-metric-header">
+        <span class="stat-metric-label">جوامع آنلاین رصدشده</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="21" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
       </div>
-      <div style="font-size: 1.45rem; font-weight: 900; color: #fbbf24; margin-bottom: 4px;" id="stat-total-outreach">
+      <div class="stat-metric-val" id="stat-total-outreach">
         تلگرام (فعال)
       </div>
-      <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
+      <span class="stat-metric-sub">
         کانال‌ها و گروه‌ها • سایر پلتفرم‌ها (فاز ۲)
       </span>
     </div>

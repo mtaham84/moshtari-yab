@@ -2079,6 +2079,86 @@
     border: 1px solid var(--panel-border-subtle);
   }
 
+  /* Mobile Dashboard Visual Polish (Sizes & Spacing) */
+  .icp-insights-grid {
+    padding: 12px 14px !important;
+    gap: 12px !important;
+  }
+  .icp-insights-grid span {
+    font-size: 0.68rem !important;
+  }
+  .icp-insights-grid strong {
+    font-size: 0.8rem !important;
+  }
+
+  .dashboard-stats-grid > div {
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+  }
+  .dashboard-stats-grid > div > div:nth-child(2) {
+    font-size: 1.22rem !important;
+    letter-spacing: -0.3px;
+  }
+  .dashboard-stats-grid > div > div:first-child span {
+    font-size: 0.73rem !important;
+  }
+  .dashboard-stats-grid > div > span:last-child {
+    font-size: 0.68rem !important;
+  }
+
+  .lead-item-card {
+    padding: 14px 14px !important;
+    border-radius: 14px !important;
+  }
+  .lead-item-card strong {
+    font-size: 0.85rem !important;
+  }
+  .lead-avatar-circle {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 0.82rem !important;
+  }
+  .lead-msg-quote {
+    font-size: 0.78rem !important;
+    line-height: 1.55 !important;
+    padding: 8px 12px !important;
+    margin: 8px 0 !important;
+  }
+
+  .inspector-card {
+    padding: 16px 14px !important;
+    border-radius: 16px !important;
+  }
+  .inspector-card .inspector-header h3 {
+    font-size: 1.02rem !important;
+  }
+  .inspector-card #insp-total-score {
+    font-size: 1.35rem !important;
+  }
+  .inspector-card #insp-evidence {
+    font-size: 0.78rem !important;
+    padding: 10px 12px !important;
+    line-height: 1.55 !important;
+  }
+  .inspector-card #insp-outreach-text {
+    font-size: 0.8rem !important;
+    line-height: 1.6 !important;
+  }
+  .inspector-action-buttons .p-btn,
+  .inspector-action-buttons a,
+  .inspector-action-buttons button {
+    min-height: 38px !important;
+    font-size: 0.78rem !important;
+    padding: 7px 12px !important;
+  }
+  .factor-mini-card {
+    padding: 8px 10px !important;
+  }
+  .factor-mini-card span,
+  .factor-mini-card strong {
+    font-size: 0.7rem !important;
+  }
+
   /* Mobile Bottom Navigation Bar Display */
   .panel-mobile-bottom-nav {
     display: flex !important;
