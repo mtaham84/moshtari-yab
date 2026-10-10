@@ -87,10 +87,12 @@ services:
   xray:
     image: ${XRAY_IMAGE:-teddysun/xray}
     profiles: ["proxy"]
+    ports:
+      - "127.0.0.1:1080:1080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./xray/config.json:/etc/xray/config.json:ro
     restart: unless-stopped
-    # no "ports": the proxy is reachable only inside the compose network
 
 volumes:
   pgdata:
