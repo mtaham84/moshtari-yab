@@ -17,6 +17,10 @@ T = TypeVar("T")
 class FloodWaitTooLong(RuntimeError):
     """Telegram asked us to wait longer than FLOOD_MAX_WAIT_SECONDS."""
 
+    def __init__(self, message: str, seconds: int = 0) -> None:
+        super().__init__(message)
+        self.seconds = seconds
+
 
 async def with_flood_retry(
     factory: Callable[[], Awaitable[T]],
@@ -40,7 +44,7 @@ async def with_flood_retry(
             attempt += 1
             wait = int(getattr(exc, "seconds", 0) or 0) + 1
             if wait > limit:
-                raise FloodWaitTooLong(f"{what}: Telegram requires waiting {wait}s (> {limit}s limit)") from exc
+                raise FloodWaitTooLong(f"{what}: Telegram requires waiting {wait}s (> {limit}s limit)", wait) from exc
             if attempt > retries:
                 raise
             log.warning("FloodWait on %s: sleeping %ss (attempt %s/%s)", what, wait, attempt, retries)

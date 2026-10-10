@@ -15,17 +15,19 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 
 from apps.products.models import Product
 
 from .models import (ENGINE_STATUS_MAP, AIAnalysis, Customer, Evidence, MonitoredCommunity, Opportunity,
                      OpportunityProductMatch, XCollectorState, XQueryDaily, XSearchQuery)
+from .sources import GLOBAL
 
 log = logging.getLogger(__name__)
 
 STRENGTH_INTENT = {"strong": 0.9, "medium": 0.7, "weak": 0.5}
+SELLER_KEYS = ("seller_drafts", "seller_drafts_n")   # trace_metadata keys written by the panel, kept on re-import
 ENGINE_OWNED_STATUSES = {"NEW", "RESOLVED", "EXPIRED"}  # seller-set statuses (REVIEWED, CONTACTED, …) are kept
 
 
@@ -49,17 +51,36 @@ def _customer(business, platform: str, cand: dict) -> Customer:
     return customer
 
 
+def sellers_allowed_for_chat(chat_id: Any) -> set[int] | None:
+    """Same rule as need_engine/access.py: None = every seller (active GLOBAL source), else the owners of the
+    active PRIVATE sources. Chats that are not Telegram ids (offline demo files) are not restricted."""
+    if not str(chat_id or "").lstrip("-").isdigit():
+        return None
+    rows = MonitoredCommunity.objects.filter(telegram_chat_id=int(chat_id), is_active=True).values_list("scope", "business_id")
+    owners: set[int] = set()
+    for scope, business_id in rows:
+        if scope == GLOBAL:
+            return None
+        owners.add(business_id)
+    return owners
+
+
 @transaction.atomic
 def import_opportunity(payload: dict) -> list[Opportunity]:
     """Upsert one engine opportunity. Returns the panel opportunities (one per seller)."""
     matches = payload.get("matched_products") or []
     ids = [int(m["product_id"]) for m in matches if str(m.get("product_id", "")).isdigit()]
     products = {p.id: p for p in Product.objects.filter(id__in=ids).select_related("business", "category")}
+    allowed = sellers_allowed_for_chat((payload.get("source") or {}).get("chat_id"))
     by_business: dict[int, list[tuple[dict, Product]]] = defaultdict(list)
     for m in matches:
         p = products.get(int(m["product_id"])) if str(m.get("product_id", "")).isdigit() else None
         if p is None:
             log.warning("opportunity %s: unknown product %s skipped", payload.get("opportunity_id"), m.get("product_id"))
+            continue
+        if allowed is not None and p.business_id not in allowed:   # double check of the engine's access rule
+            log.warning("opportunity %s: seller %s does not watch this chat; product %s skipped",
+                        payload.get("opportunity_id"), p.business_id, p.id)
             continue
         by_business[p.business_id].append((m, p))
 
@@ -106,8 +127,9 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         opp.thread_fetched_at = _dt(thread.get("fetched_at"))
         opp.source_raw_message = "\n".join(e.get("text", "") for e in evidence)
         opp.expires_at = _dt(payload.get("expires_at"))
+        kept = {k: v for k, v in (opp.trace_metadata or {}).items() if k in SELLER_KEYS}   # «دوباره بنویس» results
         opp.trace_metadata = {"engine": {k: v for k, v in payload.items() if k != "matched_products"},
-                              "matched_products": [m for m, _ in items]}
+                              "matched_products": [m for m, _ in items], **kept}
         opp.save()
         parent_id = thread.get("parent_opportunity_id")
         opp.parent_opportunity = Opportunity.objects.filter(engine_opportunity_id=parent_id, business=business).first() if parent_id else None
@@ -124,7 +146,7 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
             "product_fit_score": float(top_match.get("match_score") or 0),
             "confidence": float(need.get("priority") or 0),
             "why_selected": " — ".join(x for x in (need.get("situation"), verdict.get("reason")) if x),
-            "suggested_reply": top_match.get("reply_draft") or "",
+            "suggested_reply": (kept.get("seller_drafts") or {}).get(str(top_product.id)) or top_match.get("reply_draft") or "",
             "model_name": "need_engine",
             "cost_toman": round(float((payload.get("cost") or {}).get("toman") or 0)),
         })
@@ -173,15 +195,43 @@ def published_after(seq: int, limit: int = 500) -> list[tuple[int, dict]]:
         return [(int(s), p if isinstance(p, dict) else json.loads(p)) for s, p in cur.fetchall()]
 
 
-def engine_totals() -> dict:
-    """The engine's lifetime counters (read-only). Zeros if the engine has not run yet."""
+def _has_column(table: str, column: str) -> bool:
+    schema, name = table.split(".")
+    with connection.cursor() as cur:
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                    [schema, name, column])
+        return cur.fetchone() is not None
+
+
+def engine_totals(business=None) -> dict:
+    """The engine's lifetime counters (read-only). Zeros if the engine has not run yet.
+
+    With ``business``: the seller's share of the LLM cost (matching/replies of its products, analysis of its private
+    groups split among their owners) over the messages reviewed for it (its private groups + global groups).
+    """
     empty = {"messages_analysed": 0, "llm_calls": 0, "cost_toman": 0.0, "cost_per_message_toman": 0.0}
     costs, kv = _engine_table("costs"), _engine_table("kv")
     if not costs or not kv:
         return empty
+    if business is not None:
+        per_chat = _engine_table("chat_analysed")
+        if not per_chat or not _has_column(costs, "business_id"):
+            return empty
+        chats = [str(c) for c in MonitoredCommunity.objects.filter(telegram_chat_id__isnull=False).filter(
+            Q(scope=GLOBAL) | Q(business=business)).values_list("telegram_chat_id", flat=True).distinct()]
+        with connection.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*), COALESCE(SUM(toman), 0) FROM {costs} WHERE business_id = %s", [str(business.pk)])
+            calls, toman = cur.fetchone()
+            cur.execute(f"SELECT COALESCE(SUM(n), 0) FROM {per_chat} WHERE chat_id = ANY(%s)", [chats])
+            n = int(cur.fetchone()[0] or 0)
+        return {"messages_analysed": n, "llm_calls": int(calls), "cost_toman": float(toman),
+                "cost_per_message_toman": float(toman) / n if n else 0.0}
+    once = "WHERE part = 0" if _has_column(costs, "part") else ""
     with connection.cursor() as cur:
-        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(toman), 0) FROM {costs}")
-        calls, toman = cur.fetchone()
+        cur.execute(f"SELECT COALESCE(SUM(toman), 0) FROM {costs}")
+        toman = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) FROM {costs} {once}")
+        calls = cur.fetchone()[0]
         cur.execute(f"SELECT (v #>> '{{}}')::bigint FROM {kv} WHERE k = 'messages_analysed'")
         row = cur.fetchone()
     n = int(row[0]) if row and row[0] is not None else 0

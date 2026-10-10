@@ -24,7 +24,7 @@
     <!-- Platform Badge -->
     {% if opportunity.source_platform == 'telegram' %}
       <span class="p-badge" style="background: rgba(34, 158, 217, 0.15); color: #0088cc; border: 1px solid rgba(34, 158, 217, 0.3); font-weight: 600;">
-        تلگرام (Telegram)
+        تلگرام
       </span>
     {% elif opportunity.source_platform == 'x' %}
       <span class="p-badge" style="background: rgba(15, 23, 42, 0.12); color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.3); font-weight: 600;">
@@ -230,7 +230,7 @@
                 </a>
                 <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
                   <span style="font-size: 0.8rem; color: #10B981; font-weight: 600;">
-                    {{ match.product.formatted_price }} تومان
+                    {{ match.product.formatted_price }}
                   </span>
                   {% if match.product.category %}
                     <span style="font-size: 0.74rem; color: var(--stone-text-muted);">
@@ -312,11 +312,31 @@
         </span>
       </div>
 
-      <div style="position: relative; margin-bottom: 16px;">
-        <textarea id="suggested-reply-box" class="form-input" rows="4" style="line-height: 1.8; font-size: 0.9rem; resize: vertical;" readonly>{{ analysis.suggested_reply }}</textarea>
-      </div>
+      {% if product_matches|length > 1 %}
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+          <label for="draft-product" style="font-size: 0.8rem; color: var(--stone-text-muted);">پیش‌نویس برای:</label>
+          <select id="draft-product" class="form-input" style="height: 38px; max-width: 320px; font-size: 0.84rem;">
+            {% for match in product_matches %}
+              <option value="{{ match.product_id }}">{{ match.product.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      {{ drafts|json_script:"drafts-data" }}
 
-      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+      <div style="position: relative; margin-bottom: 16px;">
+        <textarea id="suggested-reply-box" class="form-input" rows="4" style="line-height: 1.8; font-size: 0.9rem; resize: vertical;" readonly placeholder="برای این محصول هنوز پیش‌نویسی نوشته نشده؛ «دوباره بنویس» را بزنید.">{{ first_draft }}</textarea>
+      </div>
+      <div id="rewrite-error" role="status" style="display: none; margin: -8px 0 12px; font-size: 0.8rem; color: var(--p-danger, #ef4444);"></div>
+
+      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
+        {% if product_matches %}
+          <button type="button" id="btn-rewrite-reply" class="p-btn p-btn-secondary" style="font-size: 0.82rem; padding: 8px 16px;"
+                  data-endpoint="{% url 'discovery:opportunity_rewrite' opportunity.id %}" data-product="{{ product_matches.0.product_id }}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            <span id="rewrite-reply-text">دوباره بنویس</span>
+          </button>
+        {% endif %}
         <button type="button" id="btn-edit-reply" class="p-btn p-btn-secondary" style="font-size: 0.82rem; padding: 8px 16px;">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
           <span id="edit-reply-text">ویرایش متن</span>
@@ -351,19 +371,19 @@
         <span style="font-size: 0.74rem; color: var(--stone-text-muted); display: block; margin-bottom: 6px;">وضعیت فعلی:</span>
         <div id="status-current-badge">
           {% if opportunity.status == 'NEW' %}
-            <span class="p-badge" style="background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); font-size: 0.85rem; padding: 6px 14px;">جدید (New)</span>
+            <span class="p-badge" style="background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); font-size: 0.85rem; padding: 6px 14px;">جدید</span>
           {% elif opportunity.status == 'REVIEWED' %}
-            <span class="p-badge" style="background: rgba(234, 179, 8, 0.15); color: #CA8A04; font-size: 0.85rem; padding: 6px 14px;">بررسی شده (Reviewed)</span>
+            <span class="p-badge" style="background: rgba(234, 179, 8, 0.15); color: #CA8A04; font-size: 0.85rem; padding: 6px 14px;">بررسی شده</span>
           {% elif opportunity.status == 'CONTACTED' %}
-            <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 0.85rem; padding: 6px 14px;">تماس گرفته شده (Contacted)</span>
+            <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 0.85rem; padding: 6px 14px;">تماس گرفته شده</span>
           {% elif opportunity.status == 'CONVERTED' %}
-            <span class="p-badge" style="background: rgba(16, 185, 129, 0.25); color: #047857; font-weight: 700; font-size: 0.85rem; padding: 6px 14px;">مشتری نهایی (Converted)</span>
+            <span class="p-badge" style="background: rgba(16, 185, 129, 0.25); color: #047857; font-weight: 700; font-size: 0.85rem; padding: 6px 14px;">مشتری نهایی</span>
           {% elif opportunity.status == 'REJECTED' %}
-            <span class="p-badge" style="background: rgba(239, 68, 68, 0.15); color: #DC2626; font-size: 0.85rem; padding: 6px 14px;">رد شده (Rejected)</span>
+            <span class="p-badge" style="background: rgba(239, 68, 68, 0.15); color: #DC2626; font-size: 0.85rem; padding: 6px 14px;">رد شده</span>
           {% elif opportunity.status == 'RESOLVED' %}
-            <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6; font-size: 0.85rem; padding: 6px 14px;">نیاز برطرف شد (Resolved)</span>
+            <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6; font-size: 0.85rem; padding: 6px 14px;">نیاز برطرف شد</span>
           {% elif opportunity.status == 'EXPIRED' %}
-            <span class="p-badge" style="background: rgba(120, 113, 108, 0.15); color: #78716C; font-size: 0.85rem; padding: 6px 14px;">منقضی شده (Expired)</span>
+            <span class="p-badge" style="background: rgba(120, 113, 108, 0.15); color: #78716C; font-size: 0.85rem; padding: 6px 14px;">منقضی شده</span>
           {% endif %}
         </div>
       </div>
@@ -371,13 +391,13 @@
       <div style="margin-bottom: 12px;">
         <label class="form-label" style="font-size: 0.76rem;">تغییر وضعیت فرصت:</label>
         <select id="select-status-changer" class="form-input" style="height: 38px; font-size: 0.82rem;">
-          <option value="NEW" {% if opportunity.status == 'NEW' %}selected{% endif %}>جدید (New)</option>
-          <option value="REVIEWED" {% if opportunity.status == 'REVIEWED' %}selected{% endif %}>بررسی شده (Reviewed)</option>
-          <option value="CONTACTED" {% if opportunity.status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده (Contacted)</option>
-          <option value="CONVERTED" {% if opportunity.status == 'CONVERTED' %}selected{% endif %}>تبدیل به مشتری نهایی (Converted)</option>
-          <option value="REJECTED" {% if opportunity.status == 'REJECTED' %}selected{% endif %}>رد شده (Rejected)</option>
-          <option value="RESOLVED" {% if opportunity.status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد (Resolved)</option>
-          <option value="EXPIRED" {% if opportunity.status == 'EXPIRED' %}selected{% endif %}>منقضی شده (Expired)</option>
+          <option value="NEW" {% if opportunity.status == 'NEW' %}selected{% endif %}>جدید</option>
+          <option value="REVIEWED" {% if opportunity.status == 'REVIEWED' %}selected{% endif %}>بررسی شده</option>
+          <option value="CONTACTED" {% if opportunity.status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده</option>
+          <option value="CONVERTED" {% if opportunity.status == 'CONVERTED' %}selected{% endif %}>تبدیل به مشتری نهایی</option>
+          <option value="REJECTED" {% if opportunity.status == 'REJECTED' %}selected{% endif %}>رد شده</option>
+          <option value="RESOLVED" {% if opportunity.status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد</option>
+          <option value="EXPIRED" {% if opportunity.status == 'EXPIRED' %}selected{% endif %}>منقضی شده</option>
         </select>
       </div>
 
@@ -410,7 +430,7 @@
       <!-- 2. Product Fit Score -->
       <div style="margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-size: 0.8rem; color: var(--stone-text-muted);">انطباق با کاتالوگ (Product Fit):</span>
+          <span style="font-size: 0.8rem; color: var(--stone-text-muted);">انطباق با کالا:</span>
           <strong style="font-size: 0.9rem; color: #10B981;">{{ opportunity.product_fit_score_percentage }}٪</strong>
         </div>
         <div style="height: 8px; background: var(--stone-surface-sunken); border-radius: 4px; overflow: hidden;">
@@ -514,6 +534,41 @@ document.addEventListener("DOMContentLoaded", function() {
     }).catch(function(err) {
       alert("خطا در دسترسی به کلیپ‌بورد");
     });
+  });
+
+  // 1b. Drafts per matched product + «دوباره بنویس» (uses the saved message style)
+  const drafts = JSON.parse(document.getElementById("drafts-data").textContent || "{}");
+  const draftProduct = document.getElementById("draft-product");
+  const rewriteBtn = document.getElementById("btn-rewrite-reply");
+  const rewriteText = document.getElementById("rewrite-reply-text");
+  const rewriteError = document.getElementById("rewrite-error");
+  const currentProduct = () => draftProduct ? draftProduct.value : (rewriteBtn ? rewriteBtn.dataset.product : "");
+  draftProduct?.addEventListener("change", () => {
+    replyBox.value = drafts[draftProduct.value] || "";
+    rewriteError.style.display = "none";
+  });
+  rewriteBtn?.addEventListener("click", () => {
+    const pid = currentProduct();
+    rewriteBtn.disabled = true;
+    rewriteText.textContent = "در حال نوشتن...";
+    rewriteError.style.display = "none";
+    fetch(rewriteBtn.dataset.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": "{{ csrf_token }}" },
+      body: "product_id=" + encodeURIComponent(pid),
+    })
+      .then(r => r.json().catch(() => ({ status: "error", message: "پاسخ نامعتبر از سرور." })))
+      .then(res => {
+        if (res.status === "success") {
+          drafts[String(res.product_id)] = res.reply;
+          if (currentProduct() === String(res.product_id)) replyBox.value = res.reply;
+        } else {
+          rewriteError.textContent = res.message || "نوشتن دوباره ممکن نشد.";
+          rewriteError.style.display = "block";
+        }
+      })
+      .catch(() => { rewriteError.textContent = "ارتباط با سرور برقرار نشد."; rewriteError.style.display = "block"; })
+      .finally(() => { rewriteBtn.disabled = false; rewriteText.textContent = "دوباره بنویس"; });
   });
 
   // 2. Inline edit reply

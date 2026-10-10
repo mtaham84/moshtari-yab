@@ -35,19 +35,24 @@ class Window:
         return self.new_ids | {m.message_id for m in self.context} | {m.message_id for m in self.parents}
 
 
-def is_ready(pending: list[ChatMessage], now: datetime, cfg: EngineConfig) -> tuple[bool, str]:
-    """Analyse a chat when enough messages piled up, the chat went quiet, or the oldest message waited too long."""
+def ready_batch(pending: list[ChatMessage], now: datetime, cfg: EngineConfig) -> tuple[list[ChatMessage], str]:
+    """Messages of a chat to analyse now: whole batches of ``trigger_count`` (oldest first); the rest keeps waiting.
+
+    Purely count based — no waiting for the conversation to go quiet. Optional fallback: when
+    ``max_wait_minutes`` > 0 and the oldest pending message waited that long, everything pending is analysed.
+    """
     if not pending:
-        return False, "empty"
-    if len(pending) >= cfg.trigger_count:
-        return True, f"{len(pending)} new messages"
-    quiet = (now - max(m.date for m in pending)).total_seconds() / 60
-    if quiet >= cfg.silence_minutes:
-        return True, f"quiet for {quiet:.0f} min"
-    waited = (now - min(m.date for m in pending)).total_seconds() / 60
-    if waited >= cfg.max_wait_minutes:
-        return True, f"oldest waited {waited:.0f} min"
-    return False, "waiting"
+        return [], "empty"
+    pending = sorted(pending, key=lambda m: m.message_id)
+    step = max(int(cfg.trigger_count), 1)
+    full = len(pending) // step * step
+    if full:
+        return pending[:full], f"{full} new messages"
+    if cfg.max_wait_minutes and cfg.max_wait_minutes > 0:
+        waited = (now - min(m.date for m in pending)).total_seconds() / 60
+        if waited >= cfg.max_wait_minutes:
+            return pending, f"oldest waited {waited:.0f} min"
+    return [], f"waiting ({len(pending)}/{step})"
 
 
 def build_windows(chat_id: str, pending: list[ChatMessage], store: Store, cfg: EngineConfig) -> list[Window]:

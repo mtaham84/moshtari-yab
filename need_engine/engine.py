@@ -2,6 +2,15 @@
 
 Every emitted Opportunity is published to ``<state schema>.opportunities`` (the panel imports it with
 ``manage.py sync_opportunities``); an extra sink (e.g. a JSONL file for the demo) can be plugged in.
+
+Pay-as-you-go («در انتظار پرداخت»): while a seller's balance is used up (``SourceAccess.blocked``) nothing is spent for
+them, but nothing is lost either —
+  • private chats whose owners are all blocked are still collected; the messages stay in ``pending`` (``held``);
+  • a need whose matching skipped a blocked seller with relevant products is queued for that seller (``deferred``);
+  • the seller's new/changed products are not carded (``Catalog.sync(hold=...)``).
+After the top-up the held messages are analysed as usual, the queued needs are re-matched against that seller's
+products only (``release``) and the waiting products are carded and back-matched. Anything older than
+``need_ttl_days`` is dropped (it would expire anyway). Counts per seller → kv ``waiting_payment`` (shown in the panel).
 """
 from __future__ import annotations
 
@@ -16,6 +25,7 @@ from typing import Callable
 
 import numpy as np
 
+from need_engine.access import SourceAccess
 from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
@@ -24,10 +34,12 @@ from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.retrieve import retrieve
 from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, ChatMessage, Cost, Evidence, MatchedProduct,
                                  NeedCard, NeedOut, Opportunity, Source)
-from need_engine.sources import MessageSource, ProductSource, XMessageSource, message_source, product_source
+from need_engine.reply import MessageStyle
+from need_engine.sources import (MessageSource, ProductSource, StyleSource, XMessageSource, message_source,
+                                 product_source)
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
-from need_engine.windowing import build_windows, is_ready
+from need_engine.windowing import build_windows, ready_batch
 from need_engine.x_filters import cheap_x_filter
 
 log = logging.getLogger("need_engine")
@@ -56,6 +68,7 @@ class RunReport:
     products_changed: int = 0
     cost_messages_toman: float = 0.0
     cost_matching_toman: float = 0.0
+    released: int = 0               # queued needs re-matched after a top-up
     errors: list[str] = field(default_factory=list)
     x_prefilter_dropped: dict[str, int] = field(default_factory=dict)
     x_posts_sent_to_llm: int = 0
@@ -70,7 +83,7 @@ class RunReport:
     def summary(self) -> str:
         return (f"ingested={self.ingested} analysed={self.analysed_messages} windows={self.windows} "
                 f"needs new/updated={self.needs_new}/{self.needs_updated} opportunities={len(self.opportunities)} "
-                f"products_changed={self.products_changed} cost: messages={self.cost_messages_toman:,.1f} "
+                f"products_changed={self.products_changed} released={self.released} cost: messages={self.cost_messages_toman:,.1f} "
                 f"({self.toman_per_message:,.2f}/msg) matching={self.cost_matching_toman:,.1f} toman"
                 + (f" x_posts_to_llm={self.x_posts_sent_to_llm} x_batches={self.x_batches} x_prefilter_dropped={self.x_prefilter_dropped}"
                    if self.x_posts_sent_to_llm or self.x_prefilter_dropped else "")
@@ -89,7 +102,8 @@ def _message_url(m: ChatMessage) -> str | None:
 class NeedEngine:
     def __init__(self, cfg: EngineConfig | None = None, messages: MessageSource | None = None,
                  products: ProductSource | None = None, sink: Sink | None = None,
-                 mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None):
+                 mock_llm: Callable[[str, str, str], dict] | None = None, store: Store | None = None,
+                 styles: StyleSource | None = None):
         self.cfg = cfg or EngineConfig()
         self.store = store or Store(self.cfg.database_url, self.cfg.state_schema)
         self.llm = LLMClient(self.cfg, self.store, mock=mock_llm)
@@ -98,6 +112,9 @@ class NeedEngine:
         self.messages = messages or message_source(self.cfg)
         self.products = products or product_source(self.cfg)
         self.sink = sink or (JsonlSink(self.cfg.output_jsonl) if self.cfg.output_jsonl else None)
+        self.access = SourceAccess(self.cfg, registry=self.llm.registry)
+        self.style_source = styles or StyleSource(self.cfg)
+        self.styles: dict[str, MessageStyle] = {}
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
@@ -121,7 +138,8 @@ class NeedEngine:
             batch = source.fetch_after(cursor, batch_limit)
             if not batch:
                 break
-            total += self.store.add_pending(batch)
+            keep = [m for m in batch if self.access.monitored(m.chat_id)]   # chats without an active source: skipped
+            total += self.store.add_pending(keep) if keep else 0
             cursor = max(m.row_id for m in batch)
             self.store.set(cursor_key, cursor)
             if remaining is not None:
@@ -142,14 +160,17 @@ class NeedEngine:
                 db.close()
 
     def sync_products(self, report: RunReport) -> None:
-        changed = self.catalog.sync(self.products.all())
+        changed = self.catalog.sync(self.products.all(), hold=self.access.blocked)
         report.products_changed = len(changed)
         if not changed or not self.store.get("catalog_initialised", False):
             self.store.set("catalog_initialised", True)  # first sync: nothing to back-match yet
             return
         needs = self.store.open_needs()
         for pid in changed:
-            hits, toman = verify_new_product(pid, needs, self.catalog, self.llm, self.cfg)
+            j = self.catalog.pid_index.get(pid)
+            owner = self.catalog.products[j].business_id if j is not None else None
+            visible = [(n, v) for n, v in needs if self.access.allows(n.chat_id, owner)]
+            hits, toman = verify_new_product(pid, visible, self.catalog, self.llm, self.cfg)
             report.cost_matching_toman += toman
             for need_id, mp in hits.items():
                 n = self.store.need(need_id)
@@ -161,25 +182,74 @@ class NeedEngine:
                 self._finish_and_emit(n, matches, report, extra_cost=toman / max(1, len(hits)))
 
     def _match(self, n: NeedCard, qvecs: np.ndarray | None, report: RunReport) -> None:
-        ret = retrieve(n, qvecs, self.catalog, self.cfg)
+        allowed = self.access.sellers(n.chat_id)
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=allowed, excluded=self.access.blocked)
+        self._defer_blocked(n, qvecs, allowed)
+        if n.chat_id.startswith("x:"):   # no LLM verification for products that may not be offered on X
+            ret.candidates = [j for j in ret.candidates if self.catalog.products[j].x_outreach_enabled]
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
-        if n.chat_id.startswith("x:"):
-            matches = [match for match in matches if match.match_score * 100 >= self.cfg.x_min_match_score]
         report.cost_matching_toman += toman
         n.cost_toman += toman
         n.llm_calls += calls
         self._finish_and_emit(n, matches, report)
 
+    def _defer_blocked(self, n: NeedCard, qvecs: np.ndarray | None, allowed: frozenset[str] | None) -> None:
+        """Queues the need for blocked sellers whose products are candidates (retrieval only — no LLM call)."""
+        blocked = self.access.blocked if allowed is None else (allowed & self.access.blocked)
+        if not blocked:
+            return
+        ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=frozenset(blocked))
+        sellers = {str(self.catalog.products[j].business_id) for j in ret.candidates if self.catalog.products[j].business_id}
+        if sellers:
+            self.store.defer(n.need_id, sellers)
+
+    def release(self, report: RunReport) -> None:
+        """After a top-up: re-match the needs queued for that seller against the seller's products only."""
+        for bid in self.store.deferred_sellers():
+            if bid in self.access.blocked:
+                continue
+            for need_id in self.store.deferred_needs(bid, self.cfg.release_batch):
+                n = self.store.need(need_id)
+                try:
+                    if n is not None and n.status == "open" and self.access.allows(n.chat_id, bid):
+                        self._match_seller(n, bid, report)
+                except QuotaExhausted:
+                    raise                                   # stays queued → next run
+                except Exception as e:
+                    report.errors.append(f"{need_id}: {e}")
+                    log.exception("deferred matching failed for %s / seller %s", need_id, bid)
+                self.store.undefer(bid, [need_id])
+
+    def _match_seller(self, n: NeedCard, bid: str, report: RunReport) -> None:
+        ret = retrieve(n, self.store.query_vecs(n.need_id), self.catalog, self.cfg, allowed=frozenset({bid}))
+        report.released += 1
+        if not ret.candidates:
+            return
+        found, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
+        report.cost_matching_toman += toman
+        n.cost_toman += toman
+        n.llm_calls += calls
+        if not found:
+            self.store.update_need(n)
+            return
+        prev = self.store.emitted(n.need_id)
+        old = [MatchedProduct.model_validate(x) for x in json.loads(prev[1])["matched_products"]] if prev else []
+        ids = {m.product_id for m in found}
+        self._finish_and_emit(n, [m for m in old if m.product_id not in ids] + found, report)
+
     def _finish_and_emit(self, n: NeedCard, matches: list[MatchedProduct], report: RunReport, extra_cost: float = 0.0) -> None:
         if n.chat_id.startswith("x:"):
-            matches = [match for match in matches if match.match_score * 100 >= self.cfg.x_min_match_score]
+            matches = self._x_allowed(matches)
         matches = sorted(matches, key=lambda m: -m.match_score)[:self.cfg.max_products_per_opportunity]
         n.cost_toman += extra_cost
         if self.cfg.write_replies:
             reply_limit = self.cfg.x_reply_top_n if n.chat_id.startswith("x:") else self.cfg.reply_top_n
             for mp in matches[:reply_limit]:
                 if mp.reply_draft is None:
-                    mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg)
+                    j = self.catalog.pid_index.get(mp.product_id)
+                    owner = self.catalog.products[j].business_id if j is not None else None
+                    mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg,
+                                                    style=self.styles.get(str(owner)))
                     report.x_reply_drafts += int(n.chat_id.startswith("x:"))
                     report.cost_matching_toman += t
                     n.cost_toman += t
@@ -202,13 +272,16 @@ class NeedEngine:
         ev = evidence_messages(n, self.store)
         platform = next((m.platform for m in ev if m.platform), "telegram")
         title = next((m.chat_title for m in ev if m.chat_title), None)
-        username = next((m.author_username for m in ev if m.author_username), None)
-        profile_url = next((m.profile_url for m in ev if m.profile_url), None)
-        author_id = next((m.author_id for m in ev if m.author_id), n.author_id)
+        x_source = n.chat_id.startswith("x:")
+        if x_source:
+            username = next((m.author_username for m in ev if m.author_username), None)
+            profile_url = next((m.profile_url for m in ev if m.profile_url), None)
+            author_id = next((m.author_id for m in ev if m.author_id), n.author_id)
+        else:   # Telegram: the need's own author, as on main (evidence may also cite other people's messages)
+            username, profile_url, author_id = n.author_username, None, n.author_id
         source_posted_at = max((m.date for m in ev), default=None)
         if source_posted_at and source_posted_at > datetime.now(timezone.utc):
             source_posted_at = datetime.now(timezone.utc)
-        x_source = n.chat_id.startswith("x:")
         expires_at = (source_posted_at or n.updated_at) + timedelta(hours=self.cfg.x_need_ttl_hours) if x_source else n.updated_at + timedelta(days=self.cfg.need_ttl_days)
         best = matches[0].match_score if matches else 0.0
         priority = STRENGTH_WEIGHT[n.strength] * best
@@ -284,68 +357,25 @@ class NeedEngine:
     def process(self, report: RunReport, now: datetime | None = None, flush: bool = False) -> None:
         now = now or datetime.now(timezone.utc)
         for chat_id in self.store.pending_chats():
-            pending = self.store.pending(chat_id)
-            if chat_id.startswith("x:"):
-                thread_rows = [message for message in pending if message.kind in {"reply", "quote"}]
-                if thread_rows:
-                    log.warning("Skipping %d X thread rows: dedicated thread analyzer is not implemented; they remain unprocessed", len(thread_rows))
-                    pending = [message for message in pending if message.kind not in {"reply", "quote"}]
-                all_ordered = sorted(pending, key=lambda m: (m.date, m.row_id), reverse=self.cfg.x_process_order == "newest")
-                if self.cfg.x_process_order not in {"newest", "oldest"}:
-                    log.warning("Invalid NE_X_PROCESS_ORDER=%r; using newest", self.cfg.x_process_order)
-                    all_ordered = sorted(pending, key=lambda m: (m.date, m.row_id), reverse=True)
-                stale = [m for m in all_ordered if (now - min(m.date, now)).total_seconds() > self.cfg.x_max_post_age_hours * 3600]
-                selected = [m for m in all_ordered if m not in stale][:max(0, self.cfg.x_max_per_run)]
-                pending = selected
-                decisions = {m.message_id: cheap_x_filter(m, self.cfg, self.catalog) for m in pending}
-                for msg in stale:
-                    decisions[msg.message_id] = type("Decision", (), {"keep": False, "reason": "stale", "signals": {"age_hours": round((now - msg.date).total_seconds() / 3600, 2)}})()
-                    report.x_prefilter_dropped["stale"] = report.x_prefilter_dropped.get("stale", 0) + 1
-                    log.info("Skipped stale X post %s", msg.message_id)
-                if self.cfg.x_prefilter in {"shadow", "on"}:
-                    self.store.drop_x_pending(stale, decisions, mode="stale")
-                pending = [m for m in pending if m not in stale]
-                for msg in pending:
-                    decision = decisions[msg.message_id]
-                    if self.cfg.x_prefilter in {"shadow", "on"}:
-                        self.store.record_x_filter_decision(msg, decision.keep, decision.reason, decision.signals, self.cfg.x_prefilter)
-                    if self.cfg.x_prefilter == "shadow" and not decision.keep:
-                        report.x_prefilter_dropped[decision.reason] = report.x_prefilter_dropped.get(decision.reason, 0) + 1
-                if self.cfg.x_prefilter == "on":
-                    dropped = [m for m in pending if not decisions[m.message_id].keep]
-                    self.store.drop_x_pending(dropped, decisions, mode="on")
-                    pending = [m for m in pending if decisions[m.message_id].keep]
-                counts: dict[str, int] = {}
-                kept = []
-                for msg in reversed(pending):
-                    counts[msg.author_id] = counts.get(msg.author_id, 0) + 1
-                    if counts[msg.author_id] <= self.cfg.x_max_posts_per_author_per_run:
-                        kept.append(msg)
-                    else:
-                        decisions[msg.message_id] = type("Decision", (), {"reason": "author_throttle", "signals": {}})()
-                        report.x_prefilter_dropped["author_throttle"] = report.x_prefilter_dropped.get("author_throttle", 0) + 1
-                if self.cfg.x_prefilter == "on":
-                    self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
-                pending = [m for m in selected if m in kept]
-            ready, why = is_ready(pending, now, self.cfg)
-            if not (ready or flush):
+            if not self.access.monitored(chat_id):     # source removed/paused since the messages were queued
                 continue
-            log.info("chat %s: analysing %d messages (%s)", chat_id, len(pending), why if ready else "flush")
-            windows = build_windows(chat_id, pending, self.store, self.cfg)
-            if chat_id.startswith("x:"):
-                from need_engine.windowing import Window
-                chunks = []
-                for window in windows:
-                    batch, chars = [], 0
-                    for message in window.new:
-                        if batch and (len(batch) >= max(1, self.cfg.x_batch_size) or chars + len(message.text) > self.cfg.x_batch_max_chars):
-                            chunks.append(batch)
-                            batch, chars = [], 0
-                        batch.append(message)
-                        chars += len(message.text)
-                    if batch:
-                        chunks.append(batch)
-                windows = [Window("x:public", "X", batch, consumed=batch) for batch in chunks]
+            if self.access.held(chat_id):              # owners' balance used up → kept, analysed after the top-up
+                self._prune_held(chat_id, now)
+                continue
+            pending = self.store.pending(chat_id)
+            is_x = chat_id.startswith("x:")
+            if is_x:
+                pending = self._select_x_pending(pending, report, now)
+            if is_x:   # X posts are independent: no count trigger, x_max_per_run already bounds a run
+                batch, why = pending, "x"
+            else:
+                batch, why = (pending, "flush") if flush else ready_batch(pending, now, self.cfg)
+            if not batch:
+                continue
+            log.info("chat %s: analysing %d of %d pending messages (%s)", chat_id, len(batch), len(pending), why)
+            windows = build_windows(chat_id, batch, self.store, self.cfg)
+            if is_x:
+                windows = self._x_batches(windows)
             for w in windows:
                 try:
                     if w.new and w.new[0].platform == "x":
@@ -354,7 +384,7 @@ class NeedEngine:
                         report.x_single_post_retries += int(calls > 1)
                         report.x_posts_sent_to_llm += len(w.new)
                     else:
-                        cards, toman = extract_window(w, self.llm, self.cfg, now)
+                        cards, toman = extract_window(w, self.llm, self.cfg, now, payers=self.access.owners(chat_id))
                 except QuotaExhausted:
                     raise
                 except Exception as e:  # keep the messages pending; they are retried next run
@@ -379,21 +409,124 @@ class NeedEngine:
                     elif n.status in ("resolved", "expired"):
                         self._close(n, report)
 
+    # ── X: independent public posts ─────────────────────────────────────────
+    def _select_x_pending(self, pending: list[ChatMessage], report: RunReport, now: datetime) -> list[ChatMessage]:
+        """Thread rows skipped, stale posts dropped, cheap prefilter (shadow|on), per-author throttle, x_max_per_run."""
+        thread_rows = [message for message in pending if message.kind in {"reply", "quote"}]
+        if thread_rows:
+            log.warning("Skipping %d X thread rows: dedicated thread analyzer is not implemented; they remain unprocessed", len(thread_rows))
+            pending = [message for message in pending if message.kind not in {"reply", "quote"}]
+        if self.cfg.x_process_order not in {"newest", "oldest"}:
+            log.warning("Invalid NE_X_PROCESS_ORDER=%r; using newest", self.cfg.x_process_order)
+        newest_first = self.cfg.x_process_order != "oldest"
+        all_ordered = sorted(pending, key=lambda m: (m.date, m.row_id), reverse=newest_first)
+        stale = [m for m in all_ordered if (now - min(m.date, now)).total_seconds() > self.cfg.x_max_post_age_hours * 3600]
+        selected = [m for m in all_ordered if m not in stale][:max(0, self.cfg.x_max_per_run)]
+        pending = selected
+        decisions = {m.message_id: cheap_x_filter(m, self.cfg, self.catalog) for m in pending}
+        for msg in stale:
+            decisions[msg.message_id] = type("Decision", (), {"keep": False, "reason": "stale", "signals": {"age_hours": round((now - msg.date).total_seconds() / 3600, 2)}})()
+            report.x_prefilter_dropped["stale"] = report.x_prefilter_dropped.get("stale", 0) + 1
+            log.info("Skipped stale X post %s", msg.message_id)
+        if self.cfg.x_prefilter in {"shadow", "on"}:
+            self.store.drop_x_pending(stale, decisions, mode="stale")
+        for msg in pending:
+            decision = decisions[msg.message_id]
+            if self.cfg.x_prefilter in {"shadow", "on"}:
+                self.store.record_x_filter_decision(msg, decision.keep, decision.reason, decision.signals, self.cfg.x_prefilter)
+            if self.cfg.x_prefilter == "shadow" and not decision.keep:
+                report.x_prefilter_dropped[decision.reason] = report.x_prefilter_dropped.get(decision.reason, 0) + 1
+        if self.cfg.x_prefilter == "on":
+            dropped = [m for m in pending if not decisions[m.message_id].keep]
+            self.store.drop_x_pending(dropped, decisions, mode="on")
+            pending = [m for m in pending if decisions[m.message_id].keep]
+        counts: dict[str, int] = {}
+        kept = []
+        for msg in reversed(pending):
+            counts[msg.author_id] = counts.get(msg.author_id, 0) + 1
+            if counts[msg.author_id] <= self.cfg.x_max_posts_per_author_per_run:
+                kept.append(msg)
+            else:
+                decisions[msg.message_id] = type("Decision", (), {"reason": "author_throttle", "signals": {}})()
+                report.x_prefilter_dropped["author_throttle"] = report.x_prefilter_dropped.get("author_throttle", 0) + 1
+        if self.cfg.x_prefilter == "on":
+            self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
+        return [m for m in selected if m in kept]
+
+    def _x_batches(self, windows: list) -> list:
+        """Regroup X posts into LLM batches of x_batch_size posts / x_batch_max_chars characters."""
+        from need_engine.windowing import Window
+
+        chunks = []
+        for window in windows:
+            chunk, chars = [], 0
+            for message in window.new:
+                if chunk and (len(chunk) >= max(1, self.cfg.x_batch_size) or chars + len(message.text) > self.cfg.x_batch_max_chars):
+                    chunks.append(chunk)
+                    chunk, chars = [], 0
+                chunk.append(message)
+                chars += len(message.text)
+            if chunk:
+                chunks.append(chunk)
+        return [Window("x:public", "X", c, consumed=c) for c in chunks]
+
+    def _x_allowed(self, matches: list[MatchedProduct]) -> list[MatchedProduct]:
+        """X opportunities: only products whose seller enabled «ارتباط از طریق X» and above x_min_match_score."""
+        out = []
+        for m in matches:
+            j = self.catalog.pid_index.get(m.product_id)
+            if j is not None and not getattr(self.catalog.products[j], "x_outreach_enabled", True):
+                continue
+            if m.match_score * 100 >= self.cfg.x_min_match_score:
+                out.append(m)
+        return out
+
+    def _prune_held(self, chat_id: str, now: datetime) -> None:
+        cutoff = now - timedelta(days=self.cfg.need_ttl_days)
+        old = [m.message_id for m in self.store.pending(chat_id) if m.date < cutoff]
+        if old:
+            self.store.drop_pending(chat_id, old)
+            log.info("chat %s: dropped %d held messages older than %s days", chat_id, len(old), self.cfg.need_ttl_days)
+
+    def waiting_payment(self) -> dict[str, dict[str, int]]:
+        """Per blocked seller: held messages, queued needs, waiting products (→ kv ``waiting_payment``)."""
+        out: dict[str, dict[str, int]] = {}
+
+        def add(b: str, k: str, v: int) -> None:
+            if v:
+                out.setdefault(str(b), {"messages": 0, "needs": 0, "products": 0})[k] += int(v)
+
+        for chat_id in self.store.pending_chats():
+            if self.access.held(chat_id):
+                k = self.store.pending_count(chat_id)
+                for b in self.access.sellers(chat_id) or ():
+                    add(b, "messages", k)
+        for b, k in self.store.deferred_counts().items():
+            add(b, "needs", k)
+        for b, k in self.catalog.held.items():
+            add(b, "products", k)
+        return out
+
     def expire(self, report: RunReport, now: datetime | None = None) -> None:
         now = now or datetime.now(timezone.utc)
+        for need_id in self.store.expire_needs((now - timedelta(days=self.cfg.need_ttl_days)).timestamp()):
+            n = self.store.need(need_id)   # Telegram needs: unchanged rule (no update for need_ttl_days)
+            if n:
+                self._close(n, report)
+        if not self.cfg.x_enabled:
+            return
         refreshed = 0
         for n, _ in self.store.open_needs():
-            if n.chat_id.startswith("x:"):
-                evidence = [self.store.message(n.chat_id, mid) for mid in n.evidence_ids]
-                newest = max((m.date for m in evidence if m is not None), default=n.updated_at)
-                expires_at = min(newest, now) + timedelta(hours=self.cfg.x_need_ttl_hours)
-            else:
-                expires_at = n.updated_at + timedelta(days=self.cfg.need_ttl_days)
+            if not n.chat_id.startswith("x:"):
+                continue
+            evidence = [self.store.message(n.chat_id, mid) for mid in n.evidence_ids]
+            newest = max((m.date for m in evidence if m is not None), default=n.updated_at)
+            expires_at = min(newest, now) + timedelta(hours=self.cfg.x_need_ttl_hours)
             if expires_at <= now:
                 n.status = "expired"
                 self.store.update_need(n)
                 self._close(n, report)
-            elif n.chat_id.startswith("x:") and refreshed < max(1, self.cfg.x_refresh_batch_size):
+            elif refreshed < max(1, self.cfg.x_refresh_batch_size):
                 refreshed += int(self._refresh_x_priority(n, now))
 
     def refresh_x_priorities(self, now: datetime | None = None) -> int:
@@ -429,7 +562,10 @@ class NeedEngine:
     def run_once(self, now: datetime | None = None, flush: bool = False) -> RunReport:
         report = RunReport()
         try:
+            self.access.refresh()
+            self.styles = {b: MessageStyle.from_dict(d) for b, d in self.style_source.all().items()}
             self.sync_products(report)
+            self.release(report)
             report.ingested = self.ingest()
             self.process(report, now=now, flush=flush)
             self.expire(report, now=now)
@@ -437,6 +573,14 @@ class NeedEngine:
             report.errors.append(f"quota: {e}")
             log.error("%s — pending messages stay queued and are processed on the next run", e)
         log.info(report.summary())
+        try:
+            self.store.set("waiting_payment", {"ts": time.time(), "sellers": self.waiting_payment()})
+        except Exception:  # pragma: no cover
+            log.exception("waiting_payment not saved")
+        try:   # read by the admin panel («وضعیت سرویس‌ها»)
+            self.store.set("heartbeat", {"ts": time.time(), "summary": report.summary(), "errors": report.errors[-5:]})
+        except Exception:  # pragma: no cover
+            log.exception("heartbeat not saved")
         return report
 
     def run_forever(self) -> None:  # pragma: no cover

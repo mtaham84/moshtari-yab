@@ -40,6 +40,21 @@
   <form method="POST" id="product-form" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
 
+    <!-- Autofill from the seller's product page -->
+    <div id="autofill-box" style="border: 1px dashed var(--panel-border); border-radius: 14px; padding: 16px 18px; margin-bottom: 24px; background: var(--panel-hover);">
+      <label for="autofill_url" class="form-label" style="margin-bottom: 4px;">پر کردن خودکار از لینک</label>
+      <small style="color: var(--panel-text-faint); display: block; margin-bottom: 10px; font-size: 0.78rem;">
+        لینک صفحه‌ی محصول در سایت خودتان را بدهید؛ نام، قیمت، توضیح و ویژگی‌ها خوانده می‌شوند. فقط فیلدهای خالی پر می‌شوند.
+      </small>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <input type="url" id="autofill_url" class="form-input" style="flex: 1; min-width: 220px;" dir="ltr" placeholder="لینک صفحه‌ی محصول را این‌جا بگذارید" value="{{ product.url|default:'' }}">
+        <button type="button" id="btn-autofill" class="p-btn p-btn-secondary" data-endpoint="{% url 'products:api_autofill' %}">
+          <span id="btn-autofill-label">خواندن از لینک</span>
+        </button>
+      </div>
+      <div id="autofill-status" role="status" style="display: none; margin-top: 10px; font-size: 0.8rem;"></div>
+    </div>
+
     <!-- Product Name -->
     <div class="form-group" style="margin-bottom: 20px;">
       <label for="prod_name" class="form-label">
@@ -50,7 +65,7 @@
         name="name" 
         id="prod_name" 
         class="form-input" 
-        placeholder="مثال: شلوار جین لی مردانه راسته یا دوره جامع آموزش پایتون" 
+        placeholder="مثال: مانتو کتان تابستانی" 
         value="{{ product.name|default:'' }}" 
         required 
         autofocus>
@@ -63,7 +78,7 @@
         <label class="type-radio-label" style="flex: 1; cursor: pointer;">
           <input type="radio" name="product_type" value="PHYSICAL" id="type_physical" {% if not product or product.product_type == 'PHYSICAL' %}checked{% endif %}>
           <div class="type-radio-card" style="text-align: center; padding: 14px; border-radius: 14px;">
-            <strong>کالایی (Physical Goods)</strong>
+            <strong>کالا</strong>
             <small style="display: block; margin-top: 4px; color: var(--panel-text-muted);">پوشاک، لوازم دیجیتال، ابزار، کالا</small>
           </div>
         </label>
@@ -71,7 +86,7 @@
         <label class="type-radio-label" style="flex: 1; cursor: pointer;">
           <input type="radio" name="product_type" value="SERVICE" id="type_service" {% if product.product_type == 'SERVICE' %}checked{% endif %}>
           <div class="type-radio-card" style="text-align: center; padding: 14px; border-radius: 14px;">
-            <strong>خدماتی (Services)</strong>
+            <strong>خدمات</strong>
             <small style="display: block; margin-top: 4px; color: var(--panel-text-muted);">آموزش، مشاوره، سئو، برنامه‌نویسی</small>
           </div>
         </label>
@@ -154,7 +169,7 @@
             <button type="button" id="btn-cancel-creator" style="background: none; border: none; color: var(--stone-text-muted); cursor: pointer; font-size: 0.75rem;">انصراف</button>
           </div>
           <div style="display: flex; gap: 8px;">
-            <input type="text" id="new-cat-name-input" class="form-input" placeholder="نام شاخه (مثلاً: شلوار کارگو)" style="height: 38px; font-size: 0.82rem; flex: 1;">
+            <input type="text" id="new-cat-name-input" class="form-input" placeholder="نام دسته (مثلاً: مانتو)" style="height: 38px; font-size: 0.82rem; flex: 1;">
             <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-save-inline-cat" style="white-space: nowrap;">ثبت و انتخاب این شاخه</button>
           </div>
         </div>
@@ -190,7 +205,7 @@
         id="prod_desc" 
         class="form-input" 
         rows="4" 
-        placeholder="توضیح دهید این محصول چه مشکلی را حل می‌کند، چه کاربردی دارد و چه مزایایی نسبت به سایرین دارد (ایجنت از این توضیحات برای تطبیق دقیق با سوالات خریداران در مکالمات استفاده می‌کند)..." 
+        placeholder="این محصول چیست، به چه کاری می‌آید و چه مزیتی دارد؟ ایجنت از همین توضیح برای پیدا کردن خریدار استفاده می‌کند." 
         required>{{ product.description|default:'' }}</textarea>
       <small style="color: var(--panel-text-faint); display: block; margin-top: 6px; font-size: 0.78rem;">
         این توضیحات متمایز از ویژگی‌های فنی زیر است و به ایجنت کمک می‌کند مفهوم و کارایی محصول را درک کند.
@@ -254,10 +269,10 @@
           {% for k, v in product.attributes.items %}
             <div class="custom-attr-row" style="display: flex; gap: 10px; align-items: center; background: var(--panel-surface); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);">
               <div style="flex: 1;">
-                <input type="text" name="custom_attr_key" class="form-input" placeholder="عنوان ویژگی (مثلاً سایز)" value="{{ k }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+                <input type="text" name="custom_attr_key" class="form-input" placeholder="ویژگی (مثلاً جنس)" value="{{ k }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
               </div>
               <div style="flex: 1.6;">
-                <input type="text" name="custom_attr_value" class="form-input" placeholder="مقدار ویژگی (مثلاً مشکی یا ۳۸)" value="{{ v }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+                <input type="text" name="custom_attr_value" class="form-input" placeholder="مقدار (مثلاً کتان)" value="{{ v }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
               </div>
               <button type="button" class="p-btn p-btn-ghost btn-delete-attr-row" title="حذف این ویژگی" style="padding: 6px 8px; color: var(--p-danger); border-radius: 8px;">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -360,7 +375,7 @@
           name="price" 
           id="prod_price" 
           class="form-input" 
-          placeholder="مثال: ۳۴۰۰۰۰۰ (اختیاری)" 
+          placeholder="مثال: ۱۲۵۰۰۰۰ (اختیاری)" 
           value="{{ product.price|default:'' }}" 
           dir="ltr">
       </div>
@@ -372,7 +387,7 @@
           name="url" 
           id="prod_url" 
           class="form-input" 
-          placeholder="https://yoursite.com/item" 
+          placeholder="لینک صفحه‌ی محصول در سایت شما" 
           value="{{ product.url|default:'' }}" 
           dir="ltr">
       </div>
@@ -380,13 +395,13 @@
 
     <!-- Target Customer (ICP) -->
     <div class="form-group" style="margin-bottom: 20px;">
-      <label for="target_customer" class="form-label">خریداران ایده‌آل (ICP)</label>
+      <label for="target_customer" class="form-label">مشتریان هدف</label>
       <textarea 
         name="target_customer" 
         id="target_customer" 
         class="form-input" 
         rows="2" 
-        placeholder="چه کسانی بیشترین تمایل یا نیاز را به این محصول دارند؟ (مثلاً: دانشجویان ترم آخر کامپیوتر یا جوانان ۲۰ تا ۳۰ سال...)">{{ product.target_customer|default:'' }}</textarea>
+        placeholder="مثال: خانم‌هایی که لباس سبک و خنک برای تابستان می‌خواهند.">{{ product.target_customer|default:'' }}</textarea>
     </div>
 
     <!-- Status -->
@@ -561,10 +576,10 @@
     row.style = 'display: flex; gap: 10px; align-items: center; background: var(--panel-surface); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);';
     row.innerHTML = `
       <div style="flex: 1;">
-        <input type="text" name="custom_attr_key" class="form-input" placeholder="عنوان ویژگی (مثلاً سایز)" value="${escapeHtml(key)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+        <input type="text" name="custom_attr_key" class="form-input" placeholder="ویژگی (مثلاً جنس)" value="${escapeHtml(key)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
       </div>
       <div style="flex: 1.6;">
-        <input type="text" name="custom_attr_value" class="form-input" placeholder="${placeholder || 'مقدار ویژگی (مثلاً مشکی یا ۳۸)'}" value="${escapeHtml(val)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
+        <input type="text" name="custom_attr_value" class="form-input" placeholder="${placeholder || 'مقدار (مثلاً کتان)'}" value="${escapeHtml(val)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
       </div>
       <button type="button" class="p-btn p-btn-ghost btn-delete-attr-row" title="حذف این ویژگی" style="padding: 6px 8px; color: var(--p-danger); border-radius: 8px;">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -617,6 +632,55 @@
 
   btnAddCustomAttr?.addEventListener('click', () => {
     addCustomAttrRow('', '', '');
+  });
+
+  // Autofill from link: only empty fields are filled; the link goes into the product's url field
+  const btnAutofill = document.getElementById('btn-autofill');
+  const autofillUrl = document.getElementById('autofill_url');
+  const autofillStatus = document.getElementById('autofill-status');
+  const autofillLabel = document.getElementById('btn-autofill-label');
+  function autofillMsg(text, ok) {
+    autofillStatus.style.display = 'block';
+    autofillStatus.style.color = ok ? '#10B981' : 'var(--p-danger, #ef4444)';
+    autofillStatus.textContent = text;
+  }
+  btnAutofill?.addEventListener('click', () => {
+    const link = (autofillUrl.value || '').trim();
+    if (!link) { autofillMsg('لینک صفحه‌ی محصول را وارد کنید.', false); return; }
+    btnAutofill.disabled = true;
+    autofillLabel.textContent = 'در حال خواندن صفحه...';
+    const body = new URLSearchParams({ url: link });
+    fetch(btnAutofill.dataset.endpoint, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+      .then(r => r.json().catch(() => ({ status: 'error', message: 'پاسخ نامعتبر از سرور.' })))
+      .then(res => {
+        if (res.status !== 'success') { autofillMsg(res.message || 'خواندن صفحه ممکن نشد.', false); return; }
+        const d = res.data || {};
+        const filled = [];
+        const fill = (el, value, label) => {
+          if (el && value && !el.value.trim()) { el.value = value; filled.push(label); }
+        };
+        fill(nameInput, d.name, 'نام');
+        fill(document.getElementById('prod_price'), d.price ? String(d.price) : '', 'قیمت');
+        fill(descInput, d.description, 'توضیح');
+        const urlInput = document.getElementById('prod_url');
+        if (urlInput && res.url) { urlInput.value = res.url; }
+        const existing = new Set(Array.from(customAttrsList ? customAttrsList.querySelectorAll('input[name="custom_attr_key"]') : [])
+          .map(i => i.value.trim()).filter(Boolean));
+        let added = 0;
+        (d.features || []).forEach(f => {
+          if (f && f.name && f.value && !existing.has(f.name)) { addCustomAttrRow(f.name, f.value, ''); existing.add(f.name); added++; }
+        });
+        if (added) filled.push(`${added} ویژگی`);
+        if (nameInput && filled.includes('نام')) nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        autofillMsg(filled.length ? `پر شد: ${filled.join('، ')}. لطفاً پیش از ذخیره بررسی کنید.`
+                                  : 'فیلدها از قبل پر بودند؛ فقط لینک محصول ثبت شد.', true);
+      })
+      .catch(() => autofillMsg('ارتباط با سرور برقرار نشد.', false))
+      .finally(() => { btnAutofill.disabled = false; autofillLabel.textContent = 'خواندن از لینک'; });
   });
 
   // Category attributes loader: smoothly integrates suggested attributes into custom rows

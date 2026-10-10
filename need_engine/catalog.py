@@ -34,6 +34,17 @@ def _vec_texts(p: Product, c: ProductCard) -> tuple[list[str], list[str]]:
     return texts, kinds
 
 
+def card_from_dict(pid: str, c: dict) -> ProductCard:
+    def opt(v):
+        v = "" if v is None else str(v).strip()
+        return None if v in ("", "null") else v
+
+    return ProductCard(product_id=pid, what_it_is=str(c.get("what_it_is") or ""),
+                       aliases=[str(x) for x in c.get("aliases") or [] if str(x).strip()][:5],
+                       problems_solved=[str(x) for x in c.get("problems_solved") or [] if str(x).strip()][:4],
+                       audience=opt(c.get("audience")), use=opt(c.get("use")), level=opt(c.get("level")))
+
+
 class Catalog:
     def __init__(self, cfg: EngineConfig, store: Store, llm: LLMClient, emb: Embedder):
         self.cfg, self.store, self.llm, self.emb = cfg, store, llm, emb
@@ -43,6 +54,7 @@ class Catalog:
         self.V = np.zeros((0, 1), dtype=np.float32)
         self.owner = np.zeros(0, dtype=int)
         self.bm25: BM25 | None = None
+        self.held: dict[str, int] = {}    # seller → new/changed products waiting for payment
 
     @property
     def n(self) -> int:
@@ -52,11 +64,15 @@ class Catalog:
         def run(batch: list[Product]) -> list[dict]:
             user = json.dumps({"listings": [_listing(p) for p in batch]}, ensure_ascii=False)
             data, _ = self.llm.complete_json("product_cards", self.cfg.extract_model, PRODUCT_CARD_SYSTEM, user, max_tokens=4096,
-                                             ref=",".join(p.product_id for p in batch))
+                                             ref=",".join(p.product_id for p in batch),
+                                             businesses=[p.business_id for p in batch])
             return [c for c in (data or {}).get("cards", []) if isinstance(c, dict)]
 
         got: dict[str, ProductCard] = {}
-        todo = prods
+        for p in prods:   # the seller edited the card → used as is, no LLM call
+            if p.card_override:
+                got[p.product_id] = card_from_dict(p.product_id, p.card_override)
+        todo = [p for p in prods if p.product_id not in got]
         for size in (10, 3, 1):  # products the model skipped are retried in smaller batches
             if not todo:
                 break
@@ -66,10 +82,7 @@ class Catalog:
                     for c in cards:
                         pid = str(c.get("product_id"))
                         try:
-                            got[pid] = ProductCard(product_id=pid, what_it_is=str(c.get("what_it_is") or ""),
-                                                   aliases=[str(x) for x in c.get("aliases") or []][:5],
-                                                   problems_solved=[str(x) for x in c.get("problems_solved") or []][:4],
-                                                   audience=c.get("audience"), use=c.get("use"), level=c.get("level"))
+                            got[pid] = card_from_dict(pid, c)
                         except Exception:
                             continue
             todo = [p for p in todo if p.product_id not in got]
@@ -78,14 +91,22 @@ class Catalog:
             got[p.product_id] = ProductCard(product_id=p.product_id)
         return got
 
-    def sync(self, products: list[Product]) -> list[str]:
-        """Builds cards/vectors only for new or changed products. Returns ids of new or changed products."""
+    def sync(self, products: list[Product], hold: frozenset[str] = frozenset()) -> list[str]:
+        """Builds cards/vectors only for new or changed products. Returns ids of new or changed products.
+
+        ``hold`` = sellers whose balance is used up: their new/changed products are not carded (that LLM call is theirs)
+        and wait — the stored version, if any, stays — until they top up; then they show up here as changed."""
         known = self.store.product_hashes()
         current = {p.product_id: p for p in products}
         removed = [pid for pid in known if pid not in current]
         if removed:
             self.store.delete_products(removed)
         changed = [p for p in products if known.get(p.product_id) != p.content_hash()]
+        self.held = {}
+        for p in changed:
+            if p.business_id is not None and str(p.business_id) in hold:
+                self.held[str(p.business_id)] = self.held.get(str(p.business_id), 0) + 1
+        changed = [p for p in changed if p.business_id is None or str(p.business_id) not in hold]
         if changed:
             log.info("product cards: %d new/changed of %d", len(changed), len(products))
             cards = self._cards_for(changed)
@@ -98,6 +119,10 @@ class Catalog:
             for p, c, s, ln, k in spans:
                 self.store.save_product(p, c, V[s:s + ln], k)
         self._load()
+        for p in self.products:   # url is not in the hash: always take the current one
+            if p.product_id in current:
+                p.url = current[p.product_id].url
+                p.x_outreach_enabled = current[p.product_id].x_outreach_enabled
         return [p.product_id for p in changed]
 
     def _load(self) -> None:

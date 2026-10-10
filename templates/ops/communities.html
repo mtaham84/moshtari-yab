@@ -1,0 +1,66 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}گروه‌های تلگرام{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>گروه‌های تلگرام</h1>
+  <div class="toolbar">
+    <a class="btn sm {% if not status and not scope %}primary{% endif %}" href="?">همه</a>
+    {% for k, label in statuses %}<a class="btn sm {% if status == k %}primary{% endif %}" href="?status={{ k }}"><span class="st {{ k }}">{{ label }}</span></a>{% endfor %}
+    <a class="btn sm {% if scope == 'GLOBAL' %}primary{% endif %}" href="?scope=GLOBAL">عمومی</a>
+    <a class="btn sm {% if scope == 'PRIVATE' %}primary{% endif %}" href="?scope=PRIVATE">اختصاصی</a>
+    <a class="btn sm {% if scope == 'SHARED' %}primary{% endif %}" href="?scope=SHARED">مشترک</a>
+    <a class="btn sm {% if scope == 'ORPHAN' %}primary{% endif %}" href="?scope=ORPHAN">بدون منبع در پنل</a>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:14px">
+  <div class="card stat"><div class="label">گروه‌ها</div><div class="value">{{ summary.groups|num }}</div>
+    <div class="sub">{{ summary.shared|num }} مشترک · {{ summary.orphans|num }} بدون منبع</div></div>
+  <div class="card stat"><div class="label">هزینه‌ی واقعی تا الان</div><div class="value">{{ summary.toman|toman }} <small>تومان</small></div>
+    <div class="sub">دریافتی از فروشنده‌ها: {{ summary.billed|toman }} تومان</div></div>
+  <div class="card stat"><div class="label">فرصت تحویل‌شده به فروشنده‌ها</div><div class="value">{{ summary.opportunities|num }}</div>
+    <div class="sub">هر گروه فقط یک بار تحلیل می‌شود</div></div>
+</div>
+
+<div class="card" style="margin-bottom:14px"><h2>افزودن منبع عمومی (برای همه‌ی فروشنده‌ها)</h2>
+  <form method="post" class="toolbar">{% csrf_token %}{{ form.handle_or_link }} {{ form.name }} <button class="btn primary">افزودن</button></form>
+  {% for e in form.handle_or_link.errors %}<div class="err neg">{{ e }}</div>{% endfor %}
+  <p class="muted" style="margin-bottom:0">هر گروه یک بار خوانده و تحلیل می‌شود، هر چند منبع که داشته باشد. هزینه‌ی تحلیل پیام‌ها: اگر فروشنده‌ای گروه را اختصاصی اضافه کرده باشد (حتی اگر عمومی هم باشد) <b>از هر کدام کامل</b> کسر می‌شود؛ وگرنه با پلتفرم است. هزینه‌ی تطبیق و پاسخ از فروشنده‌ای که محصولش تطبیق داده می‌شود کسر می‌شود.</p>
+</div>
+
+<div class="card">
+<table><tr><th>گروه</th><th>منابع</th><th>وضعیت</th><th class="n">اعضا</th><th class="n">پیام رصدشده / تحلیل‌شده</th><th>پرداخت‌کننده‌ی تحلیل</th>
+  <th class="n">هزینه‌ی واقعی (تومان)</th><th class="n">دریافتی (تومان)</th><th class="n">نیاز (باز)</th><th class="n">فرصت</th></tr>
+{% for g in groups %}<tr>
+  <td>{{ g.title|default:g.link }}<div class="muted"><code>{{ g.link }}</code></div>
+    {% if g.last %}<div class="muted" style="font-size:.78rem">آخرین پیام {{ g.last|date:"Y-m-d H:i" }}</div>{% endif %}</td>
+  <td>
+    {% if g.orphan %}
+      <span class="st down">بدون منبع در پنل</span>
+      <div class="muted" style="font-size:.78rem">کراولر می‌خواند (فایل گروه‌ها یا منبع حذف‌شده) ولی تحلیل نمی‌شود</div>
+      <form class="inline" method="post" action="{% url 'ops:community_adopt' g.chat_id %}">{% csrf_token %}
+        <input type="hidden" name="link" value="{{ g.link }}"><input type="hidden" name="title" value="{{ g.title }}">
+        <button class="btn sm primary">افزودن به منابع عمومی</button></form>
+    {% else %}
+      {% if g.private|length > 1 %}<div><span class="pill">اختصاصیِ {{ g.private|length }} فروشنده</span></div>{% endif %}
+      {% for c in g.sources %}<div class="toolbar" style="margin:2px 0">
+        {% if c.is_global %}<span class="pill">عمومی</span>{% else %}<a href="{% url 'ops:wallet_detail' c.business_id %}">{{ c.business.name }}</a>{% endif %}
+        {% if not c.is_active %}<span class="muted">(غیرفعال)</span>{% endif %}
+        <form class="inline" method="post" action="{% url 'ops:community_toggle' c.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button class="btn sm">{% if c.is_active %}توقف{% else %}فعال‌سازی{% endif %}</button></form>
+        <form class="inline" method="post" action="{% url 'ops:community_delete' c.pk %}" onsubmit="return confirm('حذف شود؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form>
+      </div>{% endfor %}
+    {% endif %}
+  </td>
+  <td>{% if g.orphan %}—{% else %}{% for c in g.sources|slice:":1" %}<span class="st {{ g.status }}">{{ c.get_sync_status_display }}</span>{% endfor %}
+    {% for c in g.sources %}{% if c.sync_error %}<div class="muted neg" style="font-size:.78rem">{{ c.sync_error_display }}</div>{% endif %}{% endfor %}{% endif %}</td>
+  <td class="n">{{ g.members|num }}</td>
+  <td class="n">{{ g.scanned|num }} / {{ g.stats.analysed|default:0|num }}</td>
+  <td>{{ g.payers }}</td>
+  <td class="n">{{ g.stats.toman|default:0|toman }}</td>
+  <td class="n">{{ g.billed_toman|toman }}</td>
+  <td class="n">{{ g.stats.needs|default:0|num }} ({{ g.stats.open_needs|default:0|num }})</td>
+  <td class="n">{{ g.stats.seller_opportunities|default:0|num }}</td>
+</tr>{% empty %}<tr><td class="muted" colspan="10">گروهی نیست.</td></tr>{% endfor %}</table>
+<p class="muted" style="margin:10px 0 0;font-size:.8rem">هزینه = تحلیل پیام‌های گروه + تطبیق و پاسخ نیازهای آن (کارت محصول و بردارها جزو هزینه‌ی گروه نیستند). فرصت = فرصت‌هایی که به فروشنده‌ها رسیده (یک نیاز برای دو فروشنده = ۲).</p>
+</div>
+{% endblock %}

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
@@ -11,7 +10,8 @@ import numpy as np
 from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.llm import LLMClient
-from need_engine.prompts import NEW_PRODUCT_SYSTEM, REPLY_SYSTEM, REPLY_SYSTEM_X, VERIFY_SYSTEM
+from need_engine.prompts import NEW_PRODUCT_SYSTEM, REPLY_SYSTEM_X, VERIFY_SYSTEM
+from need_engine.reply import MessageStyle, write_reply
 from need_engine.retrieve import Retrieval
 from need_engine.schemas import ChatMessage, MatchedProduct, NeedCard
 from need_engine.scoring import score_match
@@ -40,7 +40,8 @@ def verify_need(n: NeedCard, ret: Retrieval, cat: Catalog, store: Store, llm: LL
 
     def run(cands: list[int]):
         user = head + "\n\nRequirements:\n" + req_block(n) + "\n\nCandidates:\n" + "\n".join(cat.line(j) for j in cands)
-        data, usage = llm.complete_json("verify", cfg.verify_model, VERIFY_SYSTEM, user, max_tokens=2048, ref=n.need_id)
+        data, usage = llm.complete_json("verify", cfg.verify_model, VERIFY_SYSTEM, user, max_tokens=2048, ref=n.need_id,
+                                        businesses=[cat.products[j].business_id for j in cands])   # candidates' owners
         return cands, data, usage["toman"]
 
     with ThreadPoolExecutor(max_workers=cfg.max_workers) as ex:
@@ -81,7 +82,8 @@ def verify_new_product(pid: str, needs: list[tuple[NeedCard, np.ndarray]], cat: 
     by_id = {n.need_id: (s, n) for s, n in scored}
     lines = "\n".join(f"[{n.need_id}] {n.situation} | نیاز: {n.need}\n  Requirements:\n{req_block(n)}" for _, n in scored)
     data, usage = llm.complete_json("new_product_verify", cfg.verify_model, NEW_PRODUCT_SYSTEM,
-                                    "Product:\n" + cat.line(j) + "\n\nPeople:\n" + lines, max_tokens=2048, ref=pid)
+                                    "Product:\n" + cat.line(j) + "\n\nPeople:\n" + lines, max_tokens=2048, ref=pid,
+                                    businesses=[cat.products[j].business_id])
     out = {}
     for m in (data or {}).get("matches", []) or []:
         if not isinstance(m, dict) or m.get("need_id") not in by_id or m.get("solves") not in cfg.solves_factor:
@@ -93,28 +95,27 @@ def verify_new_product(pid: str, needs: list[tuple[NeedCard, np.ndarray]], cat: 
     return out, usage["toman"]
 
 
-_STRIP = re.compile(r"https?://\S+|@\w+|(?:\+?98|0)9\d{9}")
-
-
-def draft_reply(n: NeedCard, mp: MatchedProduct, cat: Catalog, store: Store, llm: LLMClient, cfg: EngineConfig) -> tuple[str, float]:
+def draft_reply(n: NeedCard, mp: MatchedProduct, cat: Catalog, store: Store, llm: LLMClient, cfg: EngineConfig,
+                style: MessageStyle | None = None) -> tuple[str, float]:
     j = cat.pid_index[mp.product_id]
-    user = json.dumps({"person_messages": evidence_text(n, store), "situation": n.situation, "product": cat.line(j),
-                       "mismatches_to_mention_honestly": mp.verdict.conflicts}, ensure_ascii=False)
+    p = cat.products[j]
+    link = cfg.click_url(mp.product_id, n.need_id) if p.url else None   # no product page → draft without a link
     if n.chat_id.startswith("x:"):
+        user = json.dumps({"person_messages": evidence_text(n, store), "situation": n.situation, "product": cat.line(j),
+                           "mismatches_to_mention_honestly": mp.verdict.conflicts}, ensure_ascii=False)
         angles = ("یک پرسش روشن‌کننده", "یک نکتهٔ کاربردی و سپس اشارهٔ کوتاه به گزینه", "پیشنهاد کوتاه و بدون فشار")
         angle = angles[int(hashlib.sha256(n.need_id.encode()).hexdigest(), 16) % len(angles)]
         user = json.dumps({"context": json.loads(user), "style_angle": angle}, ensure_ascii=False)
         data, usage = llm.complete_json("reply_x", cfg.reply_model, REPLY_SYSTEM_X, user, max_tokens=800, temperature=0.4,
-                                        ref=f"{n.need_id}:{mp.product_id}")
+                                        ref=f"{n.need_id}:{mp.product_id}", businesses=[p.business_id])
         from need_engine.x_replies import fit_public_reply
         variants = data or {}
         public = fit_public_reply(str(variants.get("public") or ""), cfg.x_public_target_chars)
         short = fit_public_reply(str(variants.get("short") or public), cfg.x_reply_max_chars)
-        dm = str(variants.get("dm") or "").strip().replace("{{LINK}}", cfg.product_url_template.format(product_id=mp.product_id, opportunity_id=n.need_id))
+        dm = str(variants.get("dm") or "").strip()
+        dm = dm.replace("{{LINK}}", link) if link else dm.replace("{{LINK}}", "").strip()
         mp.reply_variants = {"public": public, "dm": dm, "short": short}
         return public, usage["toman"]
-    data, usage = llm.complete_json("reply", cfg.reply_model, REPLY_SYSTEM, user, max_tokens=800, temperature=0.4,
-                                    ref=f"{n.need_id}:{mp.product_id}")
-    rep = _STRIP.sub("", (data or {}).get("reply") or "").strip()
-    link = cfg.product_url_template.format(product_id=mp.product_id, opportunity_id=n.need_id)
-    return (rep.replace("{{LINK}}", link) if "{{LINK}}" in rep else (rep + " " + link).strip()), usage["toman"]
+    return write_reply(llm, cfg, person_messages=evidence_text(n, store), situation=n.situation, product_line=cat.line(j),
+                       conflicts=mp.verdict.conflicts, style=style, link=link, ref=f"{n.need_id}:{mp.product_id}",
+                       businesses=[p.business_id])

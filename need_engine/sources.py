@@ -95,7 +95,7 @@ class SQLMessageSource:
             is_bot=bool(r.get("is_bot")), text=r.get("text") or "", date=parse_dt(r["date"]),
             reply_to=int(r["reply_to_msg_id"]) if r.get("reply_to_msg_id") is not None else None,
             chat_title=r.get("chat_title"), chat_username=r.get("chat_username"),
-            reply_to_text=r.get("parent_text"), reply_to_author_id=str(r["parent_author_id"]) if r["parent_author_id"] else None,
+            reply_to_text=r.get("parent_text"), reply_to_author_id=str(r["parent_author_id"]) if r.get("parent_author_id") else None,
             reply_to_author_name=r.get("parent_author_name"),
             reply_to_date=parse_dt(r["parent_date"]) if r.get("parent_date") else None) for r in rows]
 
@@ -208,8 +208,19 @@ class JsonlProductSource:
                 attributes=o.get("attributes") if isinstance(o.get("attributes"), dict) else {},
                 tags=o.get("tags") if isinstance(o.get("tags"), list) else [], category_path=str(o.get("category_path") or ""),
                 category_keywords=o.get("category_keywords") if isinstance(o.get("category_keywords"), list) else [],
-                discovery_priority=int(o.get("discovery_priority") or 1)))
+                discovery_priority=int(o.get("discovery_priority") or 1),
+                x_outreach_enabled=bool(o.get("x_outreach_enabled", True)), url=o.get("url") or None,
+                card_override=_json_dict(o.get("card_override"))))
         return out
+
+
+def _json_dict(v: Any) -> dict | None:
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            return None
+    return v if isinstance(v, dict) and v else None
 
 
 class SQLProductSource:
@@ -219,12 +230,13 @@ class SQLProductSource:
         self.cfg, self.db = cfg, _DB(dsn or cfg.database_url)
 
     def all(self) -> list[Product]:
+        # x_outreach_enabled is read, not filtered: it only limits X opportunities (engine._x_allowed), never Telegram
         rows = self.db.all(f"""SELECT p.id, p.business_id, p.name, p.description, p.product_type, p.price, p.attributes, p.target_customer,
-                                   p.discovery_priority,
+                                   p.url, p.agent_card_override, p.discovery_priority, p.x_outreach_enabled,
                                    COALESCE(c.full_path, c.name, '') AS category_path, COALESCE(c.keywords, '[]'::jsonb) AS category_keywords
                                FROM {_ident(self.cfg.products_table)} p
                                LEFT JOIN public.products_category c ON c.id = p.category_id
-                               WHERE p.status = 'ACTIVE' AND p.is_discovery_active = %s AND p.x_outreach_enabled = %s""", (True, True))
+                               WHERE p.status = 'ACTIVE' AND p.is_discovery_active = %s""", (True,))
         out = []
         for r in rows:
             attrs = r.get("attributes")
@@ -244,8 +256,26 @@ class SQLProductSource:
                                description=desc, product_type=str(r.get("product_type") or ""), price_toman=_price(r.get("price")),
                                attributes=attrs if isinstance(attrs, dict) else {}, category_path=str(r.get("category_path") or ""),
                                category_keywords=keywords if isinstance(keywords, list) else [],
-                               discovery_priority=int(r.get("discovery_priority") or 1)))
+                               discovery_priority=int(r.get("discovery_priority") or 1),
+                               x_outreach_enabled=r.get("x_outreach_enabled") is not False, url=(r.get("url") or None),
+                               card_override=_json_dict(r.get("agent_card_override"))))
         return out
+
+
+class StyleSource:
+    """Sellers' reply styles from Django's ``businesses_messagestyle`` (read-only). {} when not available."""
+
+    def __init__(self, cfg: EngineConfig, db: Any = None):
+        self.cfg, self._db = cfg, db
+
+    def all(self) -> dict[str, dict]:
+        if self.cfg.products_source != "db" and self._db is None:
+            return {}
+        if self._db is None:
+            self._db = _DB(self.cfg.database_url)
+        rows = self._db.all(f"""SELECT business_id, tone, max_sentences, use_emoji, signature, include_link, extra_instructions
+                                FROM {_ident(self.cfg.styles_table)}""")
+        return {str(r["business_id"]): dict(r) for r in rows}
 
 
 def product_source(cfg: EngineConfig) -> ProductSource:

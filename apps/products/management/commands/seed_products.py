@@ -111,7 +111,6 @@ class Command(BaseCommand):
         )
 
         self.stdout.write("2. Creating Test Seller Users & Businesses...")
-        from apps.discovery.models import MonitoredCommunity
 
         test_sellers = [
             {
@@ -245,61 +244,10 @@ class Command(BaseCommand):
                 }
             )
 
-            self.stdout.write(f"4. Seeding Telegram Communities for {sdata['email']}...")
-            telegram_communities = [
-                {
-                    "community_type": "GROUP",
-                    "name": "برنامه‌نویسان و پایتون‌کاران ایران",
-                    "handle_or_link": "@python_iran_dev",
-                    "category": python_course,
-                    "description": "جامعه عمومی برنامه‌نویسان، دانشجویان و متقاضیان دوره‌های پایتون و جنگو",
-                    "members_count": 48500,
-                },
-                {
-                    "community_type": "CHANNEL",
-                    "name": "بازار و خرید لپ‌تاپ‌های مهندسی",
-                    "handle_or_link": "@it_laptops_iran",
-                    "category": prog_laptops,
-                    "description": "اطلاع‌رسانی قیمت‌ها و درخواست‌های خرید لپ‌تاپ‌های کاری و برنامه‌نویسی",
-                    "members_count": 27300,
-                },
-                {
-                    "community_type": "GROUP",
-                    "name": "استارتاپ‌ها، سئو و توسعه وب",
-                    "handle_or_link": "@iran_seo_growth",
-                    "category": seo_cat,
-                    "description": "تبادل نظر صاحبان کسب‌وکار درباره سئو، بهینه‌سازی رتبه گوگل و کمپین‌های دیجیتال مارکتینگ",
-                    "members_count": 19400,
-                },
-                {
-                    "community_type": "CHANNEL",
-                    "name": "پوشاک و استایل مردانه شیک‌پوشان",
-                    "handle_or_link": "@mens_style_tehran",
-                    "category": mens_jeans,
-                    "description": "معرفی مدل‌های روز شلوار، کت و پوشاک آقایان و پاسخ به سوالات خریداران",
-                    "members_count": 35200,
-                },
-            ]
-
-            for c in telegram_communities:
-                MonitoredCommunity.objects.update_or_create(
-                    business=business,
-                    handle_or_link=c["handle_or_link"],
-                    defaults={
-                        "platform": "telegram",
-                        "community_type": c["community_type"],
-                        "name": c["name"],
-                        "category": c["category"],
-                        "description": c["description"],
-                        "members_count": c["members_count"],
-                        "is_active": True,
-                    }
-                )
-
         self.stdout.write(self.style.SUCCESS(
             "SUCCESS! Seed completed.\n"
             "Test Sellers:\n"
             "1. seller@example.com | Password: StrongPassword123!\n"
             "2. seller@moshtariyab.com | Password: demo123456\n"
-            "Categories, products and monitored communities seeded. Opportunities come from need_engine (manage.py sync_opportunities)."
+            "Categories and products seeded (Telegram sources: manage.py seed_global_sources / communities page). Opportunities come from need_engine (manage.py sync_opportunities)."
         ))

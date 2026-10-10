@@ -69,9 +69,7 @@
       <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 12px;">
         شرح محصول
       </h2>
-      <p style="font-size: 0.98rem; line-height: 1.85; color: var(--panel-text-muted); margin: 0; white-space: pre-line;">
-        {{ product.description }}
-      </p>
+      <div class="product-desc js-clamp" data-lines="8">{{ product.description }}</div>
     </div>
 
     <!-- Commercial Value / Price Box -->
@@ -103,6 +101,61 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- How the agent understood this product (editable) -->
+<div class="p-card" style="padding: 26px; margin-bottom: 24px;" id="agent-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+    <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--panel-text-main); margin: 0;">ایجنت محصول شما را این‌طور فهمیده</h3>
+    {% if agent_card.state == "seller" %}
+      <span class="p-badge p-badge-purple">ویرایش‌شده توسط شما — مستقیم در تطبیق استفاده می‌شود</span>
+    {% elif agent_card.state == "agent" %}
+      <span class="p-badge p-badge-success">نسخه‌ی ایجنت</span>
+    {% endif %}
+  </div>
+
+  {% if agent_card.state == "pending" or agent_card.state == "refreshing" %}
+    <p style="margin: 0; font-size: 0.85rem; color: var(--stone-text-muted); line-height: 1.7;">
+      {% if agent_card.state == "refreshing" %}ایجنت در حال خواندن دوباره‌ی محصول است.{% else %}ایجنت هنوز این محصول را بررسی نکرده است.{% endif %}
+      چند ثانیه بعد از اجرای موتور تحلیل، برداشت ایجنت این‌جا نمایش داده می‌شود{% if not product.is_discovery_active or product.status != "ACTIVE" %} (این محصول فعلاً در پایش فعال نیست){% endif %}.
+    </p>
+    {% if agent_card.state == "refreshing" %}
+      <p style="margin: 8px 0 0; font-size: 0.8rem; color: var(--stone-text-faint);">صفحه را کمی بعد تازه کنید.</p>
+    {% endif %}
+  {% else %}
+    <p style="margin: 0 0 14px; font-size: 0.8rem; color: var(--stone-text-muted); line-height: 1.7;">
+      این برداشت مبنای پیدا کردن خریدار است. اگر جایی درست نیست، اصلاحش کنید؛ نسخه‌ی شما بدون تغییر در تطبیق استفاده می‌شود.
+    </p>
+    <form method="POST" action="{% url 'products:agent_card' product.pk %}">
+      {% csrf_token %}
+      <div class="form-group" style="margin-bottom: 14px;">
+        <label class="form-label" for="ac_what">این محصول چیست</label>
+        <input type="text" id="ac_what" name="what_it_is" class="form-input" maxlength="300" value="{{ agent_card.card.what_it_is }}">
+      </div>
+      <div class="form-group" style="margin-bottom: 14px;">
+        <label class="form-label" for="ac_problems">چه نیازی را برطرف می‌کند (هر مورد در یک خط، حداکثر ۴)</label>
+        <textarea id="ac_problems" name="problems_solved" class="form-input" rows="3">{% for p in agent_card.card.problems_solved %}{{ p }}{% if not forloop.last %}
+{% endif %}{% endfor %}</textarea>
+      </div>
+      <div class="form-row-2" style="margin-bottom: 14px;">
+        <div class="form-group">
+          <label class="form-label" for="ac_aliases">نام‌های دیگری که مردم به کار می‌برند (با ، جدا کنید)</label>
+          <input type="text" id="ac_aliases" name="aliases" class="form-input" value="{{ agent_card.card.aliases|join:"، " }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ac_audience">مخاطب</label>
+          <input type="text" id="ac_audience" name="audience" class="form-input" maxlength="200" value="{{ agent_card.card.audience }}">
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+        {% if agent_card.state == "seller" %}
+          <button type="submit" name="action" value="revert" class="p-btn p-btn-secondary"
+                  onclick="return confirm('نسخه‌ی شما حذف و برداشت خود ایجنت دوباره ساخته شود؟');">برگشت به نسخه‌ی ایجنت</button>
+        {% endif %}
+        <button type="submit" name="action" value="save" class="p-btn p-btn-primary">ذخیره‌ی برداشت</button>
+      </div>
+    </form>
+  {% endif %}
 </div>
 
 <!-- Product Image Gallery Card -->
@@ -216,7 +269,7 @@
   <div class="p-card" style="padding: 26px;">
     <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--panel-text-main); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line></svg>
-      <span>مخاطب هدف و پرسونای خریدار (ICP)</span>
+      <span>مشتریان هدف</span>
     </h3>
 
     {% if product.target_customer %}
@@ -232,4 +285,22 @@
     {% endif %}
   </div>
 </div>
+<script>
+(() => {
+  document.querySelectorAll('.js-clamp').forEach(el => {
+    el.style.setProperty('--clamp', el.dataset.lines || 3);
+    el.classList.add('is-clamped');
+    requestAnimationFrame(() => {
+      if (el.scrollHeight - el.clientHeight < 4) { el.classList.remove('is-clamped'); return; }
+      const t = document.createElement('button');
+      t.type = 'button'; t.className = 'clamp-toggle'; t.textContent = 'نمایش کامل';
+      t.addEventListener('click', () => {
+        const open = el.classList.toggle('is-clamped') === false;
+        t.textContent = open ? 'نمایش کمتر' : 'نمایش کامل';
+      });
+      el.insertAdjacentElement('afterend', t);
+    });
+  });
+})();
+</script>
 {% endblock %}

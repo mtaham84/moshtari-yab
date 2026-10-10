@@ -1,6 +1,7 @@
 """Offline tests: fake LLM (need_engine.mock) + hash embeddings; state + vectors in PostgreSQL/pgvector (throw-away schemas)."""
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,7 +19,7 @@ from need_engine.scoring import score_match
 from need_engine.sources import JsonlProductSource, SQLMessageSource, XMessageSource
 from workers.x_collector.query_source import queries_from_products
 from need_engine.store import Store
-from need_engine.windowing import build_windows, is_ready, render
+from need_engine.windowing import build_windows, ready_batch, render
 from telegram_crawler.db import Archive
 
 T0 = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
@@ -35,6 +36,7 @@ def cfg_for(tmp_path, pg_dsn, pg_schema):
         c.crawler_schema = kw.pop("crawler_schema", "crawler")
         c.products_source = f"jsonl:{tmp_path / 'products.jsonl'}"
         c.max_workers = 1
+        c.source_access = "open"
         for k, v in kw.items():
             setattr(c, k, v)
         return c
@@ -73,15 +75,18 @@ def products_file(path: Path) -> None:
 
 
 # ── windowing ────────────────────────────────────────────────────────────────
-def test_triggers(cfg_for):
-    c = cfg_for(trigger_count=3, silence_minutes=10, max_wait_minutes=30)
+def test_triggers_are_count_only(cfg_for):
+    c = cfg_for(trigger_count=3, max_wait_minutes=0)
     p = [msg(1, "a", minutes=0), msg(2, "b", minutes=1)]
-    assert not is_ready(p, T0 + timedelta(minutes=5), c)[0]
-    assert is_ready(p, T0 + timedelta(minutes=12), c)[0]                 # quiet
-    p3 = p + [msg(3, "c", minutes=2)]
-    assert is_ready(p3, T0 + timedelta(minutes=3), c)[0]                 # count
-    busy = [msg(i, "x", minutes=i * 5) for i in range(1, 3)]
-    assert is_ready(busy, T0 + timedelta(minutes=31), c)[0]               # max wait (oldest at 5 min)
+    assert ready_batch(p, T0 + timedelta(days=30), c)[0] == []          # never time based: waits for 3 messages
+    p5 = p + [msg(i, "x", minutes=i) for i in range(3, 6)]
+    batch, why = ready_batch(list(reversed(p5)), T0 + timedelta(minutes=6), c)
+    assert [m.message_id for m in batch] == [1, 2, 3] and why == "3 new messages"   # whole batches, oldest first
+    p6 = p5 + [msg(6, "y", minutes=6)]
+    assert len(ready_batch(p6, T0, c)[0]) == 6
+    fallback = cfg_for(trigger_count=3, max_wait_minutes=30)                         # optional, off by default
+    assert len(ready_batch(p, T0 + timedelta(minutes=31), fallback)[0]) == 2
+    assert ready_batch(p, T0 + timedelta(minutes=29), fallback)[0] == []
 
 
 def test_x_source_ordering_namespace_and_url(cfg_for):
@@ -157,6 +162,8 @@ def test_independent_source_ingest_uses_distinct_cursors(cfg_for):
     engine = NeedEngine.__new__(NeedEngine)
     engine.cfg = cfg_for(fetch_batch=10)
     engine.store = FakeStore()
+    from need_engine.access import SourceAccess
+    engine.access = SourceAccess(engine.cfg)   # source_access=open in tests
     telegram = ChatMessage(chat_id="-1001", message_id=13, row_id=13, author_id="a", text="تلگرام", date=T0)
     post = ChatMessage(chat_id="x:public", message_id=99, row_id=5, author_id="x_a", text="پست", date=T0, platform="x")
     assert engine._ingest_source(Source(telegram), "fetch_cursor") == 1
@@ -231,15 +238,16 @@ def test_streaming_end_to_end_read_only(tmp_path, cfg_for, crawler):
     add(crawler, 2, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 1)
     add(crawler, 3, 12, "😂", 2, name="سارا", username=None)
     products_file(tmp_path / "products.jsonl")
-    c = cfg_for(crawler_schema=crawler.schema, trigger_count=100, silence_minutes=10)
+    c = cfg_for(crawler_schema=crawler.schema, trigger_count=4)
     snapshot = lambda: crawler.conn.execute(f"SELECT md5(string_agg(t::text, '|' ORDER BY id)) AS h FROM {crawler.schema}.tg_messages t").fetchone()["h"]
-    before = snapshot()
     eng = NeedEngine(c, mock_llm=mock_llm)
 
-    r1 = eng.run_once(now=T0 + timedelta(minutes=3))           # not quiet long enough → nothing analysed
+    r1 = eng.run_once(now=T0 + timedelta(days=1))              # 3 < 4 messages → nothing analysed, however long we wait
     assert r1.ingested == 3 and r1.analysed_messages == 0
-    r2 = eng.run_once(now=T0 + timedelta(minutes=20))          # quiet → analysed
-    assert r2.analysed_messages == 3 and r2.needs_new == 1 and len(r2.opportunities) == 1
+    add(crawler, 4, 12, "👍", 3, name="سارا", username=None)
+    before = snapshot()
+    r2 = eng.run_once(now=T0 + timedelta(minutes=4))           # 4th message → batch analysed immediately
+    assert r2.analysed_messages == 4 and r2.needs_new == 1 and len(r2.opportunities) == 1
     o = r2.opportunities[0]
     assert o.candidate.username == "ali" and o.candidate.profile_url == "https://t.me/ali"
     assert o.source.evidence[0].url == "https://t.me/testgroup/2" and o.source.chat_title == "گروه تست"
@@ -252,12 +260,14 @@ def test_streaming_end_to_end_read_only(tmp_path, cfg_for, crawler):
     published = eng.store.published_after(0)
     assert [p["payload"]["opportunity_id"] for p in published] == [o.opportunity_id]
     vec_rows = eng.store._all("SELECT count(*) AS n FROM {s}.product_vectors")[0]["n"]
-    assert vec_rows >= 2 and eng.store.totals()["messages_analysed"] == 3
+    assert vec_rows >= 2 and eng.store.totals()["messages_analysed"] == 4
 
     # same person later says it's solved → status change is emitted for the same opportunity
-    add(crawler, 4, 11, "گرفتمش ممنون، دستکش", 60)
+    add(crawler, 5, 11, "گرفتمش ممنون، دستکش", 60)
+    for i in (6, 7, 8):
+        add(crawler, i, 12, "👌", 60 + i, name="سارا", username=None)
     r3 = eng.run_once(now=T0 + timedelta(minutes=80))
-    assert r3.analysed_messages == 1
+    assert r3.analysed_messages == 4
     assert [x.status for x in r3.opportunities] == ["resolved"] and r3.opportunities[0].opportunity_id == o.opportunity_id
     latest = eng.store.published_after(published[0]["seq"])
     assert len(latest) == 1 and latest[0]["payload"]["status"] == "resolved"
@@ -274,7 +284,7 @@ def test_engine_cannot_write_to_the_crawler_archive(cfg_for, crawler):
 def test_new_product_back_matches_stored_needs(tmp_path, cfg_for, crawler):
     add(crawler, 1, 11, "دنبال یه کوله سفری سبکم", 0)
     products_file(tmp_path / "products.jsonl")
-    eng = NeedEngine(cfg_for(crawler_schema=crawler.schema), mock_llm=mock_llm)
+    eng = NeedEngine(cfg_for(crawler_schema=crawler.schema, trigger_count=1), mock_llm=mock_llm)
     eng.run_once(now=T0 + timedelta(hours=1))
     with (tmp_path / "products.jsonl").open("a", encoding="utf-8") as f:
         f.write("\n" + json.dumps({"product_id": "P3", "title": "کوله سفری سبک", "product_type": "کوله", "price_toman": 700000}, ensure_ascii=False))
@@ -324,3 +334,197 @@ def test_store_keeps_vectors_in_pgvector(cfg_for):
     assert card.need_id == "need_x" and np.allclose(vec, q[0], atol=1e-6)
     typ = st._all("SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute WHERE attrelid = '{s}.need_vectors'::regclass AND attname = 'vec'")
     assert typ[0]["t"] == "vector"
+
+
+def test_source_access_rule_is_applied_before_the_llm(tmp_path, cfg_for, crawler):
+    """no source → chat not analysed; PRIVATE → only its owners' products; GLOBAL → everyone's."""
+    t = f"{crawler.schema}.communities"
+    crawler.conn.execute(f"CREATE TABLE {t} (telegram_chat_id bigint, scope text, business_id text, is_active boolean)")
+    products_file(tmp_path / "products.jsonl")
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 0)
+    calls: list[str] = []
+
+    def counting_llm(stage, system, user):
+        calls.append(stage)
+        return mock_llm(stage, system, user)
+
+    def engine():
+        return NeedEngine(cfg_for(crawler_schema=crawler.schema, trigger_count=1, source_access="panel",
+                                  communities_table=t),       # fresh state schema each time
+                          mock_llm=counting_llm)
+
+    r = engine().run_once(now=T0 + timedelta(hours=1))
+    assert r.ingested == 0 and r.analysed_messages == 0 and set(calls) == {"product_cards"}   # no message LLM call
+
+    crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, 'PRIVATE', 'S2', TRUE)", (int(CHAT),))
+    eng = engine()
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.analysed_messages == 1
+    payers = {(x["stage"], x["business_id"]) for x in eng.store._all("SELECT stage, business_id FROM {s}.costs")}
+    assert ("need_extraction", "S2") in payers and ("need_extraction", None) not in payers   # private chat: owner pays
+    assert {b for st, b in payers if st == "product_cards"} == {"S1", "S2"}                  # each product: its seller
+    assert eng.store.totals(business_id="S2", chat_ids=[str(CHAT)])["messages_analysed"] == 1
+    assert all(m.product_id != "P1" for o in r.opportunities for m in o.matched_products)   # S1 does not watch this chat
+
+    crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, 'GLOBAL', NULL, TRUE)", (int(CHAT),))
+    r = engine().run_once(now=T0 + timedelta(hours=1))
+    assert any(m.product_id == "P1" for o in r.opportunities for m in o.matched_products)
+
+
+def test_source_access_rules():
+    from need_engine.access import SourceAccess
+
+    class FakeDB:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self, sql, params=()):
+            return [{"t": "x"}] if "to_regclass" in sql else self.rows
+
+    c = EngineConfig()
+    c.source_access, c.messages_source = "panel", "db"
+    a = SourceAccess(c, FakeDB([{"telegram_chat_id": -1, "scope": "PRIVATE", "business_id": 7},
+                                {"telegram_chat_id": -1, "scope": "PRIVATE", "business_id": 8},
+                                {"telegram_chat_id": -2, "scope": "GLOBAL", "business_id": None},
+                                {"telegram_chat_id": -2, "scope": "PRIVATE", "business_id": 7}]))
+    a.refresh()
+    assert a.sellers("-1") == {"7", "8"} and a.owners("-1") == ["7", "8"]
+    assert a.sellers("-2") is None and a.owners("-2") == ["7"]       # global + private copy: everyone matched, 7 pays
+    assert not a.analysed("-3") and a.analysed("-1")
+    assert a.allows("-1", "7") and not a.allows("-1", "9") and a.allows("-2", "9") and not a.allows("-3", "7")
+
+
+class _Wallets:
+    """Stand-in for ModelRegistry.blocked(): sellers whose balance is used up."""
+    def __init__(self, *blocked):
+        self.ids = set(blocked)
+
+    def blocked(self):
+        return frozenset(self.ids)
+
+
+def _paying_engine(tmp_path, cfg_for, crawler, scope, wallets, calls):
+    t = f"{crawler.schema}.communities"
+    crawler.conn.execute(f"CREATE TABLE IF NOT EXISTS {t} (telegram_chat_id bigint, scope text, business_id text, is_active boolean)")
+    crawler.conn.execute(f"INSERT INTO {t} VALUES (%s, %s, %s, TRUE)", (int(CHAT), scope, "S1" if scope == "PRIVATE" else None))
+    products_file(tmp_path / "products.jsonl")
+
+    def counting_llm(stage, system, user):
+        calls.append(stage)
+        return mock_llm(stage, system, user)
+
+    eng = NeedEngine(cfg_for(crawler_schema=crawler.schema, trigger_count=1, source_access="panel", communities_table=t),
+                     mock_llm=counting_llm)
+    eng.access.registry = wallets
+    return eng
+
+
+def test_private_chat_of_a_seller_without_balance_is_held_then_processed(tmp_path, cfg_for, crawler):
+    wallets, calls = _Wallets("S1"), []
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "PRIVATE", wallets, calls)
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 0)
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.ingested == 1 and r.analysed_messages == 0 and "need_extraction" not in calls   # collected, not processed
+    assert eng.store.get("waiting_payment")["sellers"]["S1"]["messages"] == 1
+    assert not eng.store._all("SELECT 1 FROM {s}.costs WHERE business_id = 'S1'")             # S1 paid nothing
+
+    wallets.ids.clear()                                                                        # topped up
+    r = eng.run_once(now=T0 + timedelta(hours=2))
+    assert r.analysed_messages == 1 and any(m.product_id == "P1" for o in r.opportunities for m in o.matched_products)
+    assert eng.store.get("waiting_payment")["sellers"] == {}
+
+
+def test_held_messages_older_than_the_need_ttl_are_dropped(tmp_path, cfg_for, crawler):
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "PRIVATE", _Wallets("S1"), [])
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم", 0)
+    eng.run_once(now=T0 + timedelta(hours=1))
+    assert eng.store.pending_count(str(CHAT)) == 1
+    eng.run_once(now=T0 + timedelta(days=eng.cfg.need_ttl_days + 1))
+    assert eng.store.pending_count(str(CHAT)) == 0
+
+
+def test_global_need_is_queued_for_a_blocked_seller_and_matched_after_top_up(tmp_path, cfg_for, crawler):
+    wallets, calls = _Wallets(), []
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "GLOBAL", wallets, calls)
+    eng.run_once(now=T0)                                       # catalog built while everyone can pay
+    wallets.ids.add("S1")
+    add(crawler, 1, 11, "دنبال دستکش گرم موتورم بودجه 1 میلیون", 0)
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.analysed_messages == 1
+    assert all(m.product_id != "P1" for o in r.opportunities for m in o.matched_products)
+    assert eng.store.deferred_counts() == {"S1": 1}
+    assert eng.store.get("waiting_payment")["sellers"]["S1"]["needs"] == 1
+    assert not eng.store._all("SELECT 1 FROM {s}.costs WHERE business_id = 'S1' AND stage <> 'product_cards'")
+
+    wallets.ids.clear()
+    r = eng.run_once(now=T0 + timedelta(hours=2))
+    assert r.released == 1 and r.analysed_messages == 0
+    assert any(m.product_id == "P1" for o in r.opportunities for m in o.matched_products)
+    assert eng.store.deferred_counts() == {}
+    assert eng.store._all("SELECT 1 FROM {s}.costs WHERE business_id = 'S1' AND stage = 'verify'")   # now S1 pays
+
+
+def test_products_of_a_blocked_seller_wait_for_the_top_up(tmp_path, cfg_for, crawler):
+    wallets, calls = _Wallets(), []
+    eng = _paying_engine(tmp_path, cfg_for, crawler, "GLOBAL", wallets, calls)
+    eng.run_once(now=T0)
+    wallets.ids.add("S1")
+    with (tmp_path / "products.jsonl").open("a", encoding="utf-8") as f:
+        f.write("\n" + json.dumps({"product_id": "P3", "seller_id": "S1", "title": "کوله سفری", "product_type": "کوله"},
+                                  ensure_ascii=False))
+    r = eng.run_once(now=T0 + timedelta(hours=1))
+    assert r.products_changed == 0 and "P3" not in eng.catalog.pid_index
+    assert eng.store.get("waiting_payment")["sellers"]["S1"]["products"] == 1
+    wallets.ids.clear()
+    r = eng.run_once(now=T0 + timedelta(hours=2))
+    assert r.products_changed == 1 and "P3" in eng.catalog.pid_index
+
+
+def test_x_is_a_platform_source_under_the_panel_access_rule(cfg_for):
+    from need_engine.access import SourceAccess
+
+    class FakeDB:
+        def all(self, sql, params=()):
+            if "to_regclass" in sql:
+                return [{"t": "public.discovery_monitoredcommunity"}]
+            return [{"telegram_chat_id": -1001, "scope": "PRIVATE", "business_id": 7}]
+
+    c = cfg_for(source_access="panel", messages_source="db", x_enabled=True)
+    acc = SourceAccess(c, db=FakeDB())
+    acc.refresh()
+    assert acc.monitored("x:public") and acc.analysed("x:public") and not acc.held("x:public")
+    assert acc.sellers("x:public") is None and acc.owners("x:public") == []   # every seller, platform pays
+    assert acc.sellers("-1001") == frozenset({"7"}) and not acc.analysed("-1002")
+    c.x_enabled = False
+    acc.refresh()
+    assert not acc.monitored("x:public")
+
+
+def test_new_product_fields_keep_existing_hashes_and_x_flag_is_not_hashed():
+    from need_engine.schemas import Product
+
+    base = Product(product_id="1", title="کفش", description="d")
+    legacy = hashlib.sha1(json.dumps(base.model_dump(exclude={"business_id", "url", "card_override", "category_path",
+                                                                 "category_keywords", "discovery_priority",
+                                                                 "x_outreach_enabled"}),
+                                     ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+    assert base.content_hash() == legacy
+    assert Product(product_id="1", title="کفش", description="d", x_outreach_enabled=False, discovery_priority=5).content_hash() == legacy
+    assert Product(product_id="1", title="کفش", description="d", category_path="پوشاک > کفش").content_hash() != legacy
+
+
+def test_x_opportunities_only_use_x_enabled_products(cfg_for):
+    from need_engine.engine import NeedEngine
+    from need_engine.schemas import MatchedProduct, Product, Verdict
+
+    engine = NeedEngine.__new__(NeedEngine)
+    engine.cfg = cfg_for(x_min_match_score=50)
+
+    class Cat:
+        products = [Product(product_id="a", title="a"), Product(product_id="b", title="b", x_outreach_enabled=False)]
+        pid_index = {"a": 0, "b": 1}
+
+    engine.catalog = Cat()
+    mk = lambda pid, s: MatchedProduct(product_id=pid, match_score=s, similarity=0.5, verdict=Verdict(solves="yes"))
+    kept = engine._x_allowed([mk("a", 0.9), mk("b", 0.9), mk("a", 0.3)])
+    assert [(m.product_id, m.match_score) for m in kept] == [("a", 0.9)]

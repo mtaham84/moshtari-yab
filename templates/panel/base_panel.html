@@ -57,37 +57,9 @@
             </div>
             <div class="console-brand-meta">
               <span class="console-brand-name">مشتـــری‌یاب</span>
-              <span class="console-brand-badge">سامانه کشف هوشمند مشتری (buildX)</span>
+              <span class="console-brand-badge">سامانه کشف هوشمند مشتری</span>
             </div>
           </a>
-        </div>
-
-        <!-- Center: Connected Pipeline Stepper Rail (Direct from Reference Image) -->
-        <div class="pipeline-stepper-wrap" aria-label="مراحل فرآیند ایجنتیک کشف مشتری">
-          <div class="pipeline-stepper-track">
-            <div class="stepper-rail-line"></div>
-            
-            <a href="{% url 'discovery:communities_list' %}" class="stepper-node active" title="مرحله ۱: رصد مداوم پیام‌های جوامع آنلاین تلگرام">
-              <span class="stepper-node-dot"></span>
-              <span>۱. رصد جوامع (تلگرام)</span>
-            </a>
-            <a href="{% url 'accounts:dashboard' %}#فیلتر" class="stepper-node" title="مرحله ۲: فیلتر نیت و شناسایی نیاز مخاطب">
-              <span class="stepper-node-dot"></span>
-              <span>۲. فیلتر نیاز</span>
-            </a>
-            <a href="{% url 'products:list' %}" class="stepper-node" title="مرحله ۳: تطبیق هوشمند با کاتالوگ فروشنده">
-              <span class="stepper-node-dot"></span>
-              <span>۳. تطبیق کالا</span>
-            </a>
-            <a href="{% url 'accounts:dashboard' %}#کیفیت" class="stepper-node" title="مرحله ۴: محاسبه امتیاز کیفیت و هزینه دلاری/تومانی">
-              <span class="stepper-node-dot"></span>
-              <span>۴. کیفیت و هزینه</span>
-            </a>
-            <a href="{% url 'discovery:opportunity_list' %}" class="stepper-node" title="مرحله ۵: فرصت‌های کشف‌شده و پیش‌نویس پاسخ">
-              <span class="stepper-node-dot"></span>
-              <span>۵. فرصت‌ها و پیش‌نویس</span>
-            </a>
-          </div>
         </div>
 
         <!-- Left: System Status, Theme & Profile -->
@@ -95,8 +67,23 @@
           <!-- Live Agent Status Chip -->
           <div class="console-status-chip" title="وضعیت ایجنت هوشمند">
             <span class="console-pulse-beacon"></span>
-            <span>ایجنت فعال</span>
+            <span>{% if wallet_blocked %}ایجنت متوقف (اعتبار تمام شده){% else %}ایجنت فعال{% endif %}</span>
           </div>
+
+          <!-- Pay-as-you-go balance (apps/billing) -->
+          {% if wallet_balance is not None %}
+          <div class="console-status-chip" title="اعتبار کیف پول؛ هزینه‌ی هر تحلیل به‌ازای مصرف از آن کسر می‌شود"{% if wallet_blocked %} style="color: #d93a3a;"{% endif %}>
+            <span>اعتبار: {{ wallet_balance|floatformat:"0g" }} تومان</span>
+          </div>
+          {% if wallet_blocked %}
+          <div class="console-status-chip" title="پیام‌ها جمع‌آوری می‌شوند ولی تا شارژ کیف پول تحلیل نمی‌شوند؛ بعد از شارژ خودکار پردازش می‌شوند" style="color: #b7791f;">
+            <span>در انتظار پرداخت{% if wallet_waiting %}: {{ wallet_waiting.messages }} پیام · {{ wallet_waiting.needs }} نیاز · {{ wallet_waiting.products }} محصول{% endif %}</span>
+          </div>
+          {% endif %}
+          {% endif %}
+          {% if is_ops %}
+          <a href="{% url 'ops:dashboard' %}" class="console-status-chip" title="پنل مدیریت" style="text-decoration: none;">پنل مدیریت</a>
+          {% endif %}
 
           <!-- 3-State Theme Switcher -->
           <div class="theme-switch-pill" role="group" aria-label="تغییر پوسته">
@@ -289,14 +276,8 @@
         </div>
 
         <div class="topbar-right">
-          <!-- Active Agent Status Indicator -->
-          <div class="agent-status-pill" title="وضعیت ایجنت هوشمند">
-            <span class="agent-dot-pulse"></span>
-            <span>ایجنت: آماده کاوش</span>
-          </div>
-
           <!-- Quick Discovery Button -->
-          <a href="{% url 'accounts:dashboard' %}#کشف-مشتری" class="topbar-discovery-btn">
+          <a href="{% url 'discovery:communities_list' %}" class="topbar-discovery-btn" title="افزودن منبع جدید برای رصد">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             <span>کشف مشتری جدید</span>
           </a>

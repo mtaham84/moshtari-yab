@@ -302,7 +302,7 @@ async def test_panel_communities_join_pause_resume_without_restart(archive, pane
                 ("bad", "@no_such_group", True), ("off", "@other_grp", False)]:
         archive.conn.execute(ins, row)
 
-    mon = monitor(c, archive, panel=panel)
+    mon = monitor(c, archive, panel=panel, join_interval=0)
     await mon.run_backfill()                      # no CLI groups: nothing to do
     assert await mon.sync_panel() == 1            # one join for both spellings, bad link → error, inactive ignored
     assert joins == ["@motor_tehran", "@no_such_group"]
@@ -311,12 +311,12 @@ async def test_panel_communities_join_pause_resume_without_restart(archive, pane
     assert (a["sync_status"], a["telegram_chat_id"], a["members_count"], a["name"]) == ("ACTIVE", utils.get_peer_id(g), 1234, "موتورسواران تهران")
     assert rows["https://t.me/Motor_Tehran/"]["telegram_chat_id"] == a["telegram_chat_id"]
     assert rows["https://t.me/Motor_Tehran/"]["name"] == "dup"                 # a name typed by the seller is kept
-    assert rows["@no_such_group"]["sync_status"] == "ERROR" and "no_such_group" in rows["@no_such_group"]["sync_error"]
+    assert (rows["@no_such_group"]["sync_status"], rows["@no_such_group"]["sync_error"]) == ("ERROR", "INVALID_LINK")
     assert rows["@other_grp"]["sync_status"] == "PENDING" and rows["@other_grp"]["telegram_chat_id"] is None
     assert a["messages_scanned_count"] == 3 and a["last_scanned_at"] is not None
     assert archive.count_messages(utils.get_peer_id(g)) == 3
 
-    # a failed link is not retried on every poll
+    # a bad link is not retried until the seller re-activates it
     assert await mon.sync_panel() == 0 and joins.count("@no_such_group") == 1
 
     # live messages are archived through one catch-all handler; unknown chats are ignored
@@ -344,6 +344,85 @@ async def test_panel_communities_join_pause_resume_without_restart(archive, pane
     assert panel_rows(panel)["@motor_tehran"]["sync_status"] == "ACTIVE"
     assert archive.count_messages(utils.get_peer_id(g)) == 5
     assert panel_rows(panel)["@motor_tehran"]["messages_scanned_count"] == 5
+
+
+async def test_panel_join_queue_flood_wait_limit_and_restart(archive, panel, monkeypatch):
+    import telegram_crawler.monitor as mon_mod
+    from telethon.errors import FloodWaitError
+
+    from telegram_crawler.panel import normalize_link
+
+    monkeypatch.setattr(mon_mod, "pace", AsyncMock())
+    monkeypatch.setattr(mon_mod, "fetch_full_chat", AsyncMock(return_value=None))
+    chans = {f"grp_{i}": channel(40 + i, f"G{i}", f"grp_{i}") for i in range(4)}
+    c = FakeClient(list(chans.values()))
+    c.history = {ch.id: [] for ch in chans.values()}
+    joins: list[str] = []
+    flood = {"once": True}
+
+    async def fake_join(client, link):
+        key = normalize_link(link)
+        joins.append(key)
+        if key == "grp_1" and flood["once"]:
+            flood["once"] = False
+            raise FloodWaitError(request=None, capture=120)
+        return chans[key], None
+
+    monkeypatch.setattr(mon_mod, "join_and_resolve_group", fake_join)
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(mon_mod.time, "monotonic", lambda: clock["t"])
+    for key in chans:
+        archive.conn.execute(f"INSERT INTO {panel.table} (name, handle_or_link) VALUES ('', %s)", (f"@{key}",))
+
+    mon = monitor(c, archive, panel=panel, join_interval=60, max_groups=2)
+    assert await mon.sync_panel() == 1 and joins == ["grp_0"]          # one join per interval, others queued
+    assert panel_rows(panel)["@grp_1"]["sync_status"] == "PENDING"
+    clock["t"] += 30
+    assert await mon.sync_panel() == 0                                  # interval not over yet
+    clock["t"] += 31
+    assert await mon.sync_panel() == 0 and joins[-1] == "grp_1"         # FloodWait → code shown, every join waits
+    assert (panel_rows(panel)["@grp_1"]["sync_status"], panel_rows(panel)["@grp_1"]["sync_error"]) == ("PENDING", "FLOOD_WAIT:120")
+    clock["t"] += 100
+    assert await mon.sync_panel() == 0 and len(joins) == 2
+    clock["t"] += 30
+    assert await mon.sync_panel() == 1 and joins[-1] == "grp_1"         # retried after the wait
+    clock["t"] += 61
+    assert await mon.sync_panel() == 0 and len(joins) == 3              # TG_MAX_GROUPS reached
+    rows = panel_rows(panel)
+    assert (rows["@grp_2"]["sync_status"], rows["@grp_2"]["sync_error"]) == ("PENDING", "LIMIT_REACHED")
+
+    # restart: groups the account already belongs to are reused without joining again
+    c.iter_dialogs = lambda: _aiter([SimpleNamespace(entity=chans["grp_0"]), SimpleNamespace(entity=chans["grp_1"])])
+    mon2 = monitor(c, archive, panel=panel, join_interval=60, max_groups=3)
+    assert await mon2.sync_panel() == 1 and joins[3:] == ["grp_2"]
+    assert {st.chat_id for st in mon2.groups} == {utils.get_peer_id(chans[k]) for k in ("grp_0", "grp_1", "grp_2")}
+
+
+async def _aiter(items):
+    for x in items:
+        yield x
+
+
+def test_join_errors_are_mapped_to_panel_codes():
+    from telethon import errors as tg
+
+    from telegram_crawler.panel import classify_join_error
+    from telegram_crawler.ratelimit import FloodWaitTooLong
+    from telegram_crawler.telegram_client import JoinError
+
+    cases = [
+        (ValueError('No user has "x" as username'), "INVALID_LINK"),
+        (tg.UsernameNotOccupiedError(request=None), "INVALID_LINK"),
+        (tg.InviteHashExpiredError(request=None), "NO_ACCESS"),
+        (tg.ChannelPrivateError(request=None), "NO_ACCESS"),
+        (tg.UserBannedInChannelError(request=None), "BANNED"),
+        (tg.ChannelsTooMuchError(request=None), "LIMIT_REACHED"),
+        (JoinError("NOT_A_GROUP"), "NOT_A_GROUP"),
+        (FloodWaitTooLong("x", 900), "FLOOD_WAIT:900"),
+        (RuntimeError("boom"), "UNKNOWN:boom"),
+    ]
+    for exc, code in cases:
+        assert classify_join_error(exc)[0] == code, exc
 
 
 async def test_panel_table_missing_is_not_an_error(archive):

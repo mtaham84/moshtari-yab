@@ -72,7 +72,7 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
         })
     rows.sort(key=lambda r: (r["discovered_leads_count"], r["sales_amount"]), reverse=True)
 
-    eng = engine_totals()
+    eng = engine_totals(business)   # this seller's share of the cost / messages reviewed for it
     return {
         "summary": {
             "total_sales": totals["sales"],

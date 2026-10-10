@@ -1,0 +1,49 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}داشبورد{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>داشبورد</h1>{% include "ops/_periods.html" %}</div>
+
+<div class="grid g4">
+  <div class="card stat"><div class="label">هزینه‌ی واقعی مدل‌ها</div><div class="value">{{ totals.toman|toman }} <small>تومان</small></div>
+    <div class="sub">{{ totals.usd|usd }} · {{ totals.calls|num }} فراخوانی · {{ totals.tokens|num }} توکن</div></div>
+  <div class="card stat"><div class="label">درآمد (کسر از کیف پول‌ها)</div><div class="value">{{ revenue|toman }} <small>تومان</small></div>
+    <div class="sub">سود روی هزینه: {{ settings.markup_percent|num }}٪</div></div>
+  <div class="card stat"><div class="label">سود ناخالص</div><div class="value {% if profit < 0 %}neg{% else %}pos{% endif %}">{{ profit|toman }} <small>تومان</small></div>
+    <div class="sub">شامل هزینه‌ی منابع عمومی که پلتفرم می‌پردازد</div></div>
+  <div class="card stat"><div class="label">مجموع اعتبار فروشنده‌ها</div><div class="value">{{ wallet_total|toman }} <small>تومان</small></div>
+    <div class="sub">{{ wallet_count }} کیف پول · <a href="{% url 'ops:wallets' %}">{{ blocked }} بدون اعتبار</a>{% if held.messages or held.needs or held.products %} · در انتظار پرداخت: {{ held.messages|num }} پیام، {{ held.needs|num }} نیاز، {{ held.products|num }} محصول{% endif %}</div></div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h2>وضعیت سرویس‌ها</h2>
+    <table>{% for s in status %}<tr><td><span class="st {{ s.state }}">{{ s.name }}</span></td><td class="muted">{{ s.detail }}</td></tr>{% endfor %}</table>
+  </div>
+  <div class="card">
+    <h2>هزینه‌ی روزانه (۱۴ روز اخیر)</h2>
+    <table>{% for d in daily %}<tr><td style="width:95px" class="n">{{ d.day }}</td><td><div class="bar"><span style="width:{{ d.pct }}%"></span></div></td>
+      <td class="n" style="width:110px">{{ d.toman|toman }}</td></tr>{% empty %}<tr><td class="muted">هنوز هزینه‌ای ثبت نشده.</td></tr>{% endfor %}</table>
+  </div>
+  <div class="card">
+    <h2>به تفکیک مدل</h2>
+    <table><tr><th>مدل</th><th class="n">فراخوانی</th><th class="n">توکن ورودی/خروجی</th><th class="n">دلار</th><th class="n">تومان</th></tr>
+    {% for r in by_model %}<tr><td><code>{{ r.key }}</code></td><td class="n">{{ r.calls|num }}</td><td class="n">{{ r.pt|num }} / {{ r.ct|num }}</td>
+      <td class="n">{{ r.usd|usd }}</td><td class="n">{{ r.toman|toman }}</td></tr>{% empty %}<tr><td class="muted" colspan="5">—</td></tr>{% endfor %}</table>
+  </div>
+  <div class="card">
+    <h2>به تفکیک مرحله</h2>
+    <table><tr><th>مرحله</th><th class="n">فراخوانی</th><th class="n">کش</th><th class="n">تومان</th></tr>
+    {% for r in by_stage %}<tr><td><code>{{ r.key }}</code></td><td class="n">{{ r.calls|num }}</td><td class="n">{{ r.cached|num }}</td>
+      <td class="n">{{ r.toman|toman }}</td></tr>{% empty %}<tr><td class="muted" colspan="4">—</td></tr>{% endfor %}</table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="provider-head"><h2>آخرین تراکنش‌ها</h2><a href="{% url 'ops:wallets' %}">همه‌ی کیف پول‌ها</a></div>
+  <table><tr><th>زمان</th><th>فروشنده</th><th>نوع</th><th>توضیح</th><th class="n">مبلغ</th><th class="n">موجودی</th></tr>
+  {% for t in recent %}<tr><td class="muted">{{ t.created_at|date:"Y-m-d H:i" }}</td>
+    <td><a href="{% url 'ops:wallet_detail' t.wallet.business_id %}">{{ t.wallet.business.name }}</a></td><td>{{ t.get_kind_display }}</td>
+    <td class="muted">{{ t.description }}</td><td class="n {% if t.amount_toman < 0 %}neg{% else %}pos{% endif %}">{{ t.amount_toman|toman }}</td>
+    <td class="n">{{ t.balance_after|toman }}</td></tr>{% empty %}<tr><td class="muted" colspan="6">تراکنشی نیست.</td></tr>{% endfor %}</table>
+</div>
+{% endblock %}

@@ -55,149 +55,20 @@
   color: var(--obsidian-cyan, #00f2fe);
   font-weight: 700;
 }
+/* desktop layout of the metric cards (mobile rules live in panel.css) */
+@media (min-width: 769px) {
+  .dashboard-stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+}
+.stat-metric-card { padding: 14px 16px; border-radius: 12px; border: 1px solid var(--panel-border-subtle); background: var(--panel-card-inner, rgba(255,255,255,0.03)); }
+.stat-metric-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.75rem; color: var(--stone-text-muted); }
+.stat-metric-val { font-size: 1.2rem; font-weight: 850; margin: 8px 0 4px; color: var(--panel-text-main); }
+.stat-metric-sub { display: block; font-size: 0.72rem; color: var(--stone-text-muted); }
 .date-preset-btn.active {
   background: var(--obsidian-cyan, #00f2fe) !important;
   color: #020617 !important;
   font-weight: 800 !important;
 }
 </style>
-
-<!-- ========================================================================
-     Business & ICP Understanding (شناخت ایجنت از پرسونای مشتری)
-     ======================================================================== -->
-<div class="p-card" style="padding: 22px 26px; margin-bottom: 24px;">
-  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-    <div style="display: flex; align-items: center; gap: 10px;">
-      <span class="console-pulse-beacon"></span>
-      <h2 style="font-size: 1.05rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">
-        شناخت ایجنت از پرسونای خریدار و کسب‌وکار شما (ICP)
-      </h2>
-    </div>
-    
-    <div style="display: flex; align-items: center; gap: 10px;">
-      <span class="p-badge p-badge-success" id="icp-status-badge">
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        <span>استخراج خودکار از کاتالوگ</span>
-      </span>
-      <button type="button" class="p-btn p-btn-sm p-btn-stone" id="btn-confirm-icp">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        <span>تأیید شناخت ایجنت</span>
-      </button>
-      <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-edit-target" title="تنظیم اختیاری محدودیت‌های سنی، جغرافیایی یا شبکه">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-        <span>تنظیم دستی هدف‌گذاری</span>
-      </button>
-    </div>
-  </div>
-
-  <div class="icp-insights-grid">
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">حوزه و صنعت:</span>
-      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">{{ business.business_domain|default:"سبک زندگی دیجیتال و فناوری" }}</strong>
-    </div>
-
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">ارزش پیشنهادی اصلی:</span>
-      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">کاهش خستگی مفرط و ارتقای تمرکز کاری</strong>
-    </div>
-
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">خریداران ایده‌آل شناسایی‌شده:</span>
-      <strong style="font-size: 0.88rem; color: var(--panel-text-main);">برنامه‌نویسان، طراحان، دانشجویان و کارمندان</strong>
-    </div>
-
-    <div>
-      <span style="font-size: 0.72rem; color: var(--stone-text-faint); font-weight: 800; display: block; margin-bottom: 4px;">محرک‌های تصمیم‌گیری:</span>
-      <strong style="font-size: 0.88rem; color: var(--obsidian-cyan);">کار طولانی با مانیتور، سوزش چشم، ارتقای ابزار</strong>
-    </div>
-  </div>
-
-  <!-- Manual Targeting Drawer (31 Cities + Custom Entry, Flexible Age, Auto Intent) -->
-  <div id="target-settings-drawer" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border-subtle);">
-    <form method="POST" action="">
-      {% csrf_token %}
-      <input type="hidden" name="update_targeting_constraints" value="1">
-
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-        <span style="font-size: 0.82rem; font-weight: 800; color: var(--panel-text-main);">محدوده‌های هدف‌گذاری اختیاری (Target Constraints):</span>
-        <span style="font-size: 0.75rem; color: var(--obsidian-cyan); font-weight: 700;">تشخیص هوشمند بر پایه کاتالوگ یا تنظیم دقیق فروشنده</span>
-      </div>
-
-      <div class="targeting-fields-grid" style="display: grid; grid-template-columns: 1.4fr 1.3fr 1fr; gap: 14px; align-items: start;">
-        <!-- 31 Major Cities + Custom Typing -->
-        <div>
-          <label class="form-label" style="font-size: 0.75rem;">موقعیت جغرافیایی (۳۱ مرکز استان یا شهر دلخواه)</label>
-          <input type="text" list="iran-provincial-cities" name="target_locations" class="form-input" style="padding: 8px 12px; font-size: 0.82rem;" value="{{ business.target_locations|default:'سراسر کشور' }}" placeholder="انتخاب از ۳۱ شهر یا تایپ هر شهر دیگر...">
-          <datalist id="iran-provincial-cities">
-            <option value="سراسر کشور">
-            <option value="تهران">
-            <option value="مشهد">
-            <option value="اصفهان">
-            <option value="کرج">
-            <option value="شیراز">
-            <option value="تبریز">
-            <option value="قم">
-            <option value="اهواز">
-            <option value="کرمانشاه">
-            <option value="ارومیه">
-            <option value="رشت">
-            <option value="زاهدان">
-            <option value="همدان">
-            <option value="کرمان">
-            <option value="یزد">
-            <option value="اردبیل">
-            <option value="بندرعباس">
-            <option value="اراک">
-            <option value="زنجان">
-            <option value="سنندج">
-            <option value="قزوین">
-            <option value="خرم‌آباد">
-            <option value="گرگان">
-            <option value="ساری">
-            <option value="بجنورد">
-            <option value="بوشهر">
-            <option value="بیرجند">
-            <option value="ایلام">
-            <option value="شهرکرد">
-            <option value="سمنان">
-            <option value="یاسوج">
-          </datalist>
-          <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">می‌توانید از لیست ۳۱ مرکز استان انتخاب یا شهر اختصاصی خود را تایپ فرمایید.</span>
-        </div>
-
-        <!-- Flexible Age Range -->
-        <div>
-          <label class="form-label" style="font-size: 0.75rem;">بازه سنی مخاطب (حداقل و حداکثر اختیاری)</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <div style="flex: 1;">
-              <input type="number" name="target_min_age" value="{{ business.target_min_age|default:'' }}" min="12" max="99" class="form-input" style="padding: 8px 10px; font-size: 0.82rem;" placeholder="از سن (بدون کف)">
-            </div>
-            <span style="color: var(--stone-text-muted); font-size: 0.8rem;">تا</span>
-            <div style="flex: 1;">
-              <input type="number" name="target_max_age" value="{{ business.target_max_age|default:'' }}" min="12" max="99" class="form-input" style="padding: 8px 10px; font-size: 0.82rem;" placeholder="تا سن (بدون سقف)">
-            </div>
-          </div>
-          <span style="font-size: 0.72rem; color: var(--stone-text-muted); display: block; margin-top: 4px;">امکان تکمیل فقط حداقل، فقط حداکثر، هر دو، یا خالی گذاشتن هر دو.</span>
-        </div>
-
-        <!-- Autonomous Intent Priority Notice & Save -->
-        <div>
-          <label class="form-label" style="font-size: 0.75rem;">اولویت‌بندی نیت خرید (سیستمی)</label>
-          <div style="padding: 8px 10px; background: rgba(0, 242, 254, 0.05); border: 1px dashed rgba(0, 242, 254, 0.25); border-radius: 8px; font-size: 0.74rem; color: var(--obsidian-cyan); line-height: 1.5;">
-            <strong>ترتیب هوشمند ایجنت:</strong>
-            <span style="display: block; color: var(--stone-text-muted);">۱. آماده خرید ۲. مقایسه ۳. نیاز اولیه</span>
-          </div>
-          <div style="margin-top: 8px;">
-            <button type="submit" class="p-btn p-btn-primary p-btn-sm" style="width: 100%; font-size: 0.8rem;">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              <span>ذخیره محدوده‌ها</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
 
 <!-- ========================================================================
      Discovered Customer Database & Pipeline Metrics Section
@@ -220,25 +91,6 @@
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
         <span>ورود به دیتابیس کامل فرصت‌ها</span>
       </a>
-    </div>
-  </div>
-
-  <!-- Phase 2 Roadmap Notice Banner (Explains why direct messaging / clicks are Phase 2) -->
-  <div style="background: rgba(168, 85, 247, 0.05); border: 1.5px dashed rgba(168, 85, 247, 0.35); border-radius: 14px; padding: 16px 20px; margin-bottom: 20px;">
-    <div style="display: flex; align-items: flex-start; gap: 12px;">
-      <div class="p-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-      </div>
-      <div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-          <strong style="font-size: 0.92rem; color: var(--panel-text-main);">توضیح معماری دمو: تمرکز فعلی بر استخراج و تشکیل دیتابیس مشتریان بالقوه است</strong>
-          <span class="p-badge p-badge-purple" style="font-size: 0.68rem;">فاز ۲ پروژه (نقشه راه تعامل و مذاکره)</span>
-        </div>
-        <p style="margin: 0; font-size: 0.8rem; color: var(--stone-text-muted); line-height: 1.65;">
-          در این نسخه و دموی حاضر، سیستم صرفاً به عنوان <strong>موتور هوشمند کشف و تشکیل پایگاه داده مشتریان بالقوه</strong> در حوزه‌های مختلف عمل می‌کند؛ داده‌های افراد نیازمند، پیام‌های تقاضا و شواهد نیت خرید را پایش و اعتبارسنجی کرده و در دیتابیس ذخیره می‌نماید.<br>
-          قابلیت‌های <strong>تعامل مستقیم ایجنت با کاربر، ارسال خودکار پیام در شبکه‌ها، مذاکره هوشمند، ترغیب به کلیک روی لینک و ثبت سفارش آنلاین</strong> مربوط به <strong>فاز دوم پروژه</strong> هستند و در دموی کنونی قرار ندارند.
-        </p>
-      </div>
     </div>
   </div>
 
@@ -357,566 +209,56 @@
 </div>
 
 <!-- ========================================================================
-     Step 3: Opportunities Feed Header & Clean Segmented Filter
+     Latest real opportunities (5 newest)
      ======================================================================== -->
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;" id="فرصت-ها">
-  <div>
-    <h2 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">خریداران و فرصت‌های کشف‌شده</h2>
-    <span style="font-size: 0.78rem; color: var(--stone-text-muted);">تحلیل پیام‌های عمومی در شبکه‌های اجتماعی بر پایه نیاز و سیگنال‌های نیت خرید</span>
+<div class="p-card" style="padding: 22px 26px; margin-bottom: 24px;" id="فرصت-ها">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main);">آخرین فرصت‌های کشف‌شده</h2>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted);">۵ فرصت تازه‌ای که ایجنت برای محصولات شما پیدا کرده است</span>
+    </div>
+    <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.78rem;">همه‌ی فرصت‌ها</a>
   </div>
 
-  <!-- Sleek Segmented Control (High Priority / Evaluating / Early Stage) -->
-  <div class="filter-tabs-group">
-    <button type="button" class="filter-tab active" data-tier="hot">
-      <span class="tier-dot tier-dot-high"></span>
-      <span>اولویت بالا (۱۲)</span>
-    </button>
-    <button type="button" class="filter-tab" data-tier="warm">
-      <span class="tier-dot tier-dot-medium"></span>
-      <span>در حال ارزیابی (۳۷)</span>
-    </button>
-    <button type="button" class="filter-tab" data-tier="monitor">
-      <span class="tier-dot tier-dot-low"></span>
-      <span>نیاز اولیه (۸۴)</span>
-    </button>
-  </div>
-</div>
-
-<!-- ========================================================================
-     Step 4: Two-Column Workspace (فهرست راست + بررسی عمیق و پیام چپ)
-     ======================================================================== -->
-<div class="dashboard-leads-split">
-
-  <!-- Right: Discovered Leads Stream -->
-  <div style="display: flex; flex-direction: column; gap: 14px;" id="leads-list-container">
-
-    <!-- Lead 1: Sara Amiri (X/Twitter) -->
-    <div class="lead-item-card active" data-lead-id="1">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div class="lead-avatar-circle">س</div>
-          <div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <strong style="font-size: 0.9rem; color: var(--panel-text-main);">سارا امیری</strong>
-              <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>@sara_dev</bdi></span>
+  {% if recent_opportunities %}
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      {% for opp in recent_opportunities %}
+        {% with match=opp.product_matches.all.0 %}
+        <a href="{% url 'discovery:opportunity_detail' opp.pk %}" class="lead-item-card" style="display: block; text-decoration: none;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="lead-avatar-circle">{{ opp.customer.display_identifier|slice:":1" }}</div>
+              <div>
+                <strong style="font-size: 0.9rem; color: var(--panel-text-main);">{{ opp.customer.display_identifier }}</strong>
+                <span style="display: block; font-size: 0.74rem; color: var(--stone-text-muted);">
+                  {{ opp.get_source_platform_display }} • {{ opp.created_at_jalali }} • {{ opp.get_status_display }}
+                </span>
+              </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
-              <span class="platform-icon-pill platform-x">
-                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                <span>توییتر / X</span>
-              </span>
-              <span>•</span>
-              <span>تهران • نرم‌افزار</span>
-            </div>
+            {% if match %}
+              <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981; font-weight: 700;">{{ match.match_score_percentage }}٪ تطابق</span>
+            {% endif %}
           </div>
-        </div>
-        <span class="p-score-badge">امتیاز: ۹۴ / ۱۰۰</span>
-      </div>
-
-      <div class="lead-msg-quote">
-        «امروز بعد از ۱۰ ساعت کار مدام با سیستم چشمام داره می‌سوزه، کسی عینک مخصوص مانیتور باکیفیت سراغ داره که واقعاً جواب داده باشه؟ قصد خرید فوری دارم.»
-      </div>
-
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 0.74rem;">
-        <span style="color: var(--obsidian-cyan); font-weight: 750; display: inline-flex; align-items: center; gap: 5px;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          <span>عینک بلوکات Pro (۹۴٪)</span>
-        </span>
-        <span style="color: var(--p-success); font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          <span>آماده برای ارتباط فوری</span>
-        </span>
-      </div>
-    </div>
-
-    <!-- Lead 2: Ali Rezaei (Telegram) -->
-    <div class="lead-item-card" data-lead-id="2">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div class="lead-avatar-circle">ع</div>
-          <div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <strong style="font-size: 0.9rem; color: var(--panel-text-main);">علی رضایی</strong>
-              <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>@ali_code</bdi></span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
-              <span class="platform-icon-pill platform-telegram">
-                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.77-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
-                <span>گروه تلگرام</span>
-              </span>
-              <span>•</span>
-              <span>شیراز • متقاضی IT</span>
-            </div>
-          </div>
-        </div>
-        <span class="p-score-badge">امتیاز: ۹۱ / ۱۰۰</span>
-      </div>
-
-      <div class="lead-msg-quote">
-        «سلام بچه‌ها، می‌خوام تا هفته بعد یادگیری پروژه‌محور جنگو و طراحی وب رو شروع کنم. دوره با پشتیبانی مستقیم می‌خوام، بودجه‌م هم مشخصه، چه پیشنهادی دارید؟»
-      </div>
-
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 0.74rem;">
-        <span style="color: var(--obsidian-cyan); font-weight: 750; display: inline-flex; align-items: center; gap: 5px;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          <span>دوره جامع پایتون (۹۲٪)</span>
-        </span>
-        <span style="color: var(--p-success); font-weight: 700;">درخواست پیشنهاد خرید</span>
-      </div>
-    </div>
-
-    <!-- Lead 3: Mohsen Karimi (X / Twitter) -->
-    <div class="lead-item-card" data-lead-id="3">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div class="lead-avatar-circle">م</div>
-          <div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <strong style="font-size: 0.9rem; color: var(--panel-text-main);">محسن کریمی</strong>
-              <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-family: monospace;" dir="ltr"><bdi>@mohsen_biz</bdi></span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--stone-text-faint); margin-top: 2px;">
-              <span class="platform-icon-pill platform-x">
-                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                <span>X (توییتر)</span>
-              </span>
-              <span>•</span>
-              <span>مشهد • تجهیزات آنلاین</span>
-            </div>
-          </div>
-        </div>
-        <span class="p-score-badge">امتیاز: ۸۸ / ۱۰۰</span>
-      </div>
-
-      <div class="lead-msg-quote">
-        «ما دنبال یک ابزار هوشمند برای کشف خریداران واقعی بدون تبلیغات فیک در توییتر و سوشال هستیم. کسی تیم یا محصول مطمئنی می‌شناسه معرفی کنه؟»
-      </div>
-
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 0.74rem;">
-        <span style="color: var(--obsidian-cyan); font-weight: 750; display: inline-flex; align-items: center; gap: 5px;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          <span>مشاوره کشف مشتری (۸۹٪)</span>
-        </span>
-        <span style="color: var(--stone-text-muted); font-weight: 700;">ریپلای با لینک کالا</span>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Left: Opportunity Deep Inspector Card -->
-  <div class="p-card inspector-card" id="lead-inspector-card">
-
-    <!-- Inspector Header -->
-    <div class="inspector-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border-subtle); flex-wrap: wrap; gap: 12px;">
-      <div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-          <h3 style="font-size: 1.15rem; font-weight: 850; margin: 0; color: var(--panel-text-main); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-            <span id="insp-name">سارا امیری</span>
-            <span id="insp-handle" dir="ltr" style="font-size: 0.8rem; color: var(--stone-text-muted); font-weight: 600; font-family: monospace;"><bdi>@sara_dev</bdi></span>
-          </h3>
-          <span class="p-badge p-badge-purple" id="insp-network">توییتر / X</span>
-        </div>
-        <span style="font-size: 0.78rem; color: var(--stone-text-muted);" id="insp-meta">
-          موقعیت: تهران • صنعت: توسعه نرم‌افزار • سبک گفتگو: خودمانی (Casual)
-        </span>
-      </div>
-
-      <div style="text-align: left;">
-        <div style="font-size: 1.6rem; font-weight: 900; color: var(--obsidian-cyan); line-height: 1;" id="insp-total-score">
-          ۹۴ <span style="font-size: 0.85rem; color: var(--stone-text-muted);">/ ۱۰۰</span>
-        </div>
-        <span style="font-size: 0.72rem; color: var(--p-success); font-weight: 700;">فرصت طلایی (High Priority)</span>
-      </div>
-    </div>
-
-    <!-- Multi-Dimensional Score Breakdown -->
-    <div style="margin-bottom: 22px;">
-      <span style="font-size: 0.76rem; font-weight: 800; color: var(--stone-text-faint); display: block; margin-bottom: 10px;">
-        تفکیک ابعاد شایستگی و انطباق ایجنت:
-      </span>
-
-      <div class="factors-breakdown-grid">
-        <div class="factor-mini-card">
-          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>نیاز و درد مخاطب</span>
-            <strong id="factor-need">۹۶٪</strong>
-          </div>
-          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 96%;" id="bar-need"></div></div>
-        </div>
-
-        <div class="factor-mini-card">
-          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>نیت خرید صریح</span>
-            <strong id="factor-intent">۹۱٪</strong>
-          </div>
-          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 91%;" id="bar-intent"></div></div>
-        </div>
-
-        <div class="factor-mini-card">
-          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>تطابق با کالا</span>
-            <strong id="factor-fit">۹۵٪</strong>
-          </div>
-          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 95%;" id="bar-fit"></div></div>
-        </div>
-
-        <div class="factor-mini-card">
-          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>فوریت نیاز</span>
-            <strong id="factor-urgency">۸۹٪</strong>
-          </div>
-          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 89%;" id="bar-urgency"></div></div>
-        </div>
-
-        <div class="factor-mini-card">
-          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>انطباق با پرسونای هدف</span>
-            <strong id="factor-target">۹۷٪</strong>
-          </div>
-          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 97%;" id="bar-target"></div></div>
-        </div>
-
-        <div class="factor-mini-card">
-          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 4px;">
-            <span>سلامت لحن گفتگو</span>
-            <strong id="factor-safety" style="color: var(--p-success);">۹۲٪</strong>
-          </div>
-          <div class="factor-mini-bar"><div class="factor-mini-fill" style="width: 92%; background: var(--p-success);" id="bar-safety"></div></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Section: Why should I contact this person? -->
-    <div style="margin-bottom: 20px;">
-      <span style="font-size: 0.8rem; font-weight: 850; color: var(--panel-text-main); display: flex; align-items: center; gap: 7px; margin-bottom: 8px;">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-        <span>شواهد و دلایل انتخاب ایجنت:</span>
-      </span>
-      <div style="padding: 12px 16px; border-radius: 14px; background: var(--stone-surface-sunken); box-shadow: var(--stone-shadow-inset); font-size: 0.82rem; color: var(--panel-text-main); line-height: 1.65;" id="insp-evidence">
-        «این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»
-      </div>
-    </div>
-
-    <!-- Section: Recommended Product -->
-    <div style="margin-bottom: 20px; padding: 14px 18px; border-radius: 16px; background: var(--stone-surface); box-shadow: var(--stone-shadow-sm); border: 1.5px solid rgba(0, 242, 254, 0.35);">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-        <span style="font-size: 0.76rem; color: var(--obsidian-cyan); font-weight: 800; display: inline-flex; align-items: center; gap: 6px;">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          <span>محصول منتخب کاتالوگ شما:</span>
-        </span>
-        <span class="p-badge p-badge-success" id="insp-match-percent">۹۴٪ تطابق</span>
-      </div>
-
-      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-        <div>
-          <strong style="font-size: 0.95rem; color: var(--panel-text-main); display: block;" id="insp-prod-name">عینک کامپیوتر و بلوکات Pro</strong>
-          <span style="font-size: 0.76rem; color: var(--stone-text-muted);" id="insp-prod-reason">دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی</span>
-        </div>
-        <strong style="font-size: 1rem; color: var(--panel-text-main);" id="insp-prod-price">۲,۴۰۰,۰۰۰ تومان</strong>
-      </div>
-    </div>
-
-    <!-- Section: AI Suggested Draft & Outreach Strategy -->
-    <div style="margin-bottom: 10px;">
-      <!-- Section Header -->
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-        <span style="font-size: 0.85rem; font-weight: 850; color: var(--panel-text-main); display: inline-flex; align-items: center; gap: 6px;">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--obsidian-cyan);"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-          <span>پیش‌نویس پیام پیشنهادی هوش مصنوعی (برای ارتباط دستی فروشنده)</span>
-        </span>
-        <span class="p-badge p-badge-purple" style="font-size: 0.72rem;">
-          صرفاً پیشنهاد راهنما • بدون ارسال خودکار
-        </span>
-      </div>
-
-      <!-- Strategy & Channel Note -->
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-radius: 10px; background: var(--stone-surface-sunken); border: 1px solid var(--panel-border-subtle); margin-bottom: 12px; font-size: 0.73rem; flex-wrap: wrap; gap: 6px;">
-        <span style="color: var(--stone-text-muted);" id="insp-channel-tag">
-          کانال پیشنهادی: <strong style="color: var(--panel-text-main);">ریپلای یا ارسال دایرکت توسط فروشنده</strong>
-        </span>
-        <span style="color: var(--p-success); font-weight: 700;" id="insp-guardrail-tag">
-          انطباق لحن با کاتالوگ محصول
-        </span>
-      </div>
-
-      <!-- AI Draft Bubble Container -->
-      <div style="background: rgba(0, 242, 254, 0.04); border: 1.5px solid rgba(0, 242, 254, 0.22); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; position: relative;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="width: 22px; height: 22px; border-radius: 6px; background: var(--obsidian-cyan); color: #050508; display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 900;">AI</span>
-            <strong style="font-size: 0.78rem; color: var(--panel-text-main);">پیش‌نویس متن متناسب با دغدغه کاربر:</strong>
-          </div>
-          <span style="font-size: 0.7rem; color: var(--stone-text-muted);">آماده کپی برای ارسال دستی</span>
-        </div>
-        <p style="font-size: 0.84rem; color: var(--panel-text-main); margin: 0; line-height: 1.7; white-space: pre-line;" id="insp-outreach-text">
-          «سلام سارا جان، دیدم درباره کار مداوم با سیستم و سوزش چشم صحبت کرده بودید. عینک کامپیوتر بلوکات Pro با فریم سبک TR90 می‌تواند فشار نور آبی را مهار کند. در صورت تمایل می‌توانم مشخصات دقیق‌تر را برایتان بفرستم.»
-        </p>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="inspector-action-buttons">
-        <button type="button" class="p-btn p-btn-primary" style="flex: 1;" id="btn-copy-outreach">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          <span id="btn-copy-label">کپی متن پیش‌نویس در حافظه</span>
-        </button>
-        <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary" style="flex: 1;">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
-          <span>مشاهده در بانک فرصت‌ها</span>
+          {% if opp.ai_analysis.need %}
+            <p style="margin: 10px 0 0; font-size: 0.82rem; color: var(--panel-text-main); line-height: 1.7;">{{ opp.ai_analysis.need|truncatechars:180 }}</p>
+          {% endif %}
+          {% if match %}
+            <span style="display: block; margin-top: 6px; font-size: 0.76rem; color: var(--stone-text-muted);">محصول پیشنهادی: {{ match.product.name }}</span>
+          {% endif %}
         </a>
-        <a href="https://x.com" target="_blank" rel="noopener" class="p-btn p-btn-stone" style="padding: 0 14px;" id="btn-view-social-thread" title="مشاهده منبع پیام در پلتفرم">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-        </a>
-      </div>
-
-      <!-- Phase 2 Roadmap Box -->
-      <div style="background: rgba(168, 85, 247, 0.05); border: 1.5px dashed rgba(168, 85, 247, 0.35); border-radius: 14px; padding: 14px 16px;">
-        <div style="display: flex; align-items: flex-start; gap: 10px;">
-          <div style="width: 28px; height: 28px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-          </div>
-          <div>
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap;">
-              <strong style="font-size: 0.82rem; color: var(--panel-text-main);">ماژول تعامل زنده و مذاکره خودکار با مشتری (فاز ۲ پروژه - Roadmap)</strong>
-              <span class="p-badge p-badge-purple" style="font-size: 0.65rem;">خارج از دامنه دمو</span>
-            </div>
-            <p style="margin: 0; font-size: 0.76rem; color: var(--stone-text-muted); line-height: 1.6;">
-              در این نسخه، تمرکز سیستم بر پایش دقیق و ایجاد پایگاه داده مشتریان بالقوه است. <strong>تعامل دوطرفه، پاسخگویی خودکار در شبکه‌های اجتماعی و مذاکره هوشمند با مشتریان در فاز ۲ پروژه ارائه خواهد شد و در این دمو فعال نمی‌باشد.</strong>
-            </p>
-          </div>
-        </div>
-      </div>
+        {% endwith %}
+      {% endfor %}
     </div>
-
-  </div>
-
+  {% else %}
+    <div style="text-align: center; padding: 30px 16px; border-radius: 12px; border: 1.5px dashed var(--panel-border-subtle); color: var(--stone-text-muted); font-size: 0.86rem;">
+      هنوز فرصتی پیدا نشده است. بعد از اضافه کردن محصولات و منابع، فرصت‌های جدید این‌جا نمایش داده می‌شوند.
+    </div>
+  {% endif %}
 </div>
 
 <!-- Client-side Interactive Logic -->
 <script>
   (() => {
-    // Lead Database for Instant Filtering & Inspection
-    const leadsData = {
-      "1": {
-        name: "سارا امیری",
-        handle: "@sara_dev",
-        network: "X (توییتر)",
-        meta: "موقعیت: تهران • صنعت: توسعه نرم‌افزار • سبک گفتگو: خودمانی (Casual)",
-        score: "۹۴",
-        need: "۹۶%",
-        intent: "۹۱%",
-        fit: "۹۵%",
-        urgency: "۸۹%",
-        target: "۹۷%",
-        safety: "۹۲%",
-        evidence: "«این کاربر در ۳ پست اخیر به کار متوالی جلوی مانیتور اشاره کرده، در توییت امروز مستقیماً از کاربران درخواست پیشنهاد عینک مانیتور کرده و در ریپلای صراحتاً گفته قصد خرید فوری دارد.»",
-        prodName: "عینک کامپیوتر و بلوکات Pro",
-        prodReason: "دلیل پیشنهاد: فیلتر ۹۰٪ نور آبی، فریم سبک TR90 مخصوص سشن‌های طولانی کدنویسی",
-        prodPrice: "۲,۴۰۰,۰۰۰ تومان",
-        matchPercent: "۹۴٪ تطابق",
-        channel: "کانال منبع پیام: <strong style='color: var(--panel-text-main);'>پست عمومی در شبکه X (توییتر)</strong>",
-        guardrail: "پیش‌نویس پیام: منطبق بر عینک کامپیوتر بلوکات",
-        outreach: "«سلام سارا جان، دیدم درباره کار مداوم با سیستم و سوزش چشم صحبت کرده بودید. عینک کامپیوتر بلوکات Pro با فریم سبک TR90 می‌تواند فشار نور آبی را مهار کند. در صورت تمایل می‌توانم مشخصات دقیق‌تر را برایتان بفرستم.»",
-        socialUrl: "https://x.com/sara_dev",
-        socialLabel: "مشاهده گفتگو در X"
-      },
-      "2": {
-        name: "علی رضایی",
-        handle: "@ali_code",
-        network: "تلگرام",
-        meta: "موقعیت: شیراز • صنف: متقاضی آموزش IT • سبک گفتگو: مستقیم و محترمانه",
-        score: "۹۱",
-        need: "۹۵%",
-        intent: "۹۳%",
-        fit: "۹۱%",
-        urgency: "۸۶%",
-        target: "۹۴%",
-        safety: "۹۶%",
-        evidence: "«کاربر در گروه تلگرام برنامه‌نویسان پایتون صراحتاً تقاضای دوره پروژه‌محور با رفع اشکال برای ورود به بازار کار داشته و بودجه مشخص خود را اعلام کرده است.»",
-        prodName: "دوره جامع آموزش پایتون و جنگو",
-        prodReason: "دلیل پیشنهاد: همپوشانی ۱۰۰٪ سرفصل‌ها با نیاز بازار کار و پشتیبانی مربی",
-        prodPrice: "۱,۸۰۰,۰۰۰ تومان",
-        matchPercent: "۹۲٪ تطابق",
-        channel: "کانال منبع پیام: <strong style='color: var(--panel-text-main);'>گروه عمومی توسعه‌دهندگان در تلگرام</strong>",
-        guardrail: "پیش‌نویس پیام: منطبق بر سرفصل‌های دوره جنگو",
-        outreach: "«سلام علی عزیز، دیدم جویای دوره پروژه‌محور جنگو با رفع اشکال مستقیم بودید. دوره جدید ما دقیقاً سرفصل‌های ورود به بازار کار و پشتیبانی مربی را پوشش می‌دهد. در صورت تمایل می‌توانم سرفصل‌ها را برایتان ارسال کنم.»",
-        socialUrl: "https://t.me/ali_code",
-        socialLabel: "مشاهده چت در تلگرام"
-      },
-      "3": {
-        name: "محسن کریمی",
-        handle: "@mohsen_biz",
-        network: "X (توییتر)",
-        meta: "موقعیت: مشهد • صنف: فروشگاه آنلاین و خرده‌فروشی • سبک گفتگو: حرفه‌ای (Professional)",
-        score: "۸۸",
-        need: "۸۹%",
-        intent: "۸۵%",
-        fit: "۸۸%",
-        urgency: "۸۰%",
-        target: "۹۱%",
-        safety: "۹۰%",
-        evidence: "«مدیر یک کسب‌وکار آنلاین که در توییتر دنبال ابزارهای هوشمند برای کشف خریداران واقعی بدون اسپم بوده است.»",
-        prodName: "پکیج خدمات کشف مشتریان B2B",
-        prodReason: "دلیل پیشنهاد: منطبق بر مدل کسب‌وکار آنلاین و هدف افزایش فروش ارگانیک",
-        prodPrice: "توافقی",
-        matchPercent: "۸۹٪ تطابق",
-        channel: "کانال منبع پیام: <strong style='color: var(--panel-text-main);'>توییت نیازمندی در X (توییتر)</strong>",
-        guardrail: "پیش‌نویس پیام: انطباق با خدمات هوشمند مشتری‌یاب",
-        outreach: "«درود جناب کریمی، در خصوص موضوع جذب هوشمند مشتریان بالقوه، سامانه پیدا با پایش سیگنال‌های تقاضا به تشکیل دیتابیس خریداران واقعی کمک می‌کند. در صورت نیاز می‌توانم اطلاعات تکمیلی را خدمتتان ارائه کنم.»",
-        socialUrl: "https://x.com/mohsen_biz",
-        socialLabel: "مشاهده گفتگو در X"
-      }
-    };
-
-    // Selecting Leads
-    const leadCards = document.querySelectorAll(".lead-item-card");
-    const inspName = document.getElementById("insp-name");
-    const inspHandle = document.getElementById("insp-handle");
-    const inspNetwork = document.getElementById("insp-network");
-    const inspMeta = document.getElementById("insp-meta");
-    const inspTotalScore = document.getElementById("insp-total-score");
-    const factorNeed = document.getElementById("factor-need");
-    const factorIntent = document.getElementById("factor-intent");
-    const factorFit = document.getElementById("factor-fit");
-    const factorUrgency = document.getElementById("factor-urgency");
-    const factorTarget = document.getElementById("factor-target");
-    const factorSafety = document.getElementById("factor-safety");
-    const barNeed = document.getElementById("bar-need");
-    const barIntent = document.getElementById("bar-intent");
-    const barFit = document.getElementById("bar-fit");
-    const barUrgency = document.getElementById("bar-urgency");
-    const barTarget = document.getElementById("bar-target");
-    const barSafety = document.getElementById("bar-safety");
-    const inspEvidence = document.getElementById("insp-evidence");
-    const inspProdName = document.getElementById("insp-prod-name");
-    const inspProdReason = document.getElementById("insp-prod-reason");
-    const inspProdPrice = document.getElementById("insp-prod-price");
-    const inspMatchPercent = document.getElementById("insp-match-percent");
-    
-    // Outreach and inspector elements
-    const inspChannelTag = document.getElementById("insp-channel-tag");
-    const inspGuardrailTag = document.getElementById("insp-guardrail-tag");
-    const inspOutreachText = document.getElementById("insp-outreach-text");
-    const btnViewSocialThread = document.getElementById("btn-view-social-thread");
-    const btnViewThreadLabel = document.getElementById("btn-view-thread-label");
-    const btnCopyOutreach = document.getElementById("btn-copy-outreach");
-    const btnCopyLabel = document.getElementById("btn-copy-label");
-
-    leadCards.forEach(card => {
-      card.addEventListener("click", () => {
-        leadCards.forEach(c => c.classList.remove("active"));
-        card.classList.add("active");
-        const id = card.dataset.leadId;
-        const d = leadsData[id];
-        if (d) {
-          inspName.textContent = d.name;
-          if (inspHandle) inspHandle.textContent = d.handle;
-          inspNetwork.textContent = d.network;
-          inspMeta.textContent = d.meta;
-          inspTotalScore.innerHTML = `${d.score} <span style="font-size: 0.85rem; color: var(--stone-text-muted);">/ ۱۰۰</span>`;
-          factorNeed.textContent = d.need;
-          factorIntent.textContent = d.intent;
-          factorFit.textContent = d.fit;
-          factorUrgency.textContent = d.urgency;
-          factorTarget.textContent = d.target;
-          factorSafety.textContent = d.safety;
-          barNeed.style.width = d.need;
-          barIntent.style.width = d.intent;
-          barFit.style.width = d.fit;
-          barUrgency.style.width = d.urgency;
-          barTarget.style.width = d.target;
-          barSafety.style.width = d.safety;
-          inspEvidence.textContent = d.evidence;
-          inspProdName.textContent = d.prodName;
-          inspProdReason.textContent = d.prodReason;
-          inspProdPrice.textContent = d.prodPrice;
-          inspMatchPercent.textContent = d.matchPercent;
-
-          if (inspChannelTag) inspChannelTag.innerHTML = d.channel;
-          if (inspGuardrailTag) inspGuardrailTag.textContent = d.guardrail;
-          if (inspOutreachText) inspOutreachText.textContent = d.outreach;
-          if (btnViewSocialThread && d.socialUrl) {
-            btnViewSocialThread.href = d.socialUrl;
-            if (btnViewThreadLabel) btnViewThreadLabel.textContent = d.socialLabel;
-          }
-        }
-      });
-    });
-
-    // Copy AI Draft to Clipboard
-    if (btnCopyOutreach) {
-      btnCopyOutreach.addEventListener("click", () => {
-        const textToCopy = inspOutreachText ? inspOutreachText.textContent.trim() : "";
-        if (!textToCopy) return;
-
-        const setCopiedUI = () => {
-          const origText = btnCopyLabel ? btnCopyLabel.textContent : "کپی متن پیش‌نویس در حافظه";
-          if (btnCopyLabel) btnCopyLabel.textContent = "✓ متن پیش‌نویس کپی شد!";
-          btnCopyOutreach.classList.add("p-btn-success");
-          setTimeout(() => {
-            if (btnCopyLabel) btnCopyLabel.textContent = origText;
-            btnCopyOutreach.classList.remove("p-btn-success");
-          }, 2000);
-        };
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(textToCopy).then(setCopiedUI).catch(() => {
-            const ta = document.createElement("textarea");
-            ta.value = textToCopy;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand("copy");
-            document.body.removeChild(ta);
-            setCopiedUI();
-          });
-        } else {
-          const ta = document.createElement("textarea");
-          ta.value = textToCopy;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-          setCopiedUI();
-        }
-      });
-    }
-
-
-    // ICP Confirm Button
-    const btnConfirm = document.getElementById("btn-confirm-icp");
-    const icpStatusBadge = document.getElementById("icp-status-badge");
-    if (btnConfirm) {
-      btnConfirm.addEventListener("click", () => {
-        btnConfirm.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>تأیید شد</span>`;
-        btnConfirm.style.background = "var(--p-success)";
-        btnConfirm.style.color = "#fff";
-        if (icpStatusBadge) {
-          icpStatusBadge.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>تأیید شده توسط فروشنده</span>`;
-        }
-      });
-    }
-
-    // Toggle Manual Targeting Drawer
-    const btnEditTarget = document.getElementById("btn-edit-target");
-    const targetDrawer = document.getElementById("target-settings-drawer");
-    if (btnEditTarget && targetDrawer) {
-      btnEditTarget.addEventListener("click", () => {
-        const isHidden = targetDrawer.style.display === "none";
-        targetDrawer.style.display = isHidden ? "block" : "none";
-        btnEditTarget.innerHTML = isHidden 
-          ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>بستن تنظیمات</span>` 
-          : `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg><span>تنظیم دستی هدف‌گذاری</span>`;
-      });
-    }
-
-    // Tier Filter Buttons
-    const tierButtons = document.querySelectorAll(".filter-tab[data-tier]");
-    tierButtons.forEach(btn => {
-      btn.addEventListener("click", () => {
-        tierButtons.forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-      });
-    });
-
     // Analytics Table Sorting
     const sortButtons = document.querySelectorAll(".analytics-sort-btn");
     const tableBody = document.getElementById("analytics-table-body");

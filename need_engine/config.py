@@ -75,6 +75,16 @@ class EngineConfig:
     default_rate_limit: dict = field(default_factory=lambda: {"rpm": 5, "tpm": 100000, "rpd": None})
     rate_safety: float = _f("NE_RATE_SAFETY", 0.9)
     usd_to_toman: float = _f("NE_USD_TO_TOMAN", 100000.0)
+    # Providers / models / prices / wallets from the admin panel (/ops/); NE_* values above are the fallback
+    model_registry: bool = _f("NE_MODEL_REGISTRY", True)
+    registry_ttl: float = _f("NE_REGISTRY_TTL", 60.0)
+    # a chat watched privately by several sellers is analysed ONCE, but every owner is charged the full extraction cost
+    charge_each_owner: bool = _f("NE_CHARGE_EACH_OWNER", True)
+    release_batch: int = _f("NE_RELEASE_BATCH", 200)        # queued needs re-matched per seller per run after a top-up
+    providers_table: str = _f("NE_PROVIDERS_TABLE", "public.billing_provider")
+    models_table: str = _f("NE_MODELS_TABLE", "public.billing_aimodel")
+    billing_settings_table: str = _f("NE_BILLING_SETTINGS_TABLE", "public.billing_billingsettings")
+    wallets_table: str = _f("NE_WALLETS_TABLE", "public.billing_wallet")
 
     # ── Embeddings (API only; no local model on the server) ────────────────
     embed_backend: str = _f("NE_EMBED_BACKEND", "gemini")                   # gemini | cloudflare | hash (tests)
@@ -93,6 +103,10 @@ class EngineConfig:
     products_source: str = _f("NE_PRODUCTS_SOURCE", "db")
     products_table: str = _f("NE_PRODUCTS_TABLE", "public.products_product")
     fetch_batch: int = _f("NE_FETCH_BATCH", 2000)
+    # which sellers may see a chat's needs (need_engine/access.py): "panel" = discovery_monitoredcommunity, "open" = all
+    source_access: str = _f("NE_SOURCE_ACCESS", "panel")
+    communities_table: str = _f("NE_COMMUNITIES_TABLE", "public.discovery_monitoredcommunity")
+    styles_table: str = _f("NE_STYLES_TABLE", "public.businesses_messagestyle")   # sellers' reply style
     x_enabled: bool = _f("NE_X_ENABLED", False)
     x_max_per_run: int = _f("NE_X_MAX_PER_RUN", 200)
     x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 65.0)
@@ -125,11 +139,10 @@ class EngineConfig:
     poll_seconds: int = _f("NE_POLL_SECONDS", 20)
 
     # ── When to analyse a chat (streaming triggers) ─────────────────────────
-    window_size: int = _f("NE_WINDOW_SIZE", 40)          # new messages per LLM call
+    window_size: int = _f("NE_WINDOW_SIZE", 50)          # new messages per LLM call
     context_messages: int = _f("NE_CONTEXT_MESSAGES", 10)  # already-analysed messages shown as context
-    trigger_count: int = _f("NE_TRIGGER_COUNT", 40)        # analyse when this many new messages are pending…
-    silence_minutes: float = _f("NE_SILENCE_MINUTES", 10.0)  # …or the chat has been quiet this long…
-    max_wait_minutes: float = _f("NE_MAX_WAIT_MINUTES", 30.0)  # …or the oldest pending message is this old
+    trigger_count: int = _f("NE_TRIGGER_COUNT", 50)        # analyse a chat every N new messages (count only, no timers)
+    max_wait_minutes: float = _f("NE_MAX_WAIT_MINUTES", 0.0)  # optional fallback, 0 = off: analyse leftovers this old
     gap_marker_minutes: float = _f("NE_GAP_MARKER_MINUTES", 20.0)  # show «⏸ N hours later» markers
     min_text_chars: int = _f("NE_MIN_TEXT_CHARS", 2)
 
@@ -165,7 +178,11 @@ class EngineConfig:
     # ── Replies ─────────────────────────────────────────────────────────────
     write_replies: bool = _f("NE_WRITE_REPLIES", True)
     reply_top_n: int = _f("NE_REPLY_TOP_N", 3)
-    product_url_template: str = _f("NE_PRODUCT_URL_TEMPLATE", "https://customerweb.ir/p/{product_id}?ref={opportunity_id}")
+    # links in drafts go to the seller's own page through the panel's click counter: {base}/r/<product>/?ref=<opp>
+    public_base_url: str = _f("NE_PUBLIC_BASE_URL", "http://localhost:8000")
+
+    def click_url(self, product_id: str, opportunity_id: str) -> str:
+        return f"{self.public_base_url.rstrip('/')}/r/{product_id}/?ref={opportunity_id}"
 
     def effective_sim_floor(self) -> float:
         if self.sim_floor >= 0:

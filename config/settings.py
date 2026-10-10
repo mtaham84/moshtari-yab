@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.businesses.apps.BusinessesConfig",
     "apps.products.apps.ProductsConfig",
     "apps.discovery.apps.DiscoveryConfig",
+    "apps.billing.apps.BillingConfig",
 ]
 
 MIDDLEWARE = [
@@ -87,6 +88,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.core.context_processors.flags",
+                "apps.billing.context_processors.wallet",
                 "apps.discovery.context_processors.x_panel",
             ],
         },
@@ -154,3 +157,7 @@ LOGOUT_REDIRECT_URL = "core:landing"
 # need_engine (analysis core) — same env names the engine itself uses
 # need_engine's schema in the same database (opportunities to import, cost ledger for the dashboard).
 NEED_ENGINE_SCHEMA = os.environ.get("NE_STATE_SCHEMA", "need_engine")
+# public address of this panel: reply drafts link to <base>/r/<product>/?ref=<opportunity> (click counter → seller's site)
+PUBLIC_BASE_URL = os.environ.get("NE_PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+# NE_PANEL_MOCK_LLM=true: «نمونه بساز»، «دوباره بنویس» و «پر کردن از لینک» بدون API (تست/دمو)
+PANEL_MOCK_LLM = os.environ.get("NE_PANEL_MOCK_LLM", "").strip().lower() in ("1", "true", "yes", "on")

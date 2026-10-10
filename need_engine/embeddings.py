@@ -63,12 +63,14 @@ class Embedder:
         for i in range(0, len(texts), 100):
             chunk = texts[i:i + 100]
             self.llm.rl.acquire(self.cfg.embed_model, 0)
-            j = self._post(self.cfg.llm_base_url.rstrip("/") + "/embeddings", {"model": self.cfg.embed_model, "input": chunk},
-                           {"Authorization": f"Bearer {self.cfg.llm_api_key}"})
+            base_url, api_key = self.llm.registry.endpoint(self.cfg.embed_model)
+            j = self._post(base_url.rstrip("/") + "/embeddings", {"model": self.cfg.embed_model, "input": chunk},
+                           {"Authorization": f"Bearer {api_key}"})
             out += [d["embedding"] for d in j["data"]]
             pt = int((j.get("usage") or {}).get("prompt_tokens") or 0)
-            usd = pt / 1e6 * self.cfg.embed_price_per_m
-            self.llm.store.add_cost(stage, self.cfg.embed_model, pt, 0, False, usd, usd * self.cfg.usd_to_toman)
+            entry = self.llm.registry.entry(self.cfg.embed_model)
+            usd = pt / 1e6 * (entry.price_in if entry else self.cfg.embed_price_per_m)
+            self.llm.store.add_cost(stage, self.cfg.embed_model, pt, 0, False, usd, self.llm.toman(usd))
         return np.array(out)
 
     def _cloudflare(self, texts: list[str], stage: str) -> np.ndarray:

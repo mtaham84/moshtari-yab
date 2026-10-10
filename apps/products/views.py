@@ -2,13 +2,15 @@ import json
 import secrets
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
-from django.http import JsonResponse
+from django.db.models import F, Q
+from django.http import HttpResponseRedirect, JsonResponse
+from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from apps.businesses.models import Business
 from apps.discovery.models import Opportunity, ProductDailyMetric, ProductOrder
 from .models import Category, Product, ProductImage
+from . import agent_card
 from .services import suggest_category_for_product
 
 @login_required
@@ -256,7 +258,62 @@ def product_detail_view(request, pk):
     return render(request, "products/product_detail.html", {
         "product": product,
         "business": business,
+        "agent_card": agent_card.card_state(product),
     })
+
+
+@login_required
+@require_POST
+def product_agent_card_view(request, pk):
+    """Save the seller's version of the agent's card, or go back to the agent's own version."""
+    business = get_object_or_404(Business, user=request.user)
+    product = get_object_or_404(Product, pk=pk, business=business)
+    if request.POST.get("action") == "revert":
+        product.agent_card_override = None
+        product.save(update_fields=["agent_card_override", "updated_at"])
+        messages.success(request, "برداشت ایجنت به نسخه‌ی خودش برگشت؛ چند ثانیه‌ی دیگر دوباره ساخته می‌شود.")
+    else:
+        current = agent_card.card_state(product)["card"]
+        card = agent_card.from_form(request.POST, current)
+        if not card["what_it_is"]:
+            messages.error(request, "بخش «این محصول چیست» نمی‌تواند خالی باشد.")
+        else:
+            product.agent_card_override = card
+            product.save(update_fields=["agent_card_override", "updated_at"])
+            messages.success(request, "برداشت ویرایش‌شده ذخیره شد و از این به بعد مستقیم در تطبیق استفاده می‌شود.")
+    return redirect("products:detail", pk=product.pk)
+
+
+@login_required
+@require_POST
+def api_autofill_from_url(request):
+    """Product page URL → suggested form values (the form fills only empty fields)."""
+    from apps.core.agent import AgentUnavailable
+
+    from .autofill import FetchError, suggest, validate_url
+
+    business = getattr(request.user, "business", None)
+    url = (request.POST.get("url") or "").strip()
+    if not url:
+        return JsonResponse({"status": "error", "message": "لینک صفحه‌ی محصول را وارد کنید."}, status=400)
+    try:
+        url = validate_url(url)
+        _, data = suggest(url, business=business)
+    except (FetchError, AgentUnavailable) as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+    return JsonResponse({"status": "success", "url": url, "data": data})
+
+
+def product_click_view(request, pk):
+    """/r/<id>/?ref=<opportunity>: the link in reply drafts. Counts the click, then goes to the seller's own page."""
+    product = get_object_or_404(Product.objects.select_related("business"), pk=pk)
+    ref = (request.GET.get("ref") or "").strip()[:64]
+    metric, _ = ProductDailyMetric.objects.get_or_create(product=product, date=timezone.now().date())
+    ProductDailyMetric.objects.filter(pk=metric.pk).update(clicks_count=F("clicks_count") + 1)
+    target = (product.url or "").strip()
+    if target.lower().startswith(("http://", "https://")):
+        return HttpResponseRedirect(target)
+    return redirect(f"/p/{product.pk}/" + (f"?ref={ref}" if ref else ""))
 
 @login_required
 def product_delete_view(request, pk):

@@ -48,13 +48,15 @@ def _int_or_none(v) -> int | None:
         return None
 
 
-def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime) -> tuple[list[NeedCard], float]:
-    """One LLM call. Returns validated (not yet merged) need cards and the call's cost in Toman."""
+def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
+                   payers: list[str] | None = None) -> tuple[list[NeedCard], float]:
+    """One LLM call. Returns validated (not yet merged) need cards and the call's cost in Toman.
+    ``payers``: owners of a private chat share the cost; empty = global chat (platform cost)."""
     if not w.new:
         return [], 0.0
     system = NEED_SYSTEM if w.new[0].platform != "x" else NEED_SYSTEM_X
     data, usage = llm.complete_json("need_extraction", cfg.extract_model, system, render(w, cfg), max_tokens=6000,
-                                    ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}")
+                                    ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}", businesses=payers)
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
     x_messages = {m.message_id: m for m in w.new} if w.new[0].platform == "x" else {}
     cards, dropped = [], 0

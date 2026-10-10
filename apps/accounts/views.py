@@ -1,14 +1,13 @@
-import secrets
-from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
-from apps.businesses.models import Business
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.views.decorators.http import require_POST
+from apps.businesses.models import Business, MessageStyle
+from apps.discovery.models import Opportunity
 from apps.discovery.services import get_performance_analytics
-from .emails import send_verification_email
-from .models import EmailVerification
 
 User = get_user_model()
 
@@ -94,177 +93,6 @@ def signup_view(request):
 
     return render(request, "accounts/signup.html")
 
-def verify_view(request):
-    if request.user.is_authenticated:
-        return redirect("accounts:dashboard")
-
-    verification_id = request.session.get("pending_verification_id")
-    email = request.session.get("pending_verification_email") or request.GET.get("email")
-
-    if verification_id:
-        verification = EmailVerification.objects.filter(id=verification_id).first()
-    elif email:
-        verification = EmailVerification.objects.filter(email=email).first()
-    else:
-        messages.info(request, "لطفاً ابتدا فرم ثبت‌نام را تکمیل نمایید.")
-        return redirect("accounts:signup")
-
-    if not verification:
-        messages.error(request, "درخواست احراز هویت یافت نشد. لطفاً مجدداً اقدام فرمایید.")
-        return redirect("accounts:signup")
-
-    # Check block state
-    is_blocked, remaining = verification.is_blocked()
-    if not is_blocked:
-        verification.reset_attempts_if_unblocked()
-
-    if request.method == "POST":
-        # Check if currently blocked
-        is_blocked, remaining = verification.is_blocked()
-        if is_blocked:
-            messages.error(
-                request,
-                f"دسترسی شما به دلیل ۵ بار اشتباه به مدت ۲ دقیقه مسدود شده است. {remaining} ثانیه دیگر مجدداً تلاش کنید."
-            )
-            return render(request, "accounts/verify.html", {
-                "verification": verification,
-                "is_blocked": True,
-                "remaining_seconds": remaining,
-            })
-
-        # Check expiration
-        if verification.is_expired():
-            messages.error(request, "کد تأیید منقضی شده است. لطفاً درخواست کد جدید ثبت نمایید.")
-            return render(request, "accounts/verify.html", {
-                "verification": verification,
-                "is_expired": True,
-            })
-
-        entered_code = request.POST.get("code", "").strip()
-
-        # Check code match
-        if entered_code == verification.code:
-            verification.is_verified = True
-            verification.save(update_fields=["is_verified"])
-
-            # Create or update user
-            session_data = verification.session_data or {}
-            first_name = session_data.get("first_name", "")
-            last_name = session_data.get("last_name", "")
-            username = verification.email
-
-            user, created = User.objects.get_or_create(
-                email=verification.email,
-                defaults={
-                    "username": username,
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "is_active": True,
-                }
-            )
-
-            if not created:
-                user.first_name = first_name
-                user.last_name = last_name
-                user.save(update_fields=["first_name", "last_name"])
-
-            raw_password = session_data.get("password")
-            if raw_password:
-                user.set_password(raw_password)
-                user.save()
-
-            # Create or update Business
-            business_name = session_data.get("business_name", "کسب‌وکار من")
-            business_type = session_data.get("business_type", "PHYSICAL")
-            business_domain = session_data.get("business_domain", "")
-
-            Business.objects.update_or_create(
-                user=user,
-                defaults={
-                    "name": business_name,
-                    "business_type": business_type,
-                    "business_domain": business_domain,
-                }
-            )
-
-            # Log the user in
-            login(request, user)
-
-            # Cleanup session
-            request.session.pop("pending_verification_id", None)
-            request.session.pop("pending_verification_email", None)
-
-            messages.success(request, f"خوش آمدید {first_name}! حساب کاربری و کسب‌وکار شما با موفقیت فعال شد.")
-            return redirect("accounts:dashboard")
-        else:
-            # Failed attempt logic
-            verification.record_failed_attempt()
-            is_blocked_now, block_secs = verification.is_blocked()
-
-            if is_blocked_now:
-                messages.error(
-                    request,
-                    "کد واردشده اشتباه است. شما ۵ بار تلاش ناموفق داشتید و دسترسی شما به مدت ۲ دقیقه مسدود گردید."
-                )
-                return render(request, "accounts/verify.html", {
-                    "verification": verification,
-                    "is_blocked": True,
-                    "remaining_seconds": block_secs,
-                })
-            else:
-                remaining_tries = EmailVerification.MAX_ATTEMPTS - verification.attempts
-                messages.error(
-                    request,
-                    f"کد وارد شده اشتباه است. ({remaining_tries} تلاش دیگر تا مسدود شدن موقت)"
-                )
-                return render(request, "accounts/verify.html", {
-                    "verification": verification,
-                    "is_blocked": False,
-                    "remaining_tries": remaining_tries,
-                })
-
-    return render(request, "accounts/verify.html", {
-        "verification": verification,
-        "is_blocked": is_blocked,
-        "remaining_seconds": remaining,
-    })
-
-def resend_code_view(request):
-    verification_id = request.session.get("pending_verification_id")
-    email = request.session.get("pending_verification_email") or request.GET.get("email")
-
-    if verification_id:
-        verification = EmailVerification.objects.filter(id=verification_id).first()
-    elif email:
-        verification = EmailVerification.objects.filter(email=email).first()
-    else:
-        messages.error(request, "درخواستی یافت نشد.")
-        return redirect("accounts:signup")
-
-    if not verification:
-        messages.error(request, "درخواست احراز هویت یافت نشد.")
-        return redirect("accounts:signup")
-
-    is_blocked, remaining = verification.is_blocked()
-    if is_blocked:
-        messages.error(request, f"حساب شما مسدود است. لطفاً {remaining} ثانیه دیگر صبر کنید.")
-        return redirect("accounts:verify")
-
-    # Generate new code
-    new_code = f"{secrets.randbelow(900000) + 100000}"
-    verification.code = new_code
-    verification.expires_at = timezone.now() + timedelta(minutes=EmailVerification.EXPIRATION_MINUTES)
-    verification.save(update_fields=["code", "expires_at"])
-
-    first_name = (verification.session_data or {}).get("first_name", "")
-    try:
-        send_verification_email(email=verification.email, code=new_code, first_name=first_name)
-        messages.success(request, "کد احراز هویت جدید به ایمیل شما ارسال شد.")
-    except Exception as e:
-        messages.warning(request, f"کد جدید صادر شد: {new_code}")
-
-    return redirect("accounts:verify")
-
 def login_view(request):
     if request.user.is_authenticated:
         return redirect("accounts:dashboard")
@@ -272,84 +100,43 @@ def login_view(request):
     next_url = request.GET.get("next") or request.POST.get("next") or "accounts:dashboard"
 
     if request.method == "POST":
-        auth_method = request.POST.get("auth_method", "password")
+        # Standard Password Login (Primary)
+        username_or_email = request.POST.get("username_or_email", "").strip()
+        password = request.POST.get("password", "")
 
-        if auth_method == "otp":
-            email = request.POST.get("email", "").strip().lower()
-            if not email:
-                messages.error(request, "لطفاً آدرس ایمیل خود را برای دریافت کد یکبار مصرف وارد نمایید.")
-                return render(request, "accounts/login.html", {"active_tab": "otp", "next": next_url})
+        if not username_or_email or not password:
+            messages.error(request, "لطفاً ایمیل / نام کاربری و کلمه عبور را وارد فرمایید.")
+            return render(request, "accounts/login.html", {
+                "username_or_email": username_or_email,
+                "active_tab": "password",
+                "next": next_url,
+            })
 
-            user = User.objects.filter(email__iexact=email).first()
-            if not user:
-                messages.error(request, "کاربری با این ایمیل یافت نشد. لطفاً ابتدا ثبت‌نام کنید.")
-                return redirect("accounts:signup")
+        # Look up user by email or username
+        user = User.objects.filter(email__iexact=username_or_email).first()
+        if not user:
+            user = User.objects.filter(username__iexact=username_or_email).first()
 
-            # Check existing active block
-            recent_active = EmailVerification.objects.filter(email=email).first()
-            if recent_active:
-                is_blocked, remaining = recent_active.is_blocked()
-                if is_blocked:
-                    messages.error(request, f"این حساب کاربری به دلیل تلاش‌های ناموفق مکرر مسدود است. لطفاً {remaining} ثانیه دیگر مجدداً تلاش نمایید.")
-                    return render(request, "accounts/login.html", {"active_tab": "otp", "next": next_url})
+        if user and user.check_password(password):
+            if not user.is_active:
+                messages.error(request, "حساب کاربری شما غیرفعال است.")
+                return render(request, "accounts/login.html", {
+                    "username_or_email": username_or_email,
+                    "active_tab": "password",
+                    "next": next_url,
+                })
 
-            # Create OTP verification for login
-            code = f"{secrets.randbelow(900000) + 100000}"
-            verification = EmailVerification.objects.create(
-                email=email,
-                code=code,
-                session_data={"first_name": user.first_name, "last_name": user.last_name},
-                expires_at=timezone.now() + timedelta(minutes=10),
-            )
-
-            try:
-                send_verification_email(email=email, code=code, first_name=user.first_name)
-                messages.success(request, f"کد یکبار مصرف ورود به ایمیل {email} ارسال شد.")
-            except Exception:
-                messages.info(request, f"کد ورود صادر شد: {code}")
-
-            request.session["pending_verification_id"] = verification.id
-            request.session["pending_verification_email"] = email
-            return redirect("accounts:verify")
-
+            login(request, user)
+            name = user.get_full_name() or user.first_name or user.username
+            messages.success(request, f"خوش آمدید، {name} عزیز!")
+            return redirect(next_url)
         else:
-            # Standard Password Login (Primary)
-            username_or_email = request.POST.get("username_or_email", "").strip()
-            password = request.POST.get("password", "")
-
-            if not username_or_email or not password:
-                messages.error(request, "لطفاً ایمیل / نام کاربری و کلمه عبور را وارد فرمایید.")
-                return render(request, "accounts/login.html", {
-                    "username_or_email": username_or_email,
-                    "active_tab": "password",
-                    "next": next_url,
-                })
-
-            # Look up user by email or username
-            user = User.objects.filter(email__iexact=username_or_email).first()
-            if not user:
-                user = User.objects.filter(username__iexact=username_or_email).first()
-
-            if user and user.check_password(password):
-                if not user.is_active:
-                    messages.error(request, "حساب کاربری شما غیرفعال است.")
-                    return render(request, "accounts/login.html", {
-                        "username_or_email": username_or_email,
-                        "active_tab": "password",
-                        "next": next_url,
-                    })
-
-                login(request, user)
-                name = user.get_full_name() or user.first_name or user.username
-                messages.success(request, f"خوش آمدید، {name} عزیز!")
-                return redirect(next_url)
-            else:
-                messages.error(request, "نام کاربری/ایمیل یا کلمه عبور وارد شده نادرست است.")
-                return render(request, "accounts/login.html", {
-                    "username_or_email": username_or_email,
-                    "active_tab": "password",
-                    "next": next_url,
-                })
+            messages.error(request, "نام کاربری/ایمیل یا کلمه عبور وارد شده نادرست است.")
+            return render(request, "accounts/login.html", {
+                "username_or_email": username_or_email,
+                "active_tab": "password",
+                "next": next_url,
+            })
 
     return render(request, "accounts/login.html", {
         "active_tab": "password",
@@ -385,18 +172,6 @@ def dashboard_view(request):
             messages.success(request, "محدوده‌های هدف‌گذاری اختیاری (موقعیت جغرافیایی و بازه سنی) با موفقیت به‌روزرسانی شد.")
             return redirect(request.META.get("HTTP_REFERER") or "accounts:dashboard")
 
-        if request.POST.get("update_social_config"):
-            business.telegram_account_handle = request.POST.get("telegram_account_handle", "").strip()
-            business.x_account_handle = request.POST.get("x_account_handle", "").strip()
-            mode = request.POST.get("preferred_outreach_mode", "DIRECT").strip()
-            if mode in ["DIRECT", "COMMENT"]:
-                business.preferred_outreach_mode = mode
-            limit = request.POST.get("daily_discovery_limit", "").strip()
-            if limit.isdigit():
-                business.daily_discovery_limit = max(1, int(limit))
-            business.save()
-            messages.success(request, "تنظیمات اتصال حساب‌های شبکه‌های اجتماعی و سقف پایش با موفقیت به‌روزرسانی شد.")
-            return redirect(request.META.get("HTTP_REFERER") or "accounts:dashboard")
 
     analytics_data = get_performance_analytics(business)
 
@@ -404,6 +179,8 @@ def dashboard_view(request):
         "user": request.user,
         "business": business,
         "analytics": analytics_data,
+        "recent_opportunities": Opportunity.objects.filter(business=business).select_related(
+            "customer", "ai_analysis").prefetch_related("product_matches__product").order_by("-created_at")[:5],
     })
 
 
@@ -442,21 +219,13 @@ def settings_view(request):
             business.target_min_age = int(min_age_val) if min_age_val.isdigit() else None
             business.target_max_age = int(max_age_val) if max_age_val.isdigit() else None
 
-        # 3. Telegram & Outreach Configuration
-        if section in ["telegram", "all"]:
-            tg_handle = request.POST.get("telegram_account_handle", "").strip()
-            if tg_handle and not tg_handle.startswith("@"):
-                tg_handle = f"@{tg_handle}"
-            business.telegram_account_handle = tg_handle
-            business.telegram_session_or_bot = request.POST.get("telegram_session_or_bot", "").strip()
-
-            mode = request.POST.get("preferred_outreach_mode", "DIRECT")
-            if mode in ["DIRECT", "COMMENT"]:
-                business.preferred_outreach_mode = mode
-
-            limit_val = request.POST.get("daily_discovery_limit", "50").strip()
-            if limit_val.isdigit():
-                business.daily_discovery_limit = max(1, int(limit_val))
+        # 3. Message style (how reply drafts are written). Telegram account/bot and the daily cap had no effect
+        #    anywhere and are no longer shown.
+        if section == "style":
+            style = _style_from_post(request.POST, MessageStyle.for_business(business))
+            style.save()
+            messages.success(request, "سبک پیام ذخیره شد؛ پیش‌نویس‌های بعدی با همین سبک نوشته می‌شوند.")
+            return redirect(f"{reverse('accounts:settings')}?tab=style")
 
         business.save()
         messages.success(request, "تنظیمات کسب‌وکار و حساب با موفقیت ذخیره شد.")
@@ -465,5 +234,43 @@ def settings_view(request):
     return render(request, "accounts/settings.html", {
         "user": request.user,
         "business": business,
+        "style": MessageStyle.for_business(business),
+        "tone_choices": MessageStyle.TONE_CHOICES,
+        "sample_products": business.products.order_by("-created_at")[:50],
+        "active_tab": request.GET.get("tab", ""),
     })
+
+
+def _style_from_post(post, style: MessageStyle) -> MessageStyle:
+    """Form → MessageStyle (not saved). Values are clamped; the engine validates them again."""
+    tone = post.get("tone", style.tone)
+    style.tone = tone if tone in dict(MessageStyle.TONE_CHOICES) else "FRIENDLY"
+    raw = (post.get("max_sentences") or "").strip()
+    style.max_sentences = min(5, max(1, int(raw))) if raw.isdigit() else style.max_sentences
+    style.use_emoji = post.get("use_emoji") in ("on", "true", "1")
+    style.include_link = post.get("include_link") in ("on", "true", "1")
+    style.signature = (post.get("signature") or "").strip()[:100]
+    style.extra_instructions = (post.get("extra_instructions") or "").strip()[:500]
+    return style
+
+
+@login_required
+@require_POST
+def style_sample_view(request):
+    """«نمونه بساز»: a draft with the style currently in the form (not saved) for one of the seller's products."""
+    from apps.core.agent import AgentUnavailable, sample_reply
+
+    business = getattr(request.user, "business", None)
+    if business is None:
+        return JsonResponse({"status": "error", "message": "ابتدا مشخصات کسب‌وکار را ثبت کنید."}, status=400)
+    pid = (request.POST.get("product_id") or "").strip()
+    product = business.products.filter(pk=pid).first() if pid.isdigit() else business.products.order_by("-created_at").first()
+    if product is None:
+        return JsonResponse({"status": "error", "message": "برای ساخت نمونه، ابتدا یک محصول اضافه کنید."}, status=400)
+    style = _style_from_post(request.POST, MessageStyle(business=business))
+    try:
+        text = sample_reply(business, style, product)
+    except AgentUnavailable as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=503)
+    return JsonResponse({"status": "success", "product": product.name, "reply": text})
 

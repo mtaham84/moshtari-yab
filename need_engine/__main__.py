@@ -4,6 +4,7 @@
     python -m need_engine run                   # loop every NE_POLL_SECONDS
     python -m need_engine run --once --flush    # analyse everything pending now (backfill / tests)
     python -m need_engine stats                 # cost ledger + messages analysed + cost per message
+    python -m need_engine stats --business 7    # one seller: its share of the cost / messages reviewed for it
     python -m need_engine demo --chats data/chats.jsonl --products data/products.jsonl [--mock]
                                                 # throw-away schema in the same database, output to JSONL
 """
@@ -27,7 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--once", action="store_true")
     r.add_argument("--flush", action="store_true", help="analyse all pending messages regardless of triggers")
     r.add_argument("--mock", action="store_true", help="offline fake LLM + hash embeddings")
-    sub.add_parser("stats")
+    st_p = sub.add_parser("stats")
+    st_p.add_argument("--business", help="Django business id: that seller's cost and cost per reviewed message")
     sub.add_parser("x-prefilter-report")
     d = sub.add_parser("demo", help="run the full pipeline on JSONL files into a temporary state")
     d.add_argument("--chats", required=True)
@@ -49,9 +51,18 @@ def main(argv: list[str] | None = None) -> int:
             for row in st.x_filter_summary():
                 print(json.dumps(row, ensure_ascii=False))
             return 0
-        for row in st.cost_summary():
+        biz = a.business
+        for row in st.cost_summary(business_id=biz):
             print(json.dumps(row, ensure_ascii=False))
-        print(json.dumps(st.totals(), ensure_ascii=False))
+        if biz:
+            from need_engine.access import SourceAccess
+
+            acc = SourceAccess(cfg)
+            acc.refresh()
+            chats = [c for c in acc.rules if acc.allows(c, biz)]
+            print(json.dumps({"business_id": biz, **st.totals(business_id=biz, chat_ids=chats)}, ensure_ascii=False))
+        else:
+            print(json.dumps(st.totals(), ensure_ascii=False))
         shadow = {row["reason"]: row["count"] for row in st.x_filter_summary() if row["mode"] == "shadow"}
         print(json.dumps({"x_prefilter_would_drop": shadow}, ensure_ascii=False))
         return 0

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, utils
 from telethon.errors import FloodWaitError
 from telethon.tl import types
 from telethon.tl.functions.channels import GetFullChannelRequest
@@ -27,13 +27,12 @@ from telethon.tl.functions.users import GetFullUserRequest
 from telegram_crawler.config import settings
 from telegram_crawler.db import Archive
 from telegram_crawler.extractor import chat_record, message_record, peer_id, user_record
-from telegram_crawler.panel import PanelCommunities, normalize_link
+from telegram_crawler.panel import PERMANENT_ERRORS, Community, PanelCommunities, classify_join_error, normalize_link
 from telegram_crawler.ratelimit import FloodWaitTooLong, pace, with_flood_retry
 from telegram_crawler.telegram_client import join_and_resolve_group
 
 log = logging.getLogger("telegram_crawler.monitor")
 PARENT_BATCH = 100
-JOIN_RETRY_SECONDS = 600     # a panel link that failed to join is retried after this long
 
 
 @dataclass
@@ -76,6 +75,8 @@ class CrawlerMonitor:
         fetch_profiles: bool | None = None,
         parent_depth: int | None = None,
         panel: PanelCommunities | None = None,
+        join_interval: float | None = None,
+        max_groups: int | None = None,
     ) -> None:
         self.client = client
         if isinstance(group_links, str):
@@ -93,7 +94,11 @@ class CrawlerMonitor:
         self.paused: set[int] = set()            # chats deactivated in the panel: live messages are ignored
         self._cli_chats: set[int] = set()        # groups given on the command line / groups file (always active)
         self._links: dict[str, int] = {}         # normalized panel link → chat id (joined in this run)
-        self._join_failed: dict[int, float] = {}  # community id → retry after (monotonic time)
+        self._retry_at: dict[str, float] = {}     # normalized link → do not try to join before (monotonic time)
+        self._next_join_at = 0.0                   # joins are spaced by join_interval (and by FloodWait)
+        self._dialogs: dict[int, Any] | None = None  # chats this account already belongs to (loaded once)
+        self.join_interval = settings.join_interval if join_interval is None else join_interval
+        self.max_groups = settings.max_groups if max_groups is None else max_groups
         self.stats = {"archived": 0, "context": 0, "users": 0, "profiles": 0}
 
     # ----------------------------------------------------------------- setup
@@ -135,41 +140,90 @@ class CrawlerMonitor:
             raise RuntimeError("No group could be resolved; nothing to monitor.")
 
     # ----------------------------------------------------------------- panel
+    async def _known_chats(self) -> dict[int, Any]:
+        """Groups the account joined in an earlier run (one dialogs request), so restarts do not re-join."""
+        if self._dialogs is None:
+            self._dialogs = {}
+            iter_dialogs = getattr(self.client, "iter_dialogs", None)
+            if iter_dialogs is not None:
+                try:
+                    async for d in iter_dialogs():
+                        ent = getattr(d, "entity", None)
+                        if isinstance(ent, (types.Channel, types.Chat)):
+                            self._dialogs[utils.get_peer_id(ent)] = ent
+                except Exception as exc:
+                    log.warning("Could not list dialogs: %s", exc)
+        return self._dialogs
+
+    def _should_try_join(self, key: str, rows: list[Community], now: float) -> bool:
+        if self._retry_at.get(key, 0) > now:
+            return False
+        if all(c.status == "ERROR" and c.error.partition(":")[0] in PERMANENT_ERRORS for c in rows):
+            return False             # bad link: only retried after the seller re-activates it (status → PENDING)
+        if len(self.groups) >= self.max_groups:
+            self.panel.mark_waiting([c.id for c in rows], "LIMIT_REACHED")
+            return False
+        return now >= self._next_join_at   # wait in the queue («در صف اتصال»)
+
+    async def _join_panel_link(self, key: str, rows: list[Community]) -> int | None:
+        ids = [c.id for c in rows]
+        now = time.monotonic()
+        self._next_join_at = now + self.join_interval
+        try:
+            state, full = await self.add_link(rows[0].link)
+        except Exception as exc:
+            code, wait = classify_join_error(exc)
+            log.warning("Panel link %s (rows %s) not joined: %s (%s)", rows[0].link, ids, code, exc)
+            if code.startswith("FLOOD_WAIT:"):
+                self._next_join_at = max(self._next_join_at, now + wait)   # every join waits, not only this one
+                self.panel.mark_waiting(ids, code)
+            elif code == "LIMIT_REACHED":
+                self.panel.mark_waiting(ids, code)
+            else:
+                self.panel.mark_error(ids, code)
+            if wait:
+                self._retry_at[key] = now + wait
+            return None
+        self._retry_at.pop(key, None)
+        members = getattr(full, "participants_count", None) or getattr(state.entity, "participants_count", None)
+        for cid in ids:
+            self.panel.mark_joined(cid, state.chat_id, state.title, members)
+        await pace()
+        return state.chat_id
+
     async def sync_panel(self) -> int:
-        """One pass over the panel communities: join new links, pause/resume, refresh counters.
-        Returns the number of groups joined in this pass."""
+        """One pass over the panel communities: join new links (one per join_interval), pause/resume,
+        refresh counters. Returns the number of groups joined in this pass."""
         if self.panel is None:
             return 0
         rows = self.panel.communities()
+        by_key: dict[str, list[Community]] = {}
+        for c in rows:
+            if c.is_active:
+                by_key.setdefault(normalize_link(c.link), []).append(c)
         active: set[int] = set(self._cli_chats)
         joined = 0
-        for c in rows:
-            if not c.is_active:
-                continue
-            key = normalize_link(c.link)
+        for key, group in by_key.items():
             chat_id = self._links.get(key)
             if chat_id is None:
-                if self._join_failed.get(c.id, 0) > time.monotonic():
+                known = [c.chat_id for c in group if c.chat_id]
+                if known:
+                    entity = (await self._known_chats()).get(known[0])
+                    if entity is not None:          # joined in an earlier run: no new join needed
+                        state = self.add_resolved_group(entity, group[0].link)
+                        self._links[key] = chat_id = state.chat_id
+            if chat_id is None:
+                if not self._should_try_join(key, group, time.monotonic()):
                     continue
-                try:
-                    state, full = await self.add_link(c.link)
-                except FloodWaitTooLong as exc:
-                    log.warning("Panel community %s (%s) postponed: %s", c.id, c.link, exc)
-                    self._join_failed[c.id] = time.monotonic() + JOIN_RETRY_SECONDS
+                chat_id = await self._join_panel_link(key, group)
+                if chat_id is None:
                     continue
-                except Exception as exc:
-                    log.error("Panel community %s (%s) could not be joined: %s", c.id, c.link, exc)
-                    self.panel.mark_error(c.id, str(exc) or exc.__class__.__name__)
-                    self._join_failed[c.id] = time.monotonic() + JOIN_RETRY_SECONDS
-                    continue
-                self._join_failed.pop(c.id, None)
-                self._links[key] = chat_id = state.chat_id
-                members = getattr(full, "participants_count", None) or getattr(state.entity, "participants_count", None)
-                self.panel.mark_joined(c.id, chat_id, state.title, members)
+                self._links[key] = chat_id
                 joined += 1
-                await pace()
-            elif c.chat_id != chat_id or c.status != "ACTIVE":
-                self.panel.mark_joined(c.id, chat_id, None, None)
+            else:
+                for c in group:
+                    if c.chat_id != chat_id or c.status != "ACTIVE":
+                        self.panel.mark_joined(c.id, chat_id, None, None)
             active.add(chat_id)
         newly_paused = {st.chat_id for st in self.groups} - active
         resumed = self.paused - newly_paused

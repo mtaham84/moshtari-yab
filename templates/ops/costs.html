@@ -1,0 +1,36 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}هزینه‌ها{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>هزینه‌ها</h1>{% include "ops/_periods.html" %}</div>
+
+<div class="card">
+  <h2>هزینه به تفکیک فروشنده</h2>
+  <table><tr><th>فروشنده</th><th class="n">فراخوانی</th><th class="n">توکن ورودی/خروجی</th><th class="n">هزینه‌ی واقعی ($)</th><th class="n">هزینه‌ی واقعی (تومان)</th></tr>
+  {% for r in by_business %}<tr><td>{% if r.key %}<a href="?business={{ r.key }}&days={{ days }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</td>
+    <td class="n">{{ r.calls|num }}</td><td class="n">{{ r.pt|num }} / {{ r.ct|num }}</td><td class="n">{{ r.usd|usd }}</td><td class="n">{{ r.toman|toman }}</td></tr>
+  {% empty %}<tr><td class="muted" colspan="5">—</td></tr>{% endfor %}</table>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="provider-head">
+    <h2>دفتر هزینه‌ها (هر فراخوانی مدل)</h2>
+    <form class="toolbar" method="get">
+      <select name="business" class="ops-input"><option value="">همه‌ی فروشنده‌ها</option>
+        {% for pk, name in businesses %}<option value="{{ pk }}" {% if filters.business == pk|stringformat:"s" %}selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+      <select name="model" class="ops-input"><option value="">همه‌ی مدل‌ها</option>
+        {% for m in models %}<option {% if filters.model == m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+      <input name="stage" class="ops-input" placeholder="مرحله (verify, reply, …)" value="{{ filters.stage }}">
+      <button class="btn">فیلتر</button>
+    </form>
+  </div>
+  <table><tr><th>#</th><th>زمان</th><th>فروشنده</th><th>مرحله</th><th>مدل</th><th class="n">ورودی/خروجی</th><th>کش</th><th class="n">$</th><th class="n">تومان</th></tr>
+  {% for r in rows %}<tr><td class="muted">{{ r.id }}</td><td class="muted">{{ r.at|date:"Y-m-d H:i:s" }}</td><td>{{ r.business }}</td>
+    <td><code>{{ r.stage }}</code></td><td><code>{{ r.model }}</code></td><td class="n">{{ r.prompt_tokens|num }} / {{ r.completion_tokens|num }}</td>
+    <td>{% if r.cached %}<span class="pill">کش</span>{% endif %}{% if r.charge_factor > 1 %} <span class="pill" title="گروه مشترک: یک بار تحلیل شده ولی هزینه‌ی کامل از هر صاحب آن کسر می‌شود">×{{ r.charge_factor }}</span>{% endif %}</td><td class="n">{{ r.usd|usd }}</td><td class="n">{{ r.toman|toman }}</td></tr>
+  {% empty %}<tr><td class="muted" colspan="9">ردیفی نیست.</td></tr>{% endfor %}</table>
+  <div class="toolbar" style="margin-top:10px">
+    {% if page > 1 %}<a class="btn sm" href="?page={{ page|add:'-1' }}&business={{ filters.business }}&model={{ filters.model }}&stage={{ filters.stage }}">قبلی</a>{% endif %}
+    {% if has_next %}<a class="btn sm" href="?page={{ page|add:'1' }}&business={{ filters.business }}&model={{ filters.model }}&stage={{ filters.stage }}">بعدی</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

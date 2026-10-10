@@ -8,22 +8,61 @@ from pathlib import Path
 from typing import Any, Tuple
 from telethon import TelegramClient
 from telethon.errors import (
+    ChannelPrivateError,
+    ChannelsTooMuchError,
     InviteHashExpiredError,
     InviteHashInvalidError,
+    InviteRequestSentError,
     UserAlreadyParticipantError,
+    UserBannedInChannelError,
 )
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import (
     CheckChatInviteRequest,
     ImportChatInviteRequest,
 )
-from telethon.tl.types import ChatInviteAlready
+from telethon.tl.types import ChatInviteAlready, User
 
 from telegram_crawler.config import settings
 from telegram_crawler.models import GroupInfo
 from telegram_crawler.ratelimit import FloodWaitTooLong, with_flood_retry
 
 log = logging.getLogger("telegram_crawler.client")
+
+
+class JoinError(RuntimeError):
+    """A link that cannot be monitored. ``code`` is one of the panel error codes (see telegram_crawler.panel)."""
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(f"{code}: {detail}" if detail else code)
+        self.code = code
+
+
+def proxy_options(url: str) -> dict[str, Any]:
+    """TG_PROXY → extra TelegramClient kwargs. Empty → {} (direct connection)."""
+    from urllib.parse import unquote, urlsplit
+
+    if not url:
+        return {}
+    u = urlsplit(url)
+    scheme = (u.scheme or "").lower()
+    if not u.hostname or not u.port:
+        raise ValueError(f"TG_PROXY needs host and port: {url!r}")
+    if scheme in ("mtproxy", "mtproto"):
+        from telethon import connection
+
+        secret = unquote(u.username or "")
+        if not secret:
+            raise ValueError("TG_PROXY mtproxy:// needs the secret: mtproxy://<secret>@host:port")
+        return {"connection": connection.ConnectionTcpMTProxyRandomizedIntermediate,
+                "proxy": (u.hostname, u.port, secret)}
+    kinds = {"socks5": "socks5", "socks5h": "socks5", "socks4": "socks4", "http": "http"}
+    if scheme not in kinds:
+        raise ValueError(f"unsupported TG_PROXY scheme {scheme!r} (use socks5, http or mtproxy)")
+    proxy: dict[str, Any] = {"proxy_type": kinds[scheme], "addr": u.hostname, "port": u.port, "rdns": True}
+    if u.username:
+        proxy["username"], proxy["password"] = unquote(u.username), unquote(u.password or "")
+    return {"proxy": proxy}
 
 
 def create_telegram_client(
@@ -46,7 +85,10 @@ def create_telegram_client(
 
     # Telethon sleeps automatically on FloodWait shorter than this threshold;
     # longer waits raise FloodWaitError and are handled by ratelimit.with_flood_retry.
-    return TelegramClient(s_path, app_id, app_hash, flood_sleep_threshold=settings.flood_sleep_threshold)
+    extra = proxy_options(settings.proxy)
+    if extra:
+        log.info("Connecting to Telegram through proxy %s", settings.proxy.split("@")[-1])
+    return TelegramClient(s_path, app_id, app_hash, flood_sleep_threshold=settings.flood_sleep_threshold, **extra)
 
 
 def parse_group_link(link: str) -> tuple[str, str]:
@@ -113,19 +155,22 @@ async def join_and_resolve_group(
             else:
                 raise RuntimeError("Could not resolve chat from invite hash while already participant.")
         except (InviteHashExpiredError, InviteHashInvalidError) as exc:
-            raise ValueError(f"Invite link is invalid or expired: {exc}") from exc
+            raise JoinError("NO_ACCESS", f"invite link is invalid or expired: {exc}") from exc
 
     elif link_type in ("public", "id"):
         target_ref: Any = int(identifier) if link_type == "id" else identifier
         log.info("Resolving entity: %s", target_ref)
         entity = await with_flood_retry(lambda: client.get_entity(target_ref), what="get_entity")
+        if isinstance(entity, User):
+            raise JoinError("NOT_A_GROUP", f"{target_ref} is a user or bot")
 
         try:
             await with_flood_retry(lambda: client(JoinChannelRequest(entity)), what="join(public)")
             log.info("Joined public channel/group: %s", getattr(entity, "title", target_ref))
         except UserAlreadyParticipantError:
             log.info("Already a member of %s", getattr(entity, "title", target_ref))
-        except FloodWaitTooLong:
+        except (FloodWaitTooLong, ChannelPrivateError, ChannelsTooMuchError, InviteRequestSentError,
+                UserBannedInChannelError):
             raise
         except Exception as exc:
             log.debug("JoinChannelRequest note (may already be in or not needed): %s", exc)

@@ -7,6 +7,12 @@
 {% block bottom_nav_opportunities %}active{% endblock %}
 
 {% block panel_content %}
+<!-- «N فرصت جدید»: shown when the 20-second check finds opportunities newer than this page -->
+<a id="new-opps-bar" href="{{ request.get_full_path }}" role="status"
+   data-endpoint="{% url 'discovery:opportunity_new_count' %}" data-after="{{ latest_opportunity_id }}"
+   style="display: none; position: sticky; top: 12px; z-index: 50; margin: 0 auto 16px; max-width: 420px; text-align: center; padding: 10px 18px; border-radius: 999px; background: var(--brand-purple, #a855f7); color: #fff; font-weight: 800; font-size: 0.86rem; text-decoration: none; box-shadow: 0 6px 18px rgba(0,0,0,0.25);">
+  <span id="new-opps-text"></span> — برای دیدن کلیک کنید
+</a>
 <div class="p-page-header" style="margin-bottom: 24px;">
   <div class="p-header-titles">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -77,7 +83,7 @@
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
     </div>
     <div>
-      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">مشتریان نهایی (Converted)</span>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">مشتریان نهایی</span>
       <strong style="font-size: 1.4rem; color: #F59E0B; font-weight: 700;">{{ stats.converted }}</strong>
     </div>
   </div>
@@ -100,13 +106,13 @@
           تلگرام (فعال: {{ stats.telegram_count }})
         </button>
         <button type="submit" name="platform" value="x" class="p-btn p-btn-sm {% if selected_platform == 'x' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
-          X / توییتر (فاز ۲: {{ stats.x_count }})
+          X / توییتر ({{ stats.x_count }})
         </button>
         <button type="submit" name="platform" value="instagram" class="p-btn p-btn-sm {% if selected_platform == 'instagram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
-          اینستاگرام (فاز ۲: {{ stats.instagram_count }})
+          اینستاگرام ({{ stats.instagram_count }})
         </button>
         <button type="submit" name="platform" value="divar" class="p-btn p-btn-sm {% if selected_platform == 'divar' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
-          دیوار (فاز ۲: {{ stats.divar_count }})
+          دیوار ({{ stats.divar_count }})
         </button>
       </div>
 
@@ -115,16 +121,16 @@
         <a href="?view=table&{{ export_query_string }}" 
            class="p-btn p-btn-sm {% if view_mode == 'table' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" 
            style="padding: 5px 12px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px;" 
-           title="نمای جدول جامع دیتابیس">
+           title="همه‌ی جزئیات هر فرصت">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="12" y1="3" x2="12" y2="21"></line></svg>
-          <span>جدول جامع</span>
+          <span>نمای کامل</span>
         </a>
         <a href="?view=cards&{{ export_query_string }}" 
            class="p-btn p-btn-sm {% if view_mode == 'cards' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" 
            style="padding: 5px 12px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px;" 
-           title="نمای کارت‌های تحلیلی">
+           title="فقط پیام و کالای پیشنهادی">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-          <span>کارت‌ها</span>
+          <span>نمای فشرده</span>
         </a>
       </div>
     </div>
@@ -168,7 +174,7 @@
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
           📅 از تاریخ شمسی:
         </label>
-        <input type="text" name="date_from" value="{{ date_from|default:'' }}" placeholder="مثال: ۱۴۰۳/۰۷/۰۱" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
+        <input type="text" name="date_from" value="{{ date_from|default:'' }}" placeholder="سال/ماه/روز" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
       </div>
 
       <!-- Jalali Date Range: To -->
@@ -176,7 +182,7 @@
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
           📅 تا تاریخ شمسی:
         </label>
-        <input type="text" name="date_to" value="{{ date_to|default:'' }}" placeholder="مثال: ۱۴۰۳/۰۷/۳۰" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
+        <input type="text" name="date_to" value="{{ date_to|default:'' }}" placeholder="سال/ماه/روز" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
       </div>
 
       <!-- Min Score Filter -->
@@ -199,13 +205,13 @@
         </label>
         <select name="status" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
           <option value="">همه وضعیت‌ها</option>
-          <option value="NEW" {% if selected_status == 'NEW' %}selected{% endif %}>جدید (New)</option>
-          <option value="REVIEWED" {% if selected_status == 'REVIEWED' %}selected{% endif %}>بررسی شده (Reviewed)</option>
-          <option value="CONTACTED" {% if selected_status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده (Contacted)</option>
-          <option value="CONVERTED" {% if selected_status == 'CONVERTED' %}selected{% endif %}>مشتری نهایی (Converted)</option>
-          <option value="REJECTED" {% if selected_status == 'REJECTED' %}selected{% endif %}>رد شده (Rejected)</option>
-          <option value="RESOLVED" {% if selected_status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد (Resolved)</option>
-          <option value="EXPIRED" {% if selected_status == 'EXPIRED' %}selected{% endif %}>منقضی شده (Expired)</option>
+          <option value="NEW" {% if selected_status == 'NEW' %}selected{% endif %}>جدید</option>
+          <option value="REVIEWED" {% if selected_status == 'REVIEWED' %}selected{% endif %}>بررسی شده</option>
+          <option value="CONTACTED" {% if selected_status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده</option>
+          <option value="CONVERTED" {% if selected_status == 'CONVERTED' %}selected{% endif %}>مشتری نهایی</option>
+          <option value="REJECTED" {% if selected_status == 'REJECTED' %}selected{% endif %}>رد شده</option>
+          <option value="RESOLVED" {% if selected_status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد</option>
+          <option value="EXPIRED" {% if selected_status == 'EXPIRED' %}selected{% endif %}>منقضی شده</option>
         </select>
       </div>
     </div>
@@ -213,7 +219,7 @@
     <!-- Row 3: Full-text Search & Filter Action Buttons -->
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px;">
       <div style="flex: 1; min-width: 240px; position: relative;">
-        <input type="text" name="q" value="{{ search_query|default:'' }}" placeholder="جستجوی سریع در نام خریدار، آیدی شبکه، متن پیام، نیاز استخراج‌شده یا کالا..." class="form-input" style="height: 42px; font-size: 0.84rem; padding-right: 36px; width: 100%;">
+        <input type="text" name="q" value="{{ search_query|default:'' }}" placeholder="جستجو در نام، آیدی، پیام، نیاز یا کالا" class="form-input" style="height: 42px; font-size: 0.84rem; padding-right: 36px; width: 100%;">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; right: 12px; top: 13px; color: var(--stone-text-muted);">
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -247,267 +253,119 @@
      VIEW MODE 1: Comprehensive Neumorphic Dark Master Data Table
      ====================================================================== -->
 {% if view_mode == 'table' %}
-<div class="p-card" style="padding: 0; overflow: hidden; margin-bottom: 24px; border: 1px solid var(--panel-border-subtle);">
-  
-  <div style="padding: 16px 20px; background: var(--stone-surface-sunken); border-bottom: 1px solid var(--panel-border-subtle); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--brand-purple);"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="12" y1="3" x2="12" y2="21"></line></svg>
-      <strong style="font-size: 0.95rem; color: var(--panel-text-main);">جدول یکپارچه داده‌های مشتریان و فرصت‌های خرید</strong>
-      <span class="p-badge p-badge-purple" style="font-size: 0.72rem;">{{ stats.filtered_count }} ردیف منطبق</span>
+<div class="p-card opp-list-card">
+  <div class="opp-list-head">
+    <div class="opp-list-title">
+      <strong>فرصت‌های خرید</strong>
+      <span class="p-badge p-badge-purple">{{ stats.filtered_count }} فرصت</span>
     </div>
-    <div style="font-size: 0.78rem; color: var(--stone-text-muted);">
-      ترتیب: 
-      {% if selected_sort == 'intent_desc' %}بیشترین احتمال خرید ⚡️
-      {% elif selected_sort == 'newest' %}جدیدترین تاریخ شمسی ⏱
-      {% elif selected_sort == 'oldest' %}قدیمی‌ترین تاریخ شمسی
-      {% elif selected_sort == 'fit_desc' %}بیشترین انطباق کاتالوگ
+    <div class="opp-list-sort">
+      ترتیب:
+      {% if selected_sort == 'intent_desc' %}بیشترین احتمال خرید
+      {% elif selected_sort == 'newest' %}جدیدترین
+      {% elif selected_sort == 'oldest' %}قدیمی‌ترین
+      {% elif selected_sort == 'fit_desc' %}بیشترین انطباق کالا
       {% elif selected_sort == 'cost_desc' %}بیشترین هزینه AI
       {% else %}پیش‌فرض{% endif %}
     </div>
   </div>
 
-  <div class="mobile-table-scroll-hint">
-    <span>👈 جدول را به چپ و راست بکشید (اسکرول افقی) 👉</span>
-    <span>{{ stats.filtered_count }} ردیف</span>
-  </div>
+  <div class="opp-list">
+    {% for opp in opportunities %}
+      <article class="opp-item">
+        <!-- header: who, when, scores, status -->
+        <div class="opp-item-head">
+          <div class="opp-who">
+            {% if opp.source_platform == 'telegram' %}<span class="opp-chip opp-chip-tg">تلگرام</span>
+            {% elif opp.source_platform == 'x' %}<span class="opp-chip">X</span>
+            {% elif opp.source_platform == 'instagram' %}<span class="opp-chip">اینستاگرام</span>
+            {% elif opp.source_platform == 'divar' %}<span class="opp-chip">دیوار</span>
+            {% else %}<span class="opp-chip">سایر</span>{% endif %}
+            <strong class="opp-name">{{ opp.customer.display_identifier }}</strong>
+            {% if opp.customer.source_username and opp.source_platform == 'x' %}
+              <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+            {% elif opp.customer.source_username %}
+              <a class="opp-handle" href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+            {% endif %}
+            {% if opp.customer.phone_number %}<span class="opp-handle">{{ opp.customer.phone_number }}</span>{% endif %}
+            <span class="opp-date">{{ opp.created_at_jalali|default:"" }}</span>
+            {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="opp-chip" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
+          </div>
+          <div class="opp-metrics">
+            <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">
+              احتمال خرید <b>{{ opp.intent_score_percentage }}٪</b>
+            </span>
+            <span class="opp-metric is-fit" title="انطباق کالا">انطباق <b>{{ opp.product_fit_score_percentage }}٪</b></span>
+            {% if opp.status == 'QUALIFIED' %}<span class="opp-status s-blue">تأیید شده</span>
+            {% elif opp.status == 'NEW' %}<span class="opp-status s-purple">جدید</span>
+            {% elif opp.status == 'REVIEWED' %}<span class="opp-status s-yellow">بررسی شده</span>
+            {% elif opp.status == 'CONTACTED' %}<span class="opp-status s-green">تماس گرفته</span>
+            {% elif opp.status == 'CONVERTED' %}<span class="opp-status s-green">مشتری نهایی</span>
+            {% elif opp.status == 'REJECTED' %}<span class="opp-status s-red">رد شده</span>
+            {% elif opp.status == 'RESOLVED' %}<span class="opp-status s-blue">نیاز برطرف شد</span>
+            {% elif opp.status == 'EXPIRED' %}<span class="opp-status s-gray">منقضی شده</span>{% endif %}
+          </div>
+        </div>
 
-  <div class="table-responsive-wrapper" style="overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch;">
-    <table style="width: 100%; border-collapse: collapse; text-align: right; font-size: 0.82rem; min-width: 1100px;">
-      <thead>
-        <tr style="background: var(--stone-surface-sunken); border-bottom: 2px solid var(--panel-border-subtle); color: var(--stone-text-muted); font-size: 0.76rem; text-transform: uppercase;">
-          <th style="padding: 12px 14px; width: 45px; text-align: center;">#</th>
-          <th style="padding: 12px 16px; min-width: 160px;">پلتفرم و خریدار</th>
-          <th style="padding: 12px 16px; min-width: 240px;">پیام خریدار و نیاز استخراج‌شده</th>
-          <th style="padding: 12px 16px; min-width: 180px;">کالای پیشنهادی کاتالوگ</th>
-          <th style="padding: 12px 14px; width: 130px; text-align: center;">احتمال خرید</th>
-          <th style="padding: 12px 14px; width: 110px; text-align: center;">انطباق کالا</th>
-          <th style="padding: 12px 16px; min-width: 190px;">استدلال AI</th>
-          <th style="padding: 12px 16px; min-width: 220px;">پیش‌نویس پاسخ آماده</th>
-          <th style="padding: 12px 14px; width: 140px; text-align: center;">تاریخ و ساعت شمسی</th>
-          <th style="padding: 12px 12px; width: 95px; text-align: center;">هزینه AI</th>
-          <th style="padding: 12px 14px; width: 120px; text-align: center;">وضعیت و اقدام</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for opp in opportunities %}
-          <tr style="border-bottom: 1px solid var(--panel-border-subtle); transition: background 0.15s ease;" onmouseover="this.style.background='var(--panel-hover)'" onmouseout="this.style.background='transparent'">
-            
-            <!-- 1. Index Number -->
-            <td style="padding: 14px 10px; text-align: center; color: var(--stone-text-muted); font-weight: 600;">
-              {{ forloop.counter }}
-            </td>
-
-            <!-- 2. Platform & Buyer Identity -->
-            <td style="padding: 14px 16px; vertical-align: top;">
-              <div style="display: flex; flex-direction: column; gap: 6px;">
-                <!-- Platform Badge -->
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  {% if opp.source_platform == 'telegram' %}
-                    <span class="p-badge" style="background: rgba(34, 158, 217, 0.15); color: #0088cc; border: 1px solid rgba(34, 158, 217, 0.3); font-size: 0.7rem; padding: 2px 7px;">
-                      تلگرام
-                    </span>
-                  {% elif opp.source_platform == 'x' %}
-                    <span class="p-badge" style="background: rgba(15, 23, 42, 0.12); color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.3); font-size: 0.7rem; padding: 2px 7px;">
-                      X
-                    </span>
-                  {% elif opp.source_platform == 'instagram' %}
-                    <span class="p-badge" style="background: rgba(225, 48, 108, 0.12); color: #E1306C; border: 1px solid rgba(225, 48, 108, 0.3); font-size: 0.7rem; padding: 2px 7px;">
-                      اینستا (فاز ۲)
-                    </span>
-                  {% elif opp.source_platform == 'divar' %}
-                    <span class="p-badge" style="background: rgba(166, 38, 38, 0.12); color: #c02626; border: 1px solid rgba(166, 38, 38, 0.3); font-size: 0.7rem; padding: 2px 7px;">
-                      دیوار (فاز ۲)
-                    </span>
-                  {% else %}
-                    <span class="p-badge p-badge-gray" style="font-size: 0.7rem; padding: 2px 7px;">سایر</span>
-                  {% endif %}
-                </div>
-
-                <!-- Buyer Name / Handle -->
-                <strong style="color: var(--panel-text-main); font-size: 0.88rem;">
-                  {{ opp.customer.display_identifier }}
-                </strong>
-                {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="p-badge" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
-
-                <!-- Contact link / phone -->
-                {% if opp.customer.source_username and opp.source_platform == 'x' %}
-                  <a href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer" style="font-size: 0.75rem; color: #1DA1F2; direction: ltr; text-align: right; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;">@{{ opp.customer.source_username|cut:'@' }}</a>
-                {% elif opp.customer.source_username %}
-                  <a href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer" style="font-size: 0.75rem; color: #0088cc; direction: ltr; text-align: right; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;">
-                    <span>@{{ opp.customer.source_username|cut:'@' }}</span>
-                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                  </a>
-                {% endif %}
-
-                {% if opp.customer.phone_number %}
-                  <span style="font-size: 0.74rem; color: #10B981; direction: ltr; text-align: right; font-family: monospace;">
-                    {{ opp.customer.phone_number }}
-                  </span>
-                {% endif %}
-              </div>
-            </td>
-
-            <!-- 3. Raw Message Quote & Extracted Need -->
-            <td style="padding: 14px 16px; vertical-align: top;">
-              <!-- Raw quote -->
-              <div style="background: var(--stone-surface-sunken); border-right: 3px solid var(--brand-purple); padding: 8px 12px; border-radius: 0 6px 6px 0; margin-bottom: 8px; font-size: 0.8rem; color: var(--panel-text-main); line-height: 1.5; max-height: 80px; overflow-y: auto;">
-                «{{ opp.source_raw_message }}»
-              </div>
-
-              <!-- AI Need extraction -->
-              {% if opp.ai_analysis.need %}
-                <div style="display: flex; align-items: flex-start; gap: 5px; font-size: 0.76rem; color: var(--stone-text-muted);">
-                  <span style="color: var(--brand-purple); font-weight: 600;">نیاز:</span>
-                  <span style="color: var(--panel-text-main);">{{ opp.ai_analysis.need }}</span>
-                </div>
-              {% endif %}
-            </td>
-
-            <!-- 4. Recommended Catalog Product -->
-            <td style="padding: 14px 16px; vertical-align: top;">
-              {% with match=opp.primary_product_match %}
-                {% if match %}
-                  <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                      <strong style="color: var(--panel-text-main); font-size: 0.86rem;">
-                        {{ match.product.name }}
-                      </strong>
-                    </div>
-
-                    {% if opp.category_name_snapshot or match.product.category %}
-                      <span style="font-size: 0.72rem; color: var(--stone-text-muted); background: var(--stone-surface-sunken); padding: 2px 6px; border-radius: 4px; display: inline-block; width: fit-content;">
-                        📁 {{ opp.category_name_snapshot|default:match.product.category.name }}
-                      </span>
-                    {% endif %}
-
-                    {% if match.product.price %}
-                      <span style="font-size: 0.76rem; color: #10B981; font-weight: 600;">
-                        {{ match.product.price|floatformat:0 }} تومان
-                      </span>
-                    {% endif %}
-                  </div>
-                {% else %}
-                  <span style="font-size: 0.76rem; color: var(--stone-text-muted);">(بدون تطابق مشخص کالا)</span>
-                {% endif %}
-              {% endwith %}
-            </td>
-
-            <!-- 5. Intent Score % (Purchase Probability) -->
-            <td style="padding: 14px 14px; text-align: center; vertical-align: top;">
-              <div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
-                <span class="p-badge" 
-                      style="{% if opp.intent_score_percentage >= 80 %}background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3);
-                             {% elif opp.intent_score_percentage >= 60 %}background: rgba(59, 130, 246, 0.15); color: #3B82F6; border: 1px solid rgba(59, 130, 246, 0.3);
-                             {% else %}background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3);{% endif %}
-                             font-size: 0.82rem; font-weight: 700; padding: 4px 10px;">
-                  {{ opp.intent_score_percentage }}٪
-                </span>
-                
-                <!-- Mini Progress Bar -->
-                <div style="width: 70px; height: 5px; background: var(--stone-surface-sunken); border-radius: 4px; overflow: hidden;">
-                  <div style="height: 100%; width: {{ opp.intent_score_percentage }}%; 
-                              background: {% if opp.intent_score_percentage >= 80 %}#10B981{% elif opp.intent_score_percentage >= 60 %}#3B82F6{% else %}#F59E0B{% endif %}; border-radius: 4px;"></div>
-                </div>
-              </div>
-            </td>
-
-            <!-- 6. Product Fit % -->
-            <td style="padding: 14px 14px; text-align: center; vertical-align: top;">
-              <span class="p-badge" style="background: rgba(168, 85, 247, 0.12); color: var(--brand-purple); border: 1px solid rgba(168, 85, 247, 0.25); font-size: 0.8rem; font-weight: 600;">
-                {{ opp.product_fit_score_percentage }}٪
-              </span>
-            </td>
-
-            <!-- 7. Decision Reason / AI Evidence -->
-            <td style="padding: 14px 16px; vertical-align: top;">
-              <p style="margin: 0; font-size: 0.76rem; color: var(--stone-text-muted); line-height: 1.5; max-height: 75px; overflow-y: auto;">
-                {{ opp.ai_analysis.why_selected|default:"انطباق با ویژگی‌های کاتالوگ" }}
-              </p>
-            </td>
-
-            <!-- 8. Suggested Reply with 1-Click Copy -->
-            <td style="padding: 14px 16px; vertical-align: top;">
-              {% if opp.ai_analysis.suggested_reply %}
-                <div style="position: relative; background: var(--stone-surface-sunken); padding: 8px 10px; border-radius: 6px; font-size: 0.76rem; color: var(--panel-text-main); line-height: 1.45; border: 1px solid var(--panel-border-subtle);">
-                  <div class="suggested-reply-text" id="reply-text-{{ opp.id }}" style="margin-bottom: 6px; max-height: 60px; overflow-y: auto;">
-                    {{ opp.ai_analysis.suggested_reply }}
-                  </div>
-                  <button type="button" 
-                          class="p-btn p-btn-sm p-btn-ghost copy-reply-btn" 
-                          data-target="reply-text-{{ opp.id }}" 
-                          style="padding: 2px 8px; font-size: 0.7rem; width: 100%; border: 1px dashed var(--panel-border-subtle); justify-content: center; display: flex; align-items: center; gap: 4px;">
-                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    <span>کپی پاسخ</span>
-                  </button>
+        <!-- body: message & need | product & reason -->
+        <div class="opp-item-body">
+          <div class="opp-col">
+            <div class="opp-label">پیام خریدار</div>
+            <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message }}</div></blockquote>
+            {% if opp.ai_analysis.need %}
+              <div class="opp-need"><span>نیاز:</span> {{ opp.ai_analysis.need }}</div>
+            {% endif %}
+          </div>
+          <div class="opp-col">
+            <div class="opp-label">کالای پیشنهادی</div>
+            {% with match=opp.primary_product_match %}
+              {% if match %}
+                <div class="opp-product">
+                  <strong>{{ match.product.name }}</strong>
+                  {% if match.product.price %}<span class="opp-price">{{ match.product.formatted_price }}</span>{% endif %}
                 </div>
               {% else %}
-                <span style="font-size: 0.74rem; color: var(--stone-text-muted);">-</span>
+                <div class="opp-muted">بدون تطابق مشخص کالا</div>
               {% endif %}
-            </td>
+            {% endwith %}
+            <div class="opp-label" style="margin-top: 12px;">چرا این فرصت</div>
+            <p class="opp-reason js-clamp" data-lines="3">{{ opp.ai_analysis.why_selected|default:"انطباق با ویژگی‌های کاتالوگ" }}</p>
+          </div>
+        </div>
 
-            <!-- 9. Jalali Date & Time -->
-            <td style="padding: 14px 14px; text-align: center; vertical-align: top;">
-              <div style="display: flex; flex-direction: column; gap: 2px; font-size: 0.76rem; color: var(--panel-text-main);">
-                <span style="font-weight: 600;">{{ opp.created_at_jalali|default:"-" }}</span>
-              </div>
-            </td>
-
-            <!-- 10. AI Processing Cost (Toman) -->
-            <td style="padding: 14px 12px; text-align: center; vertical-align: top;">
-              <div style="font-size: 0.76rem; color: var(--stone-text-muted);">
-                <strong style="color: var(--panel-text-main);">{{ opp.cost_toman_display }}</strong>
-                <span style="font-size: 0.68rem; display: block;">تومان</span>
-              </div>
-            </td>
-
-            <!-- 11. Status & Detail Action -->
-            <td style="padding: 14px 14px; text-align: center; vertical-align: top;">
-              <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                <!-- Status Badge -->
-                {% if opp.status == 'QUALIFIED' %}
-                  <span class="p-badge" style="background: rgba(59, 130, 246, 0.15); color: #3B82F6; font-size: 0.72rem; padding: 2px 8px;">تأیید شده</span>
-                {% elif opp.status == 'NEW' %}
-                  <span class="p-badge" style="background: rgba(168, 85, 247, 0.15); color: var(--brand-purple); font-size: 0.72rem; padding: 2px 8px;">جدید</span>
-                {% elif opp.status == 'REVIEWED' %}
-                  <span class="p-badge" style="background: rgba(234, 179, 8, 0.15); color: #CA8A04; font-size: 0.72rem; padding: 2px 8px;">بررسی شده</span>
-                {% elif opp.status == 'CONTACTED' %}
-                  <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 0.72rem; padding: 2px 8px;">تماس گرفته</span>
-                {% elif opp.status == 'CONVERTED' %}
-                  <span class="p-badge" style="background: rgba(16, 185, 129, 0.25); color: #047857; font-weight: 700; font-size: 0.72rem; padding: 2px 8px;">مشتری نهایی</span>
-                {% elif opp.status == 'REJECTED' %}
-                  <span class="p-badge" style="background: rgba(239, 68, 68, 0.15); color: #DC2626; font-size: 0.72rem; padding: 2px 8px;">رد شده</span>
-                {% endif %}
-
-                <!-- Detail Button -->
-                <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary" style="padding: 4px 10px; font-size: 0.74rem;">
-                  <span>جزئیات</span>
-                </a>
-              </div>
-            </td>
-
-          </tr>
-        {% empty %}
-          <tr>
-            <td colspan="11" style="padding: 48px 24px; text-align: center;">
-              <div style="max-width: 440px; margin: 0 auto;">
-                <div class="p-icon-box" style="width: 52px; height: 52px; border-radius: 14px; background: rgba(168, 85, 247, 0.1); color: var(--brand-purple); margin: 0 auto 14px; display: flex; align-items: center; justify-content: center;">
-                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-                </div>
-                <h4 style="font-size: 1rem; color: var(--panel-text-main); margin-bottom: 6px;">هیچ فرصتی با فیلترهای جاری پیدا نشد</h4>
-                <p style="font-size: 0.8rem; color: var(--stone-text-muted); margin-bottom: 16px;">
-                  می‌توانید فیلتر کالا، بازه زمانی شمسی یا حداقل امتیاز نیت را تغییر دهید تا نتایج بیشتری مشاهده کنید.
-                </p>
-                <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary" style="padding: 6px 16px; font-size: 0.8rem;">
-                  پاکسازی فیلترها و مشاهده همه
-                </a>
-              </div>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        <!-- draft + actions -->
+        <div class="opp-item-foot">
+          {% if opp.ai_analysis.suggested_reply %}
+            <div class="opp-draft">
+              <div class="opp-label">پیش‌نویس پاسخ</div>
+              <div class="opp-draft-text js-clamp" data-lines="3" id="reply-text-{{ opp.id }}">{{ opp.ai_analysis.suggested_reply }}</div>
+            </div>
+          {% else %}
+            <div class="opp-draft opp-muted">پیش‌نویسی برای این فرصت ساخته نشده است.</div>
+          {% endif %}
+          <div class="opp-actions">
+            {% if opp.ai_analysis.suggested_reply %}
+              <button type="button" class="p-btn p-btn-sm p-btn-secondary copy-reply-btn" data-target="reply-text-{{ opp.id }}">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>کپی پاسخ</span>
+              </button>
+            {% endif %}
+            <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary">
+              <span>جزئیات</span>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </a>
+            <span class="opp-cost" title="هزینه‌ی هوش مصنوعی برای این فرصت">هزینه‌ی هوش مصنوعی: {{ opp.cost_toman_display }} تومان</span>
+          </div>
+        </div>
+      </article>
+    {% empty %}
+      <div class="opp-empty">
+        <h4>هیچ فرصتی با فیلترهای جاری پیدا نشد</h4>
+        <p>فیلتر کالا، بازه‌ی زمانی یا حداقل امتیاز را تغییر دهید تا نتایج بیشتری ببینید.</p>
+        <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary p-btn-sm">پاک کردن فیلترها و نمایش همه</a>
+      </div>
+    {% endfor %}
   </div>
-
 </div>
 {% endif %}
 
@@ -527,15 +385,15 @@
             </span>
           {% elif opp.source_platform == 'x' %}
             <span class="p-badge" style="background: rgba(15, 23, 42, 0.12); color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.3); font-weight: 600;">
-              X (توییتر فاز ۲)
+              X (توییتر)
             </span>
           {% elif opp.source_platform == 'instagram' %}
             <span class="p-badge" style="background: rgba(225, 48, 108, 0.12); color: #E1306C; border: 1px solid rgba(225, 48, 108, 0.3); font-weight: 600;">
-              اینستاگرام (فاز ۲)
+              اینستاگرام
             </span>
           {% elif opp.source_platform == 'divar' %}
             <span class="p-badge" style="background: rgba(166, 38, 38, 0.12); color: #c02626; border: 1px solid rgba(166, 38, 38, 0.3); font-weight: 600;">
-              دیوار (فاز ۲)
+              دیوار
             </span>
           {% endif %}
 
@@ -635,6 +493,43 @@
 <!-- Client-side Interactive Helpers -->
 <script>
 (() => {
+  // Check for new opportunities every 20 seconds
+  const bar = document.getElementById('new-opps-bar');
+  const barText = document.getElementById('new-opps-text');
+  const faDigits = n => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+  if (bar) {
+    const check = () => {
+      if (document.hidden) return;
+      fetch(`${bar.dataset.endpoint}?after=${encodeURIComponent(bar.dataset.after)}`, { headers: { 'Accept': 'application/json' } })
+        .then(r => r.ok ? r.json() : null)
+        .then(res => {
+          if (res && res.count > 0) {
+            barText.textContent = `${faDigits(res.count)} فرصت جدید`;
+            bar.style.display = 'block';
+          }
+        })
+        .catch(() => {});
+    };
+    setInterval(check, 20000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  }
+
+  // Long texts: clamp to N lines with a «بیشتر / کمتر» toggle (only when the text really overflows)
+  document.querySelectorAll('.js-clamp').forEach(el => {
+    el.style.setProperty('--clamp', el.dataset.lines || 3);
+    el.classList.add('is-clamped');
+    requestAnimationFrame(() => {
+      if (el.scrollHeight - el.clientHeight < 4) { el.classList.remove('is-clamped'); return; }
+      const t = document.createElement('button');
+      t.type = 'button'; t.className = 'clamp-toggle'; t.textContent = 'بیشتر';
+      t.addEventListener('click', () => {
+        const open = el.classList.toggle('is-clamped') === false;
+        t.textContent = open ? 'کمتر' : 'بیشتر';
+      });
+      el.insertAdjacentElement('afterend', t);
+    });
+  });
+
   // 1-Click Copy to Clipboard for Suggested Replies
   document.querySelectorAll('.copy-reply-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -642,7 +537,7 @@
       const el = document.getElementById(targetId);
       if (!el) return;
 
-      const text = el.innerText.trim();
+      const text = el.textContent.trim();
       navigator.clipboard.writeText(text).then(() => {
         const originalHTML = btn.innerHTML;
         btn.innerHTML = '<span>✓ کپی شد!</span>';

@@ -32,6 +32,9 @@ def mock_llm(stage: str, system: str, user: str) -> dict:
     if stage == "new_product_verify":
         ids = re.findall(r"^\[(need_[^\]]+)\]", user, re.M)[:1]
         return {"matches": [{"need_id": i, "solves": "partly", "req": ["unknown"], "reason": "آزمایشی"} for i in ids]}
-    if stage == "reply":
+    if stage == "product_extract":
+        return {"name": "محصول نمونه", "price_toman": 1200000, "description": "توضیح آزمایشی", "features": [
+            {"name": "رنگ", "value": "مشکی"}]}
+    if stage.startswith("reply"):
         return {"reply": "سلام! شاید این به کارت بیاد: {{LINK}}"}
     return {}
