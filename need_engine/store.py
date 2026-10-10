@@ -108,6 +108,11 @@ class Store:
         rows = self._all("SELECT v FROM {s}.kv WHERE k = %s", (k,))
         return rows[0]["v"] if rows else default
 
+    def get_prefix(self, prefix: str) -> dict[str, Any]:
+        """All kv entries whose key starts with ``prefix`` (one query)."""
+        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        return {r["k"]: r["v"] for r in self._all("SELECT k, v FROM {s}.kv WHERE k LIKE %s", (like,))}
+
     def set(self, k: str, v: Any) -> None:
         self._exec("INSERT INTO {s}.kv (k, v) VALUES (%s, %s) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v", (k, Jsonb(v)))
 
@@ -285,6 +290,10 @@ class Store:
         ids = list(ids)
         if ids:
             self._exec("DELETE FROM {s}.products WHERE product_id = ANY(%s)", (ids,))
+
+    def product_cards(self) -> dict[str, ProductCard]:
+        """Saved cards without vectors (cheap; used by the X collector)."""
+        return {r["product_id"]: ProductCard.model_validate(r["card"]) for r in self._all("SELECT product_id, card FROM {s}.products")}
 
     def products(self) -> list[tuple[Product, ProductCard, np.ndarray]]:
         rows = self._all("SELECT product_id, payload, card FROM {s}.products ORDER BY product_id")

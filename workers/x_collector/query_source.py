@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from need_engine.sources import SQLProductSource
 from need_engine.config import EngineConfig
+
+log = logging.getLogger("x_collector.queries")
 
 
 def queries_from_products(products: list[Any]) -> list[str]:
@@ -21,12 +24,15 @@ def queries_from_products(products: list[Any]) -> list[str]:
     return queries
 
 
-def intent_queries_from_products(products: list[Any], mode: str | None = None) -> list[dict[str, str]]:
+def intent_queries_from_products(products: list[Any], mode: str | None = None, terms: dict[str, dict] | None = None,
+                                 cards: dict[str, Any] | None = None) -> list[dict[str, str]]:
     from workers.x_collector.intent_queries import generate_queries
 
+    terms, cards = terms or {}, cards or {}
     result, seen = [], set()
     for product in sorted(products, key=lambda item: (-int(getattr(item, "discovery_priority", 1)), item.title.casefold())):
-        for item in generate_queries(product, mode=mode):
+        pid = str(getattr(product, "product_id", ""))
+        for item in generate_queries(product, mode=mode, terms=terms.get(pid), card=cards.get(pid)):
             key = item["query"].casefold()
             if key not in seen:
                 seen.add(key)
@@ -43,13 +49,46 @@ def load_product_queries() -> list[str]:
         source.db.conn.close()
 
 
+def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, dict]:
+    """Saved product cards (aliases) and, with X_QUERY_LLM=true, LLM-written search terms. Never raises."""
+    try:
+        from need_engine.store import Store
+
+        store = Store(config.database_url, config.state_schema)
+    except Exception as exc:  # engine schema not created yet: deterministic queries from products only
+        log.warning("X queries without product cards: %s", exc)
+        return {}, {}
+    try:
+        cards = store.product_cards()
+    except Exception as exc:
+        log.warning("Could not read product cards: %s", exc)
+        cards = {}
+    terms: dict = {}
+    if os.getenv("X_QUERY_LLM", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            from need_engine.llm import LLMClient
+            from workers.x_collector.llm_terms import llm_terms
+
+            terms = llm_terms(products, cards, store, LLMClient(config, store), config.extract_model,
+                              batch_size=int(os.getenv("X_QUERY_LLM_BATCH", "15")))
+        except Exception as exc:
+            log.warning("LLM X query terms unavailable, using deterministic queries: %s", exc)
+    try:
+        store.close()
+    except Exception:
+        pass
+    return terms, cards
+
+
 def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
     config = EngineConfig()
     source = SQLProductSource(config)
     try:
-        return intent_queries_from_products(source.all(), mode=mode)
+        products = source.all()
     finally:
         source.db.conn.close()
+    terms, cards = _terms_and_cards(config, products)
+    return intent_queries_from_products(products, mode=mode, terms=terms, cards=cards)
 
 
 def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:

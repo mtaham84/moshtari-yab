@@ -209,7 +209,9 @@ class XCollectorTests(unittest.TestCase):
         client = FakeClient(self.fixture[:1])
         result = self.collector(client).run(["--help", "coffee"])
         self.assertEqual(result["status"], "COMPLETED")
-        self.assertEqual(client.calls, [("coffee", 50)])
+        self.assertEqual(len(client.calls), 1)
+        self.assertRegex(client.calls[0][0], r"^coffee since_time:\d+$")
+        self.assertEqual(client.calls[0][1], 50)
         self.assertEqual(result["collected"], 1)
 
     def test_error_json_codes_are_classified_even_on_nonzero_exit(self):

@@ -113,6 +113,8 @@ class SeenStore:
             connection.execute("CREATE TABLE IF NOT EXISTS daily_counts (day TEXT PRIMARY KEY, collected INTEGER NOT NULL)")
             connection.execute("CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             connection.execute("CREATE TABLE IF NOT EXISTS query_runs (query TEXT PRIMARY KEY, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
+            if "last_ok_at" not in {row[1] for row in connection.execute("PRAGMA table_info(query_runs)")}:
+                connection.execute("ALTER TABLE query_runs ADD COLUMN last_ok_at TEXT")   # start of the last successful search
             connection.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             connection.commit()
 
@@ -182,11 +184,43 @@ class SeenStore:
             connection.commit()
             return selected
 
-    def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None) -> None:
+    def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
+                     started_at: datetime | None = None) -> None:
         with closing(sqlite3.connect(self.path)) as connection:
             connection.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=? WHERE query=?",
                                (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, query))
+            if error is None and started_at is not None:
+                connection.execute("UPDATE query_runs SET last_ok_at=? WHERE query=?", (started_at.isoformat(), query))
             connection.commit()
+
+    def last_ok(self, query: str) -> datetime | None:
+        with closing(sqlite3.connect(self.path)) as connection:
+            row = connection.execute("SELECT last_ok_at FROM query_runs WHERE query=?", (query,)).fetchone()
+        try:
+            return datetime.fromisoformat(row[0]) if row and row[0] else None
+        except ValueError:
+            return None
+
+
+_TIME_OPERATOR = re.compile(r"(?:^|\s)(?:since|until|since_time|until_time|within_time):", re.I)
+
+
+def time_window(query: str, last_ok: datetime | None, now: datetime | None = None) -> str:
+    """Add an X date operator so each run only asks for posts newer than the previous successful run.
+
+    First run of a query (e.g. a newly added product) looks back ``X_QUERY_FIRST_LOOKBACK_HOURS`` (default 7 days);
+    later runs start at the previous run minus ``X_QUERY_OVERLAP_MINUTES``. ``X_QUERY_TIME_FILTER``:
+    ``since_time`` (unix seconds, default), ``since`` (YYYY-MM-DD, coarser but official) or ``off``.
+    Queries that already contain a date operator are left untouched."""
+    mode = os.getenv("X_QUERY_TIME_FILTER", "since_time").strip().lower()
+    if mode in {"", "off", "false", "0", "none"} or _TIME_OPERATOR.search(query):
+        return query
+    now = now or datetime.now(timezone.utc)
+    lookback = timedelta(hours=float(os.getenv("X_QUERY_FIRST_LOOKBACK_HOURS", "168")))
+    start = now - lookback if last_ok is None else max(now - lookback, last_ok - timedelta(minutes=float(os.getenv("X_QUERY_OVERLAP_MINUTES", "10"))))
+    if mode == "since":
+        return f"{query} since:{start.astimezone(timezone.utc).date().isoformat()}"
+    return f"{query} since_time:{int(start.timestamp())}"
 
 
 class XCollector:
@@ -268,12 +302,14 @@ class XCollector:
                 if len(collected) >= daily_remaining:
                     break
                 retry = 0
+                started_at = datetime.now(timezone.utc)
+                search_query = time_window(query, self.state.last_ok(query), started_at)
                 while retry <= self.max_retries:
                     try:
                         if mock_records is not None:
                             raw_items = mock_records
                         else:
-                            raw_items = self.client.search(query, min(self.max_per_query, daily_remaining - len(collected)))
+                            raw_items = self.client.search(search_query, min(self.max_per_query, daily_remaining - len(collected)))
                         fetched_count = len(raw_items)
                         new_before = len(collected)
                         consecutive_failures = 0
@@ -298,7 +334,8 @@ class XCollector:
                             os.fsync(latest.fileno())
                             already_written.add(normalized["id"])
                             collected.append(normalized)
-                        self.state.record_query(query, fetched_count, len(collected) - new_before)
+                        capped = len(collected) >= daily_remaining   # daily cap cut this search short: keep the old window
+                        self.state.record_query(query, fetched_count, len(collected) - new_before, started_at=None if capped else started_at)
                         break
                     except XCliError as exc:
                         self.state.record_query(query, 0, 0, str(exc)[:300])
