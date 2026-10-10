@@ -536,7 +536,7 @@ def community_delete_view(request, community_id):
 
 @login_required
 def x_management_view(request):
-    if not getattr(settings, "X_PANEL_ENABLED", False):
+    if not (getattr(settings, "X_PANEL_ENABLED", False) or getattr(settings, "X_SELLER_UI", False)):
         return HttpResponse(status=404)
     business = getattr(request.user, "business", None)
     if business is None:
