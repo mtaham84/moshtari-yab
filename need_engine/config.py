@@ -126,8 +126,10 @@ class EngineConfig:
     x_intent_base_url: str = _f("X_INTENT_BASE_URL", "https://x.com/intent/post")
     x_ingest_max_per_run: int = _f("NE_X_INGEST_MAX_PER_RUN", 2000)
     x_process_order: str = _f("NE_X_PROCESS_ORDER", "newest")
-    x_max_post_age_hours: float = _f("NE_X_MAX_POST_AGE_HOURS", 48.0)
-    x_need_ttl_hours: float = _f("NE_X_NEED_TTL_HOURS", 48.0)
+    x_max_post_age_hours: float = _f("NE_X_MAX_POST_AGE_HOURS", 168.0)   # matches X_QUERY_FIRST_LOOKBACK_HOURS
+    # most real people have no bio, so "unknown" author type is accepted; organisations/verified/shop bios still rejected
+    x_allow_unknown_author: bool = _f("NE_X_ALLOW_UNKNOWN_AUTHOR", True)
+    x_need_ttl_hours: float = _f("NE_X_NEED_TTL_HOURS", 168.0)
     x_freshness_halflife_hours: float = _f("NE_X_FRESHNESS_HALFLIFE_HOURS", 12.0)
     x_refresh_batch_size: int = _f("NE_X_REFRESH_BATCH_SIZE", 200)
     x_thread_replies: bool = _f("NE_X_THREAD_REPLIES", False)

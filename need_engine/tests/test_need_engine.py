@@ -126,7 +126,8 @@ def test_x_buyer_gate_requires_confirmed_intent_medium_strength_and_author_evide
     assert not _confirmed_x_buyer(candidate, [2], "x_1", {2: other_post})
     assert not _confirmed_x_buyer({**candidate, "label": "curiosity"}, [1], "x_1", {1: author_post})
     assert not _confirmed_x_buyer({**candidate, "author_type": "organization"}, [1], "x_1", {1: author_post})
-    assert not _confirmed_x_buyer({**candidate, "author_type": "unknown"}, [1], "x_1", {1: author_post})
+    assert _confirmed_x_buyer({**candidate, "author_type": "unknown"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "author_type": "unknown"}, [1], "x_1", {1: author_post}, allow_unknown=False)
     assert not _confirmed_x_buyer({**candidate, "promotional_content": True}, [1], "x_1", {1: author_post})
     verified = author_post.model_copy(update={"author_verified": True})
     assert not _confirmed_x_buyer(candidate, [1], "x_1", {1: verified})
@@ -528,3 +529,25 @@ def test_x_opportunities_only_use_x_enabled_products(cfg_for):
     mk = lambda pid, s: MatchedProduct(product_id=pid, match_score=s, similarity=0.5, verdict=Verdict(solves="yes"))
     kept = engine._x_allowed([mk("a", 0.9), mk("b", 0.9), mk("a", 0.3)])
     assert [(m.product_id, m.match_score) for m in kept] == [("a", 0.9)]
+
+
+def test_x_batch_uses_short_local_ids_and_maps_them_back(cfg_for):
+    from need_engine import extract as ex
+
+    cfg = cfg_for()
+    posts = [ChatMessage(chat_id="x:public", message_id=2108106745524502987 + i, author_id=f"18{i}9999999999999",
+                         text="میخوام هندزفری بلوتوثی بخرم چی پیشنهاد میدید", date=T0, platform="x") for i in range(3)]
+    seen = {}
+
+    class LLM:
+        def complete_json(self, stage, model, system, user, **kw):
+            seen["payload"] = json.loads(user)
+            return {"needs": [{"author_id": "a2", "evidence_message_ids": [2], "label": "explicit_need",
+                               "buyer_intent_confirmed": True, "is_opportunity": True, "author_type": "unknown",
+                               "promotional_content": False, "need": "هندزفری بلوتوثی", "solution_queries": ["هندزفری بلوتوثی"],
+                               "strength": "strong"}]}, {"toman": 3.0}
+
+    cards = ex.extract_x_batch(posts, LLM(), cfg, T0)[0]
+    assert [p["post_id"] for p in seen["payload"]] == [1, 2, 3]
+    assert [p["author_id"] for p in seen["payload"]] == ["a1", "a2", "a3"]
+    assert len(cards) == 1 and cards[0].author_id == posts[1].author_id and cards[0].evidence_ids == [posts[1].message_id]
