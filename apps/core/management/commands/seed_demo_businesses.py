@@ -61,88 +61,123 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f"Business 1 ready: {biz_konkur.name}"))
 
-        # Category Tree for Konkur Institute
-        # Root 1: مشاوره و برنامه‌ریزی
-        c_root_mentoring, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="خدمات مشاوره و برنامه‌ریزی تخصصی کنکور", parent=None,
-            defaults={"depth": 1, "product_type": "SERVICE"}
-        )
-        c_vip_mentoring, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="مشاوره رتبه‌سازی VIP و مربیگری تحصیلی", parent=c_root_mentoring,
-            defaults={"depth": 2, "product_type": "SERVICE"}
-        )
-        c_planning, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="برنامه‌ریزی هفتگی و مانیتورینگ روزانه", parent=c_root_mentoring,
-            defaults={"depth": 2, "product_type": "SERVICE"}
-        )
-        c_workshop, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="کارگاه‌های مدیریت زمان و استرس آزمون", parent=c_root_mentoring,
-            defaults={"depth": 2, "product_type": "SERVICE"}
-        )
-
-        # Root 2: آزمون‌های آزمایشی
+        # Category Tree for Konkur Institute (Strictly Educational Services)
+        # Root 1: خدمات آزمون‌های آزمایشی
         c_root_exams, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="آزمون‌های آزمایشی و ارزیابی جامع", parent=None,
+            business=biz_konkur, name="خدمات آزمون‌های آزمایشی و سنجش جامع", parent=None,
             defaults={"depth": 1, "product_type": "SERVICE"}
         )
         c_mock_exams, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="پکیج آزمون‌های شبیه‌ساز کنکور سراسری", parent=c_root_exams,
+            business=biz_konkur, name="آزمون‌های شبیه‌ساز کنکور سراسری (ماز و قلم‌چی)", parent=c_root_exams,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_step_exams, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="آزمون‌های مرحله‌ای و پیشرفت تحصیلی", parent=c_root_exams,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
         c_exam_analysis, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="تحلیل آزمون و کارنامه ۵ بعدی", parent=c_root_exams,
+            business=biz_konkur, name="تحلیل آزمون، کارنامه ۵ بعدی و تخمین رتبه", parent=c_root_exams,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
 
-        # Root 3: کلاس‌های آنلاین و نکته و تست
+        # Root 2: خدمات مشاوره و برنامه‌ریزی
+        c_root_mentoring, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="خدمات مشاوره، برنامه‌ریزی و مربیگری تحصیلی", parent=None,
+            defaults={"depth": 1, "product_type": "SERVICE"}
+        )
+        c_vip_mentoring, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="مشاوره رتبه‌سازی VIP و مربیگری تخصصی فردی", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_planning, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="برنامه‌ریزی مطالعاتی هفتگی و پیگیری روزانه", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_workshop, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کارگاه‌های مدیریت زمان، استرس و تکنیک آزمون", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_selection, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="مشاوره و انتخاب رشته هوشمند دانشگاه سراسری و آزاد", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+
+        # Root 3: کلاس‌های کنکور و نکته و تست
         c_root_classes, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="کلاس‌های آنلاین، نکته و تست و جمع‌بندی", parent=None,
+            business=biz_konkur, name="کلاس‌های آنلاین کنکور، نکته و تست و جمع‌بندی", parent=None,
             defaults={"depth": 1, "product_type": "SERVICE"}
         )
         c_tajrobi_classes, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="پکیج کلاس‌های جامع کنکور تجربی", parent=c_root_classes,
+            business=biz_konkur, name="کلاس‌های جامع کنکور تجربی (زیست، شیمی، فیزیک، ریاضی)", parent=c_root_classes,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
         c_math_classes, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="پکیج کلاس‌های جامع کنکور ریاضی", parent=c_root_classes,
+            business=biz_konkur, name="کلاس‌های جامع کنکور ریاضی (حسابان، هندسه و گسسته)", parent=c_root_classes,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
         c_ensani_classes, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="پکیج کلاس‌های جامع کنکور انسانی", parent=c_root_classes,
+            business=biz_konkur, name="کلاس‌های جامع کنکور انسانی (فنون ادبی، فلسفه و منطق، عربی)", parent=c_root_classes,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
         c_golden_seminar, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="همایش‌های جمع‌بندی طلایی کنکور", parent=c_root_classes,
+            business=biz_konkur, name="دوره‌های طلایی نکته و تست و همایش‌های جمع‌بندی", parent=c_root_classes,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
 
-        # Root 4: انتخاب رشته
-        c_root_selection, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="خدمات تخصصی انتخاب رشته کنکور", parent=None,
+        # Root 4: کلاس‌های تقویتی پایه‌ها و آمادگی امتحانات نهایی
+        c_root_reinforce, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کلاس‌های تقویتی پایه‌ها و آمادگی امتحانات نهایی", parent=None,
             defaults={"depth": 1, "product_type": "SERVICE"}
         )
-        c_smart_selection, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="انتخاب رشته هوشمند سراسری و آزاد", parent=c_root_selection,
+        c_twelfth_reinforce, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کلاس‌های تقویتی و تشریحی دوازدهم (ویژه امتحانات نهایی)", parent=c_root_reinforce,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_eleventh_reinforce, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کلاس‌های تقویتی و تشریحی پایه یازدهم", parent=c_root_reinforce,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_tenth_reinforce, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کلاس‌های تقویتی و پایه‌سازی پایه دهم", parent=c_root_reinforce,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_final_workshops, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کارگاه‌های شب امتحان نهایی و حل نمونه‌سوالات کشوری", parent=c_root_reinforce,
             defaults={"depth": 2, "product_type": "SERVICE"}
         )
 
-        # Root 5: جزوات و بانک تست
-        c_root_books, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="جزوات رتبه‌ساز و بانک تست‌های استاندارد", parent=None,
-            defaults={"depth": 1, "product_type": "PHYSICAL"}
-        )
-        c_tree_notes, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="جزوات نموداری و خلاصه نکات مباحث پرتکرار", parent=c_root_books,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
-        )
-        c_tricky_tests, _ = Category.objects.get_or_create(
-            business=biz_konkur, name="بانک تست‌های خط‌به‌خط و دام‌دار کنکور", parent=c_root_books,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
-        )
+        # Remove legacy physical categories if existing
+        Category.objects.filter(business=biz_konkur, product_type="PHYSICAL").delete()
 
-        # 27 Products & Services for Konkur Institute
-        konkur_products_data = [
-            # VIP Mentoring
+        # 28 Pure Services for Konkur Educational Institute
+        konkur_services_data = [
+            # 1. خدمات آزمون‌های آزمایشی و تحلیلی
+            ("پکیج آزمون‌های شبیه‌ساز کنکور سراسری ماز/قلم‌چی (۲۰ مرحله جامع با کارنامه ۵ بعدی)", c_mock_exams, 5900000,
+             "۲۰ مرحله آزمون آزمایشی آنلاین مطابق با آخرین تغییرات سازمان سنجش، سوالات تالیفی اساتید برتر، تطابق حداکثری با کنکورهای اخیر، صدور رتبه کشوری و پاسخنامه تشریحی-ویدئویی.",
+             "دانش‌آموزان سال دوازدهم و فارغ‌التحصیلان کنکوری تمامی رشته‌ها",
+             {"تعداد مراحل": "۲۰ مرحله", "نوع": "آنلاین با امنیت بالا", "پاسخنامه": "تشریحی کامل و ویدئویی"}),
+
+            ("پکیج آزمون‌های طلایی شبیه‌ساز کنکور اردیبهشت و تیر (۸ مرحله فشرده)", c_mock_exams, 2900000,
+             "۸ دوره آزمون شبیه‌ساز کامل دفترچه‌های کنکور دقیقا مشابه با سطح دشواری و بودجه‌بندی کنکور سراسری اخیر با تحلیل و رتبه‌بندی لحظه‌ای.",
+             "متقاضیان شبیه‌سازی شرایط واقعی کنکور در ماه‌های پایانی منتهی به آزمون",
+             {"تعداد": "۸ مرحله شبیه‌ساز", "سطح": "منطبق با آخرین کنکور", "پاسخنامه": "ویدئویی"}),
+
+            ("آزمون‌های مرحله‌ای و پیشرفت تحصیلی مباحث پایه (دهم و یازدهم)", c_step_exams, 1800000,
+             "مجموعه آزمون‌های سرفصل به سرفصل برای تثبیت دروس پایه، رفع چالش تست‌زنی و شناسایی نقاط ضعف قبل از شروع جمع‌بندی نهایی.",
+             "دانش‌آموزان پایه‌های دهم و یازدهم و داوطلبان دارای ضعف در مباحث پایه",
+             {"پوشش": "دهم و یازدهم کامل", "سبک سوالات": "تالیفی استاندارد و کنکوری"}),
+
+            ("پکیج تحلیل ویدئویی و تشریحی سوالات آزمون‌های آزمایشی با اساتید برند", c_exam_analysis, 1400000,
+             "تدریس ویدئویی خط به خط پاسخ تشریحی تمامی سوالات آزمون‌ها با بررسی دام‌های آموزشی و تکنیک‌های رد گزینه توسط اساتید رتبه برتر.",
+             "دانش‌آموزان خواهان یادگیری نکات تستی از دل سوالات آزمون",
+             {"فرمت": "ویدیو با کیفیت بالا", "نکات": "بررسی روش‌های حل سریع"}),
+
+            ("کارنامه تحلیلی ۵ بعدی آزمون، تخمین رتبه کشوری و نمودار پیشرفت", c_exam_analysis, 850000,
+             "سیستم هوشمند تحلیل کارنامه با نمودار پیشرفت درس به درس، مقایسه تراز با میانگین پذیرفته‌شدگان سال‌های قبل و تخمین رتبه کشوری.",
+             "دانش‌آموزان نیازمند شناخت نقاط قوت و ضعف آماری در هر مبحث",
+             {"گزارش": "PDF تفصیلی + مشاوره", "تخمین رتبه": "بر اساس سهمیه مناطق"}),
+
+            # 2. خدمات مشاوره و برنامه‌ریزی تحصیلی
             ("پکیج مشاوره و برنامه‌ریزی VIP کنکور تجربی (طرح رتبه‌ساز با رتبه‌های تک‌رقمی)", c_vip_mentoring, 24000000,
              "برنامه شخصی‌سازی شده هفتگی بر اساس نقاط قوت و ضعف داوطلب، تماس تلفنی هفتگی با رتبه تک‌رقمی کنکور سراسری، چک شبانه گزارش‌کار، آزمونک‌های تستی اختصاصی و هدایت انگیزشی تا روز آزمون.",
              "داوطلبان کنکور تجربی متقاضی قبولی در رشته‌های پزشکی، دندان‌پزشکی و داروسازی دانشگاه‌های برتر",
@@ -158,7 +193,7 @@ class Command(BaseCommand):
              "داوطلبان کنکور انسانی متقاضی قبولی در دانشگاه فرهنگیان، حقوق و روانشناسی",
              {"مشاور": "رتبه دو رقمی انسانی", "برنامه": "اختصاصی دوازدهم و پایه", "آزمون": "تحلیل کارنامه"}),
 
-            ("طرح مشاوره و برنامه‌ریزی ماهانه کنکور (شروع سریع و تعیین سطح)", c_planning, 2800000,
+            ("طرح مشاوره و هدایت تحصیلی ماهانه (شروع سریع و تعیین سطح)", c_planning, 2800000,
              "دوره ۳۰ روزه برنامه‌ریزی فشرده، ۴ جلسه تلفنی با مشاور ارشد، رفع اشکال روش مطالعه، تعیین سطح علمی اولیه و اصلاح عادات مخرب درسی.",
              "داوطلبانی که می‌خواهند کیفیت مشاوره را قبل از ثبت‌نام سالانه ارزیابی کنند",
              {"مدت": "۱ ماه (۳۰ روز)", "جلسات": "۴ جلسه تلفنی", "برنامه": "شخصی‌سازی هفتگی"}),
@@ -178,33 +213,17 @@ class Command(BaseCommand):
              "تمامی داوطلبان کنکور برای بهینه‌سازی زمان در جلسه آزمون",
              {"نوع": "وبینار کاربردی", "تمرین": "شبیه‌سازی با آزمون نمونه"}),
 
-            # Mock Exams
-            ("پکیج آزمون‌های شبیه‌ساز کنکور سراسری ماز/قلم‌چی (۲۰ مرحله جامع)", c_mock_exams, 5900000,
-             "۲۰ مرحله آزمون آزمایشی مطابق با آخرین تغییرات سازمان سنجش، سوالات تالیفی اساتید برند، تطابق حداکثری با کنکورهای اخیر، کارنامه تحلیلی ۵ بعدی و صدور رتبه کشوری.",
-             "دانش‌آموزان سال دوازدهم و فارغ‌التحصیلان کنکوری تمامی رشته‌ها",
-             {"تعداد مراحل": "۲۰ مرحله", "نوع": "آنلاین با امنیت بالا", "پاسخنامه": "تشریحی کامل و ویدئویی"}),
+            ("پکیج انتخاب رشته هوشمند کنکور سراسری با نرم‌افزار تحلیلی رتبه برتر", c_selection, 1200000,
+             "نرم‌افزار انتخاب رشته بر اساس آمار قبولی ۱۰ سال اخیر کانون و سازمان سنجش، اعمال سهمیه‌های مناطق و ایثارگری، تحلیل بومی‌گزینی و اولویت‌بندی ۱۵۰ کد رشته.",
+             "داوطلبان مجاز به انتخاب رشته در کنکور سراسری",
+             {"پوشش": "تمام دوره‌های روزانه، شبانه، پردیس و فرهنگیان", "چیدمان": "۱۵۰ کد رشته بر اساس علاقه و شانس"}),
 
-            ("پکیج آزمون‌های طلایی شبیه‌ساز کنکور اردیبهشت و تیر (۸ مرحله شبیه‌ساز فشرده)", c_mock_exams, 2900000,
-             "۸ دوره شبیه‌ساز کامل دفترچه‌های کنکور دقیقا مشابه با سطح دشواری و بودجه‌بندی کنکور سراسری اخیر با تحلیل و رتبه‌بندی لحظه‌ای.",
-             "متقاضیان شبیه‌سازی شرایط واقعی کنکور در ماه‌های پایانی منتهی به آزمون",
-             {"تعداد": "۸ مرحله شبیه‌ساز", "سطح": "منطبق با آخرین کنکور", "پاسخنامه": "ویدئویی"}),
+            ("جلسه مشاوره فردی و اختصاصی انتخاب رشته حضوری/آنلاین با مشاور ارشد", c_selection, 3500000,
+             "جلسه ۲ ساعته فردی با مشاور ارشد برای اولویت‌بندی دقیق رشته‌ها، تحلیل بازار کار، شرایط مهاجرت، دانشگاه‌های خاص، پزشکی و فرهنگیان.",
+             "داوطلبان خواهان اطمینان صددرصدی از چیدمان بهینه و آینده‌نگرانه رشته‌ها",
+             {"مشاور": "مشاور ارشد با ۱۰ سال سابقه", "مدت": "۲ ساعت اختصاصی"}),
 
-            ("آزمون‌های مبحثی و سنجش پیشرفت تحصیلی (ویژه مباحث پایه دهم و یازدهم)", c_mock_exams, 1800000,
-             "مجموعه آزمون‌های تستی سرفصل به سرفصل برای تثبیت دروس پایه و شناسایی نقاط ضعف قبل از ورود به جمع‌بندی نهایی.",
-             "دانش‌آموزان پایه‌های دهم و یازدهم و داوطلبان دارای ضعف در مباحث پایه",
-             {"پوشش": "دهم و یازدهم کامل", "سبک سوالات": "تالیفی و کنکوری"}),
-
-            ("پکیج تحلیل ویدئویی و تشریحی سوالات آزمون‌های آزمایشی", c_exam_analysis, 1400000,
-             "تدریس ویدئویی خط به خط پاسخ تشریحی تمامی سوالات آزمون‌ها با بررسی دام‌های آموزشی و تکنیک‌های رد گزینه توسط اساتید رتبه برتر.",
-             "دانش‌آموزان خواهان یادگیری نکات تستی از دل سوالات آزمون",
-             {"فرمت": "ویدیو با کیفیت بالا", "نکات": "بررسی روش‌های حل سریع"}),
-
-            ("کارنامه تحلیلی ۵ بعدی آزمون و تخمین دقیق رتبه کشوری کنکور", c_exam_analysis, 850000,
-             "سیستم هوشمند تحلیل کارنامه با نمودار پیشرفت درس به درس، مقایسه تراز با میانگین پذیرفته‌شدگان سال‌های قبل و تخمین رتبه کشوری.",
-             "دانش‌آموزان نیازمند شناخت نقاط قوت و ضعف آماری در هر مبحث",
-             {"گزارش": "PDF تفصیلی + مشاوره", "تخمین رتبه": "بر اساس سهمیه مناطق"}),
-
-            # Online Classes & Seminars
+            # 3. کلاس‌های جامع کنکور و نکته و تست
             ("پکیج جامع کلاس آنلاین زیست‌شناسی کنکور (دکترای زیست‌شناسی، خط‌به‌خط کتاب)", c_tajrobi_classes, 9800000,
              "آموزش ترکیبی و خط‌به‌خط کتاب‌های دهم، یازدهم و دوازدهم زیست، بررسی اشکال و تصاویر پنهان کتاب، حل بیش از ۲۰۰۰ تست تالیفی و سراسری با اساتید برند کشوری.",
              "داوطلبان تجربی متقاضی درصدهای بالای ۷۰ در زیست‌شناسی کنکور",
@@ -255,36 +274,45 @@ class Command(BaseCommand):
              "داوطلبان تجربی برای مرور سریع کل کتاب‌های درسی در کمترین زمان",
              {"مدت": "۲۴ ساعت ویدیوی فشرده", "جزوه": "خلاصه درختی کل زیست"}),
 
-            # Major Selection
-            ("پکیج انتخاب رشته هوشمند کنکور سراسری با نرم‌افزار تحلیلی رتبه برتر", c_smart_selection, 1200000,
-             "نرم‌افزار انتخاب رشته بر اساس آمار قبولی ۱۰ سال اخیر کانون و سازمان سنجش، اعمال سهمیه‌های مناطق و ایثارگری، تحلیل بومی‌گزینی و اولویت‌بندی ۱۵۰ کد رشته.",
-             "داوطلبان مجاز به انتخاب رشته در کنکور سراسری",
-             {"پوشش": "تمام دوره‌های روزانه، شبانه، پردیس و فرهنگیان", "چیدمان": "۱۵۰ کد رشته بر اساس علاقه و شانس"}),
+            # 4. کلاس‌های تقویتی مختلف و آمادگی امتحانات نهایی
+            ("کلاس تقویتی و تشریحی ریاضی و حسابان دوازدهم (ویژه نمره ۲۰ امتحان نهایی و ترمیم معدل)", c_twelfth_reinforce, 3800000,
+             "تدریس خط‌به‌خط کتاب درسی، حل تمرینات و مسائل پایان فصل، واکاوی سبک بارم‌بندی مصححین کشوری و حل نمونه سوالات نهایی خرداد، شهریور و دی‌ماه ۱۰ سال اخیر.",
+             "دانش‌آموزان دوازدهم تجربی و ریاضی متقاضی ترمیم معدل و کسب نمره کامل در امتحان نهایی",
+             {"تعداد جلسات": "۱۶ جلسه آنلاین", "محتوا": "تشریحی‌نویسی و استانداردهای نهایی"}),
 
-            ("جلسه مشاوره فردی و اختصاصی انتخاب رشته حضوری/آنلاین با مشاور ارشد", c_smart_selection, 3500000,
-             "جلسه ۲ ساعته فردی با مشاور ارشد برای اولویت‌بندی دقیق رشته‌ها، تحلیل بازار کار، شرایط مهاجرت، دانشگاه‌های خاص، پزشکی و فرهنگیان.",
-             "داوطلبان خواهان اطمینان صددرصدی از چیدمان بهینه و آینده‌نگرانه رشته‌ها",
-             {"مشاور": "مشاور ارشد با ۱۰ سال سابقه", "مدت": "۲ ساعت اختصاصی"}),
+            ("کلاس تقویتی و تشریحی زیست‌شناسی دوازدهم (مفاهیم نهایی و قیدهای کتاب)", c_twelfth_reinforce, 3600000,
+             "بررسی کلمه به کلمه کتاب درسی دوازدهم، شکل‌ها، فعالیت‌ها و جدول‌ها به شیوه تشریحی و کلیدواژه‌محور جهت کسب بالاترین نمره کتبی در امتحان نهایی سراسری.",
+             "دانش‌آموزان سال دوازدهم تجربی برای تاثیر قطعی معدل در کنکور",
+             {"پوشش": "کل فصول زیست دوازدهم", "آزمونک": "تصحیح استاندارد تشریحی"}),
 
-            ("مشاوره و انتخاب رشته اختصاصی دانشگاه آزاد اسلامی و رشته‌های پزشکی آزاد", c_smart_selection, 1800000,
-             "تحلیل رشته‌های باآزمون و با سوابق تحصیلی دانشگاه آزاد، ترازهای قبولی پزشکی، دندانپزشکی و پیراپزشکی آزاد و چیدمان بهینه فرم انتخاب رشته.",
-             "متقاضیان تحصیل در واحدهای دانشگاه آزاد سراسر کشور",
-             {"پوشش": "پزشکی، داروسازی، پیراپزشکی و مهندسی آزاد", "تحلیل": "تراز قبولی سال‌های قبل"}),
+            ("کلاس تقویتی و تشریحی فیزیک و شیمی پایه دوازدهم (حل تیپ‌های نهایی)", c_twelfth_reinforce, 3900000,
+             "حل کامل مسائل تشریحی فیزیک و شیمی دوازدهم، رسم شکل‌ها، نحوه نوشتن فرمول‌ها و محاسبات کسری مطابق با شیوه تصحیح الکترونیکی اوراق نهایی.",
+             "دانش‌آموزان رشته‌های تجربی و ریاضی دوازدهم",
+             {"جزوه": "بانک سوالات نهایی طبقه‌بندی شده", "آزمون": "شبیه‌ساز تشریحی"}),
 
-            # Books & Notes
-            ("جزوه طلایی نمودارهای درختی و نقشه‌های ذهنی مباحث پرتکرار کنکور", c_tree_notes, 780000,
-             "جزوه ۲۵۰ صفحه‌ای چاپ رنگی سیمی شامل نقشه‌های ذهنی، جداول مقایسه‌ای زیست، خلاصه‌های فرمول شیمی و روابط طلایی فیزیک.",
-             "دانش‌آموزان کنکوری برای مرورهای سریع و تورق سریع شب آزمون",
-             {"تعداد صفحات": "۲۵۰ صفحه رنگی", "فرمت": "فیزیکی سیمی + PDF"}),
+            ("کلاس تقویتی و تشریحی دروس عمومی دوازدهم (فارسی، زبان، دینی و عربی نهایی)", c_twelfth_reinforce, 3200000,
+             "دوره فشرده تشریحی دروس عمومی موثر در سوابق تحصیلی، آموزش دقیق قواعد عربی، آرایه‌های ادبی فارسی نهایی، لیسنینگ و گرامر زبان انگلیسی و پیام آیات دینی.",
+             "تمامی دانش‌آموزان رشته‌های نظری پایه دوازدهم",
+             {"پوشش": "۴ درس عمومی ترازساز نهایی", "مدت": "۲۰ جلسه فشرده"}),
 
-            ("کتابچه بانک تست‌های دام‌دار و پرتکرار ۱۰ سال اخیر کنکور سراسری", c_tricky_tests, 850000,
-             "مجموعه‌ای از ۱۲۰۰ تست دست‌چین شده که بیشترین درصد پاسخ اشتباه را در آزمون‌های سراسری داشته‌اند همراه با واکاوی دقیق دام‌های تستی طراحان کنکور.",
-             "داوطلبانی که درصد منفی زیادی در آزمون‌های آزمایشی دارند",
-             {"تعداد تست": "۱۲۰۰ تست", "پاسخنامه": "کاملا تشریحی و نکته‌محور"})
+            ("کلاس‌های تقویتی و تشریحی دروس اختصاصی پایه یازدهم (ریاضی، زیست، شیمی و فیزیک)", c_eleventh_reinforce, 3400000,
+             "آموزش عمیق و مفهومی مباحث سنگین پایه یازدهم جهت ارتقای معدل کتبی، حل تمرینات چالشی و آمادگی زودهنگام برای امتحانات نهایی خرداد ماه.",
+             "دانش‌آموزان پایه یازدهم مدارس دولتی و خاص",
+             {"پوشش": "دروس اختصاصی یازدهم", "رویکرد": "مفهومی و تشریحی"}),
+
+            ("کلاس‌های تقویتی و پایه‌سازی دروس ریاضی و علوم پایه دهم", c_tenth_reinforce, 2900000,
+             "تقویت پایه‌های علمی دانش‌آموزان دهمی، جبران خلاءهای آموزشی دوره اول متوسطه و ایجاد زیربنای قوی برای دروس اختصاصی دبیرستان.",
+             "دانش‌آموزان سال دهم در شروع مسیر متوسطه دوم",
+             {"پوشش": "ریاضی ۱، فیزیک ۱، شیمی ۱", "پشتیبانی": "رفع اشکال آنلاین"}),
+
+            ("کارگاه آنلاین «شب امتحان نهایی» (تحلیل بارم‌بندی و حل نمونه‌سوالات احتمالی کشوری)", c_final_workshops, 750000,
+             "کارگاه‌های فشرده شب امتحان برای هر درس در ایام امتحانات نهایی خرداد، مرور کلیدی‌ترین نقاط نمره‌ساز، نکات فرار و دام‌های رایج مصححین در برگه امتحانی.",
+             "تمام داوطلبان امتحانات نهایی کشوری خردادماه",
+             {"زمان": "عصر قبل از هر امتحان نهایی", "فایل": "خلاصه نکات شب امتحان"})
         ]
 
         saved_konkur_prods = []
-        for name, cat, price, desc, target, attrs in konkur_products_data:
+        for name, cat, price, desc, target, attrs in konkur_services_data:
             p, _ = Product.objects.update_or_create(
                 business=biz_konkur, name=name,
                 defaults={
@@ -293,7 +321,7 @@ class Command(BaseCommand):
                     "description": desc,
                     "target_customer": target,
                     "attributes": attrs,
-                    "product_type": "SERVICE" if cat.product_type == "SERVICE" else "PHYSICAL",
+                    "product_type": "SERVICE",
                     "status": "ACTIVE",
                     "is_discovery_active": True,
                     "discovery_priority": random.randint(3, 5),
@@ -304,41 +332,17 @@ class Command(BaseCommand):
                 ProductImage.objects.create(product=p, image=img_rel, is_main=True)
             saved_konkur_prods.append(p)
 
-        self.stdout.write(self.style.SUCCESS(f"Created {len(saved_konkur_prods)} products for Konkur Institute Business."))
+        self.stdout.write(self.style.SUCCESS(f"Created {len(saved_konkur_prods)} purely educational services for Konkur Institute Business."))
 
-        # Clear synthetic leads for clean live discovery
+        # Clear synthetic leads, customers, and fake communities
+        # Real leads must strictly originate from live Telegram crawler and Twitter/X streams
         Opportunity.objects.filter(business=biz_konkur).delete()
         Customer.objects.filter(business=biz_konkur).delete()
-
-        # Seed Monitored Telegram Communities for Konkur Discovery
-        konkur_communities = [
-            ("گروه گفتگوی کنکوری‌ها (تبادل نظر، منابع و مشاوره)", "https://t.me/konkur_gap", "گروه چت عمومی و تبادل نظر دانش‌آموزان کنکوری برای انتخاب منابع، آزمون و مشاوره"),
-            ("چت‌روم داوطلبان کنکور تجربی و پزشکی", "https://t.me/konkur_tajrobi_chat", "بحث و تبادل نظر پیرامون رتبه‌سازی، منابع زیست و شیمی و پکیج‌های آزمون تجربی"),
-            ("گروه رفع اشکال و دورهمی کنکور ریاضی و فیزیک", "https://t.me/konkur_math_chat", "رفع اشکال حسابان، فیزیک، هندسه و تبادل نظر درباره اساتید و کلاس‌های آنلاین"),
-            ("گروه داوطلبان کنکور انسانی و فرهنگیان", "https://t.me/konkur_ensani_chat", "تبادل جزوات، خلاصه درس‌ها و پرسش و پاسخ درباره قبولی فرهنگیان و حقوق"),
-            ("گروه مشاوره تحصیلی و برنامه‌ریزی کنکور", "https://t.me/konkur_moshverah", "پرسش و پاسخ درباره روش‌های مطالعه، ساعت مطالعه، تراز آزمون‌ها و انتخاب مشاور"),
-            ("تحلیل و مقایسه آزمون‌های آزمایشی (ماز، قلمچی، سنجش)", "https://t.me/azmoon_konkur_chat", "بررسی سوالات، کارنامه‌ها و تراز آزمون‌های آزمایشی قلمچی و ماز"),
-            ("گروه معرفی منابع و کلاس‌های نکته و تست کنکور", "https://t.me/konkur_manabe_chat", "پرسش درباره بهترین دوره‌های آنلاین، همایش‌های جمع‌بندی و پکیج‌های تستی"),
-            ("گروه داوطلبان و فارغ‌التحصیلان کنکور ۱۴۰۴", "https://t.me/konkur1404_gap", "دورهمی و پرسش و پاسخ دانش‌آموزان سال دوازدهم و پشت‌کنکوری‌ها"),
-            ("گروه انتخاب رشته کنکور سراسری و آزاد", "https://t.me/konkur_reshteh_chat", "بحث و تبادل نظر داوطلبان پیرامون انتخاب رشته دانشگاه‌های سراسری و آزاد"),
-            ("گروه دورهمی رتبه‌های برتر و نخبگان کنکور", "https://t.me/konkuriha_chat", "پرسش و پاسخ درباره تکنیک‌های مدیریت زمان، تست‌زنی و جمع‌بندی")
-        ]
-
-        for name, link, desc in konkur_communities:
-            key = normalize_link(link)
-            MonitoredCommunity.objects.update_or_create(
-                normalized_link=key,
-                defaults={
-                    "business": biz_konkur,
-                    "scope": PRIVATE,
-                    "name": name,
-                    "handle_or_link": link,
-                    "community_type": "GROUP",
-                    "description": desc,
-                    "is_active": True,
-                }
-            )
-        self.stdout.write(self.style.SUCCESS(f"Seeded {len(konkur_communities)} Telegram Konkur communities for live discovery."))
+        MonitoredCommunity.objects.filter(business=biz_konkur).delete()
+        self.stdout.write(self.style.SUCCESS(
+            "Konkur educational institute catalog ready (ONLY services: exams, mentoring, konkur classes, reinforcement classes). "
+            "Zero synthetic leads, zero fake messages, zero dummy communities — opportunities come strictly from real Telegram crawler & Twitter/X streams."
+        ))
 
 
         # =============================================================
@@ -555,10 +559,10 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             "\n" + "="*70 + "\n"
-            "SUCCESS: Both demo seller accounts seeded with rich real products!\n"
-            "1. Konkur Institute: konkur@peyda.ir / Konkur_2026_Demo! (27 services/products + 10 Telegram groups)\n"
+            "SUCCESS: Both demo seller accounts seeded with rich real products/services!\n"
+            "1. Konkur Institute: konkur@peyda.ir / Konkur_2026_Demo! (31 pure educational services: exams, mentoring, konkur classes, reinforcement classes)\n"
             "2. Digital Laptops:   digital@peyda.ir / Digital_2026_Demo! (26 products)\n"
-            "Zero synthetic leads generated — ready for real crawler/need_engine discovery.\n"
+            "Zero synthetic leads, zero fake messages, zero dummy communities — ready for real crawler/need_engine discovery.\n"
             + "="*70
         ))
 
