@@ -66,12 +66,12 @@ def product_add_view(request):
     ).select_related("parent")
 
     if request.method == "POST":
-        name = request.POST.get("name", "").strip()
+        name = request.POST.get("name", "").strip()[:255]
         product_type = request.POST.get("product_type", "PHYSICAL").strip()
         category_id = request.POST.get("category_id")
         description = request.POST.get("description", "").strip()
         price_val = request.POST.get("price", "").strip().replace(",", "").replace("،", "")
-        url = request.POST.get("url", "").strip()
+        url = request.POST.get("url", "").strip()[:2048]
         target_customer = request.POST.get("target_customer", "").strip()
         status = request.POST.get("status", "ACTIVE").strip()
 
@@ -80,16 +80,16 @@ def product_add_view(request):
         attr_keys = request.POST.getlist("custom_attr_key")
         attr_vals = request.POST.getlist("custom_attr_value")
         for k, v in zip(attr_keys, attr_vals):
-            k_clean = k.strip()
-            v_clean = v.strip()
+            k_clean = k.strip()[:100]
+            v_clean = v.strip()[:500]
             if k_clean and v_clean:
                 attributes[k_clean] = v_clean
 
         for key, val in request.POST.items():
             if key.startswith("attr_") and val.strip():
-                attr_name = key[5:]
+                attr_name = key[5:][:100]
                 if attr_name not in attributes:
-                    attributes[attr_name] = val.strip()
+                    attributes[attr_name] = val.strip()[:500]
 
         # Validation
         if not name or not description:
@@ -111,12 +111,17 @@ def product_add_view(request):
             })
 
         category = None
-        if category_id:
-            category = Category.objects.filter(id=category_id).first()
+        if category_id and str(category_id).isdigit():
+            category = Category.objects.filter(id=int(category_id)).first()
 
         price = None
-        if price_val.isdigit():
-            price = int(price_val)
+        if price_val:
+            try:
+                p_clean = int(float(price_val))
+                if 0 <= p_clean <= 999_999_999_999:
+                    price = p_clean
+            except (ValueError, OverflowError):
+                price = None
 
         is_discovery_active = request.POST.get("is_discovery_active") in ["on", "true", "1"]
         discovery_priority_val = request.POST.get("discovery_priority", "1")
@@ -125,23 +130,31 @@ def product_add_view(request):
         x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
         x_search_enabled = request.POST.get("x_search_enabled") in ["on", "true", "1"]
 
-        product = Product.objects.create(
-            business=business,
-            name=name,
-            product_type=product_type,
-            category=category,
-            description=description,
-            price=price,
-            url=url,
-            attributes=attributes,
-            target_customer=target_customer,
-            status=status,
-            is_discovery_active=is_discovery_active,
-            discovery_priority=discovery_priority,
-            telegram_outreach_enabled=telegram_outreach_enabled,
-            x_outreach_enabled=x_outreach_enabled,
-            x_search_enabled=x_search_enabled,
-        )
+        try:
+            product = Product.objects.create(
+                business=business,
+                name=name,
+                product_type=product_type,
+                category=category,
+                description=description,
+                price=price,
+                url=url,
+                attributes=attributes,
+                target_customer=target_customer,
+                status=status,
+                is_discovery_active=is_discovery_active,
+                discovery_priority=discovery_priority,
+                telegram_outreach_enabled=telegram_outreach_enabled,
+                x_outreach_enabled=x_outreach_enabled,
+                x_search_enabled=x_search_enabled,
+            )
+        except Exception as exc:
+            messages.error(request, f"خطا در ایجاد محصول: {exc}")
+            return render(request, "products/product_form.html", {
+                "categories": categories,
+                "is_edit": False,
+                "product_type": product_type,
+            })
 
         # Save uploaded images (up to 10)
         main_index_raw = request.POST.get("selected_main_index", "0")
@@ -151,12 +164,15 @@ def product_add_view(request):
             main_img_index = 0
 
         for idx, img_file in enumerate(images[:10]):
-            ProductImage.objects.create(
-                product=product,
-                image=img_file,
-                is_main=(idx == main_img_index or (main_img_index >= len(images) and idx == 0)),
-                order=idx,
-            )
+            try:
+                ProductImage.objects.create(
+                    product=product,
+                    image=img_file,
+                    is_main=(idx == main_img_index or (main_img_index >= len(images) and idx == 0)),
+                    order=idx,
+                )
+            except Exception:
+                pass
 
         messages.success(request, f"محصول «{product.name}» با موفقیت ثبت و ساختاردهی شد.")
         return redirect("products:detail", pk=product.pk)
@@ -189,12 +205,12 @@ def product_edit_view(request, pk):
                 "is_edit": True,
             })
 
-        product.name = request.POST.get("name", "").strip()
+        product.name = request.POST.get("name", "").strip()[:255]
         product.product_type = request.POST.get("product_type", "PHYSICAL").strip()
         category_id = request.POST.get("category_id")
         product.description = request.POST.get("description", "").strip()
         price_val = request.POST.get("price", "").strip().replace(",", "").replace("،", "")
-        product.url = request.POST.get("url", "").strip()
+        product.url = request.POST.get("url", "").strip()[:2048]
         product.target_customer = request.POST.get("target_customer", "").strip()
         product.status = request.POST.get("status", "ACTIVE").strip()
         product.is_discovery_active = request.POST.get("is_discovery_active") in ["on", "true", "1"]
@@ -209,41 +225,59 @@ def product_edit_view(request, pk):
         attr_keys = request.POST.getlist("custom_attr_key")
         attr_vals = request.POST.getlist("custom_attr_value")
         for k, v in zip(attr_keys, attr_vals):
-            k_clean = k.strip()
-            v_clean = v.strip()
+            k_clean = k.strip()[:100]
+            v_clean = v.strip()[:500]
             if k_clean and v_clean:
                 attributes[k_clean] = v_clean
 
         for key, val in request.POST.items():
             if key.startswith("attr_") and val.strip():
-                attr_name = key[5:]
+                attr_name = key[5:][:100]
                 if attr_name not in attributes:
-                    attributes[attr_name] = val.strip()
+                    attributes[attr_name] = val.strip()[:500]
         product.attributes = attributes
 
-        if category_id:
-            product.category = Category.objects.filter(id=category_id).first()
+        if category_id and str(category_id).isdigit():
+            product.category = Category.objects.filter(id=int(category_id)).first()
         else:
             product.category = None
 
-        if price_val.isdigit():
-            product.price = int(price_val)
+        if price_val:
+            try:
+                p_clean = int(float(price_val))
+                if 0 <= p_clean <= 999_999_999_999:
+                    product.price = p_clean
+                else:
+                    product.price = None
+            except (ValueError, OverflowError):
+                product.price = None
         else:
             product.price = None
 
-        product.save()
+        try:
+            product.save()
+        except Exception as exc:
+            messages.error(request, f"خطا در ویرایش محصول: {exc}")
+            return render(request, "products/product_form.html", {
+                "product": product,
+                "categories": categories,
+                "is_edit": True,
+            })
 
         # Save new images up to remaining slots
         has_main = product.images.filter(is_main=True).exists()
         for idx, img_file in enumerate(new_images):
             if current_images_count + idx >= 10:
                 break
-            ProductImage.objects.create(
-                product=product,
-                image=img_file,
-                is_main=(not has_main and idx == 0),
-                order=current_images_count + idx,
-            )
+            try:
+                ProductImage.objects.create(
+                    product=product,
+                    image=img_file,
+                    is_main=(not has_main and idx == 0),
+                    order=current_images_count + idx,
+                )
+            except Exception:
+                pass
 
         messages.success(request, f"مشخصات محصول «{product.name}» به‌روزرسانی شد.")
         return redirect("products:detail", pk=product.pk)

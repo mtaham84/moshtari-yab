@@ -167,3 +167,24 @@ PANEL_MOCK_LLM = os.environ.get("NE_PANEL_MOCK_LLM", "").strip().lower() in ("1"
 # Show pre-seeded test seller accounts on login page
 SHOW_DEMO_ACCOUNTS = os.environ.get("SHOW_DEMO_ACCOUNTS", "True").strip().lower() in ("1", "true", "yes", "on")
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
+

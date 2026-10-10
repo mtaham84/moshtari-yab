@@ -163,7 +163,7 @@ class Product(models.Model):
         blank=True,
         verbose_name="قیمت تقریبی (تومان)"
     )
-    url = models.URLField(blank=True, verbose_name="لینک صفحه محصول")
+    url = models.URLField(max_length=2048, blank=True, verbose_name="لینک صفحه محصول")
     attributes = models.JSONField(
         default=dict,
         blank=True,
