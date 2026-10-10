@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS {s}.costs (id BIGSERIAL PRIMARY KEY, ts DOUBLE PRECIS
     prompt_tokens INTEGER, completion_tokens INTEGER, cached BOOLEAN, usd DOUBLE PRECISION, toman DOUBLE PRECISION, ref TEXT);
 ALTER TABLE {s}.costs ADD COLUMN IF NOT EXISTS business_id TEXT;
 ALTER TABLE {s}.costs ADD COLUMN IF NOT EXISTS part SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE {s}.costs ADD COLUMN IF NOT EXISTS charge_factor SMALLINT NOT NULL DEFAULT 1;
 CREATE INDEX IF NOT EXISTS costs_business_idx ON {s}.costs (business_id);
 CREATE TABLE IF NOT EXISTS {s}.chat_analysed (chat_id TEXT PRIMARY KEY, n BIGINT NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS {s}.emitted (opportunity_id TEXT PRIMARY KEY, fingerprint TEXT, ts DOUBLE PRECISION, payload JSONB);
@@ -270,24 +271,30 @@ class Store:
                    (k, Jsonb(v)))
 
     def add_cost(self, stage: str, model: str, pt: int, ct: int, cached: bool, usd: float, toman: float, ref: str = "",
-                 businesses: list[str | None] | None = None) -> None:
-        """One ledger row per payer. ``businesses`` = sellers sharing the call equally (None entries / empty = platform)."""
+                 businesses: list[str | None] | None = None, charge_each: bool = False) -> None:
+        """One ledger row per payer. ``businesses`` = sellers sharing the call (None entries / empty = platform).
+
+        usd/toman of a row = its share of the REAL cost (rows sum to the call's cost). ``charge_each``: every payer is
+        billed the whole call (``charge_factor`` = number of payers; billed amount = usd × charge_factor)."""
         payers = list(businesses) if businesses else [None]
         k = len(payers)
+        factor = k if charge_each and businesses else 1
         now = time.time()
         for i, b in enumerate(payers):
             share_pt, share_ct = pt // k + (1 if i < pt % k else 0), ct // k + (1 if i < ct % k else 0)
             self._exec("""INSERT INTO {s}.costs (ts, stage, model, prompt_tokens, completion_tokens, cached, usd, toman, ref,
-                                                business_id, part)
-                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                       (now, stage, model, share_pt, share_ct, bool(cached), usd / k, toman / k, ref, str(b) if b else None, i))
+                                                business_id, part, charge_factor)
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                       (now, stage, model, share_pt, share_ct, bool(cached), usd / k, toman / k, ref, str(b) if b else None, i,
+                        factor if b else 1))
 
     def cost_summary(self, since_ts: float = 0.0, business_id: str | None = None) -> list[dict]:
         where, params = ("AND business_id = %s", (since_ts, str(business_id))) if business_id else ("", (since_ts,))
         once = "TRUE" if business_id else "part = 0"    # a call shared by several sellers counts once overall
+        f = "* charge_factor" if business_id else ""    # a seller sees what he is billed; overall = the real cost
         rows = self._all(f"""SELECT stage, model, COUNT(*) FILTER (WHERE {once}) AS calls,
                             SUM(cached::int) FILTER (WHERE {once}) AS cached, SUM(prompt_tokens) AS pt,
-                            SUM(completion_tokens) AS ct, SUM(usd) AS usd, SUM(toman) AS toman
+                            SUM(completion_tokens) AS ct, SUM(usd {f}) AS usd, SUM(toman {f}) AS toman
                             FROM {{s}}.costs WHERE ts >= %s {where} GROUP BY stage, model ORDER BY stage, model""", params)
         return [{k: (float(v) if k in ("usd", "toman") and v is not None else (int(v) if v is not None and k in ("calls", "cached", "pt", "ct") else v))
                  for k, v in r.items()} for r in rows]
@@ -300,8 +307,8 @@ class Store:
                              COALESCE(SUM(usd), 0) AS usd FROM {s}.costs""")[0]
             n = int(self.get("messages_analysed", 0) or 0)
         else:
-            r = self._all("""SELECT COUNT(*) AS calls, COALESCE(SUM(toman), 0) AS toman, COALESCE(SUM(usd), 0) AS usd
-                             FROM {s}.costs WHERE business_id = %s""", (str(business_id),))[0]
+            r = self._all("""SELECT COUNT(*) AS calls, COALESCE(SUM(toman * charge_factor), 0) AS toman,
+                             COALESCE(SUM(usd * charge_factor), 0) AS usd FROM {s}.costs WHERE business_id = %s""", (str(business_id),))[0]
             n = self.messages_in_chats(chat_ids or [])
         return {"messages_analysed": n, "llm_calls": int(r["calls"]), "cost_toman": float(r["toman"]), "cost_usd": float(r["usd"]),
                 "cost_per_message_toman": float(r["toman"]) / n if n else 0.0}

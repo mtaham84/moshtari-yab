@@ -371,15 +371,14 @@ def opportunity_status_update_view(request, pk):
 
 
 def _validate_private_source(business, raw_link: str) -> tuple[str, str]:
-    """→ (normalized_link, "") or ("", Persian error). Rules: valid Telegram link, not already a global
-    source, not already one of this seller's sources, at most TG_MAX_PRIVATE_SOURCES per seller."""
+    """→ (normalized_link, "") or ("", Persian error). Rules: valid Telegram link, not already one of this seller's
+    sources, at most TG_MAX_PRIVATE_SOURCES per seller. A global source may be added too (the seller then pays its
+    whole analysis, see need_engine/access.py ``owners``); the group is still crawled and analysed once."""
     key = normalize_link(raw_link)
     if not key:
         return "", "لطفاً لینک یا آیدی گروه تلگرامی را وارد کنید."
     if not (TG_USERNAME_RE.match(key) or TG_INVITE_RE.match(key)):
         return "", "لینک واردشده معتبر نیست. نمونه‌ی درست: @group_name یا https://t.me/group_name یا لینک دعوت https://t.me/+…"
-    if MonitoredCommunity.objects.filter(scope=GLOBAL, normalized_link=key).exists():
-        return "", "این گروه جزو منابع عمومی است و از قبل برای همه‌ی فروشنده‌ها (از جمله شما) پایش می‌شود."
     own = MonitoredCommunity.objects.filter(scope=PRIVATE, business=business)
     if own.filter(normalized_link=key).exists():
         return "", "این گروه قبلاً در منابع اختصاصی شما ثبت شده است."
@@ -413,6 +412,9 @@ def communities_list_view(request):
                 description=description, is_active=True,
             )
             messages.success(request, f"گروه {community.handle_or_link} به منابع اختصاصی شما اضافه شد و در صف اتصال قرار گرفت.")
+            if MonitoredCommunity.objects.filter(scope=GLOBAL, normalized_link=key, is_active=True).exists():
+                messages.info(request, "این گروه جزو منابع عمومی هم هست و برای همه پایش می‌شود؛ با افزودن آن به منابع "
+                                       "اختصاصی، هزینه‌ی تحلیل پیام‌هایش از کیف پول شما کسر می‌شود.")
             return redirect("discovery:communities_list")
 
     global_sources = MonitoredCommunity.objects.filter(scope=GLOBAL, is_active=True)

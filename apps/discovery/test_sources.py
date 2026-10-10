@@ -88,9 +88,9 @@ class CommunitiesPageTests(TestCase):
         c = MonitoredCommunity.objects.get(business=self.biz)
         self.assertEqual((c.scope, c.handle_or_link, c.description), (PRIVATE, "@my_group", "توضیح"))
         self.assertIn("قبلاً در منابع اختصاصی شما ثبت شده", self.add("@my_group"))
-        self.assertIn("جزو منابع عمومی است", self.add("t.me/moto_global"))
+        self.assertIn("جزو منابع عمومی هم هست", self.add("t.me/moto_global"))     # allowed; the seller pays its analysis
         self.assertIn("معتبر نیست", self.add("not a link!"))
-        self.assertEqual(MonitoredCommunity.objects.filter(business=self.biz).count(), 1)
+        self.assertEqual(MonitoredCommunity.objects.filter(business=self.biz).count(), 2)
         # another seller may watch the same group privately
         MonitoredCommunity.objects.create(business=self.other, handle_or_link="@my_group")
 

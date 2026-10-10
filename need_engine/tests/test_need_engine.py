@@ -292,7 +292,7 @@ def test_source_access_rules():
                                 {"telegram_chat_id": -2, "scope": "PRIVATE", "business_id": 7}]))
     a.refresh()
     assert a.sellers("-1") == {"7", "8"} and a.owners("-1") == ["7", "8"]
-    assert a.sellers("-2") is None and a.owners("-2") == []
+    assert a.sellers("-2") is None and a.owners("-2") == ["7"]       # global + private copy: everyone matched, 7 pays
     assert not a.analysed("-3") and a.analysed("-1")
     assert a.allows("-1", "7") and not a.allows("-1", "9") and a.allows("-2", "9") and not a.allows("-3", "7")
 

@@ -143,7 +143,8 @@ class LLMClient:
     def _record(self, stage: str, model: str, pt: int, ct: int, cached: bool, ref: str,
                 businesses: list[str | None] | None = None) -> float:
         usd, toman = self.price(model, pt, ct)
-        self.store.add_cost(stage, model, pt, ct, cached, usd, toman, ref, businesses)
+        self.store.add_cost(stage, model, pt, ct, cached, usd, toman, ref, businesses,
+                            charge_each=stage == "need_extraction" and bool(self.cfg.charge_each_owner))
         return toman
 
     def _post(self, path: str, body: dict, timeout: float) -> tuple[int, str]:

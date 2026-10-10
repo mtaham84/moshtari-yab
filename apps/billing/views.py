@@ -6,13 +6,14 @@ from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from apps.businesses.models import Business
 from apps.discovery.models import MonitoredCommunity
-from apps.discovery.sources import normalize_link
+from apps.discovery.sources import GLOBAL, normalize_link
 
 from . import services
 from .forms import AIModelForm, BillingSettingsForm, GlobalSourceForm, ProviderForm, WalletTransactionForm
@@ -216,16 +217,38 @@ def communities(request):
         return redirect("ops:communities")
     status = request.GET.get("status", "")
     scope = request.GET.get("scope", "")
-    items = MonitoredCommunity.objects.select_related("business").order_by("scope", "-is_active", "-created_at")
-    if status:
-        items = items.filter(sync_status=status)
-    if scope:
-        items = items.filter(scope=scope)
-    counts = dict(MonitoredCommunity.objects.values_list("sync_status").annotate(n=Count("id")))
+    groups = services.community_groups(status, scope)
+    every = services.community_groups() if (status or scope) else groups
+    summary = {
+        "groups": len(every), "orphans": sum(g["orphan"] for g in every),
+        "shared": sum(len(g["private"]) > 1 or bool(g["global"] and g["private"]) for g in every),
+        "toman": sum(g["stats"].get("toman", 0) for g in every), "billed": sum(g["billed_toman"] for g in every),
+        "opportunities": sum(g["stats"].get("seller_opportunities", 0) for g in every),
+    }
     return render(request, "ops/communities.html", {
-        "nav": "communities", "items": items, "form": form, "status": status, "scope": scope, "counts": counts,
+        "nav": "communities", "groups": groups, "form": form, "status": status, "scope": scope, "summary": summary,
         "statuses": MonitoredCommunity.SYNC_STATUS_CHOICES,
     })
+
+
+@staff_required
+@require_POST
+def community_adopt(request, chat_id):
+    """A group the crawler watches without a panel source (e.g. the groups file) → global source, so it is analysed."""
+    try:
+        chat_id = int(chat_id)
+    except ValueError:
+        raise Http404
+    link = request.POST.get("link", "").strip()
+    if not normalize_link(link):
+        messages.error(request, "این گروه لینک یا آیدی عمومی ندارد؛ آن را با لینک دعوت از فرم بالا اضافه کنید.")
+        return redirect("ops:communities")
+    if MonitoredCommunity.objects.filter(scope=GLOBAL, telegram_chat_id=chat_id).exists():
+        messages.info(request, "این گروه قبلاً منبع عمومی است.")
+        return redirect("ops:communities")
+    MonitoredCommunity.objects.create(handle_or_link=link, name=request.POST.get("title", "")[:255], telegram_chat_id=chat_id)
+    messages.success(request, "به منابع عمومی اضافه شد؛ از این به بعد پیام‌هایش برای همه‌ی فروشنده‌ها تحلیل می‌شود.")
+    return redirect("ops:communities")
 
 
 @staff_required

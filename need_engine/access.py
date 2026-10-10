@@ -2,6 +2,7 @@
 
   • an active GLOBAL source for the chat  → every seller's products are matched;
   • only active PRIVATE sources            → only the products of those sellers;
+  (a chat is analysed once however many sources point to it; who pays for it: ``owners``)
   • no active source                       → the chat is not analysed at all.
 
 The rule is read from the panel's ``discovery_monitoredcommunity`` table (read-only) once per engine run.
@@ -30,6 +31,7 @@ class SourceAccess:
         self.enabled = cfg.source_access != "open" and cfg.messages_source == "db"
         self._db = db
         self.rules: dict[str, Any] = {}       # chat_id → ALL | frozenset(business_id)
+        self.private: dict[str, frozenset[str]] = {}   # chat_id → sellers watching it privately (also on global chats)
         self.loaded = False
 
     def _conn(self):
@@ -51,18 +53,21 @@ class SourceAccess:
         if not exists or not exists[0]["t"]:
             if not self.loaded:
                 log.warning("%s not found: source access rule disabled until the panel is migrated", table)
-            self.rules, self.loaded = {}, False
+            self.rules, self.private, self.loaded = {}, {}, False
             return
         rows = db.all(f"""SELECT telegram_chat_id, scope, business_id FROM {table}
                           WHERE is_active AND telegram_chat_id IS NOT NULL""")
         rules: dict[str, Any] = {}
+        private: dict[str, frozenset[str]] = {}
         for r in rows:
             key = str(r["telegram_chat_id"])
             if r["scope"] == "GLOBAL" or r["business_id"] is None:
                 rules[key] = ALL
-            elif rules.get(key) != ALL:
-                rules[key] = frozenset(rules.get(key, frozenset()) | {str(r["business_id"])})
-        self.rules, self.loaded = rules, True
+                continue
+            private[key] = private.get(key, frozenset()) | {str(r["business_id"])}
+            if rules.get(key) != ALL:
+                rules[key] = private[key]
+        self.rules, self.private, self.loaded = rules, private, True
 
     # ── queries ─────────────────────────────────────────────────────────────
     def _active(self) -> bool:
@@ -98,6 +103,12 @@ class SourceAccess:
         return allowed is None or (business_id is not None and str(business_id) in allowed)
 
     def owners(self, chat_id: str) -> list[str]:
-        """Sellers that pay for analysing this chat (empty for global/platform chats)."""
-        allowed = self.sellers(chat_id)
-        return sorted(allowed - self.blocked) if allowed else []
+        """Sellers that pay for analysing this chat: its private watchers with balance — also when the chat is a global
+        source too (everyone is still matched there). Each one is billed the whole extraction (NE_CHARGE_EACH_OWNER);
+        the chat itself is analysed once. Empty = platform cost."""
+        if not self._active():
+            return []
+        key = str(chat_id)
+        rule = self.rules.get(key)
+        mine = self.private.get(key, rule if isinstance(rule, frozenset) else frozenset())
+        return sorted(mine - self.blocked)
