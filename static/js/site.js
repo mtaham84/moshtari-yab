@@ -109,6 +109,11 @@
     });
   });
 
+  // Auto-open drawer if requested via URL (?menu=open or #menu)
+  if (window.location.search.includes('menu=open') || window.location.hash === '#menu') {
+    setTimeout(openLandingMenu, 120);
+  }
+
   // Scroll Reveal Animations via IntersectionObserver
   const revealElements = document.querySelectorAll('.reveal-on-scroll');
   if (revealElements.length > 0) {
