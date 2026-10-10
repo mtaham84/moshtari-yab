@@ -159,6 +159,7 @@
           ⚡️ مرتب‌سازی نتایج:
         </label>
         <select id="sort-select" name="sort" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="source_newest" {% if selected_sort == 'source_newest' %}selected{% endif %}>جدیدترین پست منبع</option>
           <option value="intent_desc" {% if selected_sort == 'intent_desc' %}selected{% endif %}>بیشترین احتمال خرید (نیت مشتری) ⚡️</option>
           <option value="newest" {% if selected_sort == 'newest' %}selected{% endif %}>جدیدترین زمان (تقویم شمسی) ⏱</option>
           <option value="oldest" {% if selected_sort == 'oldest' %}selected{% endif %}>قدیمی‌ترین زمان (تقویم شمسی)</option>
@@ -281,11 +282,14 @@
             {% elif opp.source_platform == 'divar' %}<span class="opp-chip">دیوار</span>
             {% else %}<span class="opp-chip">سایر</span>{% endif %}
             <strong class="opp-name">{{ opp.customer.display_identifier }}</strong>
-            {% if opp.customer.source_username %}
+            {% if opp.customer.source_username and opp.source_platform == 'x' %}
+              <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+            {% elif opp.customer.source_username %}
               <a class="opp-handle" href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
             {% endif %}
             {% if opp.customer.phone_number %}<span class="opp-handle">{{ opp.customer.phone_number }}</span>{% endif %}
             <span class="opp-date">{{ opp.created_at_jalali|default:"" }}</span>
+            {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="opp-chip" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
           </div>
           <div class="opp-metrics">
             <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">

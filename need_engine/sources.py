@@ -44,6 +44,9 @@ class _DB:
             self.__init__(self.dsn)
             return self.conn.execute(sql, params).fetchall()
 
+    def close(self) -> None:
+        self.conn.close()
+
 
 def _ident(name: str) -> str:
     if not re.fullmatch(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?", name):
@@ -97,6 +100,40 @@ class SQLMessageSource:
             reply_to_date=parse_dt(r["parent_date"]) if r.get("parent_date") else None) for r in rows]
 
 
+class XMessageSource:
+    """Read X posts from the collector-owned crawler table, ordered by its independent row id."""
+
+    def __init__(self, cfg: EngineConfig, dsn: str | None = None, conn: Any = None):
+        self.cfg = cfg
+        self.db = _DB(dsn or cfg.database_url) if conn is None else conn
+        schema = _ident(cfg.crawler_schema)
+        self.sql = f"""SELECT x.row_id, x.tweet_id, x.author_id, x.author_handle, x.author_name, x.text, x.created_at, x.loaded_at, x.url, x.query, x.lang, x.author_verified, x.author_bio,
+                                x.kind, x.conversation_id, x.in_reply_to_tweet_id, x.in_reply_to_author_id, p.text AS parent_text, p.created_at AS parent_date, p.author_id AS parent_author_id
+                         FROM {schema}.x_posts x LEFT JOIN {schema}.x_posts p ON p.tweet_id=x.in_reply_to_tweet_id
+                         WHERE x.row_id > %s AND x.author_id IS NOT NULL AND x.author_id <> ''
+                         ORDER BY x.row_id LIMIT %s"""
+
+    def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
+        rows = self.db.all(self.sql, (cursor, limit))
+        messages = []
+        for row in rows:
+            handle = str(row.get("author_handle") or "").lstrip("@") or None
+            messages.append(ChatMessage(
+                chat_id="x:public", message_id=int(row["tweet_id"]), row_id=int(row["row_id"]),
+                author_id=f"x_{row['author_id']}",
+                author_name=row.get("author_name"), author_username=handle, text=row.get("text") or "",
+                date=parse_dt(row.get("created_at") or row.get("loaded_at") or datetime.now(timezone.utc)),
+                chat_title="X", platform="x", url=row.get("url"),
+                profile_url=f"https://x.com/{handle}" if handle else None, search_query=row.get("query"),
+                author_verified=bool(row.get("author_verified")), author_bio=row.get("author_bio"), lang=row.get("lang"),
+                date_estimated=not bool(row.get("created_at")), kind=row.get("kind") or "post",
+                conversation_id=row.get("conversation_id"), reply_to=row.get("in_reply_to_tweet_id"),
+                in_reply_to_author_id=row.get("in_reply_to_author_id"), reply_to_text=row.get("parent_text"),
+                reply_to_author_id=str(row.get("parent_author_id") or row.get("in_reply_to_author_id") or "") or None,
+                reply_to_date=parse_dt(row["parent_date"]) if row.get("parent_date") else None))
+        return messages
+
+
 class JsonlMessageSource:
     """Test/demo source: the labelled chats.jsonl format (one chat per line) or flat message lines."""
 
@@ -134,6 +171,8 @@ def message_source(cfg: EngineConfig) -> MessageSource:
         return JsonlMessageSource(cfg.messages_source[6:])
     if cfg.messages_source != "db":
         raise ValueError(f"unsupported NE_MESSAGES_SOURCE: {cfg.messages_source}")
+    if not cfg.x_enabled:
+        return SQLMessageSource(cfg)
     return SQLMessageSource(cfg)
 
 
@@ -167,7 +206,10 @@ class JsonlProductSource:
                 product_type=o.get("product_type") or "", price_toman=_price(o.get("price_toman", o.get("price"))),
                 city=o.get("city"), ships_nationwide=bool(o.get("ships_nationwide", True)),
                 attributes=o.get("attributes") if isinstance(o.get("attributes"), dict) else {},
-                tags=o.get("tags") if isinstance(o.get("tags"), list) else [], url=o.get("url") or None,
+                tags=o.get("tags") if isinstance(o.get("tags"), list) else [], category_path=str(o.get("category_path") or ""),
+                category_keywords=o.get("category_keywords") if isinstance(o.get("category_keywords"), list) else [],
+                discovery_priority=int(o.get("discovery_priority") or 1),
+                x_outreach_enabled=bool(o.get("x_outreach_enabled", True)), url=o.get("url") or None,
                 card_override=_json_dict(o.get("card_override"))))
         return out
 
@@ -188,9 +230,13 @@ class SQLProductSource:
         self.cfg, self.db = cfg, _DB(dsn or cfg.database_url)
 
     def all(self) -> list[Product]:
-        rows = self.db.all(f"""SELECT id, business_id, name, description, product_type, price, attributes, target_customer,
-                                      url, agent_card_override
-                               FROM {_ident(self.cfg.products_table)} WHERE status = 'ACTIVE' AND is_discovery_active = %s""", (True,))
+        # x_outreach_enabled is read, not filtered: it only limits X opportunities (engine._x_allowed), never Telegram
+        rows = self.db.all(f"""SELECT p.id, p.business_id, p.name, p.description, p.product_type, p.price, p.attributes, p.target_customer,
+                                   p.url, p.agent_card_override, p.discovery_priority, p.x_outreach_enabled,
+                                   COALESCE(c.full_path, c.name, '') AS category_path, COALESCE(c.keywords, '[]'::jsonb) AS category_keywords
+                               FROM {_ident(self.cfg.products_table)} p
+                               LEFT JOIN public.products_category c ON c.id = p.category_id
+                               WHERE p.status = 'ACTIVE' AND p.is_discovery_active = %s""", (True,))
         out = []
         for r in rows:
             attrs = r.get("attributes")
@@ -200,9 +246,18 @@ class SQLProductSource:
                 except Exception:
                     attrs = {}
             desc = " ".join(x for x in [r.get("description") or "", r.get("target_customer") or ""] if x)
+            keywords = r.get("category_keywords") or []
+            if isinstance(keywords, str):
+                try:
+                    keywords = json.loads(keywords)
+                except json.JSONDecodeError:
+                    keywords = []
             out.append(Product(product_id=str(r["id"]), business_id=str(r.get("business_id") or "") or None, title=r.get("name") or "",
                                description=desc, product_type=str(r.get("product_type") or ""), price_toman=_price(r.get("price")),
-                               attributes=attrs if isinstance(attrs, dict) else {}, url=(r.get("url") or None),
+                               attributes=attrs if isinstance(attrs, dict) else {}, category_path=str(r.get("category_path") or ""),
+                               category_keywords=keywords if isinstance(keywords, list) else [],
+                               discovery_priority=int(r.get("discovery_priority") or 1),
+                               x_outreach_enabled=r.get("x_outreach_enabled") is not False, url=(r.get("url") or None),
                                card_override=_json_dict(r.get("agent_card_override"))))
         return out
 

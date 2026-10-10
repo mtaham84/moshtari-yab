@@ -30,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--mock", action="store_true", help="offline fake LLM + hash embeddings")
     st_p = sub.add_parser("stats")
     st_p.add_argument("--business", help="Django business id: that seller's cost and cost per reviewed message")
+    sub.add_parser("x-prefilter-report")
     d = sub.add_parser("demo", help="run the full pipeline on JSONL files into a temporary state")
     d.add_argument("--chats", required=True)
     d.add_argument("--products", required=True)
@@ -42,10 +43,14 @@ def main(argv: list[str] | None = None) -> int:
     cfg = EngineConfig()
     if getattr(a, "mock", False):
         cfg.embed_backend = "hash"
-    if a.cmd == "stats":
+    if a.cmd in {"stats", "x-prefilter-report"}:
         from need_engine.store import Store
 
         st = Store(cfg.database_url, cfg.state_schema)
+        if a.cmd == "x-prefilter-report":
+            for row in st.x_filter_summary():
+                print(json.dumps(row, ensure_ascii=False))
+            return 0
         biz = a.business
         for row in st.cost_summary(business_id=biz):
             print(json.dumps(row, ensure_ascii=False))
@@ -58,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"business_id": biz, **st.totals(business_id=biz, chat_ids=chats)}, ensure_ascii=False))
         else:
             print(json.dumps(st.totals(), ensure_ascii=False))
+        shadow = {row["reason"]: row["count"] for row in st.x_filter_summary() if row["mode"] == "shadow"}
+        print(json.dumps({"x_prefilter_would_drop": shadow}, ensure_ascii=False))
         return 0
     if a.cmd == "demo":
         cfg.messages_source, cfg.products_source = f"jsonl:{a.chats}", f"jsonl:{a.products}"

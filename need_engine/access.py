@@ -22,6 +22,7 @@ from need_engine.config import EngineConfig
 
 log = logging.getLogger("need_engine.access")
 ALL = "*"   # marker: every seller
+X_CHAT = "x:public"   # chat_id of every X post (sources.XMessageSource)
 
 
 class SourceAccess:
@@ -67,6 +68,8 @@ class SourceAccess:
             private[key] = private.get(key, frozenset()) | {str(r["business_id"])}
             if rules.get(key) != ALL:
                 rules[key] = private[key]
+        if self.cfg.x_enabled:   # public X posts: a platform source → every seller (X-enabled products), platform pays
+            rules[X_CHAT] = ALL
         self.rules, self.private, self.loaded = rules, private, True
 
     # ── queries ─────────────────────────────────────────────────────────────

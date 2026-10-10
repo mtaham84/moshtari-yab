@@ -21,7 +21,7 @@ from django.utils.dateparse import parse_datetime
 from apps.products.models import Product
 
 from .models import (ENGINE_STATUS_MAP, AIAnalysis, Customer, Evidence, MonitoredCommunity, Opportunity,
-                     OpportunityProductMatch)
+                     OpportunityProductMatch, XCollectorState, XQueryDaily, XSearchQuery)
 from .sources import GLOBAL
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,11 @@ def _customer(business, platform: str, cand: dict) -> Customer:
     customer.source_username = (cand.get("username") or customer.source_username or "").lstrip("@")
     customer.source_profile_url = cand.get("profile_url") or customer.source_profile_url
     customer.phone_number = cand.get("phone_number") or customer.phone_number
+    if platform == "x":
+        if "contacts" in cand:
+            customer.contact_channels = cand.get("contacts") or []
+        if "linked_identities" in cand:
+            customer.linked_identities = cand.get("linked_identities") or []
     customer.save()
     return customer
 
@@ -112,12 +117,24 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         opp.source_platform = platform
         opp.source_message_id = str(evidence[-1]["message_id"]) if evidence else ""
         opp.source_message_timestamp = _dt(evidence[0]["timestamp"]) if evidence else None
+        opp.source_posted_at = _dt(payload.get("source_posted_at"))
+        opp.source_posted_at_estimated = bool(payload.get("source_posted_at_estimated"))
+        opp.source_query = str(payload.get("source_query") or "")[:255]
+        thread = payload.get("thread") or {}
+        opp.thread_root_tweet_id = thread.get("root_tweet_id")
+        opp.demand_count = int(thread.get("demand_count") or 0)
+        opp.competitor_replies = thread.get("competitors") or []
+        opp.thread_fetched_at = _dt(thread.get("fetched_at"))
         opp.source_raw_message = "\n".join(e.get("text", "") for e in evidence)
         opp.expires_at = _dt(payload.get("expires_at"))
         kept = {k: v for k, v in (opp.trace_metadata or {}).items() if k in SELLER_KEYS}   # «دوباره بنویس» results
         opp.trace_metadata = {"engine": {k: v for k, v in payload.items() if k != "matched_products"},
                               "matched_products": [m for m, _ in items], **kept}
         opp.save()
+        parent_id = thread.get("parent_opportunity_id")
+        opp.parent_opportunity = Opportunity.objects.filter(engine_opportunity_id=parent_id, business=business).first() if parent_id else None
+        if parent_id:
+            opp.save(update_fields=["parent_opportunity"])
         if is_new and str(source.get("chat_id") or "").lstrip("-").isdigit():
             MonitoredCommunity.objects.filter(business=business, telegram_chat_id=int(source["chat_id"])).update(
                 leads_discovered_count=F("leads_discovered_count") + 1)
@@ -134,12 +151,15 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
             "cost_toman": round(float((payload.get("cost") or {}).get("toman") or 0)),
         })
 
-        opp.product_matches.all().delete()
-        OpportunityProductMatch.objects.bulk_create([
-            OpportunityProductMatch(opportunity=opp, product=p, rank=i, match_score=float(m.get("match_score") or 0),
-                                    recommendation_reason=(m.get("verdict") or {}).get("reason") or "",
-                                    matching_attributes=m.get("verdict") or {})
-            for i, (m, p) in enumerate(items, 1)])
+        incoming_product_ids = {p.id for _, p in items}
+        opp.product_matches.exclude(product_id__in=incoming_product_ids).delete()
+        for i, (match_data, product) in enumerate(items, 1):
+            OpportunityProductMatch.objects.update_or_create(
+                opportunity=opp, product=product,
+                defaults={"rank": i, "match_score": float(match_data.get("match_score") or 0),
+                          "recommendation_reason": (match_data.get("verdict") or {}).get("reason") or "",
+                          "matching_attributes": match_data.get("verdict") or {},
+                          "reply_variants": match_data.get("reply_variants")})
 
         opp.evidence_items.all().delete()
         ev = [Evidence(opportunity=opp, evidence_type="customer_message", content=e.get("text", ""),
@@ -217,3 +237,44 @@ def engine_totals(business=None) -> dict:
     n = int(row[0]) if row and row[0] is not None else 0
     return {"messages_analysed": n, "llm_calls": int(calls), "cost_toman": float(toman),
             "cost_per_message_toman": float(toman) / n if n else 0.0}
+
+
+@transaction.atomic
+def sync_x_status_file(path: str, stale_minutes: int = 30) -> bool:
+    from datetime import timedelta
+    from pathlib import Path
+    from django.utils import timezone
+
+    target = Path(path)
+    if not target.is_file():
+        return False
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        updated = parse_datetime(payload.get("updated_at", ""))
+        if not isinstance(payload, dict) or updated is None:
+            raise ValueError("invalid status format")
+        stale = timezone.now() - updated > timedelta(minutes=max(1, stale_minutes))
+        status = "unknown" if stale else str(payload.get("status", "unknown")).casefold()
+        allowed = {choice[0] for choice in XCollectorState.STATUSES}
+        if status not in allowed:
+            status = "unknown"
+        XCollectorState.objects.update_or_create(id=1, defaults={
+            "status": status, "collected_today": max(0, int(payload.get("collected_today", 0))),
+            "daily_cap": max(0, int(payload.get("daily_cap", 0))),
+            "last_cycle_at": parse_datetime(payload.get("last_cycle_at", "")),
+            "last_cycle_collected": max(0, int(payload.get("collected", 0))),
+            "failures_last_cycle": max(0, int(payload.get("failures", 0))),
+            "cooldown_until": parse_datetime(payload.get("cooldown_until", "")),
+        })
+        for row in payload.get("queries", []):
+            normalized = str(row.get("query", ""))[:100]
+            if not normalized:
+                continue
+            for query in XSearchQuery.objects.filter(normalized_text=normalized, state="active"):
+                XQueryDaily.objects.update_or_create(day=timezone.localdate(), query_text=normalized, defaults={
+                    "fetched": max(0, int(row.get("fetched", 0))), "new_posts": max(0, int(row.get("new_posts", 0)))})
+        return True
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        XCollectorState.objects.update_or_create(id=1, defaults={"status": "unknown"})
+        log.warning("X collector status file is malformed; status marked unknown")
+        return False

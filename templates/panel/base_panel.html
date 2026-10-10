@@ -194,6 +194,11 @@
           </div>
           <span class="sidebar-badge">{{ user.business.monitored_communities.count|default:"0" }}</span>
         </a>
+        {% if X_PANEL_ENABLED %}
+        <a href="{% url 'discovery:x_management' %}" class="sidebar-link {% block nav_x_management %}{% endblock %}">
+          <div class="sidebar-link-content"><span>مدیریت X</span></div>
+        </a>
+        {% endif %}
 
         <!-- 6. تنظیمات -->
         <a href="{% url 'accounts:settings' %}" class="sidebar-link {% block nav_settings %}{% endblock %}">

@@ -1,6 +1,7 @@
 """Offline tests: fake LLM (need_engine.mock) + hash embeddings; state + vectors in PostgreSQL/pgvector (throw-away schemas)."""
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,12 +10,14 @@ import numpy as np
 import pytest
 
 from need_engine.config import EngineConfig
+from need_engine.extract import _confirmed_x_buyer
 from need_engine.engine import NeedEngine
 from need_engine.mock import mock_llm
 from need_engine.retrieve import select_candidates
 from need_engine.schemas import ChatMessage, Constraints, NeedCard, Product, Requirement
 from need_engine.scoring import score_match
-from need_engine.sources import JsonlProductSource, SQLMessageSource
+from need_engine.sources import JsonlProductSource, SQLMessageSource, XMessageSource
+from workers.x_collector.query_source import queries_from_products
 from need_engine.store import Store
 from need_engine.windowing import build_windows, ready_batch, render
 from telegram_crawler.db import Archive
@@ -84,6 +87,100 @@ def test_triggers_are_count_only(cfg_for):
     fallback = cfg_for(trigger_count=3, max_wait_minutes=30)                         # optional, off by default
     assert len(ready_batch(p, T0 + timedelta(minutes=31), fallback)[0]) == 2
     assert ready_batch(p, T0 + timedelta(minutes=29), fallback)[0] == []
+
+
+def test_x_source_ordering_namespace_and_url(cfg_for):
+    class FakeDB:
+        def all(self, sql, params):
+            assert "ORDER BY row_id" in sql
+            assert params == (4, 10)
+            return [{"row_id": 5, "tweet_id": 1990000000000001001, "author_id": "81001",
+                     "author_handle": "@buyer", "author_name": "خریدار", "text": "نیاز دارم",
+                     "created_at": T0, "url": "https://x.com/buyer/status/1990000000000001001"}]
+
+    source = XMessageSource(cfg_for(), conn=FakeDB())
+    rows = source.fetch_after(4, 10)
+    assert len(rows) == 1
+    assert rows[0].chat_id == "x:public"
+    assert rows[0].message_id == 1990000000000001001
+    assert rows[0].author_id == "x_81001"
+    assert rows[0].url == "https://x.com/buyer/status/1990000000000001001"
+    assert rows[0].profile_url == "https://x.com/buyer"
+
+
+def test_x_queries_come_from_products_and_category_keywords():
+    product = Product(product_id="1", title="قهوه‌ساز صنعتی", category_path="کافه / تجهیزات",
+                      category_keywords=["اسپرسوساز", "قهوه", "اسپرسوساز"])
+    assert queries_from_products([product]) == ["قهوه‌ساز صنعتی", "کافه / تجهیزات", "اسپرسوساز", "قهوه"]
+
+
+def test_x_buyer_gate_requires_confirmed_intent_medium_strength_and_author_evidence():
+    author_post = ChatMessage(chat_id="x:public", message_id=1, author_id="x_1", text="قصد خرید دارم", date=T0, platform="x")
+    other_post = ChatMessage(chat_id="x:public", message_id=2, author_id="x_2", text="پیشنهاد خرید", date=T0, platform="x")
+    candidate = {"buyer_intent_confirmed": True, "is_opportunity": True, "label": "explicit_need",
+                 "strength": "strong", "need": "قهوه‌ساز", "solution_queries": ["قهوه‌ساز"],
+                 "author_type": "individual", "promotional_content": False}
+    assert _confirmed_x_buyer(candidate, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "buyer_intent_confirmed": False}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "strength": "weak"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer(candidate, [2], "x_1", {2: other_post})
+    assert not _confirmed_x_buyer({**candidate, "label": "curiosity"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "author_type": "organization"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "author_type": "unknown"}, [1], "x_1", {1: author_post})
+    assert not _confirmed_x_buyer({**candidate, "promotional_content": True}, [1], "x_1", {1: author_post})
+    verified = author_post.model_copy(update={"author_verified": True})
+    assert not _confirmed_x_buyer(candidate, [1], "x_1", {1: verified})
+    corporate_bio = author_post.model_copy(update={"author_bio": "Official company store"})
+    assert not _confirmed_x_buyer(candidate, [1], "x_1", {1: corporate_bio})
+
+
+def test_independent_source_ingest_uses_distinct_cursors(cfg_for):
+    class FakeStore:
+        def __init__(self):
+            self.values = {"fetch_cursor": 12, "fetch_cursor_x": 4}
+            self.added = []
+
+        def get(self, key, default=0):
+            return self.values.get(key, default)
+
+        def set(self, key, value):
+            self.values[key] = value
+
+        def add_pending(self, rows):
+            self.added.extend(rows)
+            return len(rows)
+
+    class Source:
+        def __init__(self, row):
+            self.row = row
+
+        def fetch_after(self, cursor, limit):
+            assert cursor in (12, 4)
+            return [self.row] if self.row.row_id > cursor else []
+
+    from need_engine.engine import NeedEngine
+    engine = NeedEngine.__new__(NeedEngine)
+    engine.cfg = cfg_for(fetch_batch=10)
+    engine.store = FakeStore()
+    from need_engine.access import SourceAccess
+    engine.access = SourceAccess(engine.cfg)   # source_access=open in tests
+    telegram = ChatMessage(chat_id="-1001", message_id=13, row_id=13, author_id="a", text="تلگرام", date=T0)
+    post = ChatMessage(chat_id="x:public", message_id=99, row_id=5, author_id="x_a", text="پست", date=T0, platform="x")
+    assert engine._ingest_source(Source(telegram), "fetch_cursor") == 1
+    assert engine._ingest_source(Source(post), "fetch_cursor_x", 2) == 1
+    assert engine.store.values == {"fetch_cursor": 13, "fetch_cursor_x": 5}
+
+
+def test_x_windows_never_include_other_posts_as_context(cfg_for):
+    c = cfg_for(window_size=1, context_messages=5)
+    st = Store(c.database_url, c.state_schema)
+    st.mark_analysed("x:public", [ChatMessage(chat_id="x:public", message_id=1, author_id="a", text="old post", date=T0, platform="x")], 10)
+    current = ChatMessage(chat_id="x:public", message_id=2, author_id="b", text="new post", date=T0, platform="x")
+    from need_engine.windowing import build_windows
+    window = build_windows("x:public", [current], st, c)[0]
+    assert window.context == []
+    assert "different authors" in render(window, c)
+    st.close()
 
 
 def test_windows_context_noise_and_gaps(cfg_for):
@@ -381,3 +478,53 @@ def test_products_of_a_blocked_seller_wait_for_the_top_up(tmp_path, cfg_for, cra
     wallets.ids.clear()
     r = eng.run_once(now=T0 + timedelta(hours=2))
     assert r.products_changed == 1 and "P3" in eng.catalog.pid_index
+
+
+def test_x_is_a_platform_source_under_the_panel_access_rule(cfg_for):
+    from need_engine.access import SourceAccess
+
+    class FakeDB:
+        def all(self, sql, params=()):
+            if "to_regclass" in sql:
+                return [{"t": "public.discovery_monitoredcommunity"}]
+            return [{"telegram_chat_id": -1001, "scope": "PRIVATE", "business_id": 7}]
+
+    c = cfg_for(source_access="panel", messages_source="db", x_enabled=True)
+    acc = SourceAccess(c, db=FakeDB())
+    acc.refresh()
+    assert acc.monitored("x:public") and acc.analysed("x:public") and not acc.held("x:public")
+    assert acc.sellers("x:public") is None and acc.owners("x:public") == []   # every seller, platform pays
+    assert acc.sellers("-1001") == frozenset({"7"}) and not acc.analysed("-1002")
+    c.x_enabled = False
+    acc.refresh()
+    assert not acc.monitored("x:public")
+
+
+def test_new_product_fields_keep_existing_hashes_and_x_flag_is_not_hashed():
+    from need_engine.schemas import Product
+
+    base = Product(product_id="1", title="کفش", description="d")
+    legacy = hashlib.sha1(json.dumps(base.model_dump(exclude={"business_id", "url", "card_override", "category_path",
+                                                                 "category_keywords", "discovery_priority",
+                                                                 "x_outreach_enabled"}),
+                                     ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+    assert base.content_hash() == legacy
+    assert Product(product_id="1", title="کفش", description="d", x_outreach_enabled=False, discovery_priority=5).content_hash() == legacy
+    assert Product(product_id="1", title="کفش", description="d", category_path="پوشاک > کفش").content_hash() != legacy
+
+
+def test_x_opportunities_only_use_x_enabled_products(cfg_for):
+    from need_engine.engine import NeedEngine
+    from need_engine.schemas import MatchedProduct, Product, Verdict
+
+    engine = NeedEngine.__new__(NeedEngine)
+    engine.cfg = cfg_for(x_min_match_score=50)
+
+    class Cat:
+        products = [Product(product_id="a", title="a"), Product(product_id="b", title="b", x_outreach_enabled=False)]
+        pid_index = {"a": 0, "b": 1}
+
+    engine.catalog = Cat()
+    mk = lambda pid, s: MatchedProduct(product_id=pid, match_score=s, similarity=0.5, verdict=Verdict(solves="yes"))
+    kept = engine._x_allowed([mk("a", 0.9), mk("b", 0.9), mk("a", 0.3)])
+    assert [(m.product_id, m.match_score) for m in kept] == [("a", 0.9)]

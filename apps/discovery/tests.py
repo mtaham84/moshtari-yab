@@ -116,6 +116,19 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         self.assertIn("https://t.me/moto/2", mine.evidence_items.values_list("source_reference", flat=True))
         self.assertEqual(Opportunity.objects.get(business=self.other).product_matches.get().product, self.q1)
 
+    def test_x_opportunity_keeps_x_customer_and_evidence_links(self):
+        payload = engine_payload("need_x_000001", [self.p1.id])
+        payload["candidate"].update(external_user_id="81001", username="buyer", profile_url="https://x.com/buyer")
+        payload["source"].update(platform="x", chat_id="x:public", evidence=[
+            {"message_id": "1990000000000001001", "timestamp": T0.isoformat(), "author": "خریدار",
+             "text": "دنبال دستگاه هستم", "url": "https://x.com/buyer/status/1990000000000001001"}])
+        import_opportunity(payload)
+        opportunity = Opportunity.objects.get(business=self.biz)
+        self.assertEqual(opportunity.source_platform, "x")
+        self.assertEqual(opportunity.customer.source_profile_url, "https://x.com/buyer")
+        self.assertIn("https://x.com/buyer/status/1990000000000001001",
+                      opportunity.evidence_items.get().source_reference)
+
     def test_reimport_is_idempotent_and_status_updates_respect_seller_choice(self):
         import_opportunity(engine_payload("need_000002_ab", [self.p1.id, self.q1.id]))
         import_opportunity(engine_payload("need_000002_ab", [self.p1.id, self.q1.id]))
@@ -256,6 +269,17 @@ class PanelViewTests(TestCase):
         self.assertEqual(r.json()["new_status"], "CONTACTED")
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "MATCHED"})
         self.assertEqual(r.status_code, 400)
+
+    def test_opportunity_feedback_is_saved_and_scoped_to_business(self):
+        url = reverse("discovery:opportunity_feedback", args=[self.mine.pk])
+        response = self.client.post(url, {"feedback": "relevant"})
+        self.assertEqual(response.status_code, 200)
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.trace_metadata["seller_feedback"], "relevant")
+        self.assertEqual(self.client.post(url, {"feedback": "invalid"}).status_code, 400)
+        theirs = Opportunity.objects.get(business=self.other)
+        self.assertEqual(self.client.post(reverse("discovery:opportunity_feedback", args=[theirs.pk]),
+                                          {"feedback": "irrelevant"}).status_code, 404)
 
     def test_dashboard_shows_real_numbers_only(self):
         r = self.client.get(reverse("accounts:dashboard"))

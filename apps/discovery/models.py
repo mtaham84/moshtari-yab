@@ -204,6 +204,8 @@ class Customer(models.Model):
         blank=True,
         verbose_name="متادیتای تکمیلی مشتری"
     )
+    contact_channels = models.JSONField(default=list, blank=True, verbose_name="راه‌های تماس عمومی خوداظهاری‌شده")
+    linked_identities = models.JSONField(default=list, blank=True, verbose_name="هویت‌های پیوندخوردهٔ خوداظهاری‌شده")
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="زمان ثبت"
@@ -311,6 +313,16 @@ class Opportunity(models.Model):
         blank=True,
         verbose_name="زمان ارسال پیام در پلتفرم"
     )
+    source_posted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    source_posted_at_estimated = models.BooleanField(default=False)
+    source_query = models.CharField(max_length=255, blank=True, db_index=True)
+    lead_feedback = models.CharField(max_length=32, null=True, blank=True, choices=[("good", "مشتری مناسب"), ("bad_not_buyer", "قصد خرید ندارد"), ("bad_seller_or_ad", "فروشنده/تبلیغ"), ("bad_wrong_product", "محصول نامرتبط"), ("bad_too_old", "قدیمی")])
+    lead_feedback_at = models.DateTimeField(null=True, blank=True)
+    thread_root_tweet_id = models.BigIntegerField(null=True, blank=True)
+    parent_opportunity = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="thread_opportunities")
+    demand_count = models.PositiveIntegerField(default=0)
+    competitor_replies = models.JSONField(default=list, blank=True)
+    thread_fetched_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=30,
         choices=OPPORTUNITY_STATUS_CHOICES,
@@ -488,6 +500,7 @@ class OpportunityProductMatch(models.Model):
         blank=True,
         verbose_name="ویژگی‌های منطبق کالا"
     )
+    reply_variants = models.JSONField(null=True, blank=True, verbose_name="پیشنویس‌های پاسخ X")
     rank = models.PositiveSmallIntegerField(
         default=1,
         verbose_name="رتبه در بین پیشنهادات"
@@ -695,3 +708,82 @@ class EngineSyncCursor(models.Model):
 
     def __str__(self):
         return f"{self.name}: {self.position}"
+
+
+class XSearchQuery(models.Model):
+    KIND = [(x, x) for x in ("auto_intent", "auto_problem", "auto_product", "manual", "suggested")]
+    STATE = [(x, x) for x in ("active", "paused_manual", "paused_auto", "suggested", "rejected", "stale")]
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="x_search_queries")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="x_search_queries")
+    text = models.CharField(max_length=100)
+    normalized_text = models.CharField(max_length=100)
+    kind = models.CharField(max_length=20, choices=KIND, default="manual")
+    state = models.CharField(max_length=20, choices=STATE, default="active", db_index=True)
+    weight = models.FloatField(default=1.0)
+    state_reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_state_change_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "normalized_text"], name="uniq_x_query_business_normalized")]
+        indexes = [models.Index(fields=["business", "state"], name="xquery_business_state_idx")]
+
+
+class XNegativeTerm(models.Model):
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="x_negative_terms")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, null=True, blank=True, related_name="x_negative_terms")
+    term = models.CharField(max_length=40)
+    normalized_term = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "product", "normalized_term"], name="uniq_x_negative_term")]
+
+
+class XCollectorState(models.Model):
+    STATUSES = [(x, x) for x in ("idle", "collecting", "rate_limited", "daily_cap", "circuit_open", "auth_failed", "failed", "unknown")]
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    status = models.CharField(max_length=20, choices=STATUSES, default="unknown")
+    cooldown_until = models.DateTimeField(null=True, blank=True)
+    collected_today = models.PositiveIntegerField(default=0)
+    daily_cap = models.PositiveIntegerField(default=0)
+    last_cycle_at = models.DateTimeField(null=True, blank=True)
+    last_cycle_collected = models.PositiveIntegerField(default=0)
+    failures_last_cycle = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class XQueryDaily(models.Model):
+    day = models.DateField()
+    query_text = models.CharField(max_length=100)
+    fetched = models.PositiveIntegerField(default=0)
+    new_posts = models.PositiveIntegerField(default=0)
+    dropped = models.JSONField(default=dict)
+    analysed = models.PositiveIntegerField(default=0)
+    needs = models.PositiveIntegerField(default=0)
+    opportunities = models.PositiveIntegerField(default=0)
+    cost_toman = models.FloatField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["day", "query_text"], name="uniq_x_query_daily")]
+        indexes = [models.Index(fields=["day", "query_text"], name="xquerydaily_day_query_idx")]
+
+
+class XPostFeedback(models.Model):
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="x_post_feedback")
+    tweet_id = models.CharField(max_length=40)
+    verdict = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "tweet_id"], name="uniq_x_post_feedback")]
+
+
+class XQueryScore(models.Model):
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="x_query_scores")
+    query = models.ForeignKey(XSearchQuery, on_delete=models.CASCADE, related_name="scores")
+    computed_at = models.DateTimeField(auto_now_add=True)
+    metrics = models.JSONField(default=dict)
+    score = models.FloatField(default=0)
+    recommendation = models.CharField(max_length=40, default="insufficient_data")

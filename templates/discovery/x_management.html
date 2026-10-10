@@ -1,0 +1,21 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}مدیریت X{% endblock %}
+{% block nav_x_management %}active{% endblock %}
+{% block panel_content %}
+<h1>مدیریت جست‌وجوی X</h1>
+<p>این صفحه فقط تنظیمات جمع‌آوری خواندنی و آمار را مدیریت می‌کند؛ هیچ پاسخی در X ارسال نمی‌شود.</p>
+<section class="p-card" style="padding:20px;margin-bottom:16px">
+  <h2>وضعیت collector</h2>
+  {% if collector_state %}<p>وضعیت: {{ collector_state.status }} | آخرین اجرا: {{ collector_state.last_cycle_at|default:"—" }} | جمع‌آوری‌شده: {{ collector_state.last_cycle_collected }} | سهمیه: {{ collector_state.collected_today }}/{{ collector_state.daily_cap }}</p>{% else %}<p>وضعیت collector نامشخص یا قدیمی است.</p>{% endif %}
+</section>
+<section class="p-card" style="padding:20px;margin-bottom:16px">
+  <h2>عبارت‌های جست‌وجو</h2>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add_query"><input class="form-input" name="query" maxlength="100" required><button class="p-btn p-btn-primary">افزودن</button></form>
+  {% for query in queries %}<div style="padding:8px;border-bottom:1px solid #ddd">{{ query.text }} — {{ query.get_state_display|default:query.state }}{% if query.state == 'active' %}<form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="set_query_state"><input type="hidden" name="query_id" value="{{ query.pk }}"><input type="hidden" name="state" value="paused_manual"><button class="p-btn p-btn-sm">توقف</button></form>{% else %}<form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="set_query_state"><input type="hidden" name="query_id" value="{{ query.pk }}"><input type="hidden" name="state" value="active"><button class="p-btn p-btn-sm">فعال‌سازی</button></form>{% endif %}</div>{% empty %}<p>عبارتی ثبت نشده است.</p>{% endfor %}
+</section>
+<section class="p-card" style="padding:20px">
+  <h2>واژه‌های منفی</h2>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add_negative"><input class="form-input" name="term" maxlength="40" required><button class="p-btn p-btn-primary">افزودن</button></form>
+  {% for term in terms %}<div>{{ term.term }} <form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="delete_negative"><input type="hidden" name="term_id" value="{{ term.pk }}"><button class="p-btn p-btn-sm">حذف</button></form></div>{% empty %}<p>واژهٔ منفی ثبت نشده است.</p>{% endfor %}
+</section>
+{% endblock %}

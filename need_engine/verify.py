@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -9,7 +10,7 @@ import numpy as np
 from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.llm import LLMClient
-from need_engine.prompts import NEW_PRODUCT_SYSTEM, VERIFY_SYSTEM
+from need_engine.prompts import NEW_PRODUCT_SYSTEM, REPLY_SYSTEM_X, VERIFY_SYSTEM
 from need_engine.reply import MessageStyle, write_reply
 from need_engine.retrieve import Retrieval
 from need_engine.schemas import ChatMessage, MatchedProduct, NeedCard
@@ -99,6 +100,22 @@ def draft_reply(n: NeedCard, mp: MatchedProduct, cat: Catalog, store: Store, llm
     j = cat.pid_index[mp.product_id]
     p = cat.products[j]
     link = cfg.click_url(mp.product_id, n.need_id) if p.url else None   # no product page → draft without a link
+    if n.chat_id.startswith("x:"):
+        user = json.dumps({"person_messages": evidence_text(n, store), "situation": n.situation, "product": cat.line(j),
+                           "mismatches_to_mention_honestly": mp.verdict.conflicts}, ensure_ascii=False)
+        angles = ("یک پرسش روشن‌کننده", "یک نکتهٔ کاربردی و سپس اشارهٔ کوتاه به گزینه", "پیشنهاد کوتاه و بدون فشار")
+        angle = angles[int(hashlib.sha256(n.need_id.encode()).hexdigest(), 16) % len(angles)]
+        user = json.dumps({"context": json.loads(user), "style_angle": angle}, ensure_ascii=False)
+        data, usage = llm.complete_json("reply_x", cfg.reply_model, REPLY_SYSTEM_X, user, max_tokens=800, temperature=0.4,
+                                        ref=f"{n.need_id}:{mp.product_id}", businesses=[p.business_id])
+        from need_engine.x_replies import fit_public_reply
+        variants = data or {}
+        public = fit_public_reply(str(variants.get("public") or ""), cfg.x_public_target_chars)
+        short = fit_public_reply(str(variants.get("short") or public), cfg.x_reply_max_chars)
+        dm = str(variants.get("dm") or "").strip()
+        dm = dm.replace("{{LINK}}", link) if link else dm.replace("{{LINK}}", "").strip()
+        mp.reply_variants = {"public": public, "dm": dm, "short": short}
+        return public, usage["toman"]
     return write_reply(llm, cfg, person_messages=evidence_text(n, store), situation=n.situation, product_line=cat.line(j),
                        conflicts=mp.verdict.conflicts, style=style, link=link, ref=f"{n.need_id}:{mp.product_id}",
                        businesses=[p.business_id])

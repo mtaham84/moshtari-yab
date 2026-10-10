@@ -20,12 +20,13 @@ log = logging.getLogger("need_engine.catalog")
 
 def _listing(p: Product) -> dict:
     a = "، ".join(f"{k}: {v}" for k, v in list(p.attributes.items())[:8])
-    return {"product_id": p.product_id, "title": p.title, "product_type": p.product_type, "description": p.description[:600],
-            "price_toman": p.price_toman, "city": p.city, "attributes": a, "tags": p.tags or None}
+    return {"product_id": p.product_id, "title": p.title, "product_type": p.product_type, "category": p.category_path,
+            "category_keywords": p.category_keywords, "description": p.description[:600], "price_toman": p.price_toman,
+            "city": p.city, "attributes": a, "tags": p.tags or None}
 
 
 def _vec_texts(p: Product, c: ProductCard) -> tuple[list[str], list[str]]:
-    what = " | ".join(x for x in [p.title, p.product_type, "، ".join(c.aliases), c.what_it_is] if x)
+    what = " | ".join(x for x in [p.title, p.product_type, p.category_path, "، ".join(p.category_keywords), "، ".join(c.aliases), c.what_it_is] if x)
     texts, kinds = [what], ["what"]
     for prob in c.problems_solved[:4]:
         texts.append(prob)
@@ -121,6 +122,7 @@ class Catalog:
         for p in self.products:   # url is not in the hash: always take the current one
             if p.product_id in current:
                 p.url = current[p.product_id].url
+                p.x_outreach_enabled = current[p.product_id].x_outreach_enabled
         return [p.product_id for p in changed]
 
     def _load(self) -> None:
@@ -134,6 +136,7 @@ class Catalog:
         docs = []
         for p, c, _ in rows:
             docs.append(" ".join(str(x) for x in [p.title, p.product_type, p.description, " ".join(p.tags),
+                                                   p.category_path, " ".join(p.category_keywords),
                                                    " ".join(c.aliases), " ".join(c.problems_solved)] if x))
         self.bm25 = BM25(docs) if docs else None
 

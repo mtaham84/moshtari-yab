@@ -1,5 +1,9 @@
 import csv
 import json
+import os
+import re
+from datetime import timedelta
+from django.conf import settings
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -14,8 +18,10 @@ from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
 from apps.businesses.models import Business
 from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.products.models import Category, Product
+from need_engine.text import norm
 
-from .models import MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES
+from .models import (MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, XCollectorState,
+                    XNegativeTerm, XSearchQuery)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
 
@@ -54,6 +60,9 @@ def _filter_opportunities_queryset(business, params):
     platform_filter = params.get("platform", "").strip().lower()
     if platform_filter in {"telegram", "x", "instagram", "divar", "other"}:
         qs = qs.filter(source_platform=platform_filter)
+    hide_stale = params.get("hide_stale") == "1"
+    if hide_stale:
+        qs = qs.exclude(source_platform="x", source_posted_at__lt=timezone.now() - timedelta(hours=48))
 
     # Status filter
     status_filter = params.get("status", "").strip().upper()
@@ -106,6 +115,8 @@ def _filter_opportunities_queryset(business, params):
         qs = qs.order_by("-source_message_timestamp", "-created_at")
     elif sort_order == "oldest":
         qs = qs.order_by("source_message_timestamp", "created_at")
+    elif sort_order == "source_newest":
+        qs = qs.order_by("-source_posted_at", "-created_at")
     elif sort_order == "intent_desc":
         qs = qs.order_by("-ai_analysis__intent_score", "-created_at")
     elif sort_order == "intent_asc":
@@ -126,6 +137,7 @@ def _filter_opportunities_queryset(business, params):
         "date_from": date_from_raw,
         "date_to": date_to_raw,
         "sort": sort_order,
+        "hide_stale": hide_stale,
     }
     return qs, filter_meta
 
@@ -164,6 +176,14 @@ def opportunity_list_view(request):
         "instagram_count": all_opps.filter(source_platform="instagram").count(),
         "divar_count": all_opps.filter(source_platform="divar").count(),
     }
+    now = timezone.now()
+    for opportunity in qs:
+        opportunity.source_age_label = ""
+        opportunity.source_age_title = ""
+        if opportunity.source_platform == "x" and opportunity.source_posted_at:
+            age = max(0, int((now - opportunity.source_posted_at).total_seconds() // 3600))
+            opportunity.source_age_label = "تازه" if age < 3 else "گرم" if age < 12 else "در حال کهنگی" if age < 48 else "قدیمی"
+            opportunity.source_age_title = format_jalali_date(opportunity.source_posted_at.date())
 
     # Query string without page or view for export link
     export_query = request.GET.copy()
@@ -179,6 +199,7 @@ def opportunity_list_view(request):
         "selected_product_id": filter_meta["product_id"],
         "selected_min_score": filter_meta["min_score"],
         "selected_sort": filter_meta["sort"],
+        "hide_stale": filter_meta["hide_stale"],
         "date_from": filter_meta["date_from"],
         "date_to": filter_meta["date_to"],
         "search_query": filter_meta["q"],
@@ -307,6 +328,27 @@ def opportunity_detail_view(request, pk):
         "drafts": {str(m.product_id): drafts.get(str(m.product_id), "") for m in matches},
         "first_draft": drafts.get(str(matches[0].product_id), "") if matches else (analysis.suggested_reply if analysis else ""),
     }
+    if opportunity.source_platform == "x":
+        from need_engine.x_replies import build_x_intent_url
+
+        base = getattr(settings, "X_INTENT_BASE_URL", "https://x.com/intent/post")
+        context["x_intent_base_url"] = base
+        tweet_id = opportunity.source_message_id
+        if not str(tweet_id).isdigit():
+            evidence_url = next((item.source_reference for item in opportunity.evidence_items.all() if item.source_reference), "")
+            match = re.search(r"/status/(\d+)", evidence_url)
+            tweet_id = match.group(1) if match else None
+        context["x_reply_cards"] = []
+        for match in context["product_matches"]:
+            variants = match.reply_variants or {}
+            if not variants:
+                continue
+            context["x_reply_cards"].append({
+                "product": match.product,
+                "variants": variants,
+                "public_url": build_x_intent_url(base, tweet_id, variants.get("public", "")),
+                "short_url": build_x_intent_url(base, tweet_id, variants.get("short", "")),
+            })
     return render(request, "discovery/opportunity_detail.html", context)
 
 
@@ -389,6 +431,28 @@ def _validate_private_source(business, raw_link: str) -> tuple[str, str]:
 
 
 @login_required
+def opportunity_feedback_view(request, pk):
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
+
+    business = getattr(request.user, "business", None)
+    opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
+    feedback = request.POST.get("feedback", "").strip()
+    if feedback not in {"relevant", "irrelevant"}:
+        return JsonResponse({"status": "error", "message": "بازخورد نامعتبر است."}, status=400)
+
+    metadata = dict(opportunity.trace_metadata or {})
+    metadata["seller_feedback"] = feedback
+    if opportunity.source_platform == "x":
+        opportunity.lead_feedback = "good" if feedback == "relevant" else "bad_not_buyer"
+        opportunity.lead_feedback_at = timezone.now()
+        opportunity.save(update_fields=["lead_feedback", "lead_feedback_at", "updated_at"])
+    opportunity.trace_metadata = metadata
+    opportunity.save(update_fields=["trace_metadata", "updated_at"])
+    return JsonResponse({"status": "success", "feedback": feedback})
+
+
+@login_required
 def communities_list_view(request):
     """
     Telegram sources the crawler watches for this seller:
@@ -468,3 +532,61 @@ def community_delete_view(request, community_id):
     community.delete()
     messages.info(request, f"«{name}» از منابع اختصاصی شما حذف شد.")
     return redirect("discovery:communities_list")
+
+
+@login_required
+def x_management_view(request):
+    if not getattr(settings, "X_PANEL_ENABLED", False):
+        return HttpResponse(status=404)
+    business = getattr(request.user, "business", None)
+    if business is None:
+        return HttpResponse(status=404)
+    if request.method == "POST":
+        if not request.user.is_authenticated:
+            return HttpResponse(status=403)
+        action = request.POST.get("action", "")
+        if action == "add_query":
+            text = " ".join(request.POST.get("query", "").split())
+            if len(text) > 100:
+                return HttpResponse("عبارت حداکثر ۱۰۰ نویسه باشد.", status=400)
+            if text:
+                normalized = norm(text)[:100]
+                if XSearchQuery.objects.filter(business=business, kind="manual").count() >= int(os.getenv("X_MANUAL_QUERIES_MAX", "30")):
+                    return HttpResponse("سقف عبارت‌های این کسب‌وکار تکمیل شده است.", status=400)
+                XSearchQuery.objects.get_or_create(business=business, normalized_text=normalized,
+                    defaults={"text": text, "kind": "manual", "state": "active"})
+        elif action == "set_query_state":
+            query = get_object_or_404(XSearchQuery, pk=request.POST.get("query_id"), business=business)
+            state = request.POST.get("state")
+            if state in {"active", "paused_manual"}:
+                query.state = state
+                query.save(update_fields=["state", "last_state_change_at"])
+        elif action == "add_negative":
+            term = " ".join(request.POST.get("term", "").split())
+            if len(term) > 40:
+                return HttpResponse("واژه حداکثر ۴۰ نویسه باشد.", status=400)
+            if term:
+                if XNegativeTerm.objects.filter(business=business).count() >= int(os.getenv("X_NEGATIVE_TERMS_MAX", "50")):
+                    return HttpResponse("سقف واژه‌های منفی تکمیل شده است.", status=400)
+                XNegativeTerm.objects.get_or_create(business=business, product=None, normalized_term=norm(term)[:40],
+                    defaults={"term": term})
+        elif action == "delete_negative":
+            get_object_or_404(XNegativeTerm, pk=request.POST.get("term_id"), business=business).delete()
+        return redirect("discovery:x_management")
+    from django.core.paginator import Paginator
+    queries = Paginator(XSearchQuery.objects.filter(business=business).order_by("state", "text"), 50).get_page(request.GET.get("page"))
+    terms = XNegativeTerm.objects.filter(business=business).order_by("term")
+    status = XCollectorState.objects.order_by("-updated_at").first()
+    status_file = settings.BASE_DIR / __import__("os").getenv("X_STATUS_FILE", "data/x_collected/status.json")
+    try:
+        import json
+        status_data = json.loads(status_file.read_text(encoding="utf-8"))
+        from django.utils.dateparse import parse_datetime
+        from django.utils import timezone
+        updated = parse_datetime(status_data.get("updated_at", ""))
+        if not updated or timezone.now() - updated > timedelta(minutes=int(os.getenv("X_STATUS_STALE_MINUTES", "30"))):
+            status = None
+    except Exception:
+        status = None
+    return render(request, "discovery/x_management.html", {"queries": queries, "terms": terms,
+        "collector_state": status})

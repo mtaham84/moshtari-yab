@@ -11,6 +11,8 @@
 telegram_crawler ──(write)──► crawler.tg_users / tg_chats / tg_messages
                                         │ (read-only)
 Django products ──(read-only)──► need_engine ──► need_engine.* (state، بردارها با pgvector، هزینه‌ها)
+                                        ▲
+workers/x_collector → JSONL → x_ingest → crawler.x_posts ─┘ (NE_X_ENABLED=true)
                                         │
                                         └──► need_engine.opportunities
                                                    │
@@ -25,7 +27,7 @@ Django products ──(read-only)──► need_engine ──► need_engine.* (
 | موتور نیاز | `need_engine/` | تنها pipeline تحلیل؛ فقط در schema `need_engine` می‌نویسد، بقیه را read-only می‌خواند |
 | پل به پنل | `apps/discovery/engine_bridge.py` + `sync_opportunities` | فرصت‌های منتشرشده را idempotent در مدل‌های Django می‌نویسد (به تفکیک کسب‌وکار) |
 | پنل | `apps/` + `templates/` | ثبت‌نام/ورود، محصولات، فرصت‌ها، داشبورد با اعداد واقعی |
-| جمع‌آوری X (آزمایشی) | `workers/x_collector/` | read-only، خروجی JSONL — هنوز به need_engine وصل نیست |
+| جمع‌آوری X | `workers/x_collector/` + `x_ingest/` | worker فقط‌خواندنی، JSONL و upsert idempotent در `crawler.x_posts` |
 
 ## راه‌اندازی
 
@@ -44,6 +46,12 @@ python manage.py seed_products   # اختیاری: دسته‌بندی‌ها + 
 python -m telegram_crawler.main                              # ۱) آرشیو پیام‌های گروه‌هایی که در پنل («جوامع آنلاین») اضافه شده‌اند
 python -m need_engine run                                     # ۲) تحلیل و تولید فرصت‌ها
 python manage.py sync_opportunities --follow                  # ۳) ورود فرصت‌ها به پنل
+
+# مسیر اختیاری X: queryها از محصولات فعال و دسته‌هایشان می‌آیند
+python -m workers.x_collector --once                             # ۱) جمع‌آوری براساس محصولات فعال
+python -m x_ingest --path data/x_collected/latest.jsonl         # ۲) ورود به crawler.x_posts
+python -m need_engine run --once --flush                         # ۳) تحلیل (پس از فعال‌کردن NE_X_ENABLED=true)
+python manage.py sync_opportunities                            # ۴) نمایش فرصت‌ها در پنل
 python manage.py runserver                                    # ۴) پنل
 ```
 
@@ -103,8 +111,14 @@ docker compose logs -f crawler engine sync
   `appdata` فقط session تلگرام را نگه می‌دارد و `media` عکس محصولات را.
 - `web` موقع بالا آمدن خودش `migrate` می‌زند؛ با `DJANGO_SEED_DEMO=true` داده‌ی نمونه هم ساخته می‌شود.
 - need_engine پیام‌ها و محصولات را با اتصال read-only می‌خواند؛ تا کراولر داده‌ای ننوشته باشد کاری انجام نمی‌دهد.
+- اتصال X به‌صورت پیش‌فرض خاموش است (`NE_X_ENABLED=false`). رعایت شرایط استفادهٔ X الزامی است؛ از حساب اختصاصی کم‌ریسک استفاده کنید. این pipeline فقط می‌خواند و هرگز پست، پاسخ، لایک، فالو یا DM نمی‌فرستد.
+- فیلتر X برای کم‌کردن مشتری/دادهٔ ساختگی محافظه‌کار است: پست باید شناسهٔ پایدار نویسنده داشته باشد، متن خودش قصد خرید صریح را نشان دهد، شواهد از همان نویسنده باشد و محصول از مرحلهٔ تطبیق مستقل با حداقل امتیاز (`NE_X_MIN_MATCH_SCORE=65`) عبور کند. این کار خطای مثبت را کم می‌کند اما تضمین مشتری قطعی نمی‌دهد؛ نتیجه را پیش از تماس انسانی بررسی کنید.
 - X collector آزمایشی است: `docker compose --profile x up -d x`.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
+
+Query generation supports X_QUERY_MODE=product|intent|both (default both), a per-cycle budget, query length/count caps, and an optional suffix. Use --print-queries to review generated queries and --dry-run to inspect the next cycle without invoking the CLI. LLM-generated problem phrases are not implemented yet (X_QUERY_LLM=false).
+
+For X analysis, NE_X_PREFILTER=shadow records decisions without dropping posts; switch to on only after reviewing need_engine x-prefilter-report. NE_X_BATCH_SIZE and NE_X_BATCH_MAX_CHARS bound independent-post batches. Reply variants are drafts only; Open on X uses an unverified web intent URL and never sends from the server. Finglish detection and false-negative auditing remain limitations.
 
 ## هزینه و کیفیت
 - هزینه‌ی هر فراخوانی LLM/embedding در `need_engine.costs` ثبت می‌شود؛ `python -m need_engine stats` مجموع هزینه، تعداد پیام تحلیل‌شده و **هزینه‌ی هر پیام** را نشان می‌دهد و داشبورد همین عدد را می‌خواند.
@@ -135,7 +149,5 @@ docker compose run --rm web python manage.py test apps  # پنل و sync
 # بیرون از Docker: TEST_DATABASE_URL=postgresql://postgres:pass@127.0.0.1:5432/postgres python -m pytest
 ```
 
-## X Collector (آزمایشی)
-`python -m workers.x_collector --mock --once` بدون شبکه اجرا می‌شود. اجرای زنده با کوکی (حساب burner) ریسک
-محدودیت/ban دارد و نگاشت CLI هنوز باید با نسخه‌ی نصب‌شده‌ی `twitter-cli` تطبیق داده شود؛ جزئیات در
-`docs/X_COLLECTION_ANALYSIS.md`.
+## X Collector
+اجرای mock بدون شبکه است. اجرای زنده queryها را از محصولات فعالِ علامت‌خورده برای پایش X می‌سازد: نام کالا، مسیر دسته‌بندی سراسری و keywordهای دسته. collector با `twitter search <query> -t Latest --exclude retweets --max N --json` می‌خواند، JSONL می‌سازد و loader آن را به `crawler.x_posts` می‌برد. برای تولید، نحو CLI را با `twitter --help` و `agent-reach doctor` بررسی کنید؛ اجرای X ممکن است محدودیت حساب/سرویس داشته باشد. `--queries` مسیر override دستی queryهاست.

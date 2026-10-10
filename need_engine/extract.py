@@ -9,8 +9,8 @@ import numpy as np
 
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
-from need_engine.llm import LLMClient
-from need_engine.prompts import NEED_SYSTEM
+from need_engine.llm import LLMClient, QuotaExhausted
+from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
 from need_engine.store import Store
 from need_engine.text import norm
@@ -19,6 +19,25 @@ from need_engine.windowing import Window, render
 log = logging.getLogger("need_engine.extract")
 
 _LABELS = OPPORTUNITY_LABELS | {"resolved", "joke", "seller", "curiosity", "no_buy_complaint", "advice_giver", "past_need"}
+
+
+def _confirmed_x_buyer(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict) -> bool:
+    if candidate.get("buyer_intent_confirmed") is not True or candidate.get("is_opportunity") is not True:
+        return False
+    if candidate.get("label") not in {"explicit_need", "on_behalf_need"}:
+        return False
+    if candidate.get("strength") not in {"medium", "strong"}:
+        return False
+    if not str(candidate.get("need") or "").strip() or not candidate.get("solution_queries"):
+        return False
+    if candidate.get("author_type") != "individual" or candidate.get("promotional_content") is not False:
+        return False
+    cited = [new_by_id.get(message_id) for message_id in evidence_ids]
+    suspicious_bio = ("official", "official account", "official store", "company", "brand", "support", "store", "shop",
+                      "رسمی", "شرکت", "برند", "فروشگاه", "فروش", "پشتیبانی")
+    return bool(cited) and all(message is not None and message.author_id == author_id and not message.author_verified
+                                and not any(term in (message.author_bio or "").casefold() for term in suspicious_bio)
+                                for message in cited)
 
 
 def _int_or_none(v) -> int | None:
@@ -35,15 +54,20 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
     ``payers``: owners of a private chat share the cost; empty = global chat (platform cost)."""
     if not w.new:
         return [], 0.0
-    data, usage = llm.complete_json("need_extraction", cfg.extract_model, NEED_SYSTEM, render(w, cfg), max_tokens=6000,
+    system = NEED_SYSTEM if w.new[0].platform != "x" else NEED_SYSTEM_X
+    data, usage = llm.complete_json("need_extraction", cfg.extract_model, system, render(w, cfg), max_tokens=6000,
                                     ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}", businesses=payers)
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
+    x_messages = {m.message_id: m for m in w.new} if w.new[0].platform == "x" else {}
     cards, dropped = [], 0
     for n in (data or {}).get("needs", []) or []:
         if not isinstance(n, dict):
             continue
         ev = sorted({int(e) for e in (n.get("evidence_message_ids") or []) if str(e).lstrip("-").isdigit()} & w.all_ids)
         aid = str(n.get("author_id") or "")
+        if x_messages and not _confirmed_x_buyer(n, ev, aid, x_messages):
+            dropped += 1
+            continue
         if not ev or aid not in authors or not (set(ev) & w.new_ids):
             dropped += 1
             continue
@@ -55,20 +79,70 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
         is_opp = bool(n.get("is_opportunity")) and label in OPPORTUNITY_LABELS
         cards.append(NeedCard(
             need_id="", chat_id=w.chat_id, author_id=aid, author_name=a.author_name, author_username=a.author_username,
-            label=label, is_opportunity=is_opp, situation=n.get("situation"), need=n.get("need"),
+            label=label, is_opportunity=is_opp, buyer_intent_confirmed=n.get("buyer_intent_confirmed") is True,
+            situation=n.get("situation"), need=n.get("need"),
             solution_queries=[q.strip() for q in (n.get("solution_queries") or []) if isinstance(q, str) and q.strip()][:6],
             problem_queries=[q.strip() for q in (n.get("problem_queries") or []) if isinstance(q, str) and q.strip()][:3],
             requirements=reqs,
             constraints=Constraints(budget_toman=_int_or_none(c.get("budget_toman")), city=c.get("city") or None,
                                     use=c.get("use") or None, level=c.get("level") or None, other=c.get("other") or None),
             strength=n.get("strength") if n.get("strength") in STRENGTH_RANK else "weak", emotion=n.get("emotion"),
-            evidence_ids=ev, status="open" if is_opp else "not_opportunity", created_at=now, updated_at=now))
+            evidence_ids=ev, status="open" if is_opp else "not_opportunity", created_at=now, updated_at=now,
+            evidence_posted_at=max((x.date for x in w.new if x.message_id in ev), default=None),
+            evidence_time_estimated=any(x.date_estimated for x in w.new if x.message_id in ev),
+            author_bio=a.author_bio))
     if dropped:
         log.info("window %s: dropped %d needs without valid evidence in new messages", w.chat_id, dropped)
     share = usage["toman"] / max(1, len(cards))
     for c in cards:
         c.cost_toman, c.llm_calls = share, 1
     return cards, usage["toman"]
+
+
+def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: datetime) -> tuple[list[NeedCard], float, int]:
+    """Extract independent posts together, then validate every result through the existing single-post gate."""
+    if cfg.x_batch_size <= 1 and len(messages) > 1:
+        cards, total = [], 0.0
+        for message in messages:
+            result, cost = extract_window(Window("x:public", "X", [message]), llm, cfg, now)
+            cards.extend(result)
+            total += cost
+        return cards, total, len(messages)
+    if len(messages) <= 1:
+        result, cost = extract_window(Window("x:public", "X", messages), llm, cfg, now)
+        return result, cost, 1 if messages else 0
+    payload = [{"post_id": m.message_id, "author_id": m.author_id, "handle": m.author_username,
+                "bio": (m.author_bio or "")[:300], "text": m.text, "created_at": m.date.isoformat(),
+                "query": m.search_query} for m in messages]
+    try:
+        data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
+                                        json.dumps(payload, ensure_ascii=False), max_tokens=6000,
+                                        ref=f"x:{messages[0].message_id}-{messages[-1].message_id}")
+    except QuotaExhausted:
+        raise
+    except Exception:
+        data, usage = None, {"toman": 0.0}
+    needs = (data or {}).get("needs") if isinstance(data, dict) else None
+    if not isinstance(needs, list):
+        cards, total = [], 0.0
+        for message in messages:
+            result, cost = extract_window(Window("x:public", "X", [message]), llm, cfg, now)
+            cards.extend(result)
+            total += cost
+        return cards, total, len(messages)
+    cost_share = float(usage.get("toman") or 0) / max(1, len(messages))
+    cards = []
+    for message in messages:
+        relevant = [need for need in needs if isinstance(need, dict) and str(need.get("author_id")) == message.author_id
+                    and message.message_id in {int(value) for value in need.get("evidence_message_ids", []) if str(value).isdigit()}]
+        class BatchLLM:
+            def complete_json(self, *args, **kwargs):
+                return {"needs": relevant}, {"toman": cost_share, "pt": 0, "ct": 0}
+        result, _ = extract_window(Window("x:public", "X", [message]), BatchLLM(), cfg, now)
+        for card in result:
+            card.cost_toman = cost_share / max(1, len(result))
+            cards.append(card)
+    return cards, float(usage.get("toman") or 0), 1
 
 
 def _merge(old: NeedCard, new: NeedCard) -> NeedCard:
@@ -86,8 +160,14 @@ def _merge(old: NeedCard, new: NeedCard) -> NeedCard:
         m.situation, m.need = new.situation, new.need or old.need
     m.author_name = new.author_name or old.author_name
     m.author_username = new.author_username or old.author_username
+    if new.evidence_posted_at and (not m.evidence_posted_at or new.evidence_posted_at > m.evidence_posted_at):
+        m.evidence_posted_at = new.evidence_posted_at
+        m.evidence_time_estimated = new.evidence_time_estimated
+    m.author_bio = new.author_bio or old.author_bio
     # the latest state matters: resolved closes it; a later joke/curiosity does not cancel a real need
-    if new.is_opportunity:
+    if old.status == "expired" and old.chat_id.startswith("x:"):
+        m.status, m.is_opportunity = "expired", False
+    elif new.is_opportunity:
         m.label, m.is_opportunity, m.status = new.label, True, "open"
     elif new.label == "resolved":
         m.label, m.is_opportunity, m.status = "resolved", False, "resolved"

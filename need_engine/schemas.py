@@ -32,6 +32,34 @@ class ChatMessage(BaseModel):
     reply_to_author_id: str | None = None
     reply_to_author_name: str | None = None
     reply_to_date: datetime | None = None
+    platform: str = "telegram"
+    url: str | None = None
+    profile_url: str | None = None
+    search_query: str | None = None
+    author_verified: bool = False
+    author_bio: str | None = None
+    lang: str | None = None
+    date_estimated: bool = False
+    kind: str = "post"
+    conversation_id: int | None = None
+    in_reply_to_author_id: str | None = None
+
+
+class ContactChannel(BaseModel):
+    type: Literal["telegram", "instagram", "website", "email", "phone", "whatsapp"]
+    value: str
+    display: str
+    url: str | None = None
+    source: str = "x_bio"
+    basis: str = "self_declared"
+
+
+class LinkedIdentity(BaseModel):
+    platform: str
+    external_user_id: str
+    username: str
+    basis: str = "bio_declared"
+    confidence: str = "self_declared_unverified"
 
 
 class Product(BaseModel):
@@ -45,12 +73,19 @@ class Product(BaseModel):
     ships_nationwide: bool = True
     attributes: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+    category_path: str = ""
+    category_keywords: list[str] = Field(default_factory=list)
+    discovery_priority: int = 1
+    x_outreach_enabled: bool = True              # seller allows X opportunities for this product (not in the hash)
     url: str | None = None                   # seller's own product page (reply links go through /r/ to it)
     card_override: dict[str, Any] | None = None   # the seller's edited «how the agent understood it» card
 
     def content_hash(self) -> str:
         """Changes that need a new card/vectors. ``url`` is not part of it (it never reaches the LLM)."""
-        skip = {"business_id", "url"} | ({"card_override"} if not self.card_override else set())  # old hashes stay valid
+        skip = {"business_id", "url", "x_outreach_enabled"} | ({"card_override"} if not self.card_override else set())
+        # fields added later are left out while empty/default, so existing products keep their hash (no re-carding)
+        skip |= ({"category_path"} if not self.category_path else set()) | ({"category_keywords"} if not self.category_keywords else set())
+        skip |= {"discovery_priority"}   # monitoring priority, never reaches the LLM
         payload = self.model_dump(exclude=skip)
         return hashlib.sha1(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -87,6 +122,7 @@ class NeedCard(BaseModel):
     author_username: str | None = None
     label: str
     is_opportunity: bool
+    buyer_intent_confirmed: bool = False
     situation: str | None = None
     need: str | None = None
     solution_queries: list[str] = Field(default_factory=list)
@@ -101,6 +137,9 @@ class NeedCard(BaseModel):
     updated_at: datetime
     cost_toman: float = 0.0
     llm_calls: int = 0
+    evidence_posted_at: datetime | None = None
+    evidence_time_estimated: bool = False
+    author_bio: str | None = None
 
     def summary_text(self) -> str:
         return " ".join([self.situation or "", self.need or ""] + self.solution_queries[:3])
@@ -124,6 +163,7 @@ class MatchedProduct(BaseModel):
     similarity: float                    # retrieval similarity (not a quality score)
     verdict: Verdict
     reply_draft: str | None = None
+    reply_variants: dict[str, str] | None = None
 
 
 class Candidate(BaseModel):
@@ -132,6 +172,8 @@ class Candidate(BaseModel):
     username: str | None = None
     profile_url: str | None = None
     phone_number: str | None = None      # optional; only if public
+    contacts: list[ContactChannel] = Field(default_factory=list)
+    linked_identities: list[LinkedIdentity] = Field(default_factory=list)
 
 
 class Evidence(BaseModel):
@@ -146,6 +188,7 @@ class Source(BaseModel):
     platform: str = "telegram"
     chat_id: str
     chat_title: str | None = None
+    profile_url: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
 
 
@@ -174,3 +217,7 @@ class Opportunity(BaseModel):
     need: NeedOut
     matched_products: list[MatchedProduct] = Field(default_factory=list)
     cost: Cost = Field(default_factory=Cost)
+    source_posted_at: datetime | None = None
+    source_posted_at_estimated: bool = False
+    source_query: str | None = None
+    thread: dict[str, Any] | None = None
