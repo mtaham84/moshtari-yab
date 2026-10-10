@@ -29,7 +29,7 @@ def test_both_packs_names_and_intent_words_into_one_or_query(monkeypatch):
     assert intent[0].startswith('("انگشتی گیمینگ" OR "کاور انگشت" OR "لوازم گیمینگ"')
     assert "(بخرم OR " in intent[0] and "می‌خوام" in intent[0] and "میخوام" in intent[0] and intent[0].endswith("lang:fa")
     assert all("فروشگاه" not in q["query"] and "کالای دیجیتال" not in q["query"] for q in queries)
-    assert {"query": '"Dagel Silver" lang:fa', "kind": "product"} in queries
+    assert {"query": '"Dagel Silver" (خوبه OR بخرم OR بگیرم OR پیشنهاد OR نظرتون OR تجربه OR ارزش) lang:fa', "kind": "product"} in queries
 
 
 def test_intent_queries_are_stable_capped_and_split_by_length(monkeypatch):
@@ -54,7 +54,7 @@ def test_llm_terms_become_problem_and_model_queries_and_x_syntax_is_stripped(mon
     assert kinds["intent"].startswith('(هندزفری lang en OR "ایرفون بی سیم"') or kinds["intent"].startswith('("هندزفری lang en" OR')
     assert " OR lang:en" not in kinds["intent"]
     assert kinds["problem"].startswith('"صدای هندزفریم قطع میشه" lang:fa -تخفیف')
-    assert kinds["product"].startswith('"Airfly M7" lang:fa')
+    assert kinds["product"].startswith('"Airfly M7" (خوبه OR ') and " lang:fa" in kinds["product"]
 
 
 def test_model_term_needs_brand_and_model():
@@ -145,3 +145,12 @@ def test_collector_advances_window_only_after_success(tmp_path):
     collector.run(["coffee"])
     first, second = (int(c.rsplit(":", 1)[1]) for c in client.calls)
     assert second > first
+
+
+def test_generic_words_are_not_search_terms():
+    product = SimpleNamespace(title="قیمت خرید صندلی کمپینگ تاشو", product_type="اشتراک", category_path="", category_keywords=[],
+                              card=SimpleNamespace(aliases=["خرید اکانت نوشن", "اکانت"]))
+    terms = core_terms(product)
+    assert "اشتراک" not in terms and "اکانت" not in terms
+    assert all(not t.startswith(("قیمت", "خرید")) for t in terms)
+    assert "صندلی کمپینگ" in terms and "اکانت نوشن" in terms

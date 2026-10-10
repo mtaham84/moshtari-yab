@@ -22,7 +22,13 @@ INTENT_WORDS = ("بخرم", "بگیرم", "میخوام", "می‌خوام", "پ
 DEFAULT_NEGATIVES = ("تخفیف", "\"ارسال رایگان\"", "\"کد تخفیف\"", "\"فروش ویژه\"")
 _FA = re.compile(r"[آ-ی]")
 # marketing/filler words dropped from title n-grams (nobody searches "ایرفون بلوتوثی مدل")
-TITLE_STOPWORDS = {"مدل", "فروشگاه", "جدید", "اورجینال", "اصل", "اصلی", "ویژه", "پرفروش", "بهترین", "فوق", "العاده", "کد", "سری", "طرح"}
+TITLE_STOPWORDS = {"مدل", "فروشگاه", "جدید", "اورجینال", "اصل", "اصلی", "ویژه", "پرفروش", "بهترین", "فوق", "العاده", "کد", "سری", "طرح",
+                   "خرید", "قیمت", "فروش", "ارزان", "ارزانترین", "تخفیف", "تخفیفی", "آنلاین"}
+# one-word names too broad to search alone ("اشتراک" + "خوبه" matches half of Persian X)
+GENERIC_SINGLE = {"اشتراک", "اکانت", "حساب", "محصول", "کالا", "لوازم", "خرید", "قیمت", "سرویس", "پکیج", "بسته"}
+# brand/model queries still need a buying/opinion cue, otherwise "YouTube Premium" returns every mention
+_LEADING_NOISE = {norm(w) for w in ("خرید", "قیمت", "فروش", "سفارش")}
+PRODUCT_CUES = ("خوبه", "بخرم", "بگیرم", "پیشنهاد", "نظرتون", "تجربه", "ارزش")
 _LATIN_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")
 _TITLE_SPLIT = re.compile(r"\s+[-–—|]\s+|\s*[|،(]\s*")
 
@@ -79,9 +85,14 @@ def core_terms(product: Any, card: Any = None) -> list[str]:
 def _dedupe_terms(values: list[Any], min_words: int, max_words: int) -> list[str]:
     out, seen = [], set()
     for value in values:
-        words = clean_term(value).split()[:max_words]
+        words = clean_term(value).split()
+        while words and norm(words[0]) in _LEADING_NOISE:   # "خرید اکانت نوشن" → "اکانت نوشن"
+            words = words[1:]
+        words = words[:max_words]
         term = " ".join(words)
         key = norm(term)
+        if len(words) == 1 and norm(words[0]) in {norm(g) for g in GENERIC_SINGLE}:
+            continue
         if min_words <= len(words) and _FA.search(term) and key and key not in seen:
             seen.add(key)
             out.append(term)
@@ -139,7 +150,7 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
     if mode == "both":
         model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
         if model and len(model) >= 3:
-            values.append((f"{_quote(model)} {ops}".strip(), "product"))
+            values.append((f"{_quote(model)} ({' OR '.join(PRODUCT_CUES)}) {ops}".strip(), "product"))
     out, seen = [], set()
     for query, kind in values:
         query = " ".join(query.split())
