@@ -79,10 +79,34 @@
     closeLandingMenu();
   });
 
-  landingBackdrop?.addEventListener('click', closeLandingMenu);
+  landingBackdrop?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeLandingMenu();
+  });
+
+  // Stop clicks inside nav-menu from propagating to backdrop
+  navMenu?.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
 
   navMenu?.querySelectorAll('a').forEach((link) => {
-    link.addEventListener('click', closeLandingMenu);
+    link.addEventListener('click', (e) => {
+      const href = link.getAttribute('href');
+      closeLandingMenu();
+      if (href && href.startsWith('#')) {
+        e.preventDefault();
+        try {
+          const rawId = href.substring(1);
+          const decodedId = decodeURIComponent(rawId);
+          const targetEl = document.getElementById(decodedId) || document.getElementById(rawId) || document.querySelector(href);
+          if (targetEl) {
+            setTimeout(() => {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 60);
+          }
+        } catch (_) {}
+      }
+    });
   });
 
   // Scroll Reveal Animations via IntersectionObserver
