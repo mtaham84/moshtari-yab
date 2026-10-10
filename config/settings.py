@@ -161,3 +161,7 @@ NEED_ENGINE_SCHEMA = os.environ.get("NE_STATE_SCHEMA", "need_engine")
 PUBLIC_BASE_URL = os.environ.get("NE_PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
 # NE_PANEL_MOCK_LLM=true: «نمونه بساز»، «دوباره بنویس» و «پر کردن از لینک» بدون API (تست/دمو)
 PANEL_MOCK_LLM = os.environ.get("NE_PANEL_MOCK_LLM", "").strip().lower() in ("1", "true", "yes", "on")
+
+# Show pre-seeded test seller accounts on login page
+SHOW_DEMO_ACCOUNTS = os.environ.get("SHOW_DEMO_ACCOUNTS", "True").strip().lower() in ("1", "true", "yes", "on")
+

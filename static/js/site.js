@@ -48,6 +48,7 @@
   const mobileToggle = document.querySelector('.mobile-menu-btn');
   const navMenu = document.querySelector('#main-nav-menu');
   const landingBackdrop = document.querySelector('#landing-menu-backdrop');
+  const drawerCloseBtn = document.querySelector('#mobile-drawer-close-btn');
 
   const closeLandingMenu = () => {
     mobileToggle?.setAttribute('aria-expanded', 'false');
@@ -73,11 +74,39 @@
     }
   });
 
+  drawerCloseBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeLandingMenu();
+  });
+
   landingBackdrop?.addEventListener('click', closeLandingMenu);
 
   navMenu?.querySelectorAll('a').forEach((link) => {
     link.addEventListener('click', closeLandingMenu);
   });
+
+  // Scroll Reveal Animations via IntersectionObserver
+  const revealElements = document.querySelectorAll('.reveal-on-scroll');
+  if (revealElements.length > 0) {
+    if ('IntersectionObserver' in window) {
+      const revealObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, {
+        root: null,
+        rootMargin: '0px 0px -50px 0px',
+        threshold: 0.08
+      });
+
+      revealElements.forEach((el) => revealObserver.observe(el));
+    } else {
+      revealElements.forEach((el) => el.classList.add('is-visible'));
+    }
+  }
 
   // Interactive Hero Search Pill Simulation
   const heroForm = document.querySelector('#hero-search-form');

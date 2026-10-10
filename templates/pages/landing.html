@@ -26,25 +26,78 @@
     </a>
 
     <ul class="nav-menu" id="main-nav-menu">
-      <li><a class="nav-link" href="#روش-کار">روش کار</a></li>
-      <li><a class="nav-link" href="#فرصت-ها">فرصت هوشمند</a></li>
-      <li><a class="nav-link" href="#هوش-محصول">هوش محصول</a></li>
-      <li><a class="nav-link" href="#مسیر-ایجنت">معماری ایجنت</a></li>
-      <li><a class="nav-link" href="#منابع">کانال‌ها</a></li>
+      <!-- Mobile-only Drawer Header -->
+      <li class="mobile-drawer-header">
+        <div class="mobile-drawer-title-wrap">
+          <span class="mobile-drawer-badge">منوی دسترسی سریع</span>
+        </div>
+        <button class="mobile-drawer-close-btn" id="mobile-drawer-close-btn" type="button" aria-label="بستن منو" title="بستن منو">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.2" fill="none">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </li>
+
+      <li class="mobile-nav-item">
+        <a class="nav-link" href="#روش-کار">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          </span>
+          <span class="nav-link-text">روش کار</span>
+          <span class="nav-link-arrow" aria-hidden="true">←</span>
+        </a>
+      </li>
+      <li class="mobile-nav-item">
+        <a class="nav-link" href="#فرصت-ها">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          </span>
+          <span class="nav-link-text">فرصت‌های هوشمند</span>
+          <span class="nav-link-arrow" aria-hidden="true">←</span>
+        </a>
+      </li>
+      <li class="mobile-nav-item">
+        <a class="nav-link" href="#هوش-محصول">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          </span>
+          <span class="nav-link-text">هوش کاتالوگ محصول</span>
+          <span class="nav-link-arrow" aria-hidden="true">←</span>
+        </a>
+      </li>
+      <li class="mobile-nav-item">
+        <a class="nav-link" href="#مسیر-ایجنت">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+          </span>
+          <span class="nav-link-text">معماری خط لوله ایجنت</span>
+          <span class="nav-link-arrow" aria-hidden="true">←</span>
+        </a>
+      </li>
+      <li class="mobile-nav-item">
+        <a class="nav-link" href="#منابع">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </span>
+          <span class="nav-link-text">کانال‌ها و منابع پایش</span>
+          <span class="nav-link-arrow" aria-hidden="true">←</span>
+        </a>
+      </li>
 
       <!-- Mobile-only Auth Links inside Drawer -->
       <li class="mobile-drawer-auth-item">
         {% if user.is_authenticated %}
-          <a class="nav-cta-btn" href="{% url 'accounts:dashboard' %}" style="width: 100%; justify-content: center;">
+          <a class="nav-cta-btn" href="{% url 'accounts:dashboard' %}" style="width: 100%; justify-content: center; min-height: 46px;">
             <span>ورود به پیشخوان کاربری</span>
             <span aria-hidden="true">←</span>
           </a>
         {% else %}
           <div class="mobile-drawer-auth-group">
-            <a class="nav-login-btn" href="{% url 'accounts:login' %}" style="flex: 1; text-align: center; justify-content: center;">
+            <a class="nav-login-btn" href="{% url 'accounts:login' %}" style="flex: 1; text-align: center; justify-content: center; min-height: 46px;">
               ورود به حساب
             </a>
-            <a class="nav-cta-btn" href="{% url 'accounts:signup' %}" style="flex: 1.3; text-align: center; justify-content: center;">
+            <a class="nav-cta-btn" href="{% url 'accounts:signup' %}" style="flex: 1.3; text-align: center; justify-content: center; min-height: 46px;">
               <span>ثبت‌نام و شروع</span>
               <span aria-hidden="true">←</span>
             </a>
@@ -173,7 +226,7 @@
        Section: 4 Circular Step Badges with Radiant Glowing Halo
        Directly Recreating the Reference Image
        ========================================================================== -->
-  <section class="section-steps" id="روش-کار">
+  <section class="section-steps reveal-on-scroll" id="روش-کار">
     <div class="section-tag">
       <span class="console-pulse-beacon" style="display: inline-block; width: 6px; height: 6px;"></span>
       <span>مسیر ساده و هوشمند</span>
@@ -255,7 +308,7 @@
        Section: Realistic Qualified Opportunity Lead Card
        Live Demonstration of Agent Analysis & Opportunity Score
        ========================================================================== -->
-  <section class="section-opportunity" id="فرصت-ها">
+  <section class="section-opportunity reveal-on-scroll" id="فرصت-ها">
     <div class="opportunity-container">
       <div class="opportunity-info">
         <div class="opportunity-intro-tag">
@@ -419,7 +472,7 @@
   <!-- ==========================================================================
        Section: Product Intelligence & Hierarchical Taxonomy
        ========================================================================== -->
-  <section class="section-intelligence" id="هوش-محصول">
+  <section class="section-intelligence reveal-on-scroll" id="هوش-محصول">
     <div class="intelligence-grid">
       <div class="intelligence-copy">
         <div class="section-tag">
@@ -491,7 +544,7 @@
   <!-- ==========================================================================
        Section: Agent Workflow Pipeline (LangGraph)
        ========================================================================== -->
-  <section class="section-pipeline" id="مسیر-ایجنت">
+  <section class="section-pipeline reveal-on-scroll" id="مسیر-ایجنت">
     <div style="text-align: center;">
       <div class="section-tag">
         <span>معماری LangGraph</span>
@@ -566,7 +619,7 @@
   <!-- ==========================================================================
        Section: Multi-Source Channels
        ========================================================================== -->
-  <section class="section-sources" id="منابع">
+  <section class="section-sources reveal-on-scroll" id="منابع">
     <div class="sources-inner">
       <div class="section-tag">
         <span>کانال‌های پشتیبانی‌شده</span>
@@ -608,13 +661,6 @@
           <p class="source-desc">پایش آگهی‌های تقاضا و درخواست خرید کاربران در شهر و محدوده جغرافیایی هدف شما.</p>
           <span class="source-badge">کشف تقاضای محلی و شهری</span>
         </div>
-
-        <div class="source-channel-card">
-          <div class="source-icon-wrap icon-divar">د</div>
-          <h3 class="source-name">دیوار</h3>
-          <p class="source-desc">پایش آگهی‌های تقاضا و درخواست خرید کاربران در شهر و محدوده جغرافیایی هدف شما.</p>
-          <span class="source-badge">کشف تقاضای محلی و شهری</span>
-        </div>
       </div>
     </div>
   </section>
@@ -622,7 +668,7 @@
   <!-- ==========================================================================
        Section: Conversion CTA (Cosmic Card)
        ========================================================================== -->
-  <section class="section-cta-wrap">
+  <section class="section-cta-wrap reveal-on-scroll">
     <div class="cta-cosmic-card">
       <div class="cta-content">
         <h2 class="cta-heading">

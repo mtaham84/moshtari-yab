@@ -25,11 +25,11 @@
     </p>
   </div>
 
-  <div class="p-header-actions" style="display: flex; align-items: center; gap: 10px;">
+  <div class="p-header-actions" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
     <!-- Excel Export Action Button -->
     <a href="{% url 'discovery:opportunity_export' %}?{{ export_query_string }}" 
        class="p-btn p-btn-secondary" 
-       style="background: rgba(16, 185, 129, 0.12); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 600; padding: 9px 18px; display: inline-flex; align-items: center; gap: 8px;"
+       style="background: rgba(16, 185, 129, 0.12); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700; padding: 9px 18px; display: inline-flex; align-items: center; gap: 8px; border-radius: 10px;"
        title="دانلود فایل خروجی سازگار با اکسل (با حفظ تمام فیلترهای فعال و کدگذاری فارسی UTF-8)">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -37,7 +37,7 @@
         <line x1="12" y1="15" x2="12" y2="3"></line>
       </svg>
       <span>خروجی اکسل (Excel .csv)</span>
-      <span style="background: rgba(16, 185, 129, 0.25); padding: 1px 7px; border-radius: 12px; font-size: 0.75rem;">{{ stats.filtered_count }} ردیف</span>
+      <span style="background: rgba(16, 185, 129, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">{{ stats.filtered_count }} ردیف</span>
     </a>
   </div>
 </div>

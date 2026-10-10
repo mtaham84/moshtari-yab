@@ -228,97 +228,11 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Created {len(saved_coffee_prods)} products for Coffee Business."))
 
-        # -------------------------------------------------------------
-        # 6 Coffee Telegram Leads & Opportunities
-        # -------------------------------------------------------------
-        coffee_leads_data = [
-            ("امیرحسین رضایی", "amir_espresso", "۰۹۱۲۳۴۵۶۷۸۱",
-             "سلام بچه‌ها، برای یه کافه بیرون‌بر با روزی ۱۰۰ تا شات، اسپرسوساز دوگروپ صنعتی ایتالیایی چی خوبه؟ سن‌رمو زوئی یا چیمبالی؟ بودجه تا ۲۵۰ تومن دارم.",
-             "خرید دستگاه اسپرسوساز صنعتی ۲ گروپ ایتالیایی با بویلر ۱۰ لیتری برای کافه تیک‌اوی",
-             "اسپرسوساز صنعتی سن‌رمو زوئی ۲ گروپ (Sanremo Zoe)", 0.94, 0.96,
-             "نیاز کاربر دقیقاً دستگاه صنعتی ۲ گروپ تا سقف ۲۵۰ میلیون با بویلر بالاست که سن‌رمو زوئی بهترین انطباق فنی و بودجه‌ای را دارد.",
-             "درود بر شما امیرحسین عزیز؛ دستگاه سن‌رمو زوئی ۲ گروپ تال‌کاپ با بویلر ۱۰ لیتری و توان بالا بهترین گزینه برای ترافیک ۱۰۰ شات به بالا است و دقیقاً در بازه ۲۴۵ میلیون تقدیمتون میشه. تمایل دارید پیش‌فاکتور رسمی و مشخصات فنی براتون ارسال بشه؟"),
+        # Zero fake leads: real crawler & need_engine only
+        Opportunity.objects.filter(business=biz_coffee).delete()
+        Customer.objects.filter(business=biz_coffee).delete()
+        self.stdout.write(self.style.SUCCESS("Coffee seller catalog ready (0 fake leads, waiting for live crawler opportunities)."))
 
-            ("نیما کافئین", "nima_coffeelover", "۰۹۳۵۱۲۳۴۵۶۷",
-             "دنبال یه آسیاب دستی خیلی باکیفیتم واسه دم‌آوری وی۶۰ و کمکس. تیغه استیل باشه و یکنواخت آسیاب کنه زیر ۴ میلیون چی پیشنهاد میدین؟",
-             "خرید آسیاب قهوه دستی تیغه استیل مخصوص قهوه دمی تا بودجه ۴ میلیون تومان",
-             "آسیاب قهوه دستی تایم‌مور مدل C3 (Timemore C3)", 0.91, 0.95,
-             "بودجه کاربر زیر ۴ میلیون تومان و هدف قهوه دمی است؛ تایم‌مور C3 با تیغه S2C فولادی و قیمت ۳.۸ میلیون تطابق بی‌نقص دارد.",
-             "سلام وقت‌بخیر نیما جان؛ آسیاب دستی تایم‌مور مدل C3 با تیغه‌های استیل ۳۸ میلی‌متری S2C دقیق‌ترین سابش رو برای وی۶۰ میده و با قیمت ۳.۸۰۰ موجود داریم. همراه با ارسال فوری تقدیمتون کنیم؟"),
-
-            ("مهندس سهرابی", "sohrabi_office", None,
-             "برای دفتر شرکتمون (حدود ۱۵ نفر) یه اسپرسوساز بادوام و جون‌دار میخوایم که روزی ۱۵ تا ۲۰ شات قهوه بده و خامه غلیظ داشته باشه. نووا یا دلونگی بهتره؟",
-             "خرید اسپرسوساز نیمه‌صنعتی اداری با خروجی ۲۰ شات روزانه و کرما غلیظ",
-             "اسپرسوساز نووا مدل ۱۴۹ (Nova 149)", 0.88, 0.92,
-             "نووا ۱۴۹ با پمپ ۱۵ بار اولکا ایتالیا و توان ۱۰۵۰ وات تحمل بار ۲۰ شات روزانه در دفتر کار را با قیمت ۶.۴ میلیون به بهترین شکل دارد.",
-             "سلام مهندس سهرابی عزیز؛ برای مصرف اداری ۱۵ تا ۲۰ شات، نووا ۱۴۹ به خاطر پمپ صنعتی اولکا و بدنه تمام استیل بسیار بادوام‌تره و خامه عالی میده. برای مشاوره ارسال در خدمتیم."),
-
-            ("سارا باریستا", "sara_latteart", "۰۹۱۲۰۹۸۷۶۵۴",
-             "سلام دوستان، پیچر لاته آرت حرفه‌ای با دهانه تیز برای طرح رزتا و سوان چی کار کردین؟ جنس استیل سنگین میخوام.",
-             "خرید پیچر لاته آرت حرفه‌ای استیل سنگین با دهانه نوک‌تیز کشیده",
-             "پیچر لاته آرت موتا مدل اروپا ۵۰۰ میلی‌لیتر (Motta Europa)", 0.89, 0.94,
-             "پیچر موتا اروپا اصل ایتالیا با استیل ۱۸/۱۰ سنگین و دهانه ارگونومیک، استاندارد جهانی مسابقات لاته آرت است.",
-             "سلام سارا جان؛ پیچر موتا اروپا اصل ایتالیا سایز ۵۰۰ میل با استیل ضخیم ۱۸/۱۰ و دهانه کشیده دقیقاً ساخته شده برای طرح‌های ظریف مثل رزتا و سوان. با ضمانت اصالت فیزیکی موجود داریم."),
-
-            ("حمید کافه‌دار", "hamid_roast", None,
-             "دان قهوه با کرمای فوق‌العاده بالا و کافئین سنگین می‌خوام برای اسپرسو بیرون‌بر، ترکیب ۷۰ ۳۰ روبوستا یا ۸۰ ۲۰ قیمت عمده چنده؟",
-             "تامین دان قهوه پرکافئین و پرکرما ۷۰/۳۰ روبوستا برای مصرف کافه بیرون‌بر",
-             "دان قهوه ترکیبی ۷۰٪ روبوستا ۳۰٪ عربیکا بارستا کرما (۱ کیلو)", 0.92, 0.95,
-             "مشتری دقیقاً بلند ۷۰/۳۰ روبوستا پرکافئین با کرمای ضخیم می‌خواهد که محصول بارستا کرما یک کیلویی تطابق ۱۰۰٪ دارد.",
-             "درود حمید عزیز؛ بلند ۷۰/۳۰ بارستا کرما با روبوستای مرغوب اوگاندا و کرمای فندقی ضخیم دقیقاً برای کافه‌های تیک‌اوی با تخفیف حجمی کیلویی ۷۵۰ تومن موجوده. نمونه تستی ارسال کنیم؟"),
-
-            ("پرهام قهوه‌نوش", "parham_v60", "۰۹۳۰۴۴۴۵۵۶۶",
-             "یه قهوه تخصصی اتیوپی با عطر گلی و طعم مرکباتی تازه رست می‌خوام برای دم‌آوری صبحگاهی چی دارین؟",
-             "خرید دان قهوه تخصصی اسپشالتی اتیوپی با نوت طعمی یاسمن و مرکبات",
-             "دان قهوه تخصصی اتیوپی یرگاچف ۲۵۰ گرمی (موج سوم)", 0.86, 0.97,
-             "محصول اتیوپی یرگاچف تخصصی با نوت یاسمن و لیمو دقیقاً خواسته طعمی خریدار را پوشش می‌دهد.",
-             "سلام پرهام عزیز؛ قهوه تخصصی اتیوپی یرگاچف ما با رست مدیوم‌لایت تازه هفته جاری، سرشار از عطر گل یاس و طعم‌یاد لیمو ترش تازه است. مایلید براتون ثبت سفارش بشه؟")
-        ]
-
-        for name, user_h, phone, raw_msg, need, p_match_name, intent, fit, why, reply in coffee_leads_data:
-            cust, _ = Customer.objects.get_or_create(
-                business=biz_coffee,
-                source_platform="telegram",
-                source_username=user_h,
-                defaults={"name": name, "phone_number": phone}
-            )
-            matched_prod = next((p for p in saved_coffee_prods if p.name == p_match_name), saved_coffee_prods[0])
-            opp, _ = Opportunity.objects.update_or_create(
-                business=biz_coffee,
-                customer=cust,
-                source_platform="telegram",
-                defaults={
-                    "source_raw_message": raw_msg,
-                    "normalized_message": raw_msg,
-                    "category": matched_prod.category,
-                    "category_name_snapshot": matched_prod.category.get_full_path(),
-                    "category_confidence": fit,
-                    "status": "QUALIFIED" if intent >= 0.85 else "NEW",
-                    "source_message_timestamp": timezone.now() - timedelta(hours=random.randint(1, 48)),
-                }
-            )
-            AIAnalysis.objects.update_or_create(
-                opportunity=opp,
-                defaults={
-                    "need": need,
-                    "intent_score": intent,
-                    "product_fit_score": fit,
-                    "confidence": 0.92,
-                    "why_selected": why,
-                    "suggested_reply": reply,
-                    "cost_toman": random.randint(4, 9),
-                    "tokens_used": random.randint(350, 680),
-                }
-            )
-            OpportunityProductMatch.objects.update_or_create(
-                opportunity=opp,
-                product=matched_prod,
-                defaults={
-                    "match_score": fit,
-                    "rank": 1,
-                    "recommendation_reason": why,
-                }
-            )
 
         # =============================================================
         # BUSINESS 2: Paytakht Stock Laptops (دیجیتال استوک پایتخت)
@@ -514,96 +428,17 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Created {len(saved_digi_prods)} products for Digital Business."))
 
-        # -------------------------------------------------------------
-        # 6 Digital Telegram Leads & Opportunities
-        # -------------------------------------------------------------
-        digital_leads_data = [
-            ("سینا برنامه‌نویس", "sina_dev_py", "۰۹۳۸۱۱۱۱۲۲۳",
-             "سلام بچه‌ها، برای توسعه جنگو و داکر یه تینک‌پد استوک تمیز میخوام رم ۱۶ یا ۳۲ بشه، سی‌پی‌یو نسل ۸ به بالا. تی۴۸۰ کسی سراغ داره تا ۲۵ تومن؟",
-             "خرید لپ‌تاپ استوک لنوو تینک‌پد T480 با رم ۱۶ تا ۳۲ گیگ برای برنامه‌نویسی تا بودجه ۲۵ میلیون",
-             "لپ‌تاپ لنوو تینک‌پد T480 (ThinkPad T480)", 0.95, 0.98,
-             "درخواست کاربر دقیقاً تینک‌پد T480 با رم ۱۶ و سقف بودجه ۲۵ میلیون است که محصول ما با قیمت ۲۳.۵ میلیون بهترین تطابق کامل را دارد.",
-             "سلام سینا جان؛ لپ‌تاپ ThinkPad T480 با مشخصات Core i7 8650U، رم ۱۶ گیگ (قابل ارتقا به ۳۲) و اس‌اس‌دی ۵۱۲ گیگ کاملاً گرید A++ استوک اروپا با ۲۳.۵۰۰ موجوده. همراه با مهلت تست یک هفته‌ای تقدیم میشه."),
+        # Zero fake leads: real crawler & need_engine only
+        Opportunity.objects.filter(business=biz_digi).delete()
+        Customer.objects.filter(business=biz_digi).delete()
+        self.stdout.write(self.style.SUCCESS("Digital seller catalog ready (0 fake leads, waiting for live crawler opportunities)."))
 
-            ("فرزاد طراح", "farzad_uiux", "۰۹۱۲۷۷۷۸۸۹۹",
-             "دنبال یه مانیتور ۲۷ اینچ دل 4K هستم که خروجی تایپ‌سی با شارژ لپ‌تاپ داشته باشه و رنگ‌هاش واقعی باشه برای فیگما. تا ۲۵ میلیون چی دارین؟",
-             "خرید مانیتور ۲۷ اینچ دل اولتراشارپ 4K با پورت Type-C شارژ لپ‌تاپ برای طراحی UI/UX",
-             "مانیتور ۲۷ اینچ دل اولتراشارپ 4K مدل U2720Q", 0.93, 0.96,
-             "دل U2720Q دارای پنل 4K با ۹۵٪ DCI-P3 و پورت تایپ‌سی ۹۰ وات است که دقیقاً با نیاز طراح همخوانی دارد.",
-             "درود فرزاد عزیز؛ مانیتور دل U2720Q اولتراشارپ ۲۷ اینچ 4K با پنل کالیبره رنگی ۹۵٪ DCI-P3 و شارژر ۹۰ وات تایپ‌سی دقیقاً با بودجه ۲۲.۵ میلیون موجوده. مشخصات و عکس‌های دستگاه رو بفرستم خدمتتون؟"),
+        self.stdout.write(self.style.SUCCESS(
+            "\n" + "="*70 + "\n"
+            "SUCCESS: Both demo seller accounts seeded with rich real products!\n"
+            "1. Coffee Equipment: barista@peyda.ir / Barista_2026_Demo! (25 products)\n"
+            "2. Digital Laptops:   digital@peyda.ir / Digital_2026_Demo! (25 products)\n"
+            "Zero synthetic leads generated — ready for real crawler/need_engine discovery.\n"
+            + "="*70
+        ))
 
-            ("آرمین گیمر", "armin_gamer99", None,
-             "لپ‌تاپ گیمینگ استوک تا ۵۵ تومن که گرافیکش حداقل RTX 3060 باشه برای وارزون و رندر پریمیر چی پیشنهاد میدین؟ خنک‌کنندگیش مهمه داغ نکنه.",
-             "خرید لپ‌تاپ گیمینگ با کارت گرافیک RTX 3060 برای بازی و تدوین تا سقف ۵۵ میلیون",
-             "لپ‌تاپ لنوو لژیون ۵ (Lenovo Legion 5)", 0.91, 0.94,
-             "لژیون ۵ با پردازنده ۸ هسته‌ای رایزن ۷ و گرافیک ۱۳۰ واتی ۳۰۶۰ و خنک‌کننده کول‌فرانت بهترین گزینه است.",
-             "سلام آرمین عزیز؛ لنوو لژیون ۵ با پردازنده Ryzen 7 5800H، رم ۳۲ و کارت گرافیک کامل ۱۳۰ واتی RTX 3060 و صفحه ۱۶۵ هرتز با خنک‌کنندگی عالی موجوده. مایلید شرایط اقساط یا تست رو براتون بفرستیم؟"),
-
-            ("دکتر مهدوی", "dr_mahdavi_res", "۰۹۱۵۳۳۳۲۲۱۱",
-             "یه لپ‌تاپ خیلی سبک و باکلاس میخوام برای پرزنت و سفر که باتریش عالی نگه داره و سنگین نباشه، مک‌بوک یا سرفیس تا ۴۵ تومن.",
-             "خرید اولترابوک سبک و مدیریتی با باتری پرظرفیت برای مسافرت کاری تا ۴۵ میلیون",
-             "مک‌بوک ایر اپل M1 استوک گرید A++ (MacBook Air M1)", 0.87, 0.93,
-             "مک‌بوک ایر M1 با ۱.۲۹ کیلوگرم وزن و ۱۸ ساعت نگهداری شارژ و گرید A++ تمیز خواسته مشتری را کاملاً پوشش می‌دهد.",
-             "سلام دکتر مهدوی گرامی؛ مک‌بوک ایر اپل چیپ M1 استوک با سایکل باتری زیر ۵۰، وزن ۱.۲۹ کیلوگرم و شارژدهی ۱۸ ساعته در وضعیت بسیار تمیز بدون کوچکترین خط و خش با قیمت ۴۶.۵ میلیون موجوده."),
-
-            ("مهندس کاظمی", "kazemi_network", None,
-             "داک استیشن تاندربولت دل مدل WD19 برای وصل کردن دو تا مانیتور دیسپلی‌پورت به لپ‌تاپ کسی موجود داره؟ آداپتور اصلیش حتما باشه.",
-             "خرید داک‌استیشن دل WD19 تایپ‌سی به همراه آداپتور اصلی برای ستاپ چند مانیتوره",
-             "داک‌استیشن دل مدل WD19 تاندربولت تایپ‌سی ۱۳۰ وات", 0.90, 0.97,
-             "محصول داک دل WD19 با آداپتور ۱۳۰ وات دقیقاً همان قطعه درخواستی با تطابق کامل است.",
-             "درود مهندس کاظمی؛ داک اورجینال دل WD19 با پورت‌های دوگانه DisplayPort، خروجی HDMI و آداپتور اصلی ۱۳۰ واتی با قیمت ۵.۸۰۰ موجوده. تست شده و همراه با گارانتی تقدیمتون میشه."),
-
-            ("شایان تدوین", "shayan_editor", "۰۹۳۶۸۸۸۴۴۲۲",
-             "یه مانیتور استوک ۲۴ اینچ دل پایه آسانسوری با چرخش عمودی برای کدنویسی و نمایشگر کمکی میخوام تا ۷ تومن چی دارین؟",
-             "خرید مانیتور استوک ۲۴ اینچ دل با قابلیت چرخش ۹۰ درجه عمودی و پایه آسانسوری تا ۷ میلیون",
-             "مانیتور ۲۴ اینچ دل مدل P2419H بدون فریم استوک", 0.94, 0.98,
-             "مانیتور دل P2419H دقیقاً ۲۴ اینچ، با پایه آسانسوری و پیوت ۹۰ درجه و قیمت ۶.۹ میلیون تومان انطباق ۱۰۰٪ با بودجه و نیاز دارد.",
-             "سلام شایان عزیز؛ مانیتور دل P2419H استوک گرید A++ فریم لس با پنل IPS فول اچ‌دی و پایه آسانسوری چرخشی دقیقاً با قیمت ۶.۹۰۰ موجوده. تمایل دارید عکس‌های پایه‌اش رو ارسال کنم؟")
-        ]
-
-        for name, user_h, phone, raw_msg, need, p_match_name, intent, fit, why, reply in digital_leads_data:
-            cust, _ = Customer.objects.get_or_create(
-                business=biz_digi,
-                source_platform="telegram",
-                source_username=user_h,
-                defaults={"name": name, "phone_number": phone}
-            )
-            matched_prod = next((p for p in saved_digi_prods if p.name == p_match_name), saved_digi_prods[0])
-            opp, _ = Opportunity.objects.update_or_create(
-                business=biz_digi,
-                customer=cust,
-                source_platform="telegram",
-                defaults={
-                    "source_raw_message": raw_msg,
-                    "normalized_message": raw_msg,
-                    "category": matched_prod.category,
-                    "category_name_snapshot": matched_prod.category.get_full_path(),
-                    "category_confidence": fit,
-                    "status": "QUALIFIED" if intent >= 0.85 else "NEW",
-                    "source_message_timestamp": timezone.now() - timedelta(hours=random.randint(1, 48)),
-                }
-            )
-            AIAnalysis.objects.update_or_create(
-                opportunity=opp,
-                defaults={
-                    "need": need,
-                    "intent_score": intent,
-                    "product_fit_score": fit,
-                    "confidence": 0.94,
-                    "why_selected": why,
-                    "suggested_reply": reply,
-                    "cost_toman": random.randint(4, 9),
-                    "tokens_used": random.randint(350, 680),
-                }
-            )
-            OpportunityProductMatch.objects.update_or_create(
-                opportunity=opp,
-                product=matched_prod,
-                defaults={
-                    "match_score": fit,
-                    "rank": 1,
-                    "recommendation_reason": why,
-                }
-            )
-
-        self.stdout.write(self.style.SUCCESS("All demo businesses, products, and leads seeded successfully!"))

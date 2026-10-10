@@ -399,8 +399,11 @@ input, textarea, select {
   background: rgba(255, 255, 255, 0.16);
 }
 
+.mobile-drawer-header,
+.nav-link-icon,
+.nav-link-arrow,
 .mobile-drawer-auth-item {
-  display: none;
+  display: none !important;
 }
 
 /* Mobile Drawer Backdrop */
@@ -408,14 +411,15 @@ input, textarea, select {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  z-index: 999;
+  background: rgba(4, 6, 16, 0.85);
+  z-index: 9998;
+  opacity: 0;
+  transition: opacity 0.22s ease;
 }
 
 .landing-menu-backdrop.is-active {
   display: block;
+  opacity: 1;
 }
 
 /* ==========================================================================
@@ -1621,50 +1625,142 @@ input, textarea, select {
   .nav-menu {
     display: none;
     position: fixed;
-    top: 68px;
+    top: 14px;
     right: 12px;
     left: 12px;
-    background: rgba(11, 13, 28, 0.96);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    max-height: calc(100vh - 28px);
+    overflow-y: auto;
+    background: #0d1024;
+    border: 1px solid rgba(168, 85, 247, 0.45);
     border-radius: 20px;
-    padding: 20px 16px;
+    padding: 16px;
     flex-direction: column;
-    gap: 6px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
-    z-index: 1000;
+    gap: 8px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95), 0 0 24px rgba(168, 85, 247, 0.2);
+    z-index: 9999;
     list-style: none;
+    -webkit-overflow-scrolling: touch;
   }
 
   .nav-menu.is-open {
     display: flex !important;
-    animation: drawerFadeDown 0.22s ease-out forwards;
+    animation: drawerFadeSlide 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* Drawer Header */
+  .mobile-drawer-header {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .mobile-drawer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    color: #c084fc;
+    font-size: 0.82rem;
+    font-weight: 750;
+  }
+
+  .mobile-drawer-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+    padding: 0;
+  }
+
+  .mobile-drawer-close-btn:active {
+    transform: scale(0.92);
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #f87171;
+  }
+
+  /* Navigation Link Cards */
+  .mobile-nav-item {
+    display: block;
+    width: 100%;
   }
 
   .nav-menu .nav-link {
-    display: block;
-    padding: 10px 14px;
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    min-height: 48px;
     border-radius: 12px;
-    font-size: 0.92rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
-    transition: background 0.15s ease;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #ffffff !important;
+    text-decoration: none;
+    transition: all 0.18s ease;
   }
 
-  .nav-menu .nav-link:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
+  .nav-link-icon {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(168, 85, 247, 0.18);
+    color: #c084fc;
+    flex-shrink: 0;
+  }
+
+  .nav-link-text {
+    flex: 1;
+    text-align: right;
+  }
+
+  .nav-link-arrow {
+    display: block !important;
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.5);
+    transition: transform 0.18s, color 0.18s;
+  }
+
+  .nav-menu .nav-link:hover,
+  .nav-menu .nav-link:active {
+    background: rgba(168, 85, 247, 0.18);
+    border-color: rgba(168, 85, 247, 0.5);
+    color: #ffffff !important;
+    transform: translateX(-3px);
+  }
+
+  .nav-menu .nav-link:hover .nav-link-arrow,
+  .nav-menu .nav-link:active .nav-link-arrow {
+    color: #c084fc;
+    transform: translateX(-4px);
   }
 
   .nav-menu .nav-link::after {
-    display: none;
+    display: none !important;
   }
 
   .mobile-drawer-auth-item {
     display: block !important;
-    margin-top: 10px;
-    padding-top: 12px;
+    margin-top: 8px;
+    padding-top: 14px;
     border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
 
@@ -1676,8 +1772,10 @@ input, textarea, select {
 
   .mobile-drawer-auth-group .nav-login-btn,
   .mobile-drawer-auth-group .nav-cta-btn {
-    min-height: 42px;
-    font-size: 0.88rem;
+    min-height: 46px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    border-radius: 12px;
   }
 
   /* Compact Navbar Actions Row */
@@ -1861,6 +1959,17 @@ input, textarea, select {
   }
 }
 
+@keyframes drawerFadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes drawerFadeDown {
   from {
     opacity: 0;
@@ -1869,6 +1978,75 @@ input, textarea, select {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Hero Entrance & Scroll Reveal Smooth Transitions
+   Snappy & elegant (~0.45s) - Never feels like network lag
+   ========================================================================== */
+@keyframes heroEntranceFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-body .hero-badge {
+  animation: heroEntranceFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+}
+
+.hero-body .hero-title {
+  animation: heroEntranceFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.10s both;
+}
+
+.hero-body .hero-desc {
+  animation: heroEntranceFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+}
+
+.hero-body .hero-search-capsule {
+  animation: heroEntranceFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.20s both;
+}
+
+.hero-body .hero-aux-actions {
+  animation: heroEntranceFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
+}
+
+.hero-body .hero-visual {
+  animation: heroEntranceFadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both;
+}
+
+/* Scroll Reveal Animations */
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-body .hero-badge,
+  .hero-body .hero-title,
+  .hero-body .hero-desc,
+  .hero-body .hero-search-capsule,
+  .hero-body .hero-aux-actions,
+  .hero-body .hero-visual {
+    animation: none !important;
+  }
+
+  .reveal-on-scroll {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
   }
 }
 

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سامانه پیدا (Peyda) | مستندات رسمی، اسلایدها و گزارش فنی</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800;900&display=swap");
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Vazirmatn", Tahoma, sans-serif;
+    background: #090d16;
+    color: #f1f5f9;
+    padding: 24px;
+    line-height: 1.6;
+  }
+  .header { text-align: center; max-width: 950px; margin: 0 auto 24px auto; }
+  .brand-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    color: white;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 800;
+    margin-bottom: 12px;
+  }
+  h1 { font-size: 2rem; font-weight: 900; margin-bottom: 8px; color: #ffffff; }
+  p.sub { font-size: 0.95rem; color: #94a3b8; }
+  .tabs { display: flex; justify-content: center; gap: 12px; margin: 20px 0; flex-wrap: wrap; }
+  .tab-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    padding: 10px 22px;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tab-btn.active {
+    background: #6366f1;
+    color: white;
+    border-color: #818cf8;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+  }
+  .download-bar { display: flex; justify-content: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+  .dl-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid #10b981;
+    color: #34d399;
+    padding: 8px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 700;
+    transition: all 0.2s;
+  }
+  .dl-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .gallery { display: flex; flex-direction: column; gap: 24px; max-width: 1100px; margin: 0 auto; }
+  .slide-card {
+    background: #131b2e;
+    border: 1px solid #1e293b;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .slide-card-header {
+    padding: 12px 18px;
+    background: #1a233a;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #cbd5e1;
+    border-bottom: 1px solid #2d3748;
+  }
+  .slide-card img { width: 100%; height: auto; display: block; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="brand-badge">پیدا (Peyda) • مسابقه هوش مصنوعی کوئرا</div>
+  <h1>مشاهده بصری مستندات رسمی، اسلایدها و گزارش فنی</h1>
+  <p class="sub">تمامی صفحات و اسناد به صورت تصاویر باکیفیت و بدون نیاز به دانلود در این گالری آفلاین قابل بررسی و مرور هستند.</p>
+</div>
+
+<div class="download-bar">
+  <a href="peyda_technical_documentation.pdf" download class="dl-btn" style="border-color:#6366f1; color:#818cf8; background:rgba(99,102,241,0.18)">⬇️ دانلود PDF مستندات فنی کوئرا (A4 - ۱۰ صفحه)</a>
+  <a href="peyda_pitch_deck.pdf" download class="dl-btn">⬇️ دانلود PDF ارائه سرمایه‌گذار (۱۶:۹ - ۱۴ اسلاید)</a>
+  <a href="peyda_business_plan.pdf" download class="dl-btn">⬇️ دانلود PDF طرح تجاری رسمی (A4 - ۶ صفحه)</a>
+  <a href="technical_documentation.md" class="dl-btn" style="border-color:#38bdf8; color:#38bdf8; background:rgba(56,189,248,0.15)">📖 سورس Markdown مستندات</a>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('tech')">🛠️ مستندات فنی کوئرا (۱۰ صفحه)</button>
+  <button class="tab-btn" onclick="switchTab('pitch')">📊 اسلایدهای پیچ‌دک (۱۴ اسلاید)</button>
+  <button class="tab-btn" onclick="switchTab('bp')">📄 صفحات سند تجاری (۶ صفحه)</button>
+</div>
+
+<div id="tech-gallery" class="gallery">
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۱: جلد و مشخصات پروژه</span><span>Technical Doc #1</span></div><img src="tech_doc_pages/tech_page-01.png" alt="Tech Page 1"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۲: بیان مسئله و معماری کلان</span><span>Technical Doc #2</span></div><img src="tech_doc_pages/tech_page-02.png" alt="Tech Page 2"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۳: مدل داده و تفکیک اسکیمایی دیتابیس</span><span>Technical Doc #3</span></div><img src="tech_doc_pages/tech_page-03.png" alt="Tech Page 3"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۴: پایپ‌لاین اجرای ایجنت</span><span>Technical Doc #4</span></div><img src="tech_doc_pages/tech_page-04.png" alt="Tech Page 4"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۵: بازیابی هیبرید، فیلتر بودجه و نمره‌دهی قطعی</span><span>Technical Doc #5</span></div><img src="tech_doc_pages/tech_page-05.png" alt="Tech Page 5"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۶: نگارش پاسخ و پل همگام‌ساز بلادرنگ</span><span>Technical Doc #6</span></div><img src="tech_doc_pages/tech_page-06.png" alt="Tech Page 6"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۷: مدل‌ها، ابزارها و مهندسی پرامپت</span><span>Technical Doc #7</span></div><img src="tech_doc_pages/tech_page-07.png" alt="Tech Page 7"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۸: کلاینت MTProto تلگرام و کنترل نرخ</span><span>Technical Doc #8</span></div><img src="tech_doc_pages/tech_page-08.png" alt="Tech Page 8"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۹: راهنمای گام‌به‌گام استقرار سرور و DevOps</span><span>Technical Doc #9</span></div><img src="tech_doc_pages/tech_page-09.png" alt="Tech Page 9"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۱۰: مهندسی هزینه و جمع‌بندی داوری کوئرا</span><span>Technical Doc #10</span></div><img src="tech_doc_pages/tech_page-10.png" alt="Tech Page 10"></div>
+</div>
+
+<div id="pitch-gallery" class="gallery hidden">
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۱: معرفی و جلد</span><span>Peyda Deck #1</span></div><img src="slides/slide-01.png" alt="Slide 1"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۲: تعریف مسئله</span><span>Peyda Deck #2</span></div><img src="slides/slide-02.png" alt="Slide 2"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۳: راه‌حل هوشمند</span><span>Peyda Deck #3</span></div><img src="slides/slide-03.png" alt="Slide 3"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۴: اندازه بازار (TAM/SAM/SOM)</span><span>Peyda Deck #4</span></div><img src="slides/slide-04.png" alt="Slide 4"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۵: معماری پایپ‌لاین هوش مصنوعی</span><span>Peyda Deck #5</span></div><img src="slides/slide-05.png" alt="Slide 5"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۶: مدل درآمدی و قیمت‌گذاری کاتالوگ</span><span>Peyda Deck #6</span></div><img src="slides/slide-06.png" alt="Slide 6"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۷: ورود به بازار (GTM)</span><span>Peyda Deck #7</span></div><img src="slides/slide-07.png" alt="Slide 7"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۸: پیش‌بینی مالی ۳ ساله</span><span>Peyda Deck #8</span></div><img src="slides/slide-08.png" alt="Slide 8"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۹: تحلیل رقبا و مزیت ناعادلانه</span><span>Peyda Deck #9</span></div><img src="slides/slide-09.png" alt="Slide 9"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۱۰: تیم کلیدی و سوابق</span><span>Peyda Deck #10</span></div><img src="slides/slide-10.png" alt="Slide 10"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۱۱: درخواست سرمایه ۳ میلیاردی</span><span>Peyda Deck #11</span></div><img src="slides/slide-11.png" alt="Slide 11"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۱۲: تفکیک بودجه ۱.۸ میلیاردی مارکتینگ</span><span>Peyda Deck #12</span></div><img src="slides/slide-12.png" alt="Slide 12"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۱۳: نقشه راه توسعه و شاخص‌های کلیدی</span><span>Peyda Deck #13</span></div><img src="slides/slide-13.png" alt="Slide 13"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>اسلاید ۱۴: چشم‌انداز آینده و پایان</span><span>Peyda Deck #14</span></div><img src="slides/slide-14.png" alt="Slide 14"></div>
+</div>
+
+<div id="bp-gallery" class="gallery hidden">
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۱: جلد و خلاصه مدیریتی</span><span>Business Plan Page 1</span></div><img src="business_plan_pages/bp_page-1.png" alt="Page 1"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۲: تحلیل بازار و استنادات تتا و ایسپا</span><span>Business Plan Page 2</span></div><img src="business_plan_pages/bp_page-2.png" alt="Page 2"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۳: ساختار محصول و فرمول قیمت‌گذاری عادلانه</span><span>Business Plan Page 3</span></div><img src="business_plan_pages/bp_page-3.png" alt="Page 3"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۴: استراتژی بازاریابی و تخصیص بودجه ۱.۸ میلیاردی</span><span>Business Plan Page 4</span></div><img src="business_plan_pages/bp_page-4.png" alt="Page 4"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۵: پیش‌بینی صورت سود و زیان (P&L)</span><span>Business Plan Page 5</span></div><img src="business_plan_pages/bp_page-5.png" alt="Page 5"></div>
+  <div class="slide-card"><div class="slide-card-header"><span>صفحه ۶: مدیریت ریسک و جدول مراجع رسمی</span><span>Business Plan Page 6</span></div><img src="business_plan_pages/bp_page-6.png" alt="Page 6"></div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("tech-gallery").classList.add("hidden");
+  document.getElementById("pitch-gallery").classList.add("hidden");
+  document.getElementById("bp-gallery").classList.add("hidden");
+
+  if (tab === "tech") {
+    document.querySelectorAll(".tab-btn")[0].classList.add("active");
+    document.getElementById("tech-gallery").classList.remove("hidden");
+  } else if (tab === "pitch") {
+    document.querySelectorAll(".tab-btn")[1].classList.add("active");
+    document.getElementById("pitch-gallery").classList.remove("hidden");
+  } else {
+    document.querySelectorAll(".tab-btn")[2].classList.add("active");
+    document.getElementById("bp-gallery").classList.remove("hidden");
+  }
+}
+</script>
+</body>
+</html>
