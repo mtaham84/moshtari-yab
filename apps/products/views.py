@@ -565,8 +565,15 @@ def public_product_card_view(request, pk):
 def product_toggle_x_search_view(request, pk):
     """Quick on/off of the per-product X search from the product list (seller pays for it)."""
     product = get_object_or_404(Product, pk=pk, business__user=request.user)
-    product.x_search_enabled = not product.x_search_enabled
+    state = request.POST.get("state")   # explicit on/off from a switch; absent = flip
+    product.x_search_enabled = state == "on" if state in {"on", "off"} else not product.x_search_enabled
     product.save(update_fields=["x_search_enabled", "updated_at"])
-    messages.success(request, ("جستجوی X برای «%s» روشن شد." if product.x_search_enabled else "جستجوی X برای «%s» خاموش شد.") % product.name)
+    if product.x_search_enabled:
+        msg = "جستجوی مشتری در X برای «%s» روشن شد؛ از دور بعدی جستجو (چند دقیقه) نتیجه‌ها اینجا می‌آید." % product.name
+        if product.status != "ACTIVE" or not product.is_discovery_active:
+            messages.warning(request, "«%s» برای کشف فعال نیست؛ تا فعالش نکنید در X جستجو نمی‌شود." % product.name)
+        messages.success(request, msg)
+    else:
+        messages.success(request, "جستجوی مشتری در X برای «%s» خاموش شد؛ دیگر هزینه‌ای برای آن کسر نمی‌شود." % product.name)
     nxt = request.POST.get("next") or ""
     return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "products:list")

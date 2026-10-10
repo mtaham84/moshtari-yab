@@ -56,6 +56,16 @@
 {% endif %}
 
 <!-- Top Knowledge Overview Card -->
+{% if X_SELLER_UI %}
+<a href="{% url 'discovery:x_product' product.pk %}" class="p-card" style="display:flex;align-items:center;gap:14px;padding:16px 22px;margin-bottom:18px;text-decoration:none;{% if product.x_search_enabled %}border-color:var(--p-success);{% endif %}">
+  <span style="width:10px;height:10px;border-radius:50%;flex:none;background:{% if product.x_search_enabled %}var(--p-success);box-shadow:0 0 8px var(--p-success){% else %}var(--panel-text-faint){% endif %}"></span>
+  <span style="flex:1">
+    <b style="color:var(--panel-text-main)">جستجوی مشتری در X: {% if product.x_search_enabled %}روشن{% else %}خاموش{% endif %}</b>
+    <span style="display:block;font-size:.8rem;color:var(--panel-text-muted);margin-top:2px">{% if product.x_search_enabled %}ببینید چه پست‌هایی پیدا شد و کدام‌ها مشتری بودند.{% else %}کسانی را که در X دنبال این محصول می‌گردند پیدا کنید (هزینه از کیف پول).{% endif %}</span>
+  </span>
+  <span style="color:var(--obsidian-cyan);font-size:.85rem">{% if product.x_search_enabled %}گزارش ←{% else %}روشن کردن ←{% endif %}</span>
+</a>
+{% endif %}
 <div class="p-card" style="padding: 32px; margin-bottom: 24px;">
   <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap;">
     <div style="flex: 1; min-width: 300px;">

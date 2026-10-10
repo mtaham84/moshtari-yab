@@ -350,8 +350,13 @@ class XCollector:
                             collected.append(normalized)
                         capped = len(collected) >= daily_remaining   # daily cap cut this search short: keep the old window
                         if mock_records is None and (query_products.get(query) or query_sellers.get(query)):
+                            new_by_product: dict[str, int] = {}
+                            for rec in collected[new_before:]:
+                                if rec.get("product_id"):
+                                    new_by_product[rec["product_id"]] = new_by_product.get(rec["product_id"], 0) + 1
                             self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
-                                                  "business_ids": query_sellers.get(query) or []})
+                                                  "business_ids": query_sellers.get(query) or [], "fetched": fetched_count,
+                                                  "new_by_product": new_by_product, "ran_at": started_at.isoformat()})
                         self.state.record_query(query, fetched_count, len(collected) - new_before, started_at=None if capped else started_at)
                         break
                     except XCliError as exc:
@@ -476,6 +481,20 @@ def charge_searches(searches: list[dict[str, Any]], store: Any = None) -> int:
         return 0
 
 
+def record_searches(searches: list[dict[str, Any]], dsn: str | None = None) -> int:
+    """Seller activity log: each search made for a product (when, phrase, posts seen, new posts) → crawler.x_search_runs.
+    Never raises."""
+    if not searches:
+        return 0
+    try:
+        from x_ingest.__main__ import record_search_runs
+
+        return record_search_runs(searches, dsn)
+    except Exception as exc:
+        log.error("X search log not recorded: %s", exc)
+        return 0
+
+
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
         current_queries = queries() if callable(queries) else queries
@@ -486,6 +505,7 @@ def collect_forever(collector: XCollector, queries: list[str] | Callable[[], lis
             ingest_new(collector, offset)
         if mock_records is None:
             charge_searches(getattr(collector, "searches", []))
+            record_searches(getattr(collector, "searches", []))
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")
         time.sleep(interval)

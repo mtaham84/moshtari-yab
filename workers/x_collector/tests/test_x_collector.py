@@ -249,7 +249,10 @@ class XCollectorTests(unittest.TestCase):
         records = load_file(self.root / "collected" / "latest.jsonl")
         self.assertEqual(sorted(r["product_id"] for r in records), ["1", "2"])
         self.assertEqual(len({r["id"] for r in records}), 1)
-        self.assertEqual(collector.searches, [{"query": q["query"], "product_ids": ["1", "2"], "business_ids": ["7", "8"]}])
+        self.assertEqual([{k: s[k] for k in ("query", "product_ids", "business_ids", "fetched", "new_by_product")}
+                          for s in collector.searches],
+                         [{"query": q["query"], "product_ids": ["1", "2"], "business_ids": ["7", "8"], "fetched": 1,
+                           "new_by_product": {"1": 1, "2": 1}}])
         again = self.collector(FakeClient(self.fixture[:1])).run([q])
         self.assertEqual(again["collected"], 0)                        # same post × product is not collected twice
 

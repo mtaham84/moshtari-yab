@@ -609,5 +609,8 @@ def test_x_product_mode_analyses_each_product_separately_and_bills_its_seller(tm
     assert o.matched_products[0].reply_variants["public"] == "سلام، داریم"
     billed = eng.store._all("SELECT stage, business_id FROM {s}.costs WHERE stage = 'need_extraction_x_product' ORDER BY business_id")
     assert [(b["stage"], b["business_id"]) for b in billed] == [("need_extraction_x_product", "S1"), ("need_extraction_x_product", "S3")]
+    log = eng.store._all("SELECT chat_id, message_id, outcome, reason FROM {s}.x_hit_results ORDER BY chat_id")
+    assert [(r["chat_id"], r["message_id"], r["outcome"]) for r in log] == [("x:p:P1", 9001, "customer"), ("x:p:P3", 9001, "not_fit")]
+    assert log[1]["reason"] == "همین را می‌خواهد"                     # the model's fit_reason, shown to the seller
     assert eng.run_once().opportunities == []                          # nothing new, nothing re-billed
     assert len(calls) == 2

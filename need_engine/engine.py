@@ -424,7 +424,10 @@ class NeedEngine:
                 report.cost_messages_toman += toman
                 report.analysed_messages += len(w.consumed)
                 self.store.mark_analysed(chat_id, w.consumed, keep_recent=max(self.cfg.context_messages * 5, 50))
+                need_of: dict[int, NeedCard] = {}
                 for n, is_new, rematch in remember(cards, self.store, self.emb, self.cfg):
+                    for eid in n.evidence_ids:
+                        need_of[eid] = n
                     report.needs_new += int(is_new)
                     report.needs_updated += int(not is_new)
                     if rematch and n.status == "open" and STRENGTH_RANK[n.strength] >= STRENGTH_RANK[self.cfg.verify_min_strength]:
@@ -440,6 +443,8 @@ class NeedEngine:
                             log.exception("matching failed for %s", n.need_id)
                     elif n.status in ("resolved", "expired"):
                         self._close(n, report)
+                if product_x is not None:
+                    self._record_x_hits(w.new, need_of, fits)
 
     # ── X: independent public posts ─────────────────────────────────────────
     def _select_x_pending(self, pending: list[ChatMessage], report: RunReport, now: datetime,
@@ -485,6 +490,12 @@ class NeedEngine:
                 report.x_prefilter_dropped["author_throttle"] = report.x_prefilter_dropped.get("author_throttle", 0) + 1
         if self.cfg.x_prefilter == "on":
             self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
+        if keep_threads and all_ordered and all_ordered[0].chat_id.startswith(X_PRODUCT_PREFIX):
+            dropped = list(stale) if self.cfg.x_prefilter in {"shadow", "on"} else []
+            if self.cfg.x_prefilter == "on":
+                dropped += [m for m in selected if m not in kept]
+            self.store.record_x_hit_results([(m.chat_id, m.message_id, "skipped", getattr(decisions.get(m.message_id), "reason", ""), None)
+                                             for m in dropped])
         return [m for m in selected if m in kept]
 
     def _x_batches(self, windows: list, chat_id: str = "x:public") -> list:
@@ -530,6 +541,23 @@ class NeedEngine:
             if same is not None and same.reply_draft:
                 mp.reply_draft, mp.reply_variants = same.reply_draft, same.reply_variants
         self._finish_and_emit(n, [mp], report)
+
+    def _record_x_hits(self, messages: list[ChatMessage], need_of: dict[int, NeedCard], fits: dict[int, tuple[str, str]]) -> None:
+        """Seller activity log of a product's own X search: customer (opportunity sent) / not_fit / not_customer."""
+        rows = []
+        for m in messages:
+            n = need_of.get(m.message_id)
+            fit, reason = fits.get(m.message_id, ("", ""))
+            if n is not None and self.store.emitted(n.need_id):
+                rows.append((m.chat_id, m.message_id, "customer", reason, n.need_id))
+            elif n is not None or fit:
+                rows.append((m.chat_id, m.message_id, "not_fit", reason or "دنبال چیز دیگری است", n.need_id if n else None))
+            else:
+                rows.append((m.chat_id, m.message_id, "not_customer", "", None))
+        try:
+            self.store.record_x_hit_results(rows)
+        except Exception:   # the log is informative only
+            log.exception("x hit results")
 
     def _x_allowed(self, matches: list[MatchedProduct], own_search: bool = False) -> list[MatchedProduct]:
         """X opportunities: only products whose seller enabled «ارتباط از طریق X» and above x_min_match_score.

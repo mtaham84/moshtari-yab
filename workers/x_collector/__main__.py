@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .client import XCliError
-from .worker import XCollector, auto_ingest_enabled, charge_searches, collect_forever, ingest_new, latest_offset
+from .worker import XCollector, auto_ingest_enabled, charge_searches, collect_forever, record_searches, ingest_new, latest_offset
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             result["ingested"] = ingest_new(collector, offset)
         if not (args.dry_run or args.mock):
             charge_searches(getattr(collector, "searches", []))
+            record_searches(getattr(collector, "searches", []))
     except XCliError as exc:
         logging.error("%s", exc)
         return 2

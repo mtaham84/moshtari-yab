@@ -1,0 +1,12 @@
+{# product, big (bool), next #}
+<form method="post" action="{% url 'products:toggle_x_search' product.pk %}" class="xs-switch-form">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <input type="hidden" name="state" value="{% if product.x_search_enabled %}off{% else %}on{% endif %}">
+  <label class="xs-switch{% if big %} big{% endif %}" title="{% if product.x_search_enabled %}برای خاموش کردن بزنید{% else %}برای روشن کردن بزنید (هزینه از کیف پول){% endif %}">
+    <input type="checkbox" aria-label="جستجوی مشتری در X برای {{ product.name }}" {% if product.x_search_enabled %}checked{% endif %}
+           onchange="this.form.state.value=this.checked?'on':'off';this.form.submit()">
+    <span class="track"></span>
+    <span>{% if product.x_search_enabled %}روشن{% else %}خاموش{% endif %}</span>
+  </label>
+  <noscript><button class="p-btn p-btn-secondary p-btn-sm">{% if product.x_search_enabled %}خاموش کن{% else %}روشن کن{% endif %}</button></noscript>
+</form>

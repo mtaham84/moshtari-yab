@@ -7,6 +7,14 @@
 {% block bottom_nav_products %}active{% endblock %}
 
 {% block panel_content %}
+<style>
+.x-pill{display:flex;align-items:center;gap:8px;margin:10px 0 4px;padding:8px 12px;border-radius:10px;border:1px dashed var(--panel-border-subtle);font-size:.78rem;color:var(--panel-text-muted);text-decoration:none;transition:.15s}
+.x-pill:hover{border-color:var(--obsidian-cyan);color:var(--panel-text-main)}
+.x-pill.on{border-style:solid;border-color:var(--p-success);color:var(--panel-text-main);background:var(--p-success-bg)}
+.x-pill-dot{width:8px;height:8px;border-radius:50%;background:var(--panel-text-faint);flex:none}
+.x-pill.on .x-pill-dot{background:var(--p-success);box-shadow:0 0 6px var(--p-success)}
+.x-pill-go{margin-right:auto;color:var(--obsidian-cyan)}
+</style>
 <div class="p-page-header">
   <div class="p-header-titles">
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -118,6 +126,15 @@
           </div>
         {% endif %}
 
+        {% if X_SELLER_UI %}
+        <a href="{% url 'discovery:x_product' prod.pk %}" class="x-pill{% if prod.x_search_enabled %} on{% endif %}"
+           title="جستجوی مشتری در X: گزارش و روشن/خاموش کردن">
+          <span class="x-pill-dot"></span>
+          جستجوی مشتری در X: {% if prod.x_search_enabled %}روشن{% else %}خاموش{% endif %}
+          <span class="x-pill-go">{% if prod.x_search_enabled %}گزارش ←{% else %}روشن کردن ←{% endif %}</span>
+        </a>
+        {% endif %}
+
         <div class="product-card-footer">
           <div class="product-price-box">
             <span class="price-label">قیمت:</span>
@@ -125,13 +142,6 @@
           </div>
 
           <div class="product-card-actions">
-            <form method="post" action="{% url 'products:toggle_x_search' prod.pk %}" style="display:inline">{% csrf_token %}
-              <input type="hidden" name="next" value="{{ request.get_full_path }}">
-              <button type="submit" class="card-btn-icon" style="width:auto;padding:0 8px;font-size:.72rem;{% if prod.x_search_enabled %}color:var(--obsidian-cyan);border-color:var(--obsidian-cyan);{% endif %}"
-                      title="{% if prod.x_search_enabled %}جستجوی مشتری در X روشن است — برای خاموش کردن بزنید{% else %}روشن کردن جستجوی مشتری در X (هزینه از کیف پول){% endif %}">
-                X {% if prod.x_search_enabled %}روشن{% else %}خاموش{% endif %}
-              </button>
-            </form>
             <a href="{% url 'products:detail' prod.pk %}" class="card-btn-view" title="مشاهده جزئیات">
               مشاهده ساختار دانش
             </a>

@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS {s}.chat_analysed (chat_id TEXT PRIMARY KEY, n BIGINT
 CREATE TABLE IF NOT EXISTS {s}.emitted (opportunity_id TEXT PRIMARY KEY, fingerprint TEXT, ts DOUBLE PRECISION, payload JSONB);
 CREATE TABLE IF NOT EXISTS {s}.quota (day TEXT, model TEXT, n INTEGER, PRIMARY KEY (day, model));
 CREATE TABLE IF NOT EXISTS {s}.x_filter_decisions (chat_id TEXT NOT NULL, message_id BIGINT NOT NULL, author_id TEXT NOT NULL, keep BOOLEAN NOT NULL, reason TEXT NOT NULL, signals JSONB NOT NULL, mode TEXT NOT NULL, decided_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(chat_id,message_id));
+CREATE TABLE IF NOT EXISTS {s}.x_hit_results (chat_id TEXT NOT NULL, message_id BIGINT NOT NULL, outcome TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', need_id TEXT, decided_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(chat_id,message_id));
 CREATE TABLE IF NOT EXISTS {s}.x_reply_fingerprints (business_id TEXT NOT NULL, need_id TEXT NOT NULL, fingerprint JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(business_id,need_id));
 CREATE TABLE IF NOT EXISTS {s}.x_thread_requests (root_tweet_id BIGINT PRIMARY KEY, root_author_id TEXT NOT NULL, root_need_id TEXT NOT NULL, opportunity_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE SEQUENCE IF NOT EXISTS {s}.opportunities_seq;
@@ -162,6 +163,23 @@ class Store:
         self._exec("""INSERT INTO {s}.x_filter_decisions(chat_id,message_id,author_id,keep,reason,signals,mode) VALUES(%s,%s,%s,%s,%s,%s,%s)
                      ON CONFLICT(chat_id,message_id) DO UPDATE SET keep=EXCLUDED.keep,reason=EXCLUDED.reason,signals=EXCLUDED.signals,mode=EXCLUDED.mode,decided_at=now()""",
                    (msg.chat_id, msg.message_id, msg.author_id, keep, reason, Jsonb(signals), mode))
+
+    def record_x_hit_results(self, rows: list[tuple[str, int, str, str, str | None]]) -> None:
+        """Per-product X: what happened to each post a product's search found (seller activity log).
+        outcome: customer | not_fit | not_customer | skipped; a «customer» result is never downgraded."""
+        if not rows:
+            return
+
+        def tx(c):
+            with c.transaction():
+                for chat_id, message_id, outcome, reason, need_id in rows:
+                    c.execute(f"""INSERT INTO {self._t('x_hit_results')}(chat_id,message_id,outcome,reason,need_id)
+                                  VALUES(%s,%s,%s,%s,%s) ON CONFLICT(chat_id,message_id) DO UPDATE
+                                  SET outcome=EXCLUDED.outcome,reason=EXCLUDED.reason,
+                                      need_id=COALESCE(EXCLUDED.need_id,{self._t('x_hit_results')}.need_id),decided_at=now()
+                                  WHERE {self._t('x_hit_results')}.outcome <> 'customer' OR EXCLUDED.outcome = 'customer'""",
+                              (chat_id, int(message_id), outcome, (reason or "")[:300], need_id))
+        self._run(tx)
 
     def x_filter_summary(self) -> list[dict]:
         return self._all("SELECT reason,mode,COUNT(*) AS count FROM {s}.x_filter_decisions GROUP BY reason,mode ORDER BY mode,reason")

@@ -308,3 +308,75 @@ class PanelViewTests(TestCase):
         for path in ("/discovery/leads/", "/discovery/api/leads/submit/", "/discovery/api/candidates/",
                      "/discovery/api/opportunities/process/", "/discovery/scan/trigger/"):
             self.assertEqual(self.client.post(path).status_code, 404, path)
+
+
+class XSellerPagesTests(EngineSchemaMixin, TestCase):
+    """«جستجوی مشتری در X»: hub + per-product report from crawler.x_search_runs / x_post_products / x_posts and
+    need_engine.x_hit_results / costs; only the owner sees a product's report."""
+
+    def test_humanize_query(self):
+        from .x_activity import humanize_query
+
+        h = humanize_query('(نوشن OR notion) (موجود OR "از کجا") -فروش -"فروش ویژه" lang:fa since_time:1700000000')
+        self.assertEqual(h["groups"], [["نوشن", "notion"], ["موجود", "از کجا"]])
+        self.assertEqual(h["excluded"], ["فروش", "فروش ویژه"])
+
+    def test_hub_and_product_report(self):
+        import os
+        from unittest.mock import patch
+
+        from x_ingest.__main__ import load, record_search_runs
+
+        user, biz = seller("xs1@x.com", "فروشگاه نوشن")
+        other_user, _ = seller("xs2@x.com", "دیگری")
+        prod = Product.objects.create(business=biz, name="اکانت نوشن پلاس", description="x", price=100, x_search_enabled=True)
+        idle = Product.objects.create(business=biz, name="هندزفری", description="x", price=100)
+        st = self.store()
+        pid = str(prod.pk)
+        st.record_x_hit_results([(f"x:p:{pid}", 101, "customer", "دقیقاً همین اکانت را می‌خواهد", "need-1"),
+                                 (f"x:p:{pid}", 102, "not_customer", "", None)])
+        st.record_x_hit_results([(f"x:p:{pid}", 101, "not_fit", "x", None)])     # a customer is never downgraded
+        st.add_cost("need_extraction_x_product", "gem", 1000, 100, False, 0.001, 70, ref=f"x:p:{pid}:101-103",
+                    businesses=[str(biz.pk)])
+        crawler = f"cr_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc)
+        rows = [{"id": str(i), "source": "x", "author_id": f"a{i}", "author_handle": h, "text": t, "kind": "post",
+                 "created_at": now.isoformat(), "url": f"https://x.com/{h}/status/{i}", "product_id": pid,
+                 "metadata": {"lang": "fa", "query": "(نوشن OR notion) (موجود) -فروش lang:fa"}}
+                for i, h, t in ((101, "buyer1", "اکانت نوشن موجود دارین؟"), (102, "shop1", "فروش ویژه اکانت نوشن"),
+                                (103, "late1", "کسی نوشن پلاس داره؟"))]
+        path = Path(tempfile.mkdtemp()) / "x.jsonl"
+        path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+        with patch.dict(os.environ, {"NE_CRAWLER_SCHEMA": crawler}):
+            self.assertEqual(load(path, self.dsn()), 3)
+            self.assertEqual(record_search_runs([{"query": "(نوشن OR notion) (موجود) -فروش lang:fa", "product_ids": [pid],
+                                                  "fetched": 9, "new_by_product": {pid: 3}, "ran_at": now.isoformat()}],
+                                                self.dsn()), 1)
+        self.client.force_login(user)
+        with override_settings(TG_DB_SCHEMA=crawler):
+            hub = self.client.get(reverse("discovery:x_search"))
+            page = self.client.get(reverse("discovery:x_product", args=[prod.pk]))
+            only_customers = self.client.get(reverse("discovery:x_product", args=[prod.pk]) + "?show=customer").content.decode()
+            self.client.force_login(other_user)
+            self.assertEqual(self.client.get(reverse("discovery:x_product", args=[prod.pk])).status_code, 404)
+        self.assertEqual(hub.status_code, 200)
+        row = next(r for r in hub.context["rows"] if r["product"].pk == prod.pk)
+        self.assertEqual({k: row["st"][k] for k in ("found", "reviewed", "customers", "rejected", "queued", "seen")},
+                         {"found": 3, "reviewed": 2, "customers": 1, "rejected": 1, "queued": 1, "seen": 9})
+        self.assertGreater(row["st"]["cost_toman"], 0)
+        hub_html = hub.content.decode()
+        self.assertIn("چطور کار می‌کند؟", hub_html)
+        self.assertIn("هندزفری", hub_html)
+        self.assertEqual(page.status_code, 200)
+        html = page.content.decode()
+        for text in ("buyer1", "مشتری احتمالی", "دقیقاً همین اکانت را می‌خواهد", "خریدار نبود", "در صف بررسی",
+                     "جستجو در X", "notion", "به‌جز: فروش"):
+            self.assertIn(text, html)
+        self.assertIn("buyer1", only_customers)
+        self.assertNotIn("shop1", only_customers)
+        self.client.force_login(user)
+        for _ in range(2):   # explicit state from the switch: «off» twice stays off
+            self.client.post(reverse("products:toggle_x_search", args=[prod.pk]), {"state": "off"})
+            prod.refresh_from_db()
+            self.assertFalse(prod.x_search_enabled)
+        self.assertIn("جستجوی مشتری در X: خاموش", self.client.get(reverse("products:detail", args=[idle.pk])).content.decode())
