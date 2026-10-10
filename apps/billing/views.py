@@ -1,4 +1,5 @@
 """Admin panel (/ops/): costs, providers & models with prices, wallets, Telegram sources, service status."""
+import os
 from decimal import Decimal
 from functools import wraps
 
@@ -63,6 +64,18 @@ def dashboard(request):
         "by_stage": services.cost_breakdown(float(days), "stage"),
         "daily": services.cost_daily(14), "status": services.service_status(),
         "recent": WalletTransaction.objects.select_related("wallet__business")[:10], "settings": s,
+    })
+
+
+@staff_required
+def x_source(request):
+    days = _days(request)
+    st = services.x_collector_status()
+    queries = sorted((st or {}).get("queries") or [], key=lambda q: (-(q.get("new_posts") or 0), q.get("query") or ""))
+    return render(request, "ops/x.html", {
+        "nav": "x", "days": days, "periods": PERIODS, "o": services.x_overview(float(days)), "st": st,
+        "service": services.x_collector_service(), "queries": queries, "settings_rows": services.x_settings(),
+        "search_fee": float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0),
     })
 
 

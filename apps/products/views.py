@@ -123,6 +123,7 @@ def product_add_view(request):
         discovery_priority = int(discovery_priority_val) if discovery_priority_val.isdigit() else 1
         telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
         x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
+        x_search_enabled = request.POST.get("x_search_enabled") in ["on", "true", "1"]
 
         product = Product.objects.create(
             business=business,
@@ -139,6 +140,7 @@ def product_add_view(request):
             discovery_priority=discovery_priority,
             telegram_outreach_enabled=telegram_outreach_enabled,
             x_outreach_enabled=x_outreach_enabled,
+            x_search_enabled=x_search_enabled,
         )
 
         # Save uploaded images (up to 10)
@@ -200,6 +202,7 @@ def product_edit_view(request, pk):
         product.discovery_priority = int(discovery_priority_val) if discovery_priority_val.isdigit() else 1
         product.telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
         product.x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
+        product.x_search_enabled = request.POST.get("x_search_enabled") in ["on", "true", "1"]
 
         # Parse dynamic attributes from form (custom key-value pairs + category suggestions)
         attributes = {}
@@ -555,3 +558,22 @@ def public_product_card_view(request, pk):
     })
 
 
+
+
+@login_required
+@require_POST
+def product_toggle_x_search_view(request, pk):
+    """Quick on/off of the per-product X search from the product list (seller pays for it)."""
+    product = get_object_or_404(Product, pk=pk, business__user=request.user)
+    state = request.POST.get("state")   # explicit on/off from a switch; absent = flip
+    product.x_search_enabled = state == "on" if state in {"on", "off"} else not product.x_search_enabled
+    product.save(update_fields=["x_search_enabled", "updated_at"])
+    if product.x_search_enabled:
+        msg = "جستجوی مشتری در X برای «%s» روشن شد؛ از دور بعدی جستجو (چند دقیقه) نتیجه‌ها اینجا می‌آید." % product.name
+        if product.status != "ACTIVE" or not product.is_discovery_active:
+            messages.warning(request, "«%s» برای کشف فعال نیست؛ تا فعالش نکنید در X جستجو نمی‌شود." % product.name)
+        messages.success(request, msg)
+    else:
+        messages.success(request, "جستجوی مشتری در X برای «%s» خاموش شد؛ دیگر هزینه‌ای برای آن کسر نمی‌شود." % product.name)
+    nxt = request.POST.get("next") or ""
+    return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "products:list")

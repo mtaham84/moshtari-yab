@@ -108,6 +108,12 @@ class EngineConfig:
     communities_table: str = _f("NE_COMMUNITIES_TABLE", "public.discovery_monitoredcommunity")
     styles_table: str = _f("NE_STYLES_TABLE", "public.businesses_messagestyle")   # sellers' reply style
     x_enabled: bool = _f("NE_X_ENABLED", False)
+    # product: every seller product with «جستجوی مشتری در X» has its own queries and analysis, billed to its seller
+    # public: one generic search/extraction for all products, platform pays (old behaviour) | both
+    x_mode: str = _f("NE_X_MODE", "product")
+    x_bio_chars: int = _f("NE_X_BIO_CHARS", 120)              # bio sent to the LLM (spots shops; costs tokens)
+    x_fit_yes_score: float = _f("NE_X_FIT_YES_SCORE", 0.9)      # per-product mode: match score of fit yes / partly
+    x_fit_partly_score: float = _f("NE_X_FIT_PARTLY_SCORE", 0.7)
     x_max_per_run: int = _f("NE_X_MAX_PER_RUN", 200)
     x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 65.0)
     x_prefilter: str = _f("NE_X_PREFILTER", "shadow")
@@ -126,8 +132,10 @@ class EngineConfig:
     x_intent_base_url: str = _f("X_INTENT_BASE_URL", "https://x.com/intent/post")
     x_ingest_max_per_run: int = _f("NE_X_INGEST_MAX_PER_RUN", 2000)
     x_process_order: str = _f("NE_X_PROCESS_ORDER", "newest")
-    x_max_post_age_hours: float = _f("NE_X_MAX_POST_AGE_HOURS", 48.0)
-    x_need_ttl_hours: float = _f("NE_X_NEED_TTL_HOURS", 48.0)
+    x_max_post_age_hours: float = _f("NE_X_MAX_POST_AGE_HOURS", 168.0)   # matches X_QUERY_FIRST_LOOKBACK_HOURS
+    # most real people have no bio, so "unknown" author type is accepted; organisations/verified/shop bios still rejected
+    x_allow_unknown_author: bool = _f("NE_X_ALLOW_UNKNOWN_AUTHOR", True)
+    x_need_ttl_hours: float = _f("NE_X_NEED_TTL_HOURS", 168.0)
     x_freshness_halflife_hours: float = _f("NE_X_FRESHNESS_HALFLIFE_HOURS", 12.0)
     x_refresh_batch_size: int = _f("NE_X_REFRESH_BATCH_SIZE", 200)
     x_thread_replies: bool = _f("NE_X_THREAD_REPLIES", False)

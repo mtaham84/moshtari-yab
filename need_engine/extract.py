@@ -10,7 +10,7 @@ import numpy as np
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient, QuotaExhausted
-from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X
+from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
 from need_engine.store import Store
 from need_engine.text import norm
@@ -21,23 +21,38 @@ log = logging.getLogger("need_engine.extract")
 _LABELS = OPPORTUNITY_LABELS | {"resolved", "joke", "seller", "curiosity", "no_buy_complaint", "advice_giver", "past_need"}
 
 
-def _confirmed_x_buyer(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict) -> bool:
+def _x_reject_reason(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict,
+                     allow_unknown: bool = True) -> str | None:
+    """Why an X need is not a confirmed buyer (None = accepted). Unknown author type is allowed: most real
+    people have no bio, so only organisations, verified accounts and shop-like bios are rejected."""
     if candidate.get("buyer_intent_confirmed") is not True or candidate.get("is_opportunity") is not True:
-        return False
+        return "no_buyer_intent"
     if candidate.get("label") not in {"explicit_need", "on_behalf_need"}:
-        return False
+        return "label"
     if candidate.get("strength") not in {"medium", "strong"}:
-        return False
+        return "weak"
     if not str(candidate.get("need") or "").strip() or not candidate.get("solution_queries"):
-        return False
-    if candidate.get("author_type") != "individual" or candidate.get("promotional_content") is not False:
-        return False
+        return "empty_need"
+    if candidate.get("author_type") == "organization":
+        return "organization"
+    if candidate.get("author_type") != "individual" and not allow_unknown:
+        return "author_unknown"
+    if candidate.get("promotional_content") is not False:
+        return "promotional"
     cited = [new_by_id.get(message_id) for message_id in evidence_ids]
     suspicious_bio = ("official", "official account", "official store", "company", "brand", "support", "store", "shop",
                       "رسمی", "شرکت", "برند", "فروشگاه", "فروش", "پشتیبانی")
-    return bool(cited) and all(message is not None and message.author_id == author_id and not message.author_verified
-                                and not any(term in (message.author_bio or "").casefold() for term in suspicious_bio)
-                                for message in cited)
+    if not cited or any(message is None or message.author_id != author_id for message in cited):
+        return "evidence"
+    if any(message.author_verified or any(term in (message.author_bio or "").casefold() for term in suspicious_bio)
+           for message in cited):
+        return "seller_profile"
+    return None
+
+
+def _confirmed_x_buyer(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict,
+                       allow_unknown: bool = True) -> bool:
+    return _x_reject_reason(candidate, evidence_ids, author_id, new_by_id, allow_unknown) is None
 
 
 def _int_or_none(v) -> int | None:
@@ -59,14 +74,16 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
                                     ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}", businesses=payers)
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
     x_messages = {m.message_id: m for m in w.new} if w.new[0].platform == "x" else {}
-    cards, dropped = [], 0
+    cards, dropped, reasons = [], 0, {}
     for n in (data or {}).get("needs", []) or []:
         if not isinstance(n, dict):
             continue
         ev = sorted({int(e) for e in (n.get("evidence_message_ids") or []) if str(e).lstrip("-").isdigit()} & w.all_ids)
         aid = str(n.get("author_id") or "")
-        if x_messages and not _confirmed_x_buyer(n, ev, aid, x_messages):
+        reason = _x_reject_reason(n, ev, aid, x_messages, cfg.x_allow_unknown_author) if x_messages else None
+        if reason:
             dropped += 1
+            reasons[reason] = reasons.get(reason, 0) + 1
             continue
         if not ev or aid not in authors or not (set(ev) & w.new_ids):
             dropped += 1
@@ -92,7 +109,8 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
             evidence_time_estimated=any(x.date_estimated for x in w.new if x.message_id in ev),
             author_bio=a.author_bio))
     if dropped:
-        log.info("window %s: dropped %d needs without valid evidence in new messages", w.chat_id, dropped)
+        log.info("window %s: dropped %d needs without valid evidence in new messages%s", w.chat_id, dropped,
+                 f" (X: {reasons})" if reasons else "")
     share = usage["toman"] / max(1, len(cards))
     for c in cards:
         c.cost_toman, c.llm_calls = share, 1
@@ -111,9 +129,14 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
     if len(messages) <= 1:
         result, cost = extract_window(Window("x:public", "X", messages), llm, cfg, now)
         return result, cost, 1 if messages else 0
-    payload = [{"post_id": m.message_id, "author_id": m.author_id, "handle": m.author_username,
-                "bio": (m.author_bio or "")[:300], "text": m.text, "created_at": m.date.isoformat(),
-                "query": m.search_query} for m in messages]
+    # short local ids: LLMs mis-copy 19-digit tweet/author ids, and a wrong digit silently loses the need
+    author_alias = {}
+    for m in messages:
+        author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
+    real_author = {v: k for k, v in author_alias.items()}
+    payload = [{"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
+                "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
+               for i, m in enumerate(messages)]
     try:
         data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
                                         json.dumps(payload, ensure_ascii=False), max_tokens=6000,
@@ -123,6 +146,8 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
     except Exception:
         data, usage = None, {"toman": 0.0}
     needs = (data or {}).get("needs") if isinstance(data, dict) else None
+    if isinstance(needs, list):
+        needs = [_from_local_ids(n, messages, real_author) for n in needs if isinstance(n, dict)]
     if not isinstance(needs, list):
         cards, total = [], 0.0
         for message in messages:
@@ -143,6 +168,73 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
             card.cost_toman = cost_share / max(1, len(result))
             cards.append(card)
     return cards, float(usage.get("toman") or 0), 1
+
+
+_FIT_RANK = {"yes": 2, "partly": 1, "no": 0}
+
+
+def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LLMClient, cfg: EngineConfig, now: datetime,
+                            payer: str | None = None) -> tuple[list[NeedCard], float, dict[int, tuple[str, str]]]:
+    """Per-product mode: posts that ONE product's search found, judged against that product only (one call, billed to
+    the product's seller). Returns (validated need cards, toman, {tweet_id: (fit, fit_reason)})."""
+    if not messages:
+        return [], 0.0, {}
+    author_alias: dict[str, str] = {}
+    for m in messages:
+        author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
+    real_author = {v: k for k, v in author_alias.items()}
+    posts = []
+    for i, m in enumerate(messages):
+        post = {"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
+                "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
+        if m.kind in {"reply", "quote"} and m.reply_to_text:
+            post["reply_to"] = m.reply_to_text[:400]
+        posts.append(post)
+    user = json.dumps({"product": product, "posts": posts}, ensure_ascii=False)
+    data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, NEED_SYSTEM_X_PRODUCT, user,
+                                    max_tokens=6000, ref=f"{chat_id}:{messages[0].message_id}-{messages[-1].message_id}",
+                                    businesses=[payer] if payer else None)
+    needs = (data or {}).get("needs") if isinstance(data, dict) else None
+    needs = [_from_local_ids(n, messages, real_author) for n in needs if isinstance(n, dict)] if isinstance(needs, list) else []
+    toman = float(usage.get("toman") or 0)
+    fits: dict[int, tuple[str, str]] = {}
+    cards = []
+    share = toman / max(1, len(messages))
+    for message in messages:
+        relevant = [n for n in needs if str(n.get("author_id")) == message.author_id
+                    and message.message_id in {int(v) for v in n.get("evidence_message_ids", []) if str(v).isdigit()}]
+        for n in relevant:
+            fit = str(n.get("fit") or "no").strip().lower()
+            fit = fit if fit in _FIT_RANK else "no"
+            if _FIT_RANK[fit] >= _FIT_RANK[fits.get(message.message_id, ("no", ""))[0]]:
+                fits[message.message_id] = (fit, str(n.get("fit_reason") or "")[:200])
+
+        class _Given:
+            def complete_json(self, *args, **kwargs):
+                return {"needs": relevant}, {"toman": share, "pt": 0, "ct": 0}
+
+        result, _ = extract_window(Window(chat_id, "X", [message]), _Given(), cfg, now)
+        for card in result:
+            card.cost_toman = share / max(1, len(result))
+            cards.append(card)
+    return cards, toman, fits
+
+
+def best_fit(evidence_ids: list[int], fits: dict[int, tuple[str, str]]) -> tuple[str, str]:
+    found = [fits[i] for i in evidence_ids if i in fits]
+    return max(found, key=lambda f: _FIT_RANK.get(f[0], 0), default=("no", ""))
+
+
+def _from_local_ids(need: dict, messages: list, real_author: dict) -> dict:
+    """Map the batch's local ids (post 1..n, author a1..) back to real tweet/author ids."""
+    need = dict(need)
+    ids = []
+    for value in need.get("evidence_message_ids") or []:
+        if str(value).isdigit() and 1 <= int(value) <= len(messages):
+            ids.append(messages[int(value) - 1].message_id)
+    need["evidence_message_ids"] = ids
+    need["author_id"] = real_author.get(str(need.get("author_id")), str(need.get("author_id") or ""))
+    return need
 
 
 def _merge(old: NeedCard, new: NeedCard) -> NeedCard:

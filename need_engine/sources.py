@@ -114,7 +114,10 @@ class XMessageSource:
                          ORDER BY x.row_id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
-        rows = self.db.all(self.sql, (cursor, limit))
+        return self._messages(self.db.all(self.sql, (cursor, limit)))
+
+    @staticmethod
+    def _messages(rows: list[dict]) -> list[ChatMessage]:
         messages = []
         for row in rows:
             handle = str(row.get("author_handle") or "").lstrip("@") or None
@@ -131,6 +134,41 @@ class XMessageSource:
                 in_reply_to_author_id=row.get("in_reply_to_author_id"), reply_to_text=row.get("parent_text"),
                 reply_to_author_id=str(row.get("parent_author_id") or row.get("in_reply_to_author_id") or "") or None,
                 reply_to_date=parse_dt(row["parent_date"]) if row.get("parent_date") else None))
+        return messages
+
+
+X_PRODUCT_PREFIX = "x:p:"   # chat_id of the posts one product's search found: x:p:<product_id>
+
+
+class XProductHitSource(XMessageSource):
+    """NE_X_MODE=product: posts as found by each product's own search (crawler.x_post_products), ordered by hit id.
+    The same post found for two products arrives twice, once per product chat."""
+
+    def __init__(self, cfg: EngineConfig, dsn: str | None = None, conn: Any = None):
+        super().__init__(cfg, dsn, conn)
+        schema = _ident(cfg.crawler_schema)
+        self.sql = f"""SELECT h.hit_id AS row_id, h.product_id, x.tweet_id, x.author_id, x.author_handle, x.author_name, x.text,
+                                x.created_at, x.loaded_at, x.url, COALESCE(h.query, x.query) AS query, x.lang, x.author_verified,
+                                x.author_bio, x.kind, x.conversation_id, x.in_reply_to_tweet_id, x.in_reply_to_author_id,
+                                p.text AS parent_text, p.created_at AS parent_date, p.author_id AS parent_author_id
+                         FROM {schema}.x_post_products h JOIN {schema}.x_posts x ON x.tweet_id = h.tweet_id
+                         LEFT JOIN {schema}.x_posts p ON p.tweet_id = x.in_reply_to_tweet_id
+                         WHERE h.hit_id > %s AND x.author_id IS NOT NULL AND x.author_id <> ''
+                         ORDER BY h.hit_id LIMIT %s"""
+        self._exists = None
+
+    def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
+        if self._exists is None:
+            table = f"{_ident(self.cfg.crawler_schema)}.x_post_products"
+            rows = self.db.all("SELECT to_regclass(%s) AS t", (table,))
+            self._exists = bool(rows and rows[0]["t"])
+        if not self._exists:   # nothing ingested in per-product mode yet
+            return []
+        rows = self.db.all(self.sql, (cursor, limit))
+        by_row = {int(r["row_id"]): str(r["product_id"]) for r in rows}
+        messages = self._messages(rows)
+        for m in messages:
+            m.chat_id = X_PRODUCT_PREFIX + by_row[m.row_id]
         return messages
 
 
@@ -209,7 +247,7 @@ class JsonlProductSource:
                 tags=o.get("tags") if isinstance(o.get("tags"), list) else [], category_path=str(o.get("category_path") or ""),
                 category_keywords=o.get("category_keywords") if isinstance(o.get("category_keywords"), list) else [],
                 discovery_priority=int(o.get("discovery_priority") or 1),
-                x_outreach_enabled=bool(o.get("x_outreach_enabled", True)), url=o.get("url") or None,
+                x_outreach_enabled=bool(o.get("x_outreach_enabled", True)), x_search_enabled=bool(o.get("x_search_enabled", False)), url=o.get("url") or None,
                 card_override=_json_dict(o.get("card_override"))))
         return out
 
@@ -231,10 +269,14 @@ class SQLProductSource:
 
     def all(self) -> list[Product]:
         # x_outreach_enabled is read, not filtered: it only limits X opportunities (engine._x_allowed), never Telegram
+        table = _ident(self.cfg.products_table)
+        x_search = ("p.x_search_enabled" if self.db.all("""SELECT 1 FROM information_schema.columns WHERE table_schema || '.' || table_name = %s
+                                                            AND column_name = 'x_search_enabled'""", (table if "." in table else "public." + table,))
+                    else "FALSE")   # panel not migrated yet
         rows = self.db.all(f"""SELECT p.id, p.business_id, p.name, p.description, p.product_type, p.price, p.attributes, p.target_customer,
-                                   p.url, p.agent_card_override, p.discovery_priority, p.x_outreach_enabled,
+                                   p.url, p.agent_card_override, p.discovery_priority, p.x_outreach_enabled, {x_search} AS x_search_enabled,
                                    COALESCE(c.full_path, c.name, '') AS category_path, COALESCE(c.keywords, '[]'::jsonb) AS category_keywords
-                               FROM {_ident(self.cfg.products_table)} p
+                               FROM {table} p
                                LEFT JOIN public.products_category c ON c.id = p.category_id
                                WHERE p.status = 'ACTIVE' AND p.is_discovery_active = %s""", (True,))
         out = []
@@ -257,7 +299,8 @@ class SQLProductSource:
                                attributes=attrs if isinstance(attrs, dict) else {}, category_path=str(r.get("category_path") or ""),
                                category_keywords=keywords if isinstance(keywords, list) else [],
                                discovery_priority=int(r.get("discovery_priority") or 1),
-                               x_outreach_enabled=r.get("x_outreach_enabled") is not False, url=(r.get("url") or None),
+                               x_outreach_enabled=r.get("x_outreach_enabled") is not False,
+                               x_search_enabled=r.get("x_search_enabled") is True, url=(r.get("url") or None),
                                card_override=_json_dict(r.get("agent_card_override"))))
         return out
 

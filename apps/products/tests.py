@@ -272,3 +272,25 @@ class ProductsAndTaxonomyTestCase(TestCase):
         self.assertIn("حداکثر ۱۰ تصویر", response.content.decode("utf-8"))
         self.assertEqual(product.images.count(), 10)
 
+
+
+class XSearchToggleTests(TestCase):
+    def test_seller_toggles_x_search_per_product_only_for_own_products(self):
+        from django.urls import reverse
+
+        from apps.discovery.tests import seller
+
+        user, biz = seller("x1@x.com", "فروشنده یک")
+        other_user, other = seller("x2@x.com", "فروشنده دو")
+        product = Product.objects.create(business=biz, name="اکانت نوشن", description="x", price=100)
+        self.assertFalse(product.x_search_enabled)                       # off by default: the seller pays for it
+        self.client.force_login(user)
+        self.assertIn("جستجوی مشتری در X: خاموش", self.client.get(reverse("products:list")).content.decode())
+        self.client.post(reverse("products:toggle_x_search", args=[product.pk]), {"next": "https://evil.example/"})
+        product.refresh_from_db()
+        self.assertTrue(product.x_search_enabled)
+        self.assertIn("جستجوی مشتری در X: روشن", self.client.get(reverse("products:list")).content.decode())
+        self.client.force_login(other_user)
+        self.assertEqual(self.client.post(reverse("products:toggle_x_search", args=[product.pk])).status_code, 404)
+        product.refresh_from_db()
+        self.assertTrue(product.x_search_enabled)

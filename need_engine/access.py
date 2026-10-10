@@ -23,6 +23,7 @@ from need_engine.config import EngineConfig
 log = logging.getLogger("need_engine.access")
 ALL = "*"   # marker: every seller
 X_CHAT = "x:public"   # chat_id of every X post (sources.XMessageSource)
+X_PRODUCT_PREFIX = "x:p:"   # per-product X chats (sources.XProductHitSource)
 
 
 class SourceAccess:
@@ -68,9 +69,23 @@ class SourceAccess:
             private[key] = private.get(key, frozenset()) | {str(r["business_id"])}
             if rules.get(key) != ALL:
                 rules[key] = private[key]
-        if self.cfg.x_enabled:   # public X posts: a platform source → every seller (X-enabled products), platform pays
+        if self.cfg.x_enabled and self.cfg.x_mode in {"public", "both"}:   # public X posts: platform source, platform pays
             rules[X_CHAT] = ALL
+        rules.update({k: v for k, v in self.rules.items() if k.startswith(X_PRODUCT_PREFIX)})   # kept across refreshes
+        private.update({k: v for k, v in self.private.items() if k.startswith(X_PRODUCT_PREFIX)})
         self.rules, self.private, self.loaded = rules, private, True
+
+    def set_x_products(self, owners: dict[str, str | None]) -> None:
+        """Per-product X mode: chat ``x:p:<product>`` belongs to the product's seller only — only that product is
+        matched, the seller pays every call, and the posts wait («در انتظار پرداخت») while the balance is used up."""
+        self.rules = {k: v for k, v in self.rules.items() if not k.startswith(X_PRODUCT_PREFIX)}
+        self.private = {k: v for k, v in self.private.items() if not k.startswith(X_PRODUCT_PREFIX)}
+        for pid, bid in owners.items():
+            key = X_PRODUCT_PREFIX + str(pid)
+            if bid:
+                self.rules[key] = self.private[key] = frozenset({str(bid)})
+            else:
+                self.rules[key] = ALL
 
     # ── queries ─────────────────────────────────────────────────────────────
     def _active(self) -> bool:

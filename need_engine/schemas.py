@@ -77,12 +77,13 @@ class Product(BaseModel):
     category_keywords: list[str] = Field(default_factory=list)
     discovery_priority: int = 1
     x_outreach_enabled: bool = True              # seller allows X opportunities for this product (not in the hash)
+    x_search_enabled: bool = False               # per-product X search + analysis, paid by the seller (not in the hash)
     url: str | None = None                   # seller's own product page (reply links go through /r/ to it)
     card_override: dict[str, Any] | None = None   # the seller's edited «how the agent understood it» card
 
     def content_hash(self) -> str:
         """Changes that need a new card/vectors. ``url`` is not part of it (it never reaches the LLM)."""
-        skip = {"business_id", "url", "x_outreach_enabled"} | ({"card_override"} if not self.card_override else set())
+        skip = {"business_id", "url", "x_outreach_enabled", "x_search_enabled"} | ({"card_override"} if not self.card_override else set())
         # fields added later are left out while empty/default, so existing products keep their hash (no re-carding)
         skip |= ({"category_path"} if not self.category_path else set()) | ({"category_keywords"} if not self.category_keywords else set())
         skip |= {"discovery_priority"}   # monitoring priority, never reaches the LLM

@@ -113,13 +113,15 @@ class SeenStore:
             connection.execute("CREATE TABLE IF NOT EXISTS daily_counts (day TEXT PRIMARY KEY, collected INTEGER NOT NULL)")
             connection.execute("CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             connection.execute("CREATE TABLE IF NOT EXISTS query_runs (query TEXT PRIMARY KEY, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
+            if "last_ok_at" not in {row[1] for row in connection.execute("PRAGMA table_info(query_runs)")}:
+                connection.execute("ALTER TABLE query_runs ADD COLUMN last_ok_at TEXT")   # start of the last successful search
             connection.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             connection.commit()
 
     @staticmethod
     def _key(record: dict[str, Any]) -> str:
         if record.get("id"):
-            value = "id:" + str(record["id"])
+            value = "id:" + str(record["id"]) + (f"|p:{record['product_id']}" if record.get("product_id") else "")
         else:
             value = "text:" + str(record.get("text", ""))
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -182,11 +184,43 @@ class SeenStore:
             connection.commit()
             return selected
 
-    def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None) -> None:
+    def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
+                     started_at: datetime | None = None) -> None:
         with closing(sqlite3.connect(self.path)) as connection:
             connection.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=? WHERE query=?",
                                (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, query))
+            if error is None and started_at is not None:
+                connection.execute("UPDATE query_runs SET last_ok_at=? WHERE query=?", (started_at.isoformat(), query))
             connection.commit()
+
+    def last_ok(self, query: str) -> datetime | None:
+        with closing(sqlite3.connect(self.path)) as connection:
+            row = connection.execute("SELECT last_ok_at FROM query_runs WHERE query=?", (query,)).fetchone()
+        try:
+            return datetime.fromisoformat(row[0]) if row and row[0] else None
+        except ValueError:
+            return None
+
+
+_TIME_OPERATOR = re.compile(r"(?:^|\s)(?:since|until|since_time|until_time|within_time):", re.I)
+
+
+def time_window(query: str, last_ok: datetime | None, now: datetime | None = None) -> str:
+    """Add an X date operator so each run only asks for posts newer than the previous successful run.
+
+    First run of a query (e.g. a newly added product) looks back ``X_QUERY_FIRST_LOOKBACK_HOURS`` (default 7 days);
+    later runs start at the previous run minus ``X_QUERY_OVERLAP_MINUTES``. ``X_QUERY_TIME_FILTER``:
+    ``since_time`` (unix seconds, default), ``since`` (YYYY-MM-DD, coarser but official) or ``off``.
+    Queries that already contain a date operator are left untouched."""
+    mode = os.getenv("X_QUERY_TIME_FILTER", "since_time").strip().lower()
+    if mode in {"", "off", "false", "0", "none"} or _TIME_OPERATOR.search(query):
+        return query
+    now = now or datetime.now(timezone.utc)
+    lookback = timedelta(hours=float(os.getenv("X_QUERY_FIRST_LOOKBACK_HOURS", "168")))
+    start = now - lookback if last_ok is None else max(now - lookback, last_ok - timedelta(minutes=float(os.getenv("X_QUERY_OVERLAP_MINUTES", "10"))))
+    if mode == "since":
+        return f"{query} since:{start.astimezone(timezone.utc).date().isoformat()}"
+    return f"{query} since_time:{int(start.timestamp())}"
 
 
 class XCollector:
@@ -203,6 +237,7 @@ class XCollector:
         self.circuit_breaker = circuit_breaker if circuit_breaker is not None else int(os.getenv("X_COLLECT_CIRCUIT_BREAKER", "4"))
         self.sleeper, self.jitter = sleeper, jitter
         self.queries_per_cycle = int(os.getenv("X_COLLECT_QUERIES_PER_CYCLE", "12"))
+        self.searches: list[dict[str, Any]] = []
 
     @staticmethod
     def load_queries(query_file: str | Path | None = None) -> list[str]:
@@ -240,6 +275,9 @@ class XCollector:
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
+        query_products = {item["query"]: [str(x) for x in item.get("product_ids") or []] for item in scheduled}
+        query_sellers = {item["query"]: [str(x) for x in item.get("business_ids") or []] for item in scheduled}
+        self.searches = []   # successful searches of this run → per-seller search fee (charge_searches)
         collected, failures, failed_queries, consecutive_failures = [], 0, 0, 0
         stop_reason = None
         daily_remaining = max(0, self.daily_cap - self.state.count_today())
@@ -260,7 +298,7 @@ class XCollector:
                 try:
                     existing = json.loads(line)
                     if existing.get("id"):
-                        already_written.add(str(existing["id"]))
+                        already_written.add(str(existing["id"]) + (f"|{existing['product_id']}" if existing.get("product_id") else ""))
                 except json.JSONDecodeError:
                     continue
             stream.seek(0, os.SEEK_END)
@@ -268,18 +306,30 @@ class XCollector:
                 if len(collected) >= daily_remaining:
                     break
                 retry = 0
+                started_at = datetime.now(timezone.utc)
+                search_query = time_window(query, self.state.last_ok(query), started_at)
                 while retry <= self.max_retries:
                     try:
                         if mock_records is not None:
                             raw_items = mock_records
                         else:
-                            raw_items = self.client.search(query, min(self.max_per_query, daily_remaining - len(collected)))
+                            raw_items = self.client.search(search_query, min(self.max_per_query, daily_remaining - len(collected)))
                         fetched_count = len(raw_items)
                         new_before = len(collected)
                         consecutive_failures = 0
+                        records = []
                         for raw in raw_items[: self.max_per_query]:
-                            normalized = normalize_tweet(raw, query=query)
-                            if normalized is None or normalized["id"] in already_written or self.state.has_seen(normalized):
+                            base = normalize_tweet(raw, query=query)
+                            if base is None:
+                                continue
+                            # per-product mode: one record per (post, product) — a post found for two sellers'
+                            # products is analysed (and paid) for each of them separately
+                            for pid in query_products.get(query) or [None]:
+                                records.append(base if pid is None else {**base, "product_id": pid,
+                                                                         "metadata": dict(base["metadata"])})
+                        for normalized in records:
+                            wkey = normalized["id"] + (f"|{normalized['product_id']}" if normalized.get("product_id") else "")
+                            if wkey in already_written or self.state.has_seen(normalized):
                                 continue
                             normalized["metadata"]["query_kind"] = query_kinds.get(query, "product")
                             if len(collected) >= daily_remaining:
@@ -296,9 +346,18 @@ class XCollector:
                             latest.write(line)
                             latest.flush()
                             os.fsync(latest.fileno())
-                            already_written.add(normalized["id"])
+                            already_written.add(wkey)
                             collected.append(normalized)
-                        self.state.record_query(query, fetched_count, len(collected) - new_before)
+                        capped = len(collected) >= daily_remaining   # daily cap cut this search short: keep the old window
+                        if mock_records is None and (query_products.get(query) or query_sellers.get(query)):
+                            new_by_product: dict[str, int] = {}
+                            for rec in collected[new_before:]:
+                                if rec.get("product_id"):
+                                    new_by_product[rec["product_id"]] = new_by_product.get(rec["product_id"], 0) + 1
+                            self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
+                                                  "business_ids": query_sellers.get(query) or [], "fetched": fetched_count,
+                                                  "new_by_product": new_by_product, "ran_at": started_at.isoformat()})
+                        self.state.record_query(query, fetched_count, len(collected) - new_before, started_at=None if capped else started_at)
                         break
                     except XCliError as exc:
                         self.state.record_query(query, 0, 0, str(exc)[:300])
@@ -350,11 +409,103 @@ class XCollector:
         os.replace(temporary, target)
 
 
+def auto_ingest_enabled() -> bool:
+    return os.getenv("X_AUTO_INGEST", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def latest_offset(collector: XCollector) -> int:
+    path = collector.output_dir / "latest.jsonl"
+    return path.stat().st_size if path.exists() else 0
+
+
+def ingest_new(collector: XCollector, offset: int, loader: Callable[[Path], int] | None = None) -> int:
+    """Load only what this cycle appended to latest.jsonl into crawler.x_posts (the engine picks it up from there).
+    Never raises: a DB hiccup must not stop collection; the posts stay in the JSONL files for a manual x_ingest."""
+    path = collector.output_dir / "latest.jsonl"
+    try:
+        if not path.exists() or path.stat().st_size <= offset:
+            return 0
+        with path.open("rb") as stream:
+            stream.seek(offset)
+            chunk = stream.read()
+        chunk = chunk[:chunk.rfind(b"\n") + 1]   # whole lines only
+        if not chunk.strip():
+            return 0
+        part = path.with_name(f".ingest-{os.getpid()}.jsonl")
+        part.write_bytes(chunk)
+        try:
+            if loader is None:
+                from x_ingest.__main__ import load as loader
+            count = loader(part)
+        finally:
+            part.unlink(missing_ok=True)
+        log.info("Auto-ingest: upserted %s X posts into the database", count)
+        return count
+    except Exception as exc:
+        log.error("Auto-ingest failed (run `python -m x_ingest` later): %s", exc)
+        return 0
+
+
+def charge_searches(searches: list[dict[str, Any]], store: Any = None) -> int:
+    """Per-seller fee for each search made for their products (X_SEARCH_FEE_TOMAN, default 0 = free).
+    Every seller whose product shares the query pays the whole fee. Never raises."""
+    fee = float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0)
+    if fee <= 0 or not searches:
+        return 0
+    try:
+        from need_engine.config import EngineConfig
+
+        cfg = EngineConfig()
+        own = store is None
+        if own:
+            from need_engine.store import Store
+
+            store = Store(cfg.database_url, cfg.state_schema)
+        rows = 0
+        try:
+            for search in searches:
+                sellers = sorted(set(search.get("business_ids") or []))
+                if not sellers:
+                    continue
+                usd = fee / max(1.0, float(cfg.usd_to_toman))
+                pids = ",".join(search.get("product_ids") or [])
+                store.add_cost("x_search", "x", 0, 0, False, usd * len(sellers), fee * len(sellers), ref=f"xq:{pids}",
+                               businesses=sellers)
+                rows += len(sellers)
+        finally:
+            if own:
+                store.close()
+        return rows
+    except Exception as exc:
+        log.error("X search fee not recorded: %s", exc)
+        return 0
+
+
+def record_searches(searches: list[dict[str, Any]], dsn: str | None = None) -> int:
+    """Seller activity log: each search made for a product (when, phrase, posts seen, new posts) → crawler.x_search_runs.
+    Never raises."""
+    if not searches:
+        return 0
+    try:
+        from x_ingest.__main__ import record_search_runs
+
+        return record_search_runs(searches, dsn)
+    except Exception as exc:
+        log.error("X search log not recorded: %s", exc)
+        return 0
+
+
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
         current_queries = queries() if callable(queries) else queries
+        offset = latest_offset(collector)
         result = collector.run(current_queries, mock_records=mock_records)
         log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
+        if mock_records is None and auto_ingest_enabled():
+            ingest_new(collector, offset)
+        if mock_records is None:
+            charge_searches(getattr(collector, "searches", []))
+            record_searches(getattr(collector, "searches", []))
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")
         time.sleep(interval)

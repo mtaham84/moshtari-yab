@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from workers.x_collector.client import XCliClient, XCliError
-from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, collect_forever
+from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, collect_forever, ingest_new, latest_offset
 from workers.x_collector.query_source import queries_from_products
 from workers.x_collector.__main__ import main
 
@@ -205,15 +205,87 @@ class XCollectorTests(unittest.TestCase):
             with self.assertRaises(XCliError):
                 collect_forever(collector, ["q"], 1)
 
+    def test_ingest_new_loads_only_this_cycles_lines(self):
+        collector = self.collector()
+        latest = collector.output_dir / "latest.jsonl"
+        latest.parent.mkdir(parents=True, exist_ok=True)
+        latest.write_text('{"id": "1"}\n', encoding="utf-8")
+        offset = latest_offset(collector)
+        with latest.open("a", encoding="utf-8") as stream:
+            stream.write('{"id": "2"}\n{"id": "3"}\n{"id": "4"')   # last line still being written
+        seen = []
+        def loader(path):
+            seen.extend(json.loads(line)["id"] for line in Path(path).read_text(encoding="utf-8").splitlines())
+            return len(seen)
+        self.assertEqual(ingest_new(collector, offset, loader), 2)
+        self.assertEqual(seen, ["2", "3"])
+        self.assertEqual(list(collector.output_dir.glob(".ingest-*")), [])
+        self.assertEqual(ingest_new(collector, latest.stat().st_size, loader), 0)
+
+    def test_ingest_failure_does_not_raise(self):
+        collector = self.collector()
+        latest = collector.output_dir / "latest.jsonl"
+        latest.parent.mkdir(parents=True, exist_ok=True)
+        latest.write_text('{"id": "1"}\n', encoding="utf-8")
+        def broken(path):
+            raise RuntimeError("db down")
+        self.assertEqual(ingest_new(collector, 0, broken), 0)
+
+    def test_loop_ingests_after_each_cycle(self):
+        collector = self.collector()
+        collector.run = lambda *args, **kwargs: {"status": "AUTH_FAILED", "collected": 0}
+        with patch("workers.x_collector.worker.ingest_new", return_value=0) as ingest, \
+                patch.dict("os.environ", {"X_AUTO_INGEST": "true"}):
+            with self.assertRaises(XCliError):
+                collect_forever(collector, ["q"], 1)
+        ingest.assert_called_once()
+
+    def test_product_queries_tag_posts_per_product_and_record_searches(self):
+        client = FakeClient(self.fixture[:1])
+        collector = self.collector(client)
+        q = {"query": "notion (اکانت) lang:fa", "kind": "intent", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}
+        result = collector.run([q])
+        self.assertEqual(result["collected"], 2)                       # one post, two products → two records
+        records = load_file(self.root / "collected" / "latest.jsonl")
+        self.assertEqual(sorted(r["product_id"] for r in records), ["1", "2"])
+        self.assertEqual(len({r["id"] for r in records}), 1)
+        self.assertEqual([{k: s[k] for k in ("query", "product_ids", "business_ids", "fetched", "new_by_product")}
+                          for s in collector.searches],
+                         [{"query": q["query"], "product_ids": ["1", "2"], "business_ids": ["7", "8"], "fetched": 1,
+                           "new_by_product": {"1": 1, "2": 1}}])
+        again = self.collector(FakeClient(self.fixture[:1])).run([q])
+        self.assertEqual(again["collected"], 0)                        # same post × product is not collected twice
+
+    def test_search_fee_bills_every_seller_in_full(self):
+        from workers.x_collector.worker import charge_searches
+
+        rows = []
+
+        class Store:
+            def add_cost(self, *args, **kwargs):
+                rows.append((args, kwargs))
+
+        searches = [{"query": "q", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}]
+        with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "0"}):
+            self.assertEqual(charge_searches(searches, Store()), 0)
+        with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "50", "NE_USD_TO_TOMAN": "100000"}):
+            self.assertEqual(charge_searches(searches, Store()), 2)
+        (args, kwargs), = rows
+        self.assertEqual(args[0], "x_search")
+        self.assertEqual(args[6], 100.0)                                # 50 toman × 2 sellers (each pays it all)
+        self.assertEqual(kwargs["businesses"], ["7", "8"])
+
     def test_flag_like_query_is_skipped_but_following_query_runs(self):
         client = FakeClient(self.fixture[:1])
         result = self.collector(client).run(["--help", "coffee"])
         self.assertEqual(result["status"], "COMPLETED")
-        self.assertEqual(client.calls, [("coffee", 50)])
+        self.assertEqual(len(client.calls), 1)
+        self.assertRegex(client.calls[0][0], r"^coffee since_time:\d+$")
+        self.assertEqual(client.calls[0][1], 50)
         self.assertEqual(result["collected"], 1)
 
     def test_error_json_codes_are_classified_even_on_nonzero_exit(self):
-        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "fatal"), ("service_unavailable", "transient")]
+        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "fatal"), ("service_unavailable", "transient"), ("not_found", "query")]
         for code, kind in cases:
             completed = type("Completed", (), {"returncode": 1, "stdout": json.dumps({"ok": False, "error": {"code": code}}), "stderr": ""})()
             with self.subTest(code=code), patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter"), \
@@ -264,3 +336,23 @@ class XCollectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_not_found_skips_only_that_query(tmp_path):
+    from workers.x_collector.client import XCliError
+    from workers.x_collector.worker import XCollector
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def search(self, query, limit):
+            self.calls.append(query)
+            if query.startswith("bad"):
+                raise XCliError("404", kind="query")
+            return []
+
+    client = Client()
+    result = XCollector(client=client, output_dir=tmp_path / "o", state_path=tmp_path / "s.sqlite3", sleep_min=0, sleep_max=0,
+                        sleeper=lambda _: None, jitter=lambda a, b: 0).run(["bad one", "good one"])
+    assert result["status"] == "PARTIAL" and len(client.calls) == 2

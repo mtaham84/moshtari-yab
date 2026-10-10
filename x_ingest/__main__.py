@@ -64,7 +64,8 @@ def validate_record(record: object) -> dict:
             "created_at": created, "lang": metadata.get("lang"), "url": record.get("url"),
             "query": metadata.get("query"), "author_verified": bool(record.get("author_verified")),
             "author_bio": str(record.get("author_bio") or "")[:500], "kind": kind,
-            **thread_ids, "in_reply_to_author_id": str(record.get("in_reply_to_author_id") or "") or None, "raw": record}
+            **thread_ids, "in_reply_to_author_id": str(record.get("in_reply_to_author_id") or "") or None,
+            "product_id": str(record["product_id"]) if record.get("product_id") else None, "raw": record}
 
 
 def load(path: str | Path, dsn: str | None = None) -> int:
@@ -89,6 +90,10 @@ def load(path: str | Path, dsn: str | None = None) -> int:
         conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS conversation_id BIGINT")
         conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS in_reply_to_tweet_id BIGINT")
         conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS in_reply_to_author_id TEXT")
+        # per-product mode: which seller product's search found the post (one row per post × product)
+        conn.execute(f"""CREATE TABLE IF NOT EXISTS {schema}.x_post_products (
+            hit_id BIGSERIAL PRIMARY KEY, tweet_id BIGINT NOT NULL, product_id TEXT NOT NULL, query TEXT,
+            found_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (tweet_id, product_id))""")
         with Path(path).open(encoding="utf-8") as stream:
             for line_no, line in enumerate(stream, 1):
                 if not line.strip() or line.lstrip().startswith("//"):
@@ -110,8 +115,40 @@ def load(path: str | Path, dsn: str | None = None) -> int:
                      record["text"], record["created_at"], record["lang"], record["url"], record["query"],
                      bool(record.get("author_verified")), record.get("author_bio"), Jsonb(record["raw"]), record["kind"],
                      record["conversation_id"], record["in_reply_to_tweet_id"], record["in_reply_to_author_id"]))
+                if record["product_id"]:
+                    conn.execute(f"""INSERT INTO {schema}.x_post_products (tweet_id, product_id, query) VALUES (%s,%s,%s)
+                                     ON CONFLICT (tweet_id, product_id) DO NOTHING""",
+                                 (record["tweet_id"], record["product_id"], record["query"]))
                 count += 1
     return count
+
+
+SEARCH_RUNS_DDL = """CREATE TABLE IF NOT EXISTS {schema}.x_search_runs (
+    run_id BIGSERIAL PRIMARY KEY, ran_at TIMESTAMPTZ NOT NULL DEFAULT now(), product_id TEXT NOT NULL, query TEXT NOT NULL,
+    fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS x_search_runs_product_idx ON {schema}.x_search_runs (product_id, ran_at DESC)"""
+
+
+def record_search_runs(searches: list[dict], dsn: str | None = None) -> int:
+    """One row per (search, product): the seller-facing «what was searched and what came back» log."""
+    import psycopg
+
+    schema = os.environ.get("NE_CRAWLER_SCHEMA", "crawler")
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
+        raise ValueError("NE_CRAWLER_SCHEMA must be a simple SQL schema name")
+    rows = [(s.get("ran_at") or datetime.now().astimezone().isoformat(), str(pid), str(s.get("query") or "")[:500],
+             int(s.get("fetched") or 0), int((s.get("new_by_product") or {}).get(str(pid), 0)))
+            for s in searches for pid in s.get("product_ids") or []]
+    if not rows:
+        return 0
+    with psycopg.connect(dsn or _dsn()) as conn:
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+        for stmt in SEARCH_RUNS_DDL.format(schema=schema).split(";"):
+            conn.execute(stmt)
+        with conn.cursor() as c:
+            c.executemany(f"INSERT INTO {schema}.x_search_runs (ran_at, product_id, query, fetched, new_posts) VALUES (%s,%s,%s,%s,%s)",
+                          rows)
+    return len(rows)
 
 
 def main(argv: list[str] | None = None) -> int:

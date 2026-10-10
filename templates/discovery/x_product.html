@@ -1,0 +1,114 @@
+{% extends "panel/base_panel.html" %}
+{% load x_tags %}
+{% block title %}{{ product.name }} | جستجوی مشتری در X{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'discovery:x_search' %}">جستجوی مشتری در X</a>
+  <span class="sep">/</span>
+  <span class="current">{{ product.name }}</span>
+{% endblock %}
+{% block nav_x_management %}active{% endblock %}
+{% block panel_content %}
+{% include "discovery/_x_styles.html" %}
+<div class="p-page-header">
+  <div>
+    <h1 class="p-page-title">{{ product.name }}</h1>
+    <p class="p-page-subtitle">جستجوی مشتری در X برای این محصول</p>
+  </div>
+  <div class="p-header-actions">
+    <a class="p-btn p-btn-ghost p-btn-sm" href="{% url 'products:detail' product.pk %}">صفحه‌ی محصول</a>
+  </div>
+</div>
+
+<div class="xs-wrap">
+  <section class="p-card xs-card" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:240px">
+      {% if not eligible %}
+        <b>این محصول برای کشف مشتری فعال نیست.</b>
+        <div class="xs-muted">تا وقتی در <a href="{% url 'products:edit' product.pk %}">ویرایش محصول</a> وضعیتش را «فعال برای کشف» نکنید، در X برایش جستجو نمی‌شود.</div>
+      {% elif product.x_search_enabled %}
+        <b>جستجو روشن است.</b>
+        <div class="xs-muted">هر چند دقیقه یک بار X را برای این محصول می‌گردیم و پست‌های پیدا شده را با هوش مصنوعی می‌خوانیم. هزینه‌ی خواندن از کیف پول کم می‌شود.</div>
+      {% else %}
+        <b>جستجو خاموش است.</b>
+        <div class="xs-muted">با روشن کردن کلید، از دور بعدی (چند دقیقه) X را برای این محصول می‌گردیم. فقط بررسی پست‌ها هزینه دارد و هر وقت بخواهید می‌توانید خاموشش کنید.</div>
+      {% endif %}
+      {% if wallet_empty and product.x_search_enabled %}<div class="alert alert-warning" style="margin-top:10px">اعتبار کیف پول تمام شده؛ پست‌ها نگه داشته می‌شوند تا بعد از شارژ بررسی شوند.</div>{% endif %}
+      <div class="xs-faint" style="margin-top:8px"><span class="xs-dot {% if collector.ok %}ok{% else %}warn{% endif %}" style="display:inline-block;margin-left:6px"></span>{{ collector.text }}</div>
+    </div>
+    {% if eligible or product.x_search_enabled %}
+      {% include "discovery/_x_switch.html" with product=product big=True next=request.get_full_path %}
+    {% endif %}
+  </section>
+
+  <div>
+    <div class="xs-faint" style="margin-bottom:8px">۳۰ روز اخیر</div>
+    <div class="xs-stats">
+      <div class="p-card xs-stat"><div class="v">{{ st.found|floatformat:"0g" }}</div><div class="l">پست پیدا شده در X</div><div class="h">{% if st.searches %}در {{ st.searches }} جستجو، {{ st.seen|floatformat:"0g" }} نتیجه دیده شد؛ این‌ها تازه بودند{% else %}پست‌های تازه‌ای که جستجو آورد{% endif %}</div></div>
+      <div class="p-card xs-stat"><div class="v">{{ st.reviewed|floatformat:"0g" }}</div><div class="l">بررسی شده</div><div class="h">{% if st.queued %}{{ st.queued }} پست در صف یا کنار گذاشته شده{% else %}با هوش مصنوعی{% endif %}</div></div>
+      <div class="p-card xs-stat hl"><div class="v">{{ st.customers|floatformat:"0g" }}</div><div class="l">مشتری احتمالی</div><div class="h">{{ st.rejected }} پست خریدار این محصول نبود</div></div>
+      <div class="p-card xs-stat"><div class="v">{{ st.cost_toman|floatformat:"0g" }}</div><div class="l">تومان هزینه</div><div class="h">کسر شده از کیف پول</div></div>
+    </div>
+  </div>
+
+  <section class="p-card xs-card">
+    <h2 style="margin:0 0 6px;font-size:1.05rem">دنبال چه می‌گردیم؟</h2>
+    <p class="xs-muted" style="margin:0 0 14px">این‌ها جمله‌هایی است که در X جستجو می‌کنیم. از روی نام و توضیح محصول خودکار ساخته می‌شوند: نام محصول + کلمه‌هایی که خریدارها به کار می‌برند، و کلمه‌های آگهی (مثل «فروش») کنار گذاشته می‌شوند تا آگهی رقبا کمتر بیاید.</p>
+    {% if phrases %}
+    <div class="xs-chips">
+      {% for ph in phrases %}
+      <div class="xs-phrase">
+        {% for g in ph.groups %}
+          {% if not forloop.first %}<span class="xs-plus">+</span>{% endif %}
+          {% for w in g %}{% if not forloop.first %}<span class="xs-or">یا</span>{% endif %}<span class="xs-chip">{{ w }}</span>{% endfor %}
+        {% endfor %}
+        {% if ph.excluded %}<span class="xs-ex">به‌جز: {{ ph.excluded|join:"، " }}</span>{% endif %}
+        {% if ph.runs %}<span class="xs-faint">· {{ ph.new }} پست تازه از {{ ph.seen }} نتیجه</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="xs-faint">{% if product.x_search_enabled %}عبارت‌ها در اولین دور جستجو ساخته می‌شوند و اینجا نمایش داده می‌شوند.{% else %}بعد از روشن کردن جستجو، عبارت‌ها اینجا نمایش داده می‌شوند.{% endif %}</div>
+    {% endif %}
+  </section>
+
+  <section class="p-card xs-card">
+    <h2 style="margin:0 0 12px;font-size:1.05rem">گزارش فعالیت</h2>
+    <nav class="xs-tabs">
+      {% for key, label in filters %}<a class="xs-tab{% if show == key %} on{% endif %}" href="?show={{ key }}">{{ label }}</a>{% endfor %}
+    </nav>
+    {% if events %}
+    <ul class="xs-log">
+      {% for e in events %}
+        {% if e.type == "search" %}
+        <li class="xs-ev search">
+          <div class="head"><b style="color:var(--panel-text-main)">جستجو در X</b><span>{{ e.at|ago }}</span></div>
+          <div class="xs-why">با {{ e.phrases }} عبارت جستجو شد؛ {{ e.seen }} پست دیده شد و {% if e.new %}<b>{{ e.new }} پست تازه</b> برای بررسی آمد{% else %}پست تازه‌ای نبود (بقیه را قبلاً دیده بودیم){% endif %}.</div>
+        </li>
+        {% else %}
+        <li class="xs-ev {{ e.tone }}">
+          <div class="head">
+            <span class="xs-tag {{ e.tone }}">{{ e.label }}</span>
+            <a href="{{ e.url }}" target="_blank" rel="noopener" style="color:var(--panel-text-main);text-decoration:none" dir="ltr">@{{ e.handle }}</a>
+            {% if e.is_reply %}<span class="xs-faint">(پاسخ زیر یک پست)</span>{% endif %}
+            <span>پیدا شد {{ e.at|ago }}</span>
+          </div>
+          <div class="xs-post" dir="rtl">{{ e.text|truncatechars:400 }}</div>
+          <div class="xs-why">{% if e.reason %}<b>چرا:</b> {{ e.reason }}{% else %}{{ e.help }}{% endif %}</div>
+          <div class="xs-links">
+            {% if e.opportunity_id %}<a href="{% url 'discovery:opportunity_detail' e.opportunity_id %}">مشاهده فرصت و متن پاسخ ←</a>{% endif %}
+            {% if e.url %}<a href="{{ e.url }}" target="_blank" rel="noopener">دیدن در X</a>{% endif %}
+          </div>
+        </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="xs-empty">
+      {% if show != "all" %}موردی در این دسته نیست.
+      {% elif product.x_search_enabled %}هنوز چیزی ثبت نشده. اولین جستجو چند دقیقه بعد از روشن کردن انجام می‌شود و نتیجه‌ها همین‌جا می‌آید.
+      {% else %}جستجو برای این محصول خاموش است؛ با روشن کردن کلید بالا، فعالیت‌ها اینجا نمایش داده می‌شود.{% endif %}
+    </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

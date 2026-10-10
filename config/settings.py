@@ -134,6 +134,8 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 X_INTENT_BASE_URL = os.getenv("X_INTENT_BASE_URL", "https://x.com/intent/post")
+# seller pages «جستجوی مشتری در X» (per-product X search, NE_X_MODE=product|both)
+X_SELLER_UI = os.getenv("X_SELLER_UI", "true").lower() in {"1", "true", "yes", "on"}
 X_PANEL_ENABLED = os.getenv("X_PANEL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

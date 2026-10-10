@@ -203,6 +203,11 @@ class Product(models.Model):
         default=True,
         verbose_name="ارتباط از طریق X (توییتر)"
     )
+    x_search_enabled = models.BooleanField(
+        default=False,
+        verbose_name="جستجوی مشتری در X (توییتر)",
+        help_text="برای این محصول جداگانه در X جستجو و تحلیل می‌شود؛ هزینه از کیف پول کسر می‌شود.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاریخ ایجاد")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
 

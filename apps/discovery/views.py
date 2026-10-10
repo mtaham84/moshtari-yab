@@ -590,3 +590,60 @@ def x_management_view(request):
         status = None
     return render(request, "discovery/x_management.html", {"queries": queries, "terms": terms,
         "collector_state": status})
+
+
+def _x_seller_business(request):
+    if not getattr(settings, "X_SELLER_UI", True):
+        return None
+    return getattr(request.user, "business", None)
+
+
+def _x_wallet_empty(business) -> bool:
+    wallet = getattr(business, "wallet", None)
+    return wallet is not None and wallet.balance_toman <= 0
+
+
+@login_required
+def x_search_view(request):
+    """Seller hub «جستجوی مشتری در X»: what it does in plain words, a switch per product and what came of it."""
+    from apps.products.models import Product
+
+    from . import x_activity
+
+    business = _x_seller_business(request)
+    if business is None:
+        return HttpResponse(status=404)
+    products = list(Product.objects.filter(business=business).order_by("-x_search_enabled", "name"))
+    stats = x_activity.product_stats(business, products)
+    rows = []
+    for p in products:
+        st = stats.get(str(p.pk), {})
+        rows.append({"product": p, "st": st, "eligible": p.status == "ACTIVE" and p.is_discovery_active})
+    on = [r for r in rows if r["product"].x_search_enabled]
+    totals = {k: sum(r["st"].get(k, 0) for r in rows) for k in ("found", "reviewed", "customers", "rejected", "cost_toman", "seen")}
+    return render(request, "discovery/x_search.html", {
+        "rows": rows, "on_count": len(on), "totals": totals, "collector": x_activity.collector_line(),
+        "wallet_empty": _x_wallet_empty(business), "x_mode": os.getenv("NE_X_MODE", "product").strip().lower() or "product",
+    })
+
+
+@login_required
+def x_product_view(request, pk):
+    """One product's X search: switch, numbers, the phrases searched and a log of every post found and its outcome."""
+    from apps.products.models import Product
+
+    from . import x_activity
+
+    business = _x_seller_business(request)
+    if business is None:
+        return HttpResponse(status=404)
+    product = get_object_or_404(Product, pk=pk, business=business)
+    show = request.GET.get("show", "all")
+    show = show if show in dict(x_activity.FILTERS) else "all"
+    st = x_activity.product_stats(business, [product]).get(str(product.pk), {})
+    return render(request, "discovery/x_product.html", {
+        "product": product, "st": st, "eligible": product.status == "ACTIVE" and product.is_discovery_active,
+        "phrases": x_activity.search_phrases(product), "events": x_activity.timeline(product, business, show),
+        "show": show, "filters": x_activity.FILTERS, "collector": x_activity.collector_line(),
+        "wallet_empty": _x_wallet_empty(business),
+    })
