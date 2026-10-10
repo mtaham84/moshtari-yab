@@ -71,6 +71,18 @@ def _table_exists(name: str) -> bool:
         return c.fetchone()[0] is not None
 
 
+def _has_column(table: str, column: str) -> bool:
+    with connection.cursor() as c:
+        c.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                  [_schema(), table, column])
+        return c.fetchone() is not None
+
+
+def _billed() -> str:
+    """Billed share of a cost row: a chat watched privately by several sellers is analysed once, each owner pays it all."""
+    return "usd * charge_factor" if _has_column("costs", "charge_factor") else "usd"
+
+
 def _rows(sql: str, params=()) -> list[dict]:
     with connection.cursor() as c:
         c.execute(sql.replace("{s}", _schema()), list(params))
@@ -96,7 +108,7 @@ def charge_pending_usage(grace_seconds: float = 5.0) -> dict:
         if top is None:
             return {"businesses": 0, "rows": 0, "toman": Decimal("0")}
         cached = "" if cfg.charge_cached else "AND NOT cached"
-        groups = _rows(f"""SELECT business_id, COUNT(*) AS calls, COALESCE(SUM(usd), 0) AS usd FROM {{s}}.costs
+        groups = _rows(f"""SELECT business_id, COUNT(*) AS calls, COALESCE(SUM({_billed()}), 0) AS usd FROM {{s}}.costs
                            WHERE id > %s AND id <= %s AND business_id IS NOT NULL {cached}
                            GROUP BY business_id""", (cursor.position, top))
         rows = top - cursor.position
@@ -127,6 +139,22 @@ def heartbeat(name: str) -> None:
     from apps.discovery.models import EngineSyncCursor
 
     EngineSyncCursor.objects.update_or_create(name=f"heartbeat:{name}", defaults={"position": int(time.time())})
+
+
+def waiting_payment() -> dict[str, dict]:
+    """Work held by need_engine for sellers without balance (kv ``waiting_payment``, refreshed every engine run):
+    {business_id: {"messages", "needs", "products"}}. Processed automatically after a top-up."""
+    try:
+        if not _table_exists("kv"):
+            return {}
+        rows = _rows("SELECT v FROM {s}.kv WHERE k = 'waiting_payment'")
+    except Exception:  # pragma: no cover - engine schema not reachable
+        return {}
+    if not rows:
+        return {}
+    v = rows[0]["v"] if isinstance(rows[0]["v"], dict) else json.loads(rows[0]["v"])
+    return {str(k): {x: int(d.get(x, 0) or 0) for x in ("messages", "needs", "products")}
+            for k, d in (v.get("sellers") or {}).items()}
 
 
 # ── numbers for the admin panel ───────────────────────────────────────────────
@@ -180,7 +208,7 @@ def cost_ledger(limit: int = 100, offset: int = 0, business: str = "", model: st
             where.append(f"{col} = %s")
             params.append(val)
     rows = _rows(f"""SELECT id, to_timestamp(ts) AS at, stage, model, prompt_tokens, completion_tokens, cached, usd, toman,
-                     business_id, ref FROM {{s}}.costs WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT %s OFFSET %s""",
+                     business_id, ref, {"charge_factor" if _has_column("costs", "charge_factor") else "1"} AS charge_factor FROM {{s}}.costs WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT %s OFFSET %s""",
                  params + [limit, offset])
     names = dict(Business.objects.values_list("pk", "name"))
     for r in rows:
@@ -316,3 +344,134 @@ def import_from_env() -> tuple[Provider, int]:
             "label": "Embedding", "input_price_usd": Decimal(str(cfg.embed_price_per_m))})
         created += int(made)
     return provider, created
+
+
+# ── Telegram groups: one row per group (however many sources point to it) ────
+def _crawler_schema() -> str:
+    return re.sub(r"[^a-z0-9_]", "", (getattr(settings, "TG_DB_SCHEMA", "") or "crawler")) or "crawler"
+
+
+def _crawler_table_exists(name: str) -> bool:
+    with connection.cursor() as c:
+        c.execute("SELECT to_regclass(%s)", [f"{_crawler_schema()}.{name}"])
+        return c.fetchone()[0] is not None
+
+
+def group_engine_stats() -> dict[str, dict]:
+    """Per Telegram chat id: real AI cost (need extraction + verify/reply of its needs), what sellers are billed for it,
+    messages analysed, needs, engine opportunities and the opportunities delivered to sellers."""
+    out: dict[str, dict] = {}
+
+    def row(chat) -> dict:
+        return out.setdefault(str(chat), {"usd": 0.0, "toman": 0.0, "billed_usd": 0.0, "analysed": 0, "needs": 0,
+                                          "open_needs": 0, "opportunities": 0, "seller_opportunities": 0})
+
+    try:
+        if _table_exists("costs") and _table_exists("needs"):
+            cfg = BillingSettings.get()
+            cached = "TRUE" if cfg.charge_cached else "NOT cached"
+            billed = _billed()
+            for r in _rows(f"""
+                    WITH x AS (
+                        SELECT split_part(c.ref, ':', 1) AS chat, c.* FROM {{s}}.costs c WHERE c.stage = 'need_extraction'
+                        UNION ALL
+                        SELECT n.chat_id AS chat, c.* FROM {{s}}.costs c
+                        JOIN {{s}}.needs n ON n.need_id = split_part(c.ref, ':', 1)
+                        WHERE c.stage <> 'need_extraction' AND c.ref LIKE 'need\\_%%')
+                    SELECT chat, COALESCE(SUM(usd), 0) AS usd, COALESCE(SUM(toman), 0) AS toman,
+                           COALESCE(SUM({billed}) FILTER (WHERE business_id IS NOT NULL AND {cached}), 0) AS billed_usd
+                    FROM x GROUP BY chat"""):
+                d = row(r["chat"])
+                d["usd"], d["toman"], d["billed_usd"] = float(r["usd"]), float(r["toman"]), float(r["billed_usd"])
+            for r in _rows("""SELECT chat_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE status = 'open') AS o
+                              FROM {s}.needs GROUP BY chat_id"""):
+                row(r["chat_id"]).update(needs=int(r["n"]), open_needs=int(r["o"]))
+        if _table_exists("chat_analysed"):
+            for r in _rows("SELECT chat_id, n FROM {s}.chat_analysed"):
+                row(r["chat_id"])["analysed"] = int(r["n"])
+        if _table_exists("opportunities"):
+            from apps.discovery.models import Opportunity
+
+            for r in _rows("""SELECT payload->'source'->>'chat_id' AS chat, COUNT(*) AS n FROM {s}.opportunities
+                              GROUP BY 1"""):
+                row(r["chat"])["opportunities"] = int(r["n"])
+            for r in _rows(f"""SELECT o.payload->'source'->>'chat_id' AS chat, COUNT(*) AS n FROM {{s}}.opportunities o
+                               JOIN {Opportunity._meta.db_table} d ON d.engine_opportunity_id = o.opportunity_id
+                               GROUP BY 1"""):
+                row(r["chat"])["seller_opportunities"] = int(r["n"])
+    except Exception:  # pragma: no cover - engine schema not reachable / older engine
+        log.exception("group stats")
+    return out
+
+
+def community_groups(status: str = "", scope: str = "") -> list[dict]:
+    """Sources grouped by Telegram group (chat id once joined, otherwise the link). The engine analyses each group once;
+    every seller with a private source pays its whole analysis. Also lists groups the crawler watches without any
+    source in the panel (e.g. the groups file): their messages are archived but NOT analysed."""
+    from apps.discovery.models import MonitoredCommunity
+
+    cfg = BillingSettings.get()
+    rate = float(cfg.usd_to_toman * cfg.multiplier)
+    stats = group_engine_stats()
+    groups: dict[str, dict] = {}
+    for c in MonitoredCommunity.objects.select_related("business").order_by("scope", "-is_active", "created_at"):
+        key = str(c.telegram_chat_id) if c.telegram_chat_id else f"link:{c.normalized_link}"
+        g = groups.setdefault(key, {"key": key, "chat_id": c.telegram_chat_id, "title": "", "link": c.handle_or_link,
+                                    "sources": [], "members": 0, "scanned": 0, "last": None})
+        g["sources"].append(c)
+        if c.name and c.name != c.handle_or_link and not g["title"]:
+            g["title"] = c.name
+        g["members"] = max(g["members"], c.members_count or 0)
+        g["scanned"] = max(g["scanned"], c.messages_scanned_count or 0)
+        if c.last_scanned_at and (g["last"] is None or c.last_scanned_at > g["last"]):
+            g["last"] = c.last_scanned_at
+
+    known = {g["chat_id"] for g in groups.values() if g["chat_id"]}
+    try:
+        if _crawler_table_exists("tg_chats"):
+            cs = _crawler_schema()
+            with connection.cursor() as cur:
+                cur.execute(f"""SELECT t.chat_id, t.title, t.username, t.join_link, t.members_count,
+                                       (SELECT COUNT(*) FROM {cs}.tg_messages m WHERE m.chat_id = t.chat_id AND NOT m.is_context),
+                                       t.last_scanned_at
+                                FROM {cs}.tg_chats t WHERE t.is_monitored""")
+                for chat_id, title, username, join_link, members, n, last in cur.fetchall():
+                    if chat_id in known:
+                        continue
+                    link = f"@{username}" if username else (join_link or str(chat_id))
+                    groups[str(chat_id)] = {"key": str(chat_id), "chat_id": chat_id, "title": title or "", "link": link,
+                                            "sources": [], "members": members or 0, "scanned": n or 0, "last": last,
+                                            "orphan": True}
+    except Exception:  # pragma: no cover
+        log.exception("crawler groups")
+
+    out = []
+    for g in groups.values():
+        src = g["sources"]
+        active = [c for c in src if c.is_active]
+        g["global"] = [c for c in src if c.is_global]
+        g["private"] = [c for c in src if not c.is_global]
+        g["private_active"] = [c for c in g["private"] if c.is_active]
+        g["has_global"] = any(c.is_active for c in g["global"])
+        g["orphan"] = g.get("orphan", False)
+        g["analysed_by_engine"] = bool(active) and bool(g["chat_id"])
+        st = sorted({c.sync_status for c in src}) if src else []
+        g["status"] = "ACTIVE" if "ACTIVE" in st and active else (st[0] if st else "")
+        s = stats.get(str(g["chat_id"]), {}) if g["chat_id"] else {}
+        g["stats"] = s
+        g["billed_toman"] = s.get("billed_usd", 0.0) * rate
+        g["payers"] = "پلتفرم" if g["has_global"] and not g["private_active"] else (
+            f"{len(g['private_active'])} فروشنده (هر کدام کامل)" if g["private_active"] else "—")
+        if status and status not in {c.sync_status for c in src}:
+            continue
+        if scope == "GLOBAL" and not g["global"]:
+            continue
+        if scope == "PRIVATE" and not g["private"]:
+            continue
+        if scope == "SHARED" and len(g["private"]) < 2 and not (g["global"] and g["private"]):
+            continue
+        if scope == "ORPHAN" and not g["orphan"]:
+            continue
+        out.append(g)
+    out.sort(key=lambda g: (g["orphan"], -len(g["private_active"]), -(g["stats"].get("toman") or 0), g["link"]))
+    return out

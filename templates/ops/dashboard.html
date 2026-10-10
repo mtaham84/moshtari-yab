@@ -11,7 +11,7 @@
   <div class="card stat"><div class="label">سود ناخالص</div><div class="value {% if profit < 0 %}neg{% else %}pos{% endif %}">{{ profit|toman }} <small>تومان</small></div>
     <div class="sub">شامل هزینه‌ی منابع عمومی که پلتفرم می‌پردازد</div></div>
   <div class="card stat"><div class="label">مجموع اعتبار فروشنده‌ها</div><div class="value">{{ wallet_total|toman }} <small>تومان</small></div>
-    <div class="sub">{{ wallet_count }} کیف پول · <a href="{% url 'ops:wallets' %}">{{ blocked }} بدون اعتبار</a></div></div>
+    <div class="sub">{{ wallet_count }} کیف پول · <a href="{% url 'ops:wallets' %}">{{ blocked }} بدون اعتبار</a>{% if held.messages or held.needs or held.products %} · در انتظار پرداخت: {{ held.messages|num }} پیام، {{ held.needs|num }} نیاز، {{ held.products|num }} محصول{% endif %}</div></div>
 </div>
 
 <div class="grid g2" style="margin-top:14px">

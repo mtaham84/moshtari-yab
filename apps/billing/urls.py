@@ -21,6 +21,7 @@ urlpatterns = [
     path("wallets/charge/", views.charge_now, name="charge_now"),
     path("wallets/<int:business_id>/", views.wallet_detail, name="wallet_detail"),
     path("communities/", views.communities, name="communities"),
+    path("communities/adopt/<str:chat_id>/", views.community_adopt, name="community_adopt"),
     path("communities/<int:pk>/toggle/", views.community_toggle, name="community_toggle"),
     path("communities/<int:pk>/delete/", views.community_delete, name="community_delete"),
     path("settings/", views.billing_settings, name="settings"),

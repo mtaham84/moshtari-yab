@@ -5,7 +5,7 @@
 <div class="grid g2">
   <div class="card stat"><div class="label">موجودی</div>
     <div class="value {% if blocked %}neg{% endif %}">{{ wallet.balance_toman|toman }} <small>تومان</small></div>
-    <div class="sub">{% if blocked %}<span class="st down">اعتبار تمام شده؛ تحلیل برای این فروشنده متوقف است</span>{% else %}<span class="st ok">فعال</span>{% endif %}
+    <div class="sub">{% if blocked %}<span class="st down">اعتبار تمام شده؛ تحلیل تا شارژ بعدی در صف است</span>{% if waiting %}<br><span class="muted">در انتظار پرداخت: {{ waiting.messages|num }} پیام · {{ waiting.needs|num }} نیاز · {{ waiting.products|num }} محصول — بعد از شارژ خودکار پردازش می‌شود</span>{% endif %}{% else %}<span class="st ok">فعال</span>{% endif %}
       · <a href="{% url 'ops:costs' %}?business={{ business.pk }}">دفتر هزینه‌ها</a></div></div>
   <div class="card"><h2>ثبت تراکنش</h2>
     <form method="post">{% csrf_token %}

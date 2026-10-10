@@ -100,11 +100,14 @@ class PanelCommunities:
                           r["sync_error"] or "") for r in rows]
 
     def mark_joined(self, community_id: int, chat_id: int, title: str | None, members: int | None) -> None:
+        """Without title/members (a second source for a group joined earlier) they are taken from the archive."""
+        chats = f"{self.crawler_schema}.tg_chats"
         self.conn.execute(
             f"UPDATE {self.table} SET telegram_chat_id = %s, sync_status = 'ACTIVE', sync_error = '', "
-            "members_count = COALESCE(%s, members_count), "
-            "name = CASE WHEN name = '' OR name = handle_or_link THEN COALESCE(%s, name) ELSE name END "
-            "WHERE id = %s", (chat_id, members, title, community_id))
+            f"members_count = COALESCE(%s, (SELECT members_count FROM {chats} WHERE chat_id = %s), members_count), "
+            "name = CASE WHEN name = '' OR name = handle_or_link "
+            f"THEN COALESCE(%s, (SELECT title FROM {chats} WHERE chat_id = %s), name) ELSE name END "
+            "WHERE id = %s", (chat_id, members, chat_id, title, chat_id, community_id))
 
     def mark_error(self, community_ids: int | list[int], error: str) -> None:
         ids = [community_ids] if isinstance(community_ids, int) else list(community_ids)
@@ -129,3 +132,9 @@ class PanelCommunities:
                 FROM (SELECT chat_id, count(*) AS n, max(archived_at) AS last
                       FROM {self.crawler_schema}.tg_messages WHERE NOT is_context GROUP BY chat_id) s
                 WHERE c.telegram_chat_id = s.chat_id""")
+        self.conn.execute(   # every source of the same group shows the group's title and member count
+            f"""UPDATE {self.table} c SET members_count = COALESCE(t.members_count, c.members_count),
+                name = CASE WHEN (c.name = '' OR c.name = c.handle_or_link) AND t.title IS NOT NULL THEN t.title ELSE c.name END
+                FROM {self.crawler_schema}.tg_chats t WHERE c.telegram_chat_id = t.chat_id
+                AND (c.members_count IS DISTINCT FROM COALESCE(t.members_count, c.members_count)
+                     OR ((c.name = '' OR c.name = c.handle_or_link) AND t.title IS NOT NULL))""")
