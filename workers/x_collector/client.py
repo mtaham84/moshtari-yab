@@ -47,6 +47,8 @@ class XCliClient:
             code = str(error.get("code") or "unknown")
             if code == "rate_limited":
                 raise XCliError("X CLI rate limit detected", kind="rate_limit")
+            if code == "not_found":   # stale query id / endpoint for this search: skip the query, not the whole cycle
+                raise XCliError("X CLI search endpoint returned 404 (twitter-cli query id may be stale)", kind="query")
             if code == "not_authenticated":
                 raise XCliError("X CLI authentication failed; verify the session and run 'agent-reach doctor'")
             if code in {"timeout", "timed_out", "server_error", "internal_error", "bad_gateway", "service_unavailable"} or re.fullmatch(r"5\d\d", code):

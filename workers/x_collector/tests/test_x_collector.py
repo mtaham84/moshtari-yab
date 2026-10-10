@@ -215,7 +215,7 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(result["collected"], 1)
 
     def test_error_json_codes_are_classified_even_on_nonzero_exit(self):
-        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "fatal"), ("service_unavailable", "transient")]
+        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "fatal"), ("service_unavailable", "transient"), ("not_found", "query")]
         for code, kind in cases:
             completed = type("Completed", (), {"returncode": 1, "stdout": json.dumps({"ok": False, "error": {"code": code}}), "stderr": ""})()
             with self.subTest(code=code), patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter"), \
@@ -266,3 +266,23 @@ class XCollectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_not_found_skips_only_that_query(tmp_path):
+    from workers.x_collector.client import XCliError
+    from workers.x_collector.worker import XCollector
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def search(self, query, limit):
+            self.calls.append(query)
+            if query.startswith("bad"):
+                raise XCliError("404", kind="query")
+            return []
+
+    client = Client()
+    result = XCollector(client=client, output_dir=tmp_path / "o", state_path=tmp_path / "s.sqlite3", sleep_min=0, sleep_max=0,
+                        sleeper=lambda _: None, jitter=lambda a, b: 0).run(["bad one", "good one"])
+    assert result["status"] == "PARTIAL" and len(client.calls) == 2
