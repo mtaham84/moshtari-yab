@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Peyda Xray Proxy Auto-Switcher & Health Monitor
-- Continuously tests all candidate configs from xray/config.json
-- Automatically connects to the first config with latency < 600ms
-- If the active config disconnects or degrades (ping >= 600ms), cycles through subsequent configs
-- Preserves all configs in config.json with the active one placed first
+- Monitors active connection every 1 minute (60 seconds)
+- Primary goal: Connect to first config with ping < 600ms
+- Fallback goal: If no config < 600ms exists, stay connected or connect to first available config with ping <= 2000ms
+- If active connection disconnects or exceeds 2000ms, cycles through subsequent configs automatically
+- Automatically restarts Xray and Crawler on switch to resume crawling immediately
+- Preserves all configs in config.json with active one at index 0
 - Supports vless://, vmess://, trojan:// link parsing and batch import
-- Provides a clean status table report and a systemd daemon service
 """
 
 import os
@@ -26,10 +27,12 @@ BASE_DIR = Path("/root/moshtari-yab/xray")
 CONFIG_FILE = BASE_DIR / "config.json"
 XRAY_BIN = Path("/usr/local/bin/xray")
 COMPOSE_DIR = Path("/root/moshtari-yab")
-PING_THRESHOLD_MS = 600.0
-CHECK_INTERVAL_SEC = 20
+OPTIMAL_PING_THRESHOLD_MS = 600.0
+MAX_ACCEPTABLE_PING_THRESHOLD_MS = 2000.0
+CHECK_INTERVAL_SEC = 60
 PROBE_URL = "https://api.telegram.org"
-DOCKER_SERVICE_NAME = "xray"
+DOCKER_XRAY_SERVICE = "xray"
+DOCKER_CRAWLER_SERVICE = "crawler"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -371,7 +374,7 @@ def set_active_config(chosen_tag: str) -> bool:
     """
     Reorders outbounds in config.json so chosen_tag is at index 0.
     Keeps all other configs preserved after it, with direct/freedom at the end.
-    Restarts the xray container.
+    Restarts the xray and crawler containers.
     """
     if not CONFIG_FILE.exists():
         logger.error(f"{CONFIG_FILE} does not exist.")
@@ -392,46 +395,57 @@ def set_active_config(chosen_tag: str) -> bool:
 
         if proxies and proxies[0].get("tag") == chosen_tag:
             logger.info(f"Config [{chosen_tag}] is already primary in {CONFIG_FILE}.")
-            return True
+        else:
+            others = [ob for ob in proxies if ob.get("tag") != chosen_tag]
+            cfg["outbounds"] = [target_ob] + others + [direct]
 
-        others = [ob for ob in proxies if ob.get("tag") != chosen_tag]
-        cfg["outbounds"] = [target_ob] + others + [direct]
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
 
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            logger.info(f"Updated {CONFIG_FILE}: primary outbound set to [{chosen_tag}].")
 
-        logger.info(f"Updated {CONFIG_FILE}: primary outbound set to [{chosen_tag}].")
-
-        cmd = ["docker", "compose", "--profile", "proxy", "restart", DOCKER_SERVICE_NAME]
+        # Restart xray container
+        cmd = ["docker", "compose", "--profile", "proxy", "restart", DOCKER_XRAY_SERVICE]
         res = subprocess.run(cmd, cwd=str(COMPOSE_DIR), capture_output=True, text=True)
         if res.returncode == 0:
-            logger.info(f"Restarted {DOCKER_SERVICE_NAME} container successfully.")
-            return True
+            logger.info(f"Restarted {DOCKER_XRAY_SERVICE} container successfully.")
         else:
             logger.error(f"Failed to restart xray container: {res.stderr}")
             return False
+
+        # Also restart crawler container so Telegram connection picks up new proxy immediately
+        cmd_crawler = ["docker", "compose", "restart", DOCKER_CRAWLER_SERVICE]
+        res_crawler = subprocess.run(cmd_crawler, cwd=str(COMPOSE_DIR), capture_output=True, text=True)
+        if res_crawler.returncode == 0:
+            logger.info(f"Restarted {DOCKER_CRAWLER_SERVICE} container successfully to resume crawling.")
+        else:
+            logger.warning(f"Could not restart crawler container: {res_crawler.stderr}")
+
+        return True
 
     except Exception as e:
         logger.error(f"Error updating config: {e}")
         return False
 
 
-def find_and_connect_best_config(max_ping: float = PING_THRESHOLD_MS, start_from_next: bool = False) -> dict:
+def scan_and_evaluate_candidates(start_from_next: bool = False) -> tuple[dict, dict]:
     """
-    Tests configs in order and connects to the FIRST config with ping < max_ping.
-    If start_from_next is True, skips index 0 (current active) and checks index 1..N first.
+    Scans candidate configs in order.
+    Returns (first_optimal, first_acceptable):
+      - first_optimal: first config with ping < 600ms
+      - first_acceptable: first config with ping <= 2000ms
     """
     proxies = load_config_outbounds()
     if not proxies:
-        logger.warning("No candidate proxy configs found in config.json.")
-        return {}
+        return None, None
 
     if start_from_next and len(proxies) > 1:
         candidates = proxies[1:] + [proxies[0]]
     else:
         candidates = proxies
 
-    logger.info(f"Checking {len(candidates)} candidate configs (Threshold: < {max_ping:.0f}ms)...")
+    first_optimal = None
+    first_acceptable = None
 
     for idx, ob in enumerate(candidates, start=1):
         tag = ob.get("tag", f"config_{idx}")
@@ -451,16 +465,39 @@ def find_and_connect_best_config(max_ping: float = PING_THRESHOLD_MS, start_from
         logger.info(f"[{idx}/{len(candidates)}] Testing [{tag}] ({proto} -> {server}:{port})...")
         ok, ping_ms, err = test_outbound(ob)
 
-        if ok and ping_ms < max_ping:
-            logger.info(f"  >>> MATCH FOUND: [{tag}] CONNECTED with ping {ping_ms:.1f}ms (< {max_ping:.0f}ms)!")
-            set_active_config(tag)
-            return {"tag": tag, "ping": ping_ms, "outbound": ob}
+        if ok and ping_ms < OPTIMAL_PING_THRESHOLD_MS:
+            logger.info(f"  >>> OPTIMAL MATCH: [{tag}] CONNECTED with ping {ping_ms:.1f}ms (< {OPTIMAL_PING_THRESHOLD_MS:.0f}ms)!")
+            first_optimal = {"tag": tag, "ping": ping_ms, "outbound": ob}
+            return first_optimal, first_acceptable or first_optimal
+        elif ok and ping_ms <= MAX_ACCEPTABLE_PING_THRESHOLD_MS:
+            logger.info(f"  >>> ACCEPTABLE MATCH: [{tag}] CONNECTED with ping {ping_ms:.1f}ms (<= {MAX_ACCEPTABLE_PING_THRESHOLD_MS:.0f}ms).")
+            if not first_acceptable:
+                first_acceptable = {"tag": tag, "ping": ping_ms, "outbound": ob}
         elif ok:
-            logger.warning(f"  >>> HIGH PING: [{tag}] connected but ping is {ping_ms:.1f}ms (>= {max_ping:.0f}ms). Checking next...")
+            logger.warning(f"  >>> VERY HIGH PING: [{tag}] ping is {ping_ms:.1f}ms (> 2000ms). Skipping...")
         else:
             logger.warning(f"  >>> FAILED: [{tag}] unreachable. {err}")
 
-    logger.error(f"No candidate config met the < {max_ping:.0f}ms ping threshold!")
+    return first_optimal, first_acceptable
+
+
+def find_and_connect_best_config(start_from_next: bool = False) -> dict:
+    """
+    Selects and connects to:
+    1. First config with ping < 600ms (Optimal)
+    2. If none, first config with ping <= 2000ms (Acceptable fallback)
+    """
+    logger.info("Scanning configs for optimal (< 600ms) or acceptable (<= 2000ms) connection...")
+    optimal, acceptable = scan_and_evaluate_candidates(start_from_next=start_from_next)
+
+    chosen = optimal or acceptable
+    if chosen:
+        level = "Optimal (< 600ms)" if chosen == optimal else "Acceptable (<= 2000ms)"
+        logger.info(f"Selecting [{chosen['tag']}] ({level}, Ping: {chosen['ping']:.1f}ms)...")
+        set_active_config(chosen["tag"])
+        return chosen
+
+    logger.error("No candidate config found with ping <= 2000ms!")
     return {}
 
 
@@ -471,11 +508,13 @@ def run_table_report():
         print("[WARNING] No proxy configs found in config.json.")
         return
 
-    print("\n" + "=" * 92)
-    print(f"{chr(35):<3} | {'Active':<6} | {'Tag':<22} | {'Proto':<7} | {'Server:Port':<26} | {'Status':<11} | {'Ping':<9}")
-    print("=" * 92)
+    print("\n" + "=" * 94)
+    print(f"{chr(35):<3} | {'Active':<6} | {'Tag':<22} | {'Proto':<7} | {'Server:Port':<24} | {'Status':<13} | {'Ping':<9}")
+    print("=" * 94)
 
     best_match = None
+    fallback_match = None
+
     for idx, ob in enumerate(proxies, start=1):
         is_active = (idx == 1)
         active_str = " [*]  " if is_active else "      "
@@ -494,14 +533,19 @@ def run_table_report():
                 server = servers[0].get("address", "unknown")
                 port = servers[0].get("port", 443)
 
-        srv_str = f"{server}:{port}"[:26]
+        srv_str = f"{server}:{port}"[:24]
 
         ok, ping_ms, err = test_outbound(ob)
-        if ok and ping_ms < PING_THRESHOLD_MS:
-            status = "CONNECTED"
+        if ok and ping_ms < OPTIMAL_PING_THRESHOLD_MS:
+            status = "OPTIMAL"
             ping_str = f"{ping_ms:.1f}ms"
             if not best_match:
                 best_match = ob
+        elif ok and ping_ms <= MAX_ACCEPTABLE_PING_THRESHOLD_MS:
+            status = "ACCEPTABLE"
+            ping_str = f"{ping_ms:.1f}ms"
+            if not fallback_match:
+                fallback_match = ob
         elif ok:
             status = "HIGH PING"
             ping_str = f"{ping_ms:.1f}ms"
@@ -509,42 +553,58 @@ def run_table_report():
             status = "FAILED"
             ping_str = "Timeout"
 
-        print(f"{idx:<3} | {active_str} | {tag:<22} | {proto:<7} | {srv_str:<26} | {status:<11} | {ping_str:<9}")
+        print(f"{idx:<3} | {active_str} | {tag:<22} | {proto:<7} | {srv_str:<24} | {status:<13} | {ping_str:<9}")
 
-    print("=" * 92)
+    print("=" * 94)
     if best_match:
-        print(f"\n[RECOMMENDED] First valid config (< 600ms): [{best_match.get('tag')}]")
+        print(f"\n[RECOMMENDED] First optimal config (< 600ms): [{best_match.get('tag')}]")
+    elif fallback_match:
+        print(f"\n[ACCEPTABLE] First fallback config (<= 2000ms): [{fallback_match.get('tag')}]")
     else:
-        print("\n[ALERT] No config currently has ping < 600ms.")
+        print("\n[ALERT] No config currently has ping <= 2000ms.")
 
 
-def run_daemon(max_ping: float = PING_THRESHOLD_MS, interval_sec: int = CHECK_INTERVAL_SEC):
+def run_daemon(interval_sec: int = CHECK_INTERVAL_SEC):
     """
     Continuous watchdog daemon:
-    - Monitors active connection every interval_sec seconds
-    - If healthy (ping < 600ms), stays on it
-    - If fails or ping >= 600ms, cycles through subsequent configs until a healthy one is found
+    - Checks active connection every 1 minute (interval_sec seconds, default 60s)
+    - If ping < 600ms: OPTIMAL, stay connected
+    - If ping between 600ms and 2000ms:
+        Checks if another config < 600ms is available.
+        If yes -> switch to it.
+        If not -> STAY CONNECTED (acceptable up to 2000ms, as requested).
+    - If disconnected or ping > 2000ms:
+        Runs failover scan: first looks for < 600ms, else for <= 2000ms.
+        Restarts Xray and Crawler to continue crawling immediately.
     """
-    logger.info(f"Starting Xray watchdog daemon (Check interval: {interval_sec}s, Ping threshold: < {max_ping:.0f}ms)")
+    logger.info(f"Starting Xray watchdog daemon (Check interval: {interval_sec}s / 1 min, Optimal: < 600ms, Acceptable: <= 2000ms)")
 
     while True:
         try:
             live_ok, live_ping = test_active_docker_proxy()
 
-            if live_ok and live_ping < max_ping:
-                logger.info(f"Active proxy is HEALTHY (Ping: {live_ping:.1f}ms < {max_ping:.0f}ms).")
+            if live_ok and live_ping < OPTIMAL_PING_THRESHOLD_MS:
+                logger.info(f"Active proxy is OPTIMAL (Ping: {live_ping:.1f}ms < 600ms). Crawling operational.")
+            elif live_ok and live_ping <= MAX_ACCEPTABLE_PING_THRESHOLD_MS:
+                logger.info(f"Active proxy is ACCEPTABLE (Ping: {live_ping:.1f}ms <= 2000ms). Checking if a faster (< 600ms) config exists...")
+                optimal, _ = scan_and_evaluate_candidates(start_from_next=True)
+                if optimal:
+                    logger.info(f"Found faster config [{optimal['tag']}] ({optimal['ping']:.1f}ms < 600ms). Switching...")
+                    set_active_config(optimal["tag"])
+                else:
+                    logger.info(f"No faster config (< 600ms) found. Remaining on current connected config ({live_ping:.1f}ms <= 2000ms).")
             else:
                 if not live_ok:
                     logger.warning("Active proxy connection is DOWN or disconnected!")
                 else:
-                    logger.warning(f"Active proxy ping degraded ({live_ping:.1f}ms >= {max_ping:.0f}ms)!")
+                    logger.warning(f"Active proxy ping is too high ({live_ping:.1f}ms > 2000ms)!")
 
                 logger.info("Initiating automatic failover scan across subsequent configs...")
-                res = find_and_connect_best_config(max_ping=max_ping, start_from_next=True)
+                res = find_and_connect_best_config(start_from_next=True)
                 if res:
-                    logger.info(f"Failover successful: connected to [{res['tag']}] ({res['ping']:.1f}ms).")
+                    logger.info(f"Failover successful: connected to [{res['tag']}] ({res['ping']:.1f}ms). Crawling resumed.")
                 else:
-                    logger.error("Failover scan completed: no working config found yet. Will retry next cycle.")
+                    logger.error(f"Failover scan completed: no working config found yet. Will retry in {interval_sec}s.")
 
         except Exception as e:
             logger.error(f"Error in watchdog daemon loop: {e}")
@@ -622,8 +682,9 @@ WantedBy=multi-user.target
         with open(svc_path, "w", encoding="utf-8") as f:
             f.write(service_content)
         subprocess.run(["systemctl", "daemon-reload"], check=True)
-        subprocess.run(["systemctl", "enable", "--now", "xray-failover.service"], check=True)
-        logger.info(f"Successfully installed and started {svc_path.name}!")
+        subprocess.run(["systemctl", "restart", "xray-failover.service"], check=True)
+        subprocess.run(["systemctl", "enable", "xray-failover.service"], check=True)
+        logger.info(f"Successfully installed and restarted {svc_path.name}!")
         return True
     except Exception as e:
         logger.error(f"Failed to install systemd service: {e}")
@@ -633,10 +694,9 @@ WantedBy=multi-user.target
 def main():
     parser = argparse.ArgumentParser(description="Peyda Xray Proxy Auto-Switcher & Failover Watchdog")
     parser.add_argument("--check", action="store_true", help="Test all configs in config.json and display table report")
-    parser.add_argument("--switch", action="store_true", help="Find first config with ping < 600ms and switch to it now")
-    parser.add_argument("--daemon", action="store_true", help="Run continuous failover watchdog daemon")
-    parser.add_argument("--threshold", type=float, default=PING_THRESHOLD_MS, help="Max ping threshold in ms (default: 600)")
-    parser.add_argument("--interval", type=int, default=CHECK_INTERVAL_SEC, help="Watchdog check interval in seconds (default: 20)")
+    parser.add_argument("--switch", action="store_true", help="Find and connect best config now")
+    parser.add_argument("--daemon", action="store_true", help="Run continuous 1-minute failover watchdog daemon")
+    parser.add_argument("--interval", type=int, default=CHECK_INTERVAL_SEC, help="Watchdog check interval in seconds (default: 60)")
     parser.add_argument("--add-link", type=str, help="Add a vless://, vmess://, or trojan:// URL into config.json")
     parser.add_argument("--import-links", type=str, help="Import links from a text file into config.json")
     parser.add_argument("--install-service", action="store_true", help="Install and start systemd daemon service")
@@ -658,19 +718,19 @@ def main():
     if args.check:
         run_table_report()
     elif args.daemon:
-        run_daemon(max_ping=args.threshold, interval_sec=args.interval)
+        run_daemon(interval_sec=args.interval)
     elif args.switch:
-        res = find_and_connect_best_config(max_ping=args.threshold)
+        res = find_and_connect_best_config()
         if res:
             print(f"\n[OK] Connected to [{res['tag']}] with ping {res['ping']:.1f}ms.")
         else:
-            print(f"\n[WARNING] No config with ping < {args.threshold:.0f}ms found.")
+            print("\n[WARNING] No config with ping <= 2000ms found.")
     else:
-        res = find_and_connect_best_config(max_ping=args.threshold)
+        res = find_and_connect_best_config()
         if res:
             print(f"\n[OK] Connected to [{res['tag']}] with ping {res['ping']:.1f}ms.")
         else:
-            print(f"\n[WARNING] No config with ping < {args.threshold:.0f}ms found.")
+            print("\n[WARNING] No config with ping <= 2000ms found.")
 
 
 if __name__ == "__main__":
