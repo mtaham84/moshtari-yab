@@ -6,13 +6,14 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from apps.businesses.models import Business
 from apps.products.models import Category, Product, ProductImage
-from apps.discovery.models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch
+from apps.discovery.models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch, MonitoredCommunity
+from apps.discovery.sources import PRIVATE, normalize_link
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Seed 2 realistic Iranian demo businesses with 25+ products each, full taxonomies, and Telegram leads."
+    help = "Seed 2 realistic Iranian demo businesses (Konkur Consulting Institute & Paytakht Stock Laptops) with 25+ products each, taxonomies, and monitored communities."
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.NOTICE("Starting demo businesses seeding..."))
@@ -26,212 +27,318 @@ class Command(BaseCommand):
             "products/2026/10/img_0.jpg",
         ]
 
+        # Cleanup legacy coffee barista user if exists
+        legacy_barista = User.objects.filter(username="barista@peyda.ir").first()
+        if legacy_barista:
+            Business.objects.filter(user=legacy_barista).delete()
+            legacy_barista.delete()
+            self.stdout.write(self.style.WARNING("Removed legacy coffee barista user."))
+
         # =============================================================
-        # BUSINESS 1: BaristaPro Equipment (تجهیزات و قهوه تخصصی باریستا)
+        # BUSINESS 1: Konkur Educational & Consulting Institute (ماز / قلم‌چی)
         # =============================================================
-        user_coffee, _ = User.objects.get_or_create(
-            username="barista@peyda.ir",
+        user_konkur, _ = User.objects.get_or_create(
+            username="konkur@peyda.ir",
             defaults={
-                "email": "barista@peyda.ir",
-                "first_name": "احسان",
-                "last_name": "باریستا",
+                "email": "konkur@peyda.ir",
+                "first_name": "علیرضا",
+                "last_name": "مشاور کنکور",
                 "is_active": True,
             }
         )
-        user_coffee.set_password("Barista_2026_Demo!")
-        user_coffee.save()
+        user_konkur.set_password("Konkur_2026_Demo!")
+        user_konkur.save()
 
-        biz_coffee, _ = Business.objects.update_or_create(
-            user=user_coffee,
+        biz_konkur, _ = Business.objects.update_or_create(
+            user=user_konkur,
             defaults={
-                "name": "فروشگاه تخصصی تجهیزات قهوه و باریستا آرت",
-                "business_type": "PHYSICAL",
-                "business_domain": "تجهیزات کافی‌شاپ، رست و اکسسوری قهوه",
-                "telegram_account_handle": "@BaristaPro_Iran",
-                "daily_discovery_limit": 50,
+                "name": "موسسه خدمات آموزشی و مشاوره کنکور گام برتر (ماز کنکور)",
+                "business_type": "SERVICE",
+                "business_domain": "مشاوره تخصصی کنکور، آزمون‌های آزمایشی، پکیج‌های نکته و تست، همایش‌های جمع‌بندی و انتخاب رشته",
+                "telegram_account_handle": "@GambeBartar_Konkur",
+                "daily_discovery_limit": 100,
             }
         )
-        self.stdout.write(self.style.SUCCESS(f"Business 1 ready: {biz_coffee.name}"))
+        self.stdout.write(self.style.SUCCESS(f"Business 1 ready: {biz_konkur.name}"))
 
-        # Category Tree for Coffee
-        c_root_equip, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="تجهیزات کافی‌شاپ", parent=None,
+        # Category Tree for Konkur Institute
+        # Root 1: مشاوره و برنامه‌ریزی
+        c_root_mentoring, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="خدمات مشاوره و برنامه‌ریزی تخصصی کنکور", parent=None,
+            defaults={"depth": 1, "product_type": "SERVICE"}
+        )
+        c_vip_mentoring, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="مشاوره رتبه‌سازی VIP و مربیگری تحصیلی", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_planning, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="برنامه‌ریزی هفتگی و مانیتورینگ روزانه", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_workshop, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کارگاه‌های مدیریت زمان و استرس آزمون", parent=c_root_mentoring,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+
+        # Root 2: آزمون‌های آزمایشی
+        c_root_exams, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="آزمون‌های آزمایشی و ارزیابی جامع", parent=None,
+            defaults={"depth": 1, "product_type": "SERVICE"}
+        )
+        c_mock_exams, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="پکیج آزمون‌های شبیه‌ساز کنکور سراسری", parent=c_root_exams,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_exam_analysis, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="تحلیل آزمون و کارنامه ۵ بعدی", parent=c_root_exams,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+
+        # Root 3: کلاس‌های آنلاین و نکته و تست
+        c_root_classes, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="کلاس‌های آنلاین، نکته و تست و جمع‌بندی", parent=None,
+            defaults={"depth": 1, "product_type": "SERVICE"}
+        )
+        c_tajrobi_classes, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="پکیج کلاس‌های جامع کنکور تجربی", parent=c_root_classes,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_math_classes, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="پکیج کلاس‌های جامع کنکور ریاضی", parent=c_root_classes,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_ensani_classes, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="پکیج کلاس‌های جامع کنکور انسانی", parent=c_root_classes,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+        c_golden_seminar, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="همایش‌های جمع‌بندی طلایی کنکور", parent=c_root_classes,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+
+        # Root 4: انتخاب رشته
+        c_root_selection, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="خدمات تخصصی انتخاب رشته کنکور", parent=None,
+            defaults={"depth": 1, "product_type": "SERVICE"}
+        )
+        c_smart_selection, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="انتخاب رشته هوشمند سراسری و آزاد", parent=c_root_selection,
+            defaults={"depth": 2, "product_type": "SERVICE"}
+        )
+
+        # Root 5: جزوات و بانک تست
+        c_root_books, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="جزوات رتبه‌ساز و بانک تست‌های استاندارد", parent=None,
             defaults={"depth": 1, "product_type": "PHYSICAL"}
         )
-        c_espresso, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="دستگاه اسپرسوساز", parent=c_root_equip,
+        c_tree_notes, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="جزوات نموداری و خلاصه نکات مباحث پرتکرار", parent=c_root_books,
             defaults={"depth": 2, "product_type": "PHYSICAL"}
         )
-        c_home_espresso, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="خانگی و نیمه‌صنعتی", parent=c_espresso,
-            defaults={"depth": 3, "product_type": "PHYSICAL"}
-        )
-        c_commercial_espresso, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="صنعتی و تجاری کافه", parent=c_espresso,
-            defaults={"depth": 3, "product_type": "PHYSICAL"}
-        )
-
-        c_grinder, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="آسیاب قهوه (گریندر)", parent=c_root_equip,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
-        )
-        c_manual_grinder, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="آسیاب دستی مخروطی", parent=c_grinder,
-            defaults={"depth": 3, "product_type": "PHYSICAL"}
-        )
-        c_electric_grinder, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="آسیاب برقی و آندیمند", parent=c_grinder,
-            defaults={"depth": 3, "product_type": "PHYSICAL"}
-        )
-
-        c_tools, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="اکسسوری و ابزار باریستا", parent=c_root_equip,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
-        )
-        c_tamper, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="تمپر، لولر و مت", parent=c_tools,
-            defaults={"depth": 3, "product_type": "PHYSICAL"}
-        )
-        c_pitcher, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="پیچر شیر و لاته آرت", parent=c_tools,
-            defaults={"depth": 3, "product_type": "PHYSICAL"}
-        )
-
-        c_root_beans, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="دان قهوه و ملزومات", parent=None,
-            defaults={"depth": 1, "product_type": "PHYSICAL"}
-        )
-        c_beans, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="دان قهوه تخصصی و ترکیبی", parent=c_root_beans,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
-        )
-        c_syrup, _ = Category.objects.get_or_create(
-            business=biz_coffee, name="سیروپ و طعم‌دهنده باریستا", parent=c_root_beans,
+        c_tricky_tests, _ = Category.objects.get_or_create(
+            business=biz_konkur, name="بانک تست‌های خط‌به‌خط و دام‌دار کنکور", parent=c_root_books,
             defaults={"depth": 2, "product_type": "PHYSICAL"}
         )
 
-        # 25 Products for Coffee
-        coffee_products_data = [
-            # Home Espresso
-            ("اسپرسوساز نووا مدل ۱۴۹ (Nova 149)", c_home_espresso, 6400000,
-             "اسپرسوساز نیمه‌صنعتی نووا ۱۴۹ با توان ۱۰۵۰ وات و پمپ فشار ۱۵ بار ایتالیایی اولکا. مناسب مصارف خانگی، دفتر کار و کافه‌های کوچک بیرون‌بر با خروجی کرما غلیظ و ماندگار.",
-             "علاقه‌مندان به قهوه خانگی، دفترهای اداری، کافه‌های کوچک", {"پمپ": "۱۵ بار اولکا", "توان": "۱۰۵۰ وات", "بسکت": "۵۱ میلیمتر", "جنس بدنه": "استیل ضدزنگ"}),
-            ("اسپرسوساز مباشی مدل ۲۰۲۰ (Mebashi 2020)", c_home_espresso, 7200000,
-             "دستگاه اسپرسوساز مباشی مدل ۲۰۲۰ دارای پرتافیلتر سایز ۵۱، فشار ۲۰ بار و پیچ تنظیم بخار قدرتمند برای فوم‌گیری سریع لاته و کاپوچینو.",
-             "کافی‌لاورهای خانگی و هوم باریستاها", {"فشار": "۲۰ بار", "توان": "۱۳۵۰ وات", "بویلر": "آلومینیوم دایکست"}),
-            ("اسپرسوساز دلونگی ددیکا مدل ۶۸۵ (EC685)", c_home_espresso, 9800000,
-             "اسپرسوساز فوق باریک و محبوب دلونگی EC685 با بدنه استیل مات، سیستم ترموبلاک پرسرعت و امکان تنظیم دمای خروجی عصاره‌گیری.",
-             "علاقه‌مندان به لوازم خانگی شیک و عصاره‌گیری استاندارد", {"عرض دستگاه": "۱۵ سانتیمتر", "سیستم حرارتی": "ترموبلاک", "کشور برند": "ایتالیا"}),
-            ("اسپرسوساز جیمیلای مدل ۳۶۰۵ (Gemilai 3605)", c_home_espresso, 12500000,
-             "دستگاه نیمه‌صنعتی جیمیلای ۳۶۰۵ با پرتافیلتر صنعتی سایز ۵۸، گیج نمایشگر فشار و قابلیت پری‌اینفیوژن (پیش‌عصاره‌گیری). گزینه‌ای بی‌رقیب برای کافه‌های اقتصادی.",
-             "کافه‌های بیرون‌بر، هوم‌باریستاهای حرفه‌ای", {"سایز هدگروپ": "۵۸ میلیمتر استاندارد", "توان": "۱۴۵۰ وات", "گیج فشار": "دارد"}),
-            ("اسپرسوساز جیمیلای مدل ۳۰۰۵ (Gemilai 3005E)", c_home_espresso, 15800000,
-             "اسپرسوساز حرفه‌ای مجهز به بویلر استیل، کنترل دیجیتال دما PID و بدنه تمام استیل با توان تولید مداوم روزی تا ۶۰ شات قهوه.",
-             "کافی‌شاپ‌های کوچک و غرفه‌های فروش آبمیوه بستنی", {"کنترل دما": "PID دیجیتال", "پرتافیلتر": "۵۸ استیل سنگین"}),
+        # 27 Products & Services for Konkur Institute
+        konkur_products_data = [
+            # VIP Mentoring
+            ("پکیج مشاوره و برنامه‌ریزی VIP کنکور تجربی (طرح رتبه‌ساز با رتبه‌های تک‌رقمی)", c_vip_mentoring, 24000000,
+             "برنامه شخصی‌سازی شده هفتگی بر اساس نقاط قوت و ضعف داوطلب، تماس تلفنی هفتگی با رتبه تک‌رقمی کنکور سراسری، چک شبانه گزارش‌کار، آزمونک‌های تستی اختصاصی و هدایت انگیزشی تا روز آزمون.",
+             "داوطلبان کنکور تجربی متقاضی قبولی در رشته‌های پزشکی، دندان‌پزشکی و داروسازی دانشگاه‌های برتر",
+             {"مشاور": "رتبه زیر ۵۰ کنکور", "پشتیبانی": "روزانه و شبانه", "تماس": "هفتگی ۴۵ دقیقه", "تحلیل آزمون": "اختصاصی"}),
 
-            # Commercial Espresso
-            ("اسپرسوساز صنعتی سن‌رمو زوئی ۲ گروپ (Sanremo Zoe)", c_commercial_espresso, 245000000,
-             "دستگاه اسپرسوساز ۲ گروپ تال‌کاپ ایتالیایی سن‌رمو با ظرفیت بویلر ۱۰ لیتری، نازل بخار کول‌تاچ و سیستم کنترل حجمی الکترونیکی. ساخته شده برای ترافیک کاری شلوغ.",
-             "کافی‌شاپ‌های پر رفت‌وآمد و رستوران‌های بزرگ", {"تعداد گروپ": "۲ گروپ", "حجم بویلر": "۱۰ لیتر", "کشور سازنده": "ایتالیا", "تال‌کاپ": "بله"}),
-            ("اسپرسوساز چیمبالی ام۲۷ ۲ گروپ (La Cimbali M27)", c_commercial_espresso, 220000000,
-             "شاهکار دوام ایتالیا لاسیبمالی M27 RE با سیستم تبادل حرارتی دوال بویلر، سیستم پیش‌تزریق و پایدارترین دمای عصاره‌گیری در شلوغ‌ترین ساعات کاری.",
-             "کافه‌داران حرفه‌ای و صاحبان فرانچایز", {"کشور": "ایتالیا", "بویلر": "۱۱ لیتر", "توان": "۴۵۰۰ وات"}),
-            ("اسپرسوساز لاسپازیاله اس۲ ۲ گروپ (La Spaziale S2)", c_commercial_espresso, 195000000,
-             "دستگاه حرفه‌ای با سیستم گرمایشی بخار انحصاری و گروپ‌های ۵۳ میلیمتری با عصاره‌گیری فشرده و بدنه استیل با نورپردازی LED.",
-             "کافه‌های موج سوم و قهوه‌فروشی‌ها", {"گروپ": "۲ گروپ ۵۳ میلیمتر", "بویلر": "۱۰ لیتری", "ساخت": "بولونیا ایتالیا"}),
+            ("پکیج مشاوره و برنامه‌ریزی VIP کنکور ریاضی (طرح نخبگان دانشگاه شریف)", c_vip_mentoring, 21000000,
+             "برنامه‌ریزی مدون تست‌زنی سرعتی، تحلیل آزمون‌های دو هفته یک‌بار، آموزش استراتژی حل تست‌های مفهومی حسابان و فیزیک با رتبه‌های برتر دانشگاه صنعتی شریف و تهران.",
+             "داوطلبان کنکور ریاضی متقاضی مهندسی کامپیوتر، برق و مکانیک دانشگاه‌های سراسری تهران",
+             {"مشاور": "دانشجویان برتر شریف", "آزمونک": "هفتگی آنلاین", "تست‌زنی": "سرعتی و تحلیلی"}),
 
-            # Manual Grinder
-            ("آسیاب قهوه دستی تایم‌مور مدل C3 (Timemore C3)", c_manual_grinder, 3800000,
-             "آسیاب دستی بسیار دقیق تایم‌مور C3 با تیغه ۳۸ میلیمتری اسپایک‌توکات استیل S2C660 و بدنه آلومینیومی آجدار. فوق‌العاده برای ایروپرس، وی۶۰ و فرنچ‌پرس.",
-             "علاقه‌مندان به قهوه دمی، کمپرها و باریستاهای خانگی", {"جنس تیغه": "استیل ضدزنگ S2C", "ظرفیت هاپر": "۲۵ گرم", "درجه تنظیم": "کلیکی دقیق"}),
-            ("آسیاب دستی ۱Zpresso مدل J-Max", c_manual_grinder, 9200000,
-             "دقیق‌ترین آسیاب دستی جهان برای اسپرسو با دقت ۸.۴ میکرون در هر کلیک، تیغه تیتانیوم کونکال و محفظه مگنتی جمع‌آوری قهوه.",
-             "عاشقان اسپرسوی دستی تخصصی و قهوه سینگل اوریجین", {"دقت تنظیم": "۸.۴ میکرون", "پوشش تیغه": "تیتانیوم", "تنظیم": "حلقه بیرونی"}),
-            ("آسیاب دستی قهوه کینگ‌گریندر مدل K6 (Kingrinder K6)", c_manual_grinder, 6900000,
-             "آسیاب تایوانی K6 با تیغه ۴۸ میلیمتری هفت‌پرخه هفت‌ضلعی؛ کارایی همزمان برای آسیاب ریز اسپرسو تا درشت کلدبرو.",
-             "باریستاهای چندمنظوره و عاشقان قهوه موج سوم", {"قطر تیغه": "۴۸ میلیمتر", "جنس تیغه": "استیل حرارت‌دیده"}),
+            ("پکیج مشاوره و برنامه‌ریزی VIP کنکور انسانی (طرح حقوق و فرهنگیان)", c_vip_mentoring, 19000000,
+             "برنامه‌ریزی تخصصی دروس تحلیلی (فلسفه، منطق، اقتصاد و ریاضی انسانی)، روش‌های مرور مکرر فنون ادبی و عربی، تکنیک‌های تندخوانی و ارتقای تراز قلمچی و ماز.",
+             "داوطلبان کنکور انسانی متقاضی قبولی در دانشگاه فرهنگیان، حقوق و روانشناسی",
+             {"مشاور": "رتبه دو رقمی انسانی", "برنامه": "اختصاصی دوازدهم و پایه", "آزمون": "تحلیل کارنامه"}),
 
-            # Electric Grinder
-            ("آسیاب قهوه برقی آندیمند اوبل مدل میتوس (Obel Mito)", c_electric_grinder, 32000000,
-             "آسیاب آندیمند ایتالیایی با تیغه‌های فلت ۶۴ میلیمتری، تنظیم تایمر دیجیتال تک‌شات و دو شات و لود سریع هاپر ۱.۲ کیلوگرمی.",
-             "کافه‌های بیرون‌بر و شیفت‌های شلوغ", {"تیغه": "۶۴ میلیمتر فلت", "سرعت": "۱۴۰۰ دور در دقیقه", "صفحه نمایش": "لمسی دیجیتال"}),
-            ("آسیاب قهوه باراتزا مدل سِته ۳۰ (Baratza Sette 30)", c_electric_grinder, 22500000,
-             "آسیاب تخصصی خانگی و نیمه‌صنعتی با طراحی انقلابی عبور مستقیم پودر قهوه و صفر درصد ماندگاری (Zero Retention).",
-             "هوم‌باریستاهای حرفه‌ای", {"تیغه": "کونکال ۴۰ میلیمتر AP", "مکانیزم": "موتور مستقیم بدون گیربکس"}),
-            ("آسیاب قهوه کامپک مدل K3 تاچ (Compak K3 Touch)", c_electric_grinder, 28000000,
-             "آسیاب اسپانیایی با تیغه ۵۸ میلیمتری فلت، سیستم سرمایش محفظه و تنظیم میکرومتریک پیوسته درجه پودر قهوه.",
-             "کافه‌های اسپشالتی و باریستاهای مسابقاتی", {"تیغه": "۵۸ میلیمتر فلت", "تنظیم درجه": "میکرومتری استپ‌لس"}),
-            ("آسیاب قهوه فیمار مدل فیورنزاتو اف۶۴ (Fiorenzato F64E)", c_electric_grinder, 54000000,
-             "یکی از پرفروش‌ترین آسیاب‌های صنعتی دنیا با دیسپلی لمسی بزرگ، شمارشگر شات‌ها و سیستم خنک‌کننده اتوماتیک موتور.",
-             "کافه‌های بزرگ و رستوران‌ها", {"تیغه": "۶۴ میلیمتر", "کنترل": "صفحه لمسی رنگی", "ساخت": "ایتالیا"}),
+            ("طرح مشاوره و برنامه‌ریزی ماهانه کنکور (شروع سریع و تعیین سطح)", c_planning, 2800000,
+             "دوره ۳۰ روزه برنامه‌ریزی فشرده، ۴ جلسه تلفنی با مشاور ارشد، رفع اشکال روش مطالعه، تعیین سطح علمی اولیه و اصلاح عادات مخرب درسی.",
+             "داوطلبانی که می‌خواهند کیفیت مشاوره را قبل از ثبت‌نام سالانه ارزیابی کنند",
+             {"مدت": "۱ ماه (۳۰ روز)", "جلسات": "۴ جلسه تلفنی", "برنامه": "شخصی‌سازی هفتگی"}),
 
-            # Tamper & Tools
-            ("تمپر کالیبره فنری سایز ۵۸ میلیمتر نورمکور (Normcore)", c_tamper, 2400000,
-             "تمپر تحت فشار فنری با وزن استاندارد ۳۰ پوند، هدایتگر تراز افقی و سازگار با انواع بسکت‌های صنعتی IMS و VST.",
-             "باریستاها جهت تمپ یکنواخت و جلوگیری از چنلینگ", {"سایز": "۵۸.۵ میلیمتر", "فشار فنر": "۳۰ پوند", "پایه": "تخت استیل ۳۰۴"}),
-            ("لولر و دیستریبیوتر قهوه سایز ۵۱ طرح گل (Distributor)", c_tamper, 950000,
-             "ابزار توزیع یکدست پودر قهوه برای دستگاه‌های خانگی نوا و مباشی با قابلیت تنظیم عمق نفوذ پره‌ها.",
-             "دارندگان دستگاه‌های اسپرسوساز خانگی", {"قطر": "۵۱ میلیمتر", "طرح": "۳ پره قابل تنظیم"}),
-            ("نیدل و ویز دیستریبیوشن تول WDT مدل پایه فلزی", c_tamper, 680000,
-             "سوزن بازکننده کلوخه‌های پودر قهوه با سوزن‌های باریک ۰.۳۵ میلیمتری استیل برای عصاره‌گیری بدون کانالینگ و حداکثر بادی قهوه.",
-             "باریستاهای تخصصی و مسابقه‌ای", {"تعداد سوزن": "۸ عدد", "ضخامت": "۰.۳۵ میلیمتر"}),
+            ("برنامه‌ریزی مطالعاتی شخصی‌سازی شده هفتگی + چک شبانه گزارش‌کار", c_planning, 1900000,
+             "تنظیم جدول مطالعه روزانه بر اساس بودجه‌بندی آزمون‌های آزمایشی، کنترل دقیق ساعت مطالعه و تعداد تست در پایان هر شب توسط پشتیبان آموزشی.",
+             "دانش‌آموزان نیازمند انضباط فردی و پیگیری مستمر در اجرای برنامه",
+             {"پیگیری": "هر شب در تلگرام", "بودجه‌بندی": "منطبق با آزمون آزمایشی", "گزارش‌کار": "بررسی روزانه"}),
 
-            # Pitchers
-            ("پیچر لاته آرت موتا مدل اروپا ۵۰۰ میلی‌لیتر (Motta Europa)", c_pitcher, 1850000,
-             "پیچر اصل ایتالیایی استیل ۱۸/۱۰ سنگین با دماغه کشیده و ارگونومیک برای اجرای پترن‌های پیچیده رزتا و سوان لاته آرت.",
-             "باریستاهای لاته آرت کار و کافی‌شاپ‌ها", {"حجم": "۵۰۰ میلی‌لیتر", "جنس": "استیل ضدزنگ ۱۸/۱۰", "ساخت": "ایتالیا"}),
-            ("پیچر تفلون شیر ۳۵۰ میلی‌لیتر باریستا اسپیس (Barista Space)", c_pitcher, 1250000,
-             "پیچر با پوشش تفلون نچسب مشکی مات، دهانه نوک‌تیز لیزری و دستگیره راحت برای فوم‌گیری سریع سینگل کاپوچینو.",
-             "کافه‌ها و استفاده خانگی", {"حجم": "۳۵۰ میلی‌لیتر", "روکش": "تفلون صنعتی نچسب"}),
+            ("کارگاه آنلاین مدیریت استرس، تمرکز و تکنیک‌های تست‌زنی در جلسه آزمون", c_workshop, 650000,
+             "کارگاه ۴ ساعته با حضور روانشناس تحصیلی با سرفصل‌های تکنیک تنفس در جلسه، کنترل تپش قلب، دور اول تست‌زنی بدون توقف و تکنیک زمان‌های نقصانی.",
+             "دانش‌آموزان کنکوری با افت تراز ناشی از استرس و بی‌دقتی در جلسه آزمون",
+             {"مدت": "۴ ساعت آنلاین", "مدرس": "روانشناس تخصصی کنکور", "فایل ضبط‌شده": "دسترسی دائم"}),
 
-            # Coffee Beans
-            ("دان قهوه تخصصی اتیوپی یرگاچف ۲۵۰ گرمی (موج سوم)", c_beans, 420000,
-             "دان ۱۰۰٪ عربیکا سینگل اوریجین اتیوپی با فرآوری شسته، اسیدیته زنده مرکباتی، نوت‌های یاسمن و ترنج با رست مدیوم لایت تازه.",
-             "علاقه‌مندان به طعم‌های میوه‌ای و قهوه دمی تخصصی", {"خاستگاه": "یرگاچف اتیوپی", "ارتفاع": "۲۰۰۰ متر", "نوت طعمی": "یاسمن، لیمو، ترنج"}),
-            ("دان قهوه ترکیبی ۷۰٪ روبوستا ۳۰٪ عربیکا بارستا کرما (۱ کیلو)", c_beans, 750000,
-             "بلند پرکافئین و پرکرما مناسب اسپرسوسازهای خانگی و کافه‌های تجاری با بادی سنگین، طعم‌یاد کاکائو تلخ و کرمای فندقی ضخیم.",
-             "مصرف‌کنندگان روزانه اسپرسو با کافئین بالا", {"ترکیب": "۷۰٪ روبوستا اوگاندا - ۳۰٪ عربیکا برزیل", "بادی": "بسیار سنگین", "کافئین": "بالا"}),
-            ("دان قهوه کلمبیا سوپریمو ۱۰۰٪ عربیکا (۵۰۰ گرمی)", c_beans, 620000,
-             "قهوه نام‌آشنای کلمبیا با اسیدیته ملایم، بادی متوسط، طعم‌یادهای کارامل و فندق برشته با رست مدیوم استاندارد.",
-             "مصرف روزمره اسپرسو و آمریکانو", {"گونه": "۱۰۰٪ عربیکا کلمبیا", "فرآوری": "شسته", "نوت": "کارامل، شکلات شیری"}),
+            ("کارگاه استراتژی زمان‌های نقصانی و مدیریت دفترچه کنکور", c_workshop, 550000,
+             "آموزش پیاده‌سازی متدهای استراتژی بازگشت، تکنیک ضربدر و منها و اولویت‌بندی سوالات در دفترچه‌های شماره ۱ و ۲ کنکور سراسری.",
+             "تمامی داوطلبان کنکور برای بهینه‌سازی زمان در جلسه آزمون",
+             {"نوع": "وبینار کاربردی", "تمرین": "شبیه‌سازی با آزمون نمونه"}),
 
-            # Syrups
-            ("سیروپ وانیل ماداگاسکار توسانی ۱۰۰۰ میلی‌لیتر (Teisseire)", c_syrup, 480000,
-             "سیروپ غلیظ پایه طبیعی مناسب سیروپ لاته، موکا و انواع ماکیاتو با غلظت عالی و بدون شیرین‌کننده مصنوعی.",
-             "کافی‌شاپ‌ها و بار نوشیدنی‌های گرم و سرد", {"حجم": "۱۰۰۰ میلی‌لیتر", "طعم": "وانیل خالص ماداگاسکار"}),
-            ("سیروپ کارامل نمکی مانین ۷۰۰ میلی‌لیتر (Monin)", c_syrup, 590000,
-             "محبوب‌ترین سیروپ جهان از برند فرانسوی مونین برای تهیه سالتد کارامل لاته و فراپوچینو با بافت ابریشمی.",
-             "کافی‌شاپ‌ها و میکسولوژیست‌ها", {"برند": "Monin فرانسه", "حجم": "۷۰۰ میلی‌لیتر", "طعم": "کارامل شور"}),
+            # Mock Exams
+            ("پکیج آزمون‌های شبیه‌ساز کنکور سراسری ماز/قلم‌چی (۲۰ مرحله جامع)", c_mock_exams, 5900000,
+             "۲۰ مرحله آزمون آزمایشی مطابق با آخرین تغییرات سازمان سنجش، سوالات تالیفی اساتید برند، تطابق حداکثری با کنکورهای اخیر، کارنامه تحلیلی ۵ بعدی و صدور رتبه کشوری.",
+             "دانش‌آموزان سال دوازدهم و فارغ‌التحصیلان کنکوری تمامی رشته‌ها",
+             {"تعداد مراحل": "۲۰ مرحله", "نوع": "آنلاین با امنیت بالا", "پاسخنامه": "تشریحی کامل و ویدئویی"}),
+
+            ("پکیج آزمون‌های طلایی شبیه‌ساز کنکور اردیبهشت و تیر (۸ مرحله شبیه‌ساز فشرده)", c_mock_exams, 2900000,
+             "۸ دوره شبیه‌ساز کامل دفترچه‌های کنکور دقیقا مشابه با سطح دشواری و بودجه‌بندی کنکور سراسری اخیر با تحلیل و رتبه‌بندی لحظه‌ای.",
+             "متقاضیان شبیه‌سازی شرایط واقعی کنکور در ماه‌های پایانی منتهی به آزمون",
+             {"تعداد": "۸ مرحله شبیه‌ساز", "سطح": "منطبق با آخرین کنکور", "پاسخنامه": "ویدئویی"}),
+
+            ("آزمون‌های مبحثی و سنجش پیشرفت تحصیلی (ویژه مباحث پایه دهم و یازدهم)", c_mock_exams, 1800000,
+             "مجموعه آزمون‌های تستی سرفصل به سرفصل برای تثبیت دروس پایه و شناسایی نقاط ضعف قبل از ورود به جمع‌بندی نهایی.",
+             "دانش‌آموزان پایه‌های دهم و یازدهم و داوطلبان دارای ضعف در مباحث پایه",
+             {"پوشش": "دهم و یازدهم کامل", "سبک سوالات": "تالیفی و کنکوری"}),
+
+            ("پکیج تحلیل ویدئویی و تشریحی سوالات آزمون‌های آزمایشی", c_exam_analysis, 1400000,
+             "تدریس ویدئویی خط به خط پاسخ تشریحی تمامی سوالات آزمون‌ها با بررسی دام‌های آموزشی و تکنیک‌های رد گزینه توسط اساتید رتبه برتر.",
+             "دانش‌آموزان خواهان یادگیری نکات تستی از دل سوالات آزمون",
+             {"فرمت": "ویدیو با کیفیت بالا", "نکات": "بررسی روش‌های حل سریع"}),
+
+            ("کارنامه تحلیلی ۵ بعدی آزمون و تخمین دقیق رتبه کشوری کنکور", c_exam_analysis, 850000,
+             "سیستم هوشمند تحلیل کارنامه با نمودار پیشرفت درس به درس، مقایسه تراز با میانگین پذیرفته‌شدگان سال‌های قبل و تخمین رتبه کشوری.",
+             "دانش‌آموزان نیازمند شناخت نقاط قوت و ضعف آماری در هر مبحث",
+             {"گزارش": "PDF تفصیلی + مشاوره", "تخمین رتبه": "بر اساس سهمیه مناطق"}),
+
+            # Online Classes & Seminars
+            ("پکیج جامع کلاس آنلاین زیست‌شناسی کنکور (دکترای زیست‌شناسی، خط‌به‌خط کتاب)", c_tajrobi_classes, 9800000,
+             "آموزش ترکیبی و خط‌به‌خط کتاب‌های دهم، یازدهم و دوازدهم زیست، بررسی اشکال و تصاویر پنهان کتاب، حل بیش از ۲۰۰۰ تست تالیفی و سراسری با اساتید برند کشوری.",
+             "داوطلبان تجربی متقاضی درصدهای بالای ۷۰ در زیست‌شناسی کنکور",
+             {"ساعت تدریس": "۱۲۰ ساعت وبینار", "جزوه": "رنگی و نموداری", "آزمونک": "هفتگی"}),
+
+            ("پکیج جامع کلاس آنلاین شیمی کنکور (مفاهیم، حفظیات و استوکیومتری سرعتی)", c_tajrobi_classes, 8900000,
+             "آموزش فرمول‌های سرعتی مسائل شیمی، تکنیک حل استوکیومتری بدون مخرج مشترک، جدول تناوبی و حفظیات شیمی با متد تصویرسازی ذهنی.",
+             "داوطلبان تجربی و ریاضی خواهان تسلط بر مسائل و مفاهیم شیمی",
+             {"پوشش": "شیمی دهم، یازدهم، دوازدهم", "مسائل": "استوکیومتری، ترمودینامیک، اسیدباز"}),
+
+            ("پکیج جامع کلاس آنلاین فیزیک کنکور (آموزش مفهومی و تست‌های چندمجهولی)", c_tajrobi_classes, 8500000,
+             "تدریس مباحث مکانیک، حرکت‌شناسی، الکتریسیته ساکن و جاری، نوسان و امواج با انیمیشن‌های فیزیکی و متدهای محاسبات سریع عددی.",
+             "داوطلبان رشته‌های تجربی و ریاضی متقاضی درصدهای بالا در فیزیک",
+             {"مباحث": "فیزیک پایه و دوازدهم", "حل تست": "بیش از ۱۲۰۰ تست کنکور و تالیفی"}),
+
+            ("پکیج جامع کلاس آنلاین ریاضی تجربی کنکور (صفر تا صد درصد با متد تست‌زنی)", c_tajrobi_classes, 7900000,
+             "آموزش جامع ریاضی دهم تا دوازدهم ویژه تجربی‌ها، رفع چالش توابع، حد و پیوستگی، مثلثات و کاربرد مشتق با حل بانک تست‌های طلایی.",
+             "دانش‌آموزان تجربی با چالش درصد پایین در درس ریاضی",
+             {"سطح": "از پایه تا تست‌های دشوار", "رویکرد": "مفهومی و تکنیک‌های رد گزینه"}),
+
+            ("پکیج کلاس آنلاین حسابان و ریاضیات پایه کنکور ریاضی (حسابان ۱ و ۲)", c_math_classes, 8200000,
+             "آموزش عمیق معادلات، مثلثات، مشتق و انتگرال همراه با شبیه‌سازی تست‌های دشوار کنکورهای سال‌های اخیر برای داوطلبان رشته ریاضی.",
+             "داوطلبان کنکور ریاضی متقاضی درصدهای رقابتی در حسابان",
+             {"تعداد جلسات": "۳۵ جلسه آنلاین", "جزوه": "کدگذاری شده اختصاصی"}),
+
+            ("پکیج کلاس آنلاین هندسه تحلیلی و گسسته کنکور ریاضی", c_math_classes, 6500000,
+             "اثبات‌های سرعتی، هندسه پایه، ماتریس، مقاطع مخروطی، نظریه اعداد، گراف و ترکیبیات با روش‌های خلاقانه و قابل فهم تستی.",
+             "دانش‌آموزان رشته ریاضی نیازمند درصد بالا در دروس مهارتی",
+             {"پوشش": "هندسه ۱، ۲، ۳ و گسسته", "رویکرد": "حل تست‌های مفهومی"}),
+
+            ("پکیج کلاس آنلاین فنون ادبی، عروض سماعی و آرایه‌های کنکور انسانی", c_ensani_classes, 5800000,
+             "تسلط کامل بر اختیارات شاعری، وزن‌های عروضی سماعی و تاریخ ادبیات بدون فراموشی با متدهای کدگذاری تصویری و شعرخوانی روان.",
+             "داوطلبان کنکور انسانی خواهان کسب بالاترین درصد در درس سرنوشت‌ساز فنون",
+             {"روش تدریس": "عروض سماعی بدون تقطیع", "آرایه‌ها": "تکنیک رد گزینه سریع"}),
+
+            ("پکیج کلاس آنلاین فلسفه و منطق کنکور انسانی (رمزگشایی تست‌های مفهومی)", c_ensani_classes, 5600000,
+             "رمزگشایی از تست‌های چندمجهولی و مفهومی منطق دهم و فلسفه یازدهم و دوازدهم با بررسی ریزترین نکات پنهان متن کتاب درسی.",
+             "داوطلبان کنکور انسانی برای تسلط بر ترازسازترین درس اختصاصی",
+             {"پوشش": "منطق دهم + فلسفه ۱۱ و ۱۲", "تست": "بررسی بیش از ۱۰۰۰ تست دام‌دار"}),
+
+            ("دوره طلایی «نکته و تست» کنکور (مرور سریع و پیش‌بینی ۴۰۰ تست کنکور)", c_golden_seminar, 6200000,
+             "دوره فشرده ماه‌های اردیبهشت و خرداد، مرور سریع تمامی درس‌ها در قالب تست‌های تیپ‌بندی شده و بررسی ۴۰۰ تست احتمالی به همراه جزوه شب امتحان.",
+             "تمامی داوطلبان کنکور برای جمع‌بندی نهایی و جهش درصدها در ماه آخر",
+             {"زمان برگزاری": "اردیبهشت و خرداد", "پیش‌بینی سوالات": "تطابق بالای ۸۰٪ با کنکور"}),
+
+            ("همایش آنلاین جمع‌بندی زیست‌شناسی کنکور (طرح فشرده ۲۴ ساعته)", c_golden_seminar, 1900000,
+             "مرور یکپارچه زیست گیاهی، جانوری، ژنتیک و فیزیولوژی بدن انسان در ۴ جلسه ۶ ساعته فشرده ویژه روزهای پایانی کنکور.",
+             "داوطلبان تجربی برای مرور سریع کل کتاب‌های درسی در کمترین زمان",
+             {"مدت": "۲۴ ساعت ویدیوی فشرده", "جزوه": "خلاصه درختی کل زیست"}),
+
+            # Major Selection
+            ("پکیج انتخاب رشته هوشمند کنکور سراسری با نرم‌افزار تحلیلی رتبه برتر", c_smart_selection, 1200000,
+             "نرم‌افزار انتخاب رشته بر اساس آمار قبولی ۱۰ سال اخیر کانون و سازمان سنجش، اعمال سهمیه‌های مناطق و ایثارگری، تحلیل بومی‌گزینی و اولویت‌بندی ۱۵۰ کد رشته.",
+             "داوطلبان مجاز به انتخاب رشته در کنکور سراسری",
+             {"پوشش": "تمام دوره‌های روزانه، شبانه، پردیس و فرهنگیان", "چیدمان": "۱۵۰ کد رشته بر اساس علاقه و شانس"}),
+
+            ("جلسه مشاوره فردی و اختصاصی انتخاب رشته حضوری/آنلاین با مشاور ارشد", c_smart_selection, 3500000,
+             "جلسه ۲ ساعته فردی با مشاور ارشد برای اولویت‌بندی دقیق رشته‌ها، تحلیل بازار کار، شرایط مهاجرت، دانشگاه‌های خاص، پزشکی و فرهنگیان.",
+             "داوطلبان خواهان اطمینان صددرصدی از چیدمان بهینه و آینده‌نگرانه رشته‌ها",
+             {"مشاور": "مشاور ارشد با ۱۰ سال سابقه", "مدت": "۲ ساعت اختصاصی"}),
+
+            ("مشاوره و انتخاب رشته اختصاصی دانشگاه آزاد اسلامی و رشته‌های پزشکی آزاد", c_smart_selection, 1800000,
+             "تحلیل رشته‌های باآزمون و با سوابق تحصیلی دانشگاه آزاد، ترازهای قبولی پزشکی، دندانپزشکی و پیراپزشکی آزاد و چیدمان بهینه فرم انتخاب رشته.",
+             "متقاضیان تحصیل در واحدهای دانشگاه آزاد سراسر کشور",
+             {"پوشش": "پزشکی، داروسازی، پیراپزشکی و مهندسی آزاد", "تحلیل": "تراز قبولی سال‌های قبل"}),
+
+            # Books & Notes
+            ("جزوه طلایی نمودارهای درختی و نقشه‌های ذهنی مباحث پرتکرار کنکور", c_tree_notes, 780000,
+             "جزوه ۲۵۰ صفحه‌ای چاپ رنگی سیمی شامل نقشه‌های ذهنی، جداول مقایسه‌ای زیست، خلاصه‌های فرمول شیمی و روابط طلایی فیزیک.",
+             "دانش‌آموزان کنکوری برای مرورهای سریع و تورق سریع شب آزمون",
+             {"تعداد صفحات": "۲۵۰ صفحه رنگی", "فرمت": "فیزیکی سیمی + PDF"}),
+
+            ("کتابچه بانک تست‌های دام‌دار و پرتکرار ۱۰ سال اخیر کنکور سراسری", c_tricky_tests, 850000,
+             "مجموعه‌ای از ۱۲۰۰ تست دست‌چین شده که بیشترین درصد پاسخ اشتباه را در آزمون‌های سراسری داشته‌اند همراه با واکاوی دقیق دام‌های تستی طراحان کنکور.",
+             "داوطلبانی که درصد منفی زیادی در آزمون‌های آزمایشی دارند",
+             {"تعداد تست": "۱۲۰۰ تست", "پاسخنامه": "کاملا تشریحی و نکته‌محور"})
         ]
 
-        saved_coffee_prods = []
-        for name, cat, price, desc, target, attrs in coffee_products_data:
+        saved_konkur_prods = []
+        for name, cat, price, desc, target, attrs in konkur_products_data:
             p, _ = Product.objects.update_or_create(
-                business=biz_coffee, name=name,
+                business=biz_konkur, name=name,
                 defaults={
                     "category": cat,
                     "price": price,
                     "description": desc,
                     "target_customer": target,
                     "attributes": attrs,
-                    "product_type": "PHYSICAL",
+                    "product_type": "SERVICE" if cat.product_type == "SERVICE" else "PHYSICAL",
                     "status": "ACTIVE",
                     "is_discovery_active": True,
                     "discovery_priority": random.randint(3, 5),
                 }
             )
-            # Add image if not exists
             if not p.images.exists():
                 img_rel = random.choice(sample_images)
                 ProductImage.objects.create(product=p, image=img_rel, is_main=True)
-            saved_coffee_prods.append(p)
+            saved_konkur_prods.append(p)
 
-        self.stdout.write(self.style.SUCCESS(f"Created {len(saved_coffee_prods)} products for Coffee Business."))
+        self.stdout.write(self.style.SUCCESS(f"Created {len(saved_konkur_prods)} products for Konkur Institute Business."))
 
-        # Zero fake leads: real crawler & need_engine only
-        Opportunity.objects.filter(business=biz_coffee).delete()
-        Customer.objects.filter(business=biz_coffee).delete()
-        self.stdout.write(self.style.SUCCESS("Coffee seller catalog ready (0 fake leads, waiting for live crawler opportunities)."))
+        # Clear synthetic leads for clean live discovery
+        Opportunity.objects.filter(business=biz_konkur).delete()
+        Customer.objects.filter(business=biz_konkur).delete()
+
+        # Seed Monitored Telegram Communities for Konkur Discovery
+        konkur_communities = [
+            ("گروه گفتگوی کنکوری‌ها (تبادل نظر، منابع و مشاوره)", "https://t.me/konkur_gap", "گروه چت عمومی و تبادل نظر دانش‌آموزان کنکوری برای انتخاب منابع، آزمون و مشاوره"),
+            ("چت‌روم داوطلبان کنکور تجربی و پزشکی", "https://t.me/konkur_tajrobi_chat", "بحث و تبادل نظر پیرامون رتبه‌سازی، منابع زیست و شیمی و پکیج‌های آزمون تجربی"),
+            ("گروه رفع اشکال و دورهمی کنکور ریاضی و فیزیک", "https://t.me/konkur_math_chat", "رفع اشکال حسابان، فیزیک، هندسه و تبادل نظر درباره اساتید و کلاس‌های آنلاین"),
+            ("گروه داوطلبان کنکور انسانی و فرهنگیان", "https://t.me/konkur_ensani_chat", "تبادل جزوات، خلاصه درس‌ها و پرسش و پاسخ درباره قبولی فرهنگیان و حقوق"),
+            ("گروه مشاوره تحصیلی و برنامه‌ریزی کنکور", "https://t.me/konkur_moshverah", "پرسش و پاسخ درباره روش‌های مطالعه، ساعت مطالعه، تراز آزمون‌ها و انتخاب مشاور"),
+            ("تحلیل و مقایسه آزمون‌های آزمایشی (ماز، قلمچی، سنجش)", "https://t.me/azmoon_konkur_chat", "بررسی سوالات، کارنامه‌ها و تراز آزمون‌های آزمایشی قلمچی و ماز"),
+            ("گروه معرفی منابع و کلاس‌های نکته و تست کنکور", "https://t.me/konkur_manabe_chat", "پرسش درباره بهترین دوره‌های آنلاین، همایش‌های جمع‌بندی و پکیج‌های تستی"),
+            ("گروه داوطلبان و فارغ‌التحصیلان کنکور ۱۴۰۴", "https://t.me/konkur1404_gap", "دورهمی و پرسش و پاسخ دانش‌آموزان سال دوازدهم و پشت‌کنکوری‌ها"),
+            ("گروه انتخاب رشته کنکور سراسری و آزاد", "https://t.me/konkur_reshteh_chat", "بحث و تبادل نظر داوطلبان پیرامون انتخاب رشته دانشگاه‌های سراسری و آزاد"),
+            ("گروه دورهمی رتبه‌های برتر و نخبگان کنکور", "https://t.me/konkuriha_chat", "پرسش و پاسخ درباره تکنیک‌های مدیریت زمان، تست‌زنی و جمع‌بندی")
+        ]
+
+        for name, link, desc in konkur_communities:
+            key = normalize_link(link)
+            MonitoredCommunity.objects.update_or_create(
+                normalized_link=key,
+                defaults={
+                    "business": biz_konkur,
+                    "scope": PRIVATE,
+                    "name": name,
+                    "handle_or_link": link,
+                    "community_type": "GROUP",
+                    "description": desc,
+                    "is_active": True,
+                }
+            )
+        self.stdout.write(self.style.SUCCESS(f"Seeded {len(konkur_communities)} Telegram Konkur communities for live discovery."))
 
 
         # =============================================================
@@ -255,148 +362,161 @@ class Command(BaseCommand):
                 "name": "مرکز دیجیتال و لپ‌تاپ استوک پایتخت",
                 "business_type": "PHYSICAL",
                 "business_domain": "لپ‌تاپ‌های استوک اروپایی گرید A++، مانیتور و تجهیزات IT",
-                "telegram_account_handle": "@Paytakht_Stock_Laptops",
+                "telegram_account_handle": "@Paytakht_Stock_IT",
                 "daily_discovery_limit": 50,
             }
         )
         self.stdout.write(self.style.SUCCESS(f"Business 2 ready: {biz_digi.name}"))
 
         # Category Tree for Digital
-        c_root_lap, _ = Category.objects.get_or_create(
-            business=biz_digi, name="لپ‌تاپ و اولترابوک استوک", parent=None,
+        c_root_digital, _ = Category.objects.get_or_create(
+            business=biz_digi, name="کالای دیجیتال و IT", parent=None,
             defaults={"depth": 1, "product_type": "PHYSICAL"}
         )
-        c_eng_lap, _ = Category.objects.get_or_create(
-            business=biz_digi, name="مهندسی، برنامه‌نویسی و اداری", parent=c_root_lap,
+        c_laptops, _ = Category.objects.get_or_create(
+            business=biz_digi, name="لپ‌تاپ‌های استوک و اپن‌باکس", parent=c_root_digital,
             defaults={"depth": 2, "product_type": "PHYSICAL"}
         )
-        c_game_lap, _ = Category.objects.get_or_create(
-            business=biz_digi, name="گیمینگ و رندرینگ سه‌بعدی", parent=c_root_lap,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
+        c_engineering_laptops, _ = Category.objects.get_or_create(
+            business=biz_digi, name="لپ‌تاپ مهندسی و برنامه‌نویسی", parent=c_laptops,
+            defaults={"depth": 3, "product_type": "PHYSICAL"}
         )
-        c_ultra_lap, _ = Category.objects.get_or_create(
-            business=biz_digi, name="اولترابوک سبک و مدیریتی", parent=c_root_lap,
-            defaults={"depth": 2, "product_type": "PHYSICAL"}
+        c_gaming_laptops, _ = Category.objects.get_or_create(
+            business=biz_digi, name="لپ‌تاپ گیمینگ و رندرینگ", parent=c_laptops,
+            defaults={"depth": 3, "product_type": "PHYSICAL"}
+        )
+        c_ultrabooks, _ = Category.objects.get_or_create(
+            business=biz_digi, name="اولترابوک سبک اداری و بیزینس", parent=c_laptops,
+            defaults={"depth": 3, "product_type": "PHYSICAL"}
         )
 
-        c_root_parts, _ = Category.objects.get_or_create(
-            business=biz_digi, name="مانیتور و لوازم جانبی", parent=None,
-            defaults={"depth": 1, "product_type": "PHYSICAL"}
-        )
         c_monitors, _ = Category.objects.get_or_create(
-            business=biz_digi, name="مانیتور استوک بدون فریم", parent=c_root_parts,
+            business=biz_digi, name="مانیتور و نمایشگر حرفه‌ای", parent=c_root_digital,
             defaults={"depth": 2, "product_type": "PHYSICAL"}
         )
+        c_4k_monitors, _ = Category.objects.get_or_create(
+            business=biz_digi, name="مانیتور 4K و طراحی گرافیک", parent=c_monitors,
+            defaults={"depth": 3, "product_type": "PHYSICAL"}
+        )
+        c_gaming_monitors, _ = Category.objects.get_or_create(
+            business=biz_digi, name="مانیتور گیمینگ رفرش‌ریت بالا", parent=c_monitors,
+            defaults={"depth": 3, "product_type": "PHYSICAL"}
+        )
+
         c_accessories, _ = Category.objects.get_or_create(
-            business=biz_digi, name="داک‌استیشن و شارژر اورجینال", parent=c_root_parts,
+            business=biz_digi, name="لوازم جانبی و تجهیزات شبکه", parent=c_root_digital,
             defaults={"depth": 2, "product_type": "PHYSICAL"}
         )
 
         # 25 Products for Digital
         digital_products_data = [
-            # Engineering & Programming
-            ("لپ‌تاپ لنوو تینک‌پد T480 (ThinkPad T480)", c_eng_lap, 23500000,
-             "لپ‌تاپ محبوب برنامه‌نویسان با پردازنده Core i7 8650U، رم ۱۶ گیگ DDR4، اس‌اس‌دی ۵۱۲ گیگ NVMe، باتری دوبل، کیبورد افسانه‌ای ضدآب و پورت Type-C تاندربولت.",
-             "برنامه‌نویسان پایتون، مهندسان نرم‌افزار و کارشناسان شبکه",
-             {"پردازنده": "Core i7-8650U", "رم": "16GB DDR4", "حافظه": "512GB SSD NVMe", "صفحه نمایش": "14 اینچ IPS FHD", "گرید": "A++ استوک اروپا"}),
-            ("لپ‌تاپ لنوو تینک‌پد T14 نسل ۲ (ThinkPad T14 Gen 2)", c_eng_lap, 34500000,
-             "شاهکار مهندسی با پردازنده Ryzen 7 PRO 5850U هشت هسته‌ای، رم ۳۲ گیگابایت، گرافیک رادئون و حسگر اثرانگشت. ایده‌آل برای محیط‌های مجازی و داکر.",
-             "توسعه‌دهندگان بک‌اند، تحلیل‌گران داده و دانشجویان مهندسی",
-             {"پردازنده": "AMD Ryzen 7 PRO 5850U", "رم": "32GB DDR4", "حافظه": "1TB SSD", "صفحه نمایش": "14 FHD مات"}),
-            ("لپ‌تاپ دل لتیتود ۵۴۲۰ (Dell Latitude 5420)", c_eng_lap, 28000000,
-             "لپ‌تاپ با پردازنده Core i5 نسل ۱۱، رم ۱۶ گیگابایت قابل ارتقا، وبکم با شاتر فیزیکی، وزن سبک ۱.۴ کیلوگرم و شارژدهی تا ۸ ساعت.",
-             "کارشناسان دیجیتال مارکتینگ و شرکت‌های استارتاپی",
-             {"پردازنده": "Core i5-1145G7", "رم": "16GB", "حافظه": "512GB SSD", "وزن": "۱.۴ کیلوگرم"}),
-            ("لپ‌تاپ اچ‌پی الیت‌بوک ۸۴۰ جی۷ (HP EliteBook 840 G7)", c_eng_lap, 31000000,
-             "بدنه تمام آلومینیومی براق نقره‌ای، کیبورد با بکلایت سفید، سیستم صوتی بنگ اند اولوفسن و وبکم مادون قرمز ویندوز هلو.",
-             "مدیران، وکلا و فریلنسرها",
-             {"پردازنده": "Core i7-10610U", "رم": "16GB", "حافظه": "512GB NVMe", "اسپیکر": "Bang & Olufsen"}),
-            ("لپ‌تاپ دل پرسیژن ۵۵۳۰ (Dell Precision 5530 Workstation)", c_eng_lap, 42000000,
-             "ایستگاه کاری قدرتمند و فوق باریک با نمایشگر ۴K لمسی، رم ۳۲ گیگ، کارت گرافیک Nvidia Quadro P2000 با حافظه ۴ گیگ مجزا برای سالیدورکس و اتوکد.",
-             "مهندسان مکانیک، معماران و طراحان CAD",
-             {"پردازنده": "Core i7-8850H (6 Cores)", "گرافیک": "Quadro P2000 4GB", "نمایشگر": "15.6 4K Touch"}),
+            # Engineering Laptops
+            ("لپ‌تاپ دل پرسیشن ۷۵۳۰ (Dell Precision 7530)", c_engineering_laptops, 38500000,
+             "ورک‌استیشن غول‌پیکر صنعتی با پردازنده Core i7 نسل ۸، ۶۴ گیگابایت رم، گرافیک ۴ گیگابایت انویدیا Quadro P2000 و بدنه تیتانیومی مقاوم در برابر ضربه و حرارت.",
+             "مهندسان عمران، مکانیک، سالیدورکس‌کارها و معماران",
+             {"پردازنده": "Core i7-8850H", "رم": "64GB DDR4", "گرافیک": "Quadro P2000 4GB", "صفحه": "15.6 FHD IPS مات"}),
+            ("لپ‌تاپ لنوو تینک‌پد P52 (Lenovo ThinkPad P52)", c_engineering_laptops, 36000000,
+             "افسانه دوام لنوو با کیبورد ارگونومیک ضدآب، پردازنده ۶ هسته‌ای Xeon، رم ۳۲ گیگابایت ECC و گرافیک Quadro P3200 با خروجی فوق‌العاده برای شبیه‌سازی‌های متلب و انسیس.",
+             "برنامه‌نویسان بک‌اند، محققان هوش مصنوعی و مهندسان نرم‌افزار",
+             {"پردازنده": "Intel Xeon E-2176M", "رم": "32GB ECC", "حافظه": "512GB NVMe SSD", "وزن": "۲.۴ کیلوگرم"}),
+            ("لپ‌تاپ اچ‌پی زدبوک ۱۵ جی۶ (HP ZBook 15 G6)", c_engineering_laptops, 44000000,
+             "ورک‌استیشن لوکس نسل ۹ اچ‌پی مجهز به پردازنده Core i7-9850H، گرافیک Quadro T2000، دو اسلات تاندربولت ۳ و صفحه نمایش کالیبره دریم‌کالر با ۱۰۰٪ پوشش sRGB.",
+             "تدوین‌گران حرفه‌ای پریمیر، افتر افکت و مهندسان صنایع",
+             {"پردازنده": "Core i7-9850H", "رم": "32GB DDR4", "گرافیک": "Quadro T2000 4GB", "صفحه نمایش": "DreamColor 4K"}),
+            ("لپ‌تاپ دل لتیتیود ۵۵۹۱ (Dell Latitude 5591)", c_engineering_laptops, 26500000,
+             "لپ‌تاپ پرسرعت و بهینه سری تجاری دل با پردازنده Core i7 سری H، رم ۱۶ گیگابایت، گرافیک جیفورس MX130 و وزن مناسب برای حمل مداوم به دانشگاه و محل کار.",
+             "دانشجویان فنی مهندسی و مدیران پروژه‌های عمرانی",
+             {"پردازنده": "Core i7-8850H", "رم": "16GB", "حافظه": "512GB SSD", "باتری": "۶۸ وات‌ساعت سلامت بالای ۸۵٪"}),
+            ("لپ‌تاپ لنوو تینک‌پد T480 (Lenovo T480)", c_engineering_laptops, 19800000,
+             "محبوب‌ترین لپ‌تاپ برنامه‌نویسی دنیا به لطف دوام بی‌پایان باتری دوگانه بریج، کیبورد بی‌نظیر ThinkPad، پردازنده Core i5 نسل ۸ و قابلیت ارتقای رم تا ۶۴ گیگابایت.",
+             "برنامه‌نویسان وب و موبایل، ادمین‌های لینوکس و دوآپس",
+             {"پردازنده": "Core i5-8350U", "رم": "16GB DDR4", "وزن": "۱.۵۸ کیلوگرم", "پورت‌ها": "تاندربولت + تایپ سی"}),
 
-            # Gaming & Rendering
-            ("لپ‌تاپ لنوو لژیون ۵ (Lenovo Legion 5)", c_game_lap, 5600000,
-             "لپ‌تاپ گیمینگ قدرتمند مجهز به پردازنده Ryzen 7 5800H، رم ۳۲ گیگ، کارت گرافیک RTX 3060 با توان ۱۳۰ وات و نمایشگر ۱۶۵ هرتز sRGB 100%.",
-             "گیمرها، رندرهای معماری ۳D Max و ادیتورهای پریمیر",
-             {"پردازنده": "Ryzen 7 5800H", "گرافیک": "Nvidia RTX 3060 6GB 130W", "رفرش‌ریت": "165Hz", "رم": "32GB"}),
-            ("لپ‌تاپ ایسوس راگ زفیروس جی۱۴ (ASUS ROG Zephyrus G14)", c_game_lap, 62000000,
-             "اولترابوک گیمینگ ۱۴ اینچی بی‌رقیب با وزن ۱.۶ کیلوگرم، پردازنده Ryzen 9، گرافیک RTX 3060 و باتری پرظرفیت ۷۶ وات‌ساعت.",
-             "گیمرهای پر رفت‌وآمد و تدوین‌گران پروژه‌های یوتیوب",
-             {"پردازنده": "AMD Ryzen 9 5900HS", "گرافیک": "RTX 3060", "وزن": "۱.۶ کیلوگرم", "باتری": "76Wh"}),
-            ("لپ‌تاپ اچ‌پی اومن ۱۶ (HP Omen 16)", c_game_lap, 52000000,
-             "طراحی شیک و مینیمال بدون زرق و برق اغراق‌آمیز، خنک‌کننده تمپست کولینگ، گرافیک RTX 3060 و کیبورد مکانیکی ۴ زون RGB.",
-             "برنامه‌نویسان هوش مصنوعی و گیمرهای رقابتی",
-             {"پردازنده": "Core i7-11800H", "گرافیک": "RTX 3060 6GB", "صفحه نمایش": "16.1 144Hz"}),
-            ("لپ‌تاپ اچ‌پی زدبوک فیوری ۱۵ جی۷ (HP ZBook Fury 15 G7)", c_game_lap, 68000000,
-             "ورک‌استیشن غول‌پیکر استوک آمریکا با کارت گرافیک Nvidia Quadro RTX 3000 با ۶ گیگ GDDR6، قابلیت ارتقای رم تا ۱۲۸ گیگابایت.",
-             "انیماتورها، شبیه‌سازهای هوش مصنوعی و استودیوهای رندرینگ",
-             {"پردازنده": "Core i7-10850H", "گرافیک": "Quadro RTX 3000 6GB", "تعداد اسلات رم": "۴ اسلات تا 128GB"}),
+            # Gaming Laptops
+            ("لپ‌تاپ ایسوس زفیروس جی۱۴ (Asus ROG Zephyrus G14)", c_gaming_laptops, 62000000,
+             "شاهکار گیمینگ جمع‌وجور با پردازنده ۸ هسته‌ای Ryzen 9 5900HS، کارت گرافیک RTX 3060 6GB، صفحه نمایش ۱۲۰ هرتز 2K و وزن خیره‌کننده ۱.۶ کیلوگرم با بدنه منیزیمی سفید.",
+             "گیمرها، استریمرها، برنامه‌نویسان گیم و ادیتورهای ویدیویی",
+             {"پردازنده": "AMD Ryzen 9 5900HS", "کارت گرافیک": "NVIDIA RTX 3060 6GB", "رم": "16GB 3200MHz", "صفحه": "14 QHD 120Hz"}),
+            ("لپ‌تاپ لنوو لژیون ۵ پرو (Lenovo Legion 5 Pro)", c_gaming_laptops, 58000000,
+             "قدرتمندترین کولینگ لپ‌تاپ‌های گیمینگ با پردازنده Ryzen 7 5800H، کارت گرافیک ۱۳۰ وات توان کامل RTX 3060، صفحه نمایش ۱۶ اینچ ۱۶۵ هرتز با نسبت ۱۶:۱۰ و کیبورد RGB.",
+             "گیمرهای حرفه‌ای مسابقاتی، رندرکنندگان تری‌دی مکس و بلندر",
+             {"صفحه نمایش": "16 WQXGA 165Hz G-Sync", "گرافیک": "RTX 3060 130W Full", "خنک‌کننده": "ColdFront 3.0"}),
+            ("لپ‌تاپ اچ‌پی اومن ۱۶ (HP Omen 16)", c_gaming_laptops, 52000000,
+             "لپ‌تاپ گیمینگ شیک و مینیمال با بدنه آلومینیومی مشکی، پردازنده Core i7-11800H، گرافیک RTX 3060، سیستم صوتی بنگ اند اولوفسن و وبکم مجهز به هوش مصنوعی حذف نویز.",
+             "طراحان گرافیک متحرک و علاقه‌مندان به گیم‌های سنگین AAA",
+             {"پردازنده": "Core i7-11800H", "رم": "16GB", "صدا": "Bang & Olufsen", "نمایشگر": "16.1 144Hz IPS"}),
+            ("لپ‌تاپ دل جی۱۵ گیمینگ (Dell G15 5515)", c_gaming_laptops, 46000000,
+             "لپ‌تاپ گیمینگ اقتصادی با شاسی خنک‌کننده مشتق از آلین‌ویر (Alienware)، پردازنده Ryzen 7 5800H و کارت گرافیک RTX 3050Ti با قابلیت فعال‌سازی کلید توربو فن G-Mode.",
+             "دانشجویان معماری و گیمرهای نیمه‌حرفه‌ای",
+             {"پردازنده": "Ryzen 7 5800H", "کارت گرافیک": "RTX 3050Ti 4GB", "قابلیت خاص": "Alienware Command Center"}),
 
-            # Ultrabook & Slim
-            ("مک‌بوک ایر اپل M1 استوک گرید A++ (MacBook Air M1)", c_ultra_lap, 46500000,
-             "مک‌بوک ایر با چیپ افسانه‌ای اپل سیلیکون M1، باتری با شارژدهی ۱۸ ساعته بدون فن، رنگ اسپیس‌گری تمیز بدون خط و خش با سایکل زیر ۵۰.",
-             "طراحان محصول، توسعه‌دهندگان iOS و مدیران ارشد",
-             {"پردازنده": "Apple M1 Chip 8-Core", "رم": "8GB Unified", "حافظه": "256GB SSD", "وزن": "۱.۲۹ کیلوگرم"}),
-            ("مایکروسافت سرفیس لپ‌تاپ ۴ (Surface Laptop 4)", c_ultra_lap, 38500000,
-             "لپ‌تاپ لوکس با روکش پارچه آلکانترا، نسبت تصویر ۳:۲ برای مطالعه و کدنویسی، تاچ‌اسکرین ۱۰ نقطه و عمر باتری فوق‌العاده.",
-             "مدیران عامل، اساتید دانشگاه و مشاوران کسب‌وکار",
-             {"پردازنده": "Core i7-1185G7", "رم": "16GB LPDDR4x", "نمایشگر": "PixelSense 13.5 Touch"}),
-            ("لپ‌تاپ دل ایکس‌پی‌اس ۱۳ مدل ۹۳۱۰ (Dell XPS 13 9310)", c_ultra_lap, 49000000,
-             "باریک‌ترین حاشیه نمایشگر اینفینیتی‌اج در جهان، بدنه آلومینیوم ماشین‌کاری‌شده CNC با جای دست فیبرکربن و پردازنده نسل ۱۱ Evo.",
-             "حرفه‌ای‌های در سفر و مدیران محصول",
-             {"پردازنده": "Core i7-1165G7", "رم": "16GB", "حافظه": "1TB NVMe", "وزن": "۱.۲ کیلوگرم"}),
+            # Ultrabooks
+            ("لپ‌تاپ مایکروسافت سرفیس لپ‌تاپ ۳ (Surface Laptop 3)", c_ultrabooks, 28500000,
+             "اولترابوک تمام آلومینیومی فوق‌باریک با صفحه لمسی سنس ۲K با نسبت ۳:۲ ایده‌آل مطالعه و اسناد، پردازنده Core i5 نسل ۱۰، وزن ۱.۲ کیلوگرم و شارژدهی تا ۱۰ ساعت.",
+             "مدیران، مدرسین، نویسندگان و دانشجویان رشته‌های علوم انسانی",
+             {"صفحه نمایش": "13.5 PixelSense Touch 2K", "وزن": "۱.۲۶ کیلوگرم", "جنس بدنه": "آلومینیوم آنودایز پلاتینیوم"}),
+            ("لپ‌تاپ دل ایکس‌پی‌اس ۱۳ ۹۳۸۰ (Dell XPS 13 9380)", c_ultrabooks, 34000000,
+             "زیباترین اولترابوک جهان با حاشیه‌های نمایشگر نانولبه InfinityEdge، فیبر کربن دست‌بافت مشکی، وزن ۱.۲ کیلوگرم، وبکم بهبودیافته و عملکرد پایدار Core i7 نسل ۸.",
+             "برنامه‌نویسان دورکار، فریلنسرها و مدیران اجرایی",
+             {"صفحه نمایش": "13.3 4K Ultra HD Touch", "رم": "16GB LPDDR3", "بدنه": "آلومینیوم تراش‌خورده CNC و فیبرکربن"}),
+            ("لپ‌تاپ لنوو تینک‌پد X1 کربن نسل ۶ (ThinkPad X1 Carbon)", c_ultrabooks, 27000000,
+             "سبک‌ترین ورک‌استیشن همراه ساخته‌شده از الیاف کربن پیشرفته ماهواره‌ای با وزن باورنکردنی ۱.۱۳ کیلوگرم، استاندارد نظامی ضدضربه Mil-Spec و کیبورد افسانه‌ای.",
+             "کارآفرینان در سفرهای تجاری مداوم و مدیران استارتاپ‌ها",
+             {"وزن": "۱.۱۳ کیلوگرم فوق‌سبک", "مقاومت": "۱۲ آزمون نظامی MIL-STD", "پردازنده": "Core i7-8650U"}),
+            ("لپ‌تاپ اچ‌پی الیت‌بوک ۸۴۰ جی۶ (HP EliteBook 840 G6)", c_ultrabooks, 22000000,
+             "اولترابوک آلومینیومی شرکتی با امنیت فوق پیشرفته بایوس Sure Start، حسگر اثرانگشت، فیلتر ضدجاسوسی Sure View صفحه نمایش و صدای پرقدرت با میکروفون محیطی.",
+             "حسابداران، مدیران مالی و سازمان‌های اداری",
+             {"پردازنده": "Core i5-8365U", "رم": "16GB", "امنیت": "SureStart Gen5 + حسگر اثرانگشت"}),
+            ("لپ‌تاپ سرفیس پرو ۷ با کیبورد و قلم (Surface Pro 7)", c_ultrabooks, 29000000,
+             "تبلت-لپ‌تاپ ۲ در ۱ فوق سبک با پایه چرخان استند، قلم هوشمند سرفیس پن با ۴۰۹۶ سطح فشار، پردازنده Core i5 نسل ۱۰ و وزن ۷۷۰ گرم بدون کیبورد.",
+             "طراحان دیجیتال، اساتید دانشگاه و نوت‌برداران جلسات",
+             {"وزن خالص تبلت": "۷۷۵ گرم", "درگاه": "تایپ سی و USB-A", "لوازم": "کیبورد تایپ‌کاور آلکانتارا"}),
 
             # Monitors
-            ("مانیتور ۲۷ اینچ دل اولتراشارپ 4K مدل U2720Q", c_monitors, 22500000,
-             "مانیتور مرجع طراحان گرافیک و UI با رزولوشن 4K UHD، پوشش رنگی ۹۵٪ DCI-P3، پورت Type-C با توان شارژ لپ‌تاپ تا ۹۰ وات و پایه آسانسوری عمودی.",
-             "طراحان UI/UX، تدوین‌گران و برنامه‌نویسان حرفه‌ای",
-             {"سایز": "۲۷ اینچ", "پنل": "IPS 4K UHD", "پوشش رنگ": "95% DCI-P3", "پورت": "USB-C 90W PD, HDMI, DP"}),
-            ("مانیتور ۲۴ اینچ دل مدل P2419H بدون فریم استوک", c_monitors, 6900000,
-             "مانیتور محبوب کارمندی و برنامه‌نویسی با پایه آسانسوری و چرخش ۹۰ درجه پیوت، بدون لرزش تصویر (Flicker-Free) و نور آبی کم.",
-             "برنامه‌نویسان برای مانیتور عمودی دوم، تریدرها و دورکارها",
-             {"سایز": "۲۴ اینچ", "پنل": "IPS Full HD", "پایه": "آسانسوری با چرخش ۹۰ درجه", "ورودی": "HDMI, DisplayPort, VGA"}),
-            ("مانیتور ۳۴ اینچ اولتراواید ال‌جی مدل 34WN700", c_monitors, 26000000,
-             "نمایشگر عریض ۲۱:۹ با رزولوشن WQHD (3440x1440)، مناسب مالتی‌تسکینگ همزمان، تایم‌لاین پریمیر و مشاهده همزمان چند سورس‌کد.",
-             "تریدرهای بازار مالی، برنامه‌نویسان و تدوین‌گران",
-             {"سایز": "۳۴ اینچ ۲۱:۹", "رزولوشن": "WQHD 3440x1440", "پنل": "IPS HDR10"}),
-            ("مانیتور ۲۷ اینچ اچ‌پی مدل E273q رزولوشن 2K", c_monitors, 11500000,
-             "مانیتور استوک تمیز اروپایی با وضوح QHD (2560x1440)، فریم فوق‌باریک میکرو‌اج ۳ طرفه و پورت‌های متعدد USB Hub.",
-             "طراحان وب و کاربران چندرسانه‌ای",
-             {"سایز": "۲۷ اینچ 2K", "رزولوشن": "2560x1440", "پنل": "IPS مات ضدتابش"}),
+            ("مانیتور دل ۲۷ اینچ 4K مدل اولتراشارپ (Dell U2720Q)", c_4k_monitors, 27500000,
+             "استاندارد طلایی مانیتورهای طراحی دنیا با پنل IPS 4K HDR400، پوشش ۹۵٪ فضای رنگی DCI-P3، هاب پورت‌های کامل تایپ‌سی ۹۰ وات و پایه با قابلیت چرخش عمودی پیوت.",
+             "طراحان UI/UX، تدوین‌گران ویدیو، کالریست‌ها و برنامه‌نویسان مک",
+             {"رزولوشن": "3840x2160 4K UHD", "پنل": "IPS کالیبره کارخانه delta-E < 2", "اتصال": "USB-C 90W PD"}),
+            ("مانیتور ال‌جی ۲۷ اینچ 4K مدل 27UK850", c_4k_monitors, 23000000,
+             "مانیتور 4K با حاشیه‌های فوق باریک، پشتیبانی از HDR10، سازگاری کامل با کنسول‌های بازی PS5/Xbox و ورودی تصویر و شارژ همزمان با کابل تایپ‌سی لپ‌تاپ.",
+             "طراحان گرافیک و کاربران خانگی کنسول و مک‌بوک",
+             {"رزولوشن": "4K IPS", "اسپیکر داخلی": "استریو با فناوری MaxxAudio", "پورت": "Type-C + HDMI x2"}),
+            ("مانیتور دل ۲۴ اینچ فول‌اچ‌دی مدل P2419H", c_4k_monitors, 9800000,
+             "مانیتور کاری بسیار محبوب و باکیفیت با پایه آسانسوری با چرخش ۹۰ درجه، پنل ضدبازتاب مات IPS، فیلتر نور آبی ComfortView و مصرف بهینه برق.",
+             "محیط‌های اداری، دفاتر شرکت‌ها و برنامه‌نویسان",
+             {"سایز": "24 اینچ", "پنل": "IPS مات", "پایه‌ها": "تنظیم کامل ارتفاع، چرخش و زاویه"}),
+            ("مانیتور ایسوس ۲۴ اینچ گیمینگ ۱۴۴ هرتز (VG249Q)", c_gaming_monitors, 12500000,
+             "مانیتور فوق‌العاده سریع با زمان پاسخ‌گویی ۱ میلی‌ثانیه، پنل IPS با زوایای دید باز ۱۷۸ درجه، فناوری FreeSync و کاهش تاری تصویر ELMB.",
+             "گیمرهای سبک شوتر اول‌شخص و شوترهای رقابتی",
+             {"رفرش‌ریت": "144Hz", "زمان پاسخگویی": "1ms MPRT", "پنل": "IPS Gaming"}),
+            ("مانیتور گیمینگ خمیده ۳۴ اینچ شیائومی (Mi Curved 34)", c_gaming_monitors, 28000000,
+             "نمایشگر فوق‌عریض التراواید ۲۱:۹ با انحنای ارگونومیک 1500R، رزولوشن WQHD، رفرش‌ریت ۱۴۴ هرتز و پوشش ۱۲۱٪ طیف رنگی sRGB.",
+             "برنامه‌نویسان عاشق نمایشگر یکپارچه، تحلیل‌گران مالی و گیمرها",
+             {"سایز و انحنا": "34 اینچ 1500R واید", "رزولوشن": "3440x1440 WQHD", "نرخ نوسازی": "144Hz"}),
+            ("مانیتور بنکیو ۲۷ اینچ محافظ چشم (BenQ GW2780)", c_gaming_monitors, 11200000,
+             "مانیتور مجهز به سنسور هوشمند تنظیم روشنایی بر اساس نور محیط (B.I. Tech)، محافظت چشم بدون فلیکر و حاشیه‌های مینیمال شیک.",
+             "کاربران اداری، حسابداران و کسانی که ساعت‌های متوالی پای سیستم هستند",
+             {"سایز": "27 اینچ IPS", "فناوری محافظت چشم": "Brightness Intelligence Tech", "پورت": "HDMI, DisplayPort, VGA"}),
 
-            # Accessories & Docks
-            ("داک‌استیشن دل مدل WD19 تاندربولت تایپ‌سی ۱۳۰ وات", c_accessories, 5800000,
-             "داک اورجینال دل با پشتیبانی از اتصال همزمان ۳ مانیتور اکسترنال، پورت شبکه گیگابیت، جک صدا و شارژ سریع لپ‌تاپ با کابل تایپ‌سی.",
-             "کسانی که لپ‌تاپ را به چند مانیتور و تجهیزات رومیزی متصل می‌کنند",
-             {"توان خروجی": "۱۳۰ وات", "اتصال": "USB-C Thunderbolt", "خروجی تصویر": "2x DP, 1x HDMI, 1x Type-C"}),
-            ("شارژر اورجینال لنوو ۶۵ وات تایپ‌سی (Type-C 65W)", c_accessories, 1450000,
-             "آداپتور فابریک تینک‌پد با کابل تایپ‌سی تقویت‌شده، محافظت در برابر نوسان برق و سازگار با انواع لپ‌تاپ‌ها و گوشی‌های سامسونگ و شیائومی.",
-             "دارندگان لپ‌تاپ‌های جدید لنوو، ایسوس و اپل",
-             {"توان": "۶۵ وات", "سوکت": "USB Type-C", "ولتاژ": "20V - 3.25A"}),
-            ("کیبورد مکانیکی سیمی ردراگون مدل K552 سوئیچ آبی", c_accessories, 2300000,
-             "کیبورد مکانیکی جمع‌وجور بدون نام‌پد (TKL) با سوئیچ‌های مکانیکی پرکلیک، بدنه فلزی سنگین و نورپردازی قرمز ثابت.",
-             "تایپیست‌ها، برنامه‌نویسان و گیمرها",
-             {"سوئیچ": "آبی مکانیکی اوتمو", "طرح": "TKL 87 کلید", "کابل": "روکش کنفی ضخیم"}),
-            ("کیبورد و ماوس بی‌سیم لاجیتک مدل MK270 اورجینال", c_accessories, 1850000,
-             "ست کم‌مصرف لاجیتک با برد بی‌سیم ۱۰ متر، طول عمر باتری تا ۲۴ ماه و کلیدهای میانبر مالتی‌مدیا.",
-             "محیط‌های اداری و خانگی",
-             {"اتصال": "دانگل USB 2.4GHz", "برد": "۱۰ متر", "برند": "Logitech"}),
-            ("شارژر مگ‌سیف ۲ اپل ۸۵ وات فابریک استوک", c_accessories, 1950000,
-             "آداپتور اورجینال مگ‌سیف ۲ مخصوص مک‌بوک پرو رتینا ۱۵ اینچ ۲۰۱۲ تا ۲۰۱۵ با سوکت آهنربایی تی‌شکل و چراغ وضعیت شارژ.",
-             "دارندگان مک‌بوک پروهای کلاسیک",
-             {"توان": "۸۵ وات", "سوکت": "MagSafe 2 (T-Tip)", "برند": "Apple اورجینال"}),
-            ("تبدیل چندکاره تایپ‌سی یوگرین ۸ در ۱ (UGREEN 8-in-1 Hub)", c_accessories, 2900000,
-             "هاب آلومینیومی با خروجی HDMI 4K، سه پورت USB 3.0، رم‌ریدر SD/TF، پورت شبکه LAN و شارژر عبوری ۱۰۰ وات PD.",
-             "دارندگان مک‌بوک، سرفیس و لپ‌تاپ‌های فاقد پورت‌های قدیمی",
-             {"پورت‌ها": "8 پورت کامل", "جنس": "آلیاژ آلومینیوم خاکستری فضایی"}),
-            ("پایه خنک‌کننده لپ‌تاپ دیپ‌کول مدل N8 آلومینیومی", c_accessories, 1650000,
-             "کول‌پد تمام فلزی با دو فن ۱۴۰ میلیمتری کم‌صدا و بدنه مشبک خنک‌کننده برای لپ‌تاپ‌های تا ۱۷ اینچ.",
-             "کاربران رندرینگ و گیمینگ طولانی‌مدت",
-             {"تعداد فن": "۲ فن ۱۴ سانتی", "جنس پنل": "آلومینیوم اکسترود شده"}),
-            ("کیف ضربه‌گیر دار لپ‌تاپ ۱۵.۶ اینچ کت (CAT Shockproof)", c_accessories, 950000,
-             "کیف دوشی و دستی با فوم ضدضربه سلول‌بسته در تمام جهات، پارچه برزنتی ضدآب و زیپ‌های فلزی روان.",
+            # Accessories
+            ("داک استیشن تاندربولت ۳ دل مدل WD19TB", c_accessories, 9500000,
+             "داک استیشن فوق حرفه‌ای تاندربولت با توان خروجی ۱۳۰ وات، پشتیبانی همزمان از سه مانیتور 4K، خروجی‌های DisplayPort، پورت‌های متعدد USB و شبکه گیگابیت.",
+             "کاربران لپ‌تاپ‌های مهندسی و مدیرانی که در دفتر نیاز به هاب تک‌کابله دارند",
+             {"پهنای باند": "40Gbps Thunderbolt 3", "توان شارژ": "130W Dell ExpressCharge"}),
+            ("کیبورد مکانیکی لاجیتک مدل MX Mechanical Mini", c_accessories, 8800000,
+             "کیبورد مکانیکال باریک و بی‌صدا با کلیدهای سوییچ Tactile Quiet، نورپردازی هوشمند مجاورتی و اتصال همزمان به سه دستگاه با بلوتوث.",
+             "برنامه‌نویسان، نویسندگان و شیفتگان تایپ سریع",
+             {"سوییچ": "مکانیکی بی‌صدا لاجیتک", "اتصال": "بلوتوث + دانگل Bolt تا ۳ دستگاه"}),
+            ("ماوس ارگونومیک لاجیتک مدل MX Master 3S", c_accessories, 6900000,
+             "بهترین ماوس اداری و مهندسی جهان با اسکرول الکترومغناطیسی مگ‌اسپید ۱۰۰۰ خط بر ثانیه، کلیک‌های سایلنت ۹۰٪ بی‌صدا و سنسور 8000 DPI قابل استفاده روی شیشه.",
+             "طراحان گرافیک، مدل‌سازان سه‌بعدی و مهندسان",
+             {"دقت سنسور": "8000 DPI Darkfield", "اسکرول": "MagSpeed الکترومغناطیس"}),
+            ("پایه نگهدارنده ارگونومیک آلومینیومی لپ‌تاپ نیلکین", c_accessories, 1450000,
+             "استند تمام فلزی با قابلیت تنظیم زاویه و ارتفاع تا ۲۵ سانتیمتر، جریان هوای عالی زیر لپ‌تاپ و تحمل وزن تا ۱۲ کیلوگرم.",
+             "تمام کاربرانی که از درد گردن و شانه پای لپ‌تاپ رنج می‌برند",
+             {"جنس": "آلومینیوم نقره‌ای ضخیم", "قابلیت": "تنظیم چندمحوره ارگونومیک"}),
+            ("کوله پشتی ضدسرقت و ضدآب لپ‌تاپ بنج مدل Bange Pro", c_accessories, 2900000,
+             "کوله پشتی اداری و مسافرتی با جایگاه اختصاصی لپ‌تاپ تا ۱۷.۳ اینچ، کپسول‌های ضربه‌گیر بادی، پورت خروجی شارژ USB و قفل زیپ ضدسرقت TSA.",
              "دانشجویان و مهندسان در حال تردد",
              {"سایز مجاز": "تا ۱۵.۶ اینچ", "محافظ": "کپسول هوا و فوم حباب‌دار"}),
             ("ماوس بی‌سیم سایلنت لاجیتک مدل M220", c_accessories, 890000,
@@ -436,8 +556,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             "\n" + "="*70 + "\n"
             "SUCCESS: Both demo seller accounts seeded with rich real products!\n"
-            "1. Coffee Equipment: barista@peyda.ir / Barista_2026_Demo! (25 products)\n"
-            "2. Digital Laptops:   digital@peyda.ir / Digital_2026_Demo! (25 products)\n"
+            "1. Konkur Institute: konkur@peyda.ir / Konkur_2026_Demo! (27 services/products + 10 Telegram groups)\n"
+            "2. Digital Laptops:   digital@peyda.ir / Digital_2026_Demo! (26 products)\n"
             "Zero synthetic leads generated — ready for real crawler/need_engine discovery.\n"
             + "="*70
         ))
