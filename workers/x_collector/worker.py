@@ -387,11 +387,51 @@ class XCollector:
         os.replace(temporary, target)
 
 
+def auto_ingest_enabled() -> bool:
+    return os.getenv("X_AUTO_INGEST", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def latest_offset(collector: XCollector) -> int:
+    path = collector.output_dir / "latest.jsonl"
+    return path.stat().st_size if path.exists() else 0
+
+
+def ingest_new(collector: XCollector, offset: int, loader: Callable[[Path], int] | None = None) -> int:
+    """Load only what this cycle appended to latest.jsonl into crawler.x_posts (the engine picks it up from there).
+    Never raises: a DB hiccup must not stop collection; the posts stay in the JSONL files for a manual x_ingest."""
+    path = collector.output_dir / "latest.jsonl"
+    try:
+        if not path.exists() or path.stat().st_size <= offset:
+            return 0
+        with path.open("rb") as stream:
+            stream.seek(offset)
+            chunk = stream.read()
+        chunk = chunk[:chunk.rfind(b"\n") + 1]   # whole lines only
+        if not chunk.strip():
+            return 0
+        part = path.with_name(f".ingest-{os.getpid()}.jsonl")
+        part.write_bytes(chunk)
+        try:
+            if loader is None:
+                from x_ingest.__main__ import load as loader
+            count = loader(part)
+        finally:
+            part.unlink(missing_ok=True)
+        log.info("Auto-ingest: upserted %s X posts into the database", count)
+        return count
+    except Exception as exc:
+        log.error("Auto-ingest failed (run `python -m x_ingest` later): %s", exc)
+        return 0
+
+
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
         current_queries = queries() if callable(queries) else queries
+        offset = latest_offset(collector)
         result = collector.run(current_queries, mock_records=mock_records)
         log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
+        if mock_records is None and auto_ingest_enabled():
+            ingest_new(collector, offset)
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")
         time.sleep(interval)

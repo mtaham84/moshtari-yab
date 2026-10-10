@@ -67,6 +67,17 @@ def dashboard(request):
 
 
 @staff_required
+def x_source(request):
+    days = _days(request)
+    st = services.x_collector_status()
+    queries = sorted((st or {}).get("queries") or [], key=lambda q: (-(q.get("new_posts") or 0), q.get("query") or ""))
+    return render(request, "ops/x.html", {
+        "nav": "x", "days": days, "periods": PERIODS, "o": services.x_overview(float(days)), "st": st,
+        "service": services.x_collector_service(), "queries": queries, "settings_rows": services.x_settings(),
+    })
+
+
+@staff_required
 def costs(request):
     days = _days(request)
     f = {k: request.GET.get(k, "").strip() for k in ("business", "model", "stage")}

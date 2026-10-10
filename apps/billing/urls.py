@@ -24,5 +24,6 @@ urlpatterns = [
     path("communities/adopt/<str:chat_id>/", views.community_adopt, name="community_adopt"),
     path("communities/<int:pk>/toggle/", views.community_toggle, name="community_toggle"),
     path("communities/<int:pk>/delete/", views.community_delete, name="community_delete"),
+    path("x/", views.x_source, name="x"),
     path("settings/", views.billing_settings, name="settings"),
 ]

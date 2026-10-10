@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .client import XCliError
-from .worker import XCollector, collect_forever
+from .worker import XCollector, auto_ingest_enabled, collect_forever, ingest_new, latest_offset
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -22,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--print-queries", action="store_true")
     parser.add_argument("--loop", action="store_true")
-    parser.add_argument("--interval", type=float, default=300)
+    parser.add_argument("--interval", type=float, default=float(os.getenv("X_COLLECT_INTERVAL_SECONDS", "300")))
+    parser.add_argument("--no-ingest", action="store_true", help="do not load new posts into the database")
     parser.add_argument("--output-dir", default=os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -65,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(collector.run(queries, dry_run=True), ensure_ascii=False, indent=2))
             return 0
         try:
+            if args.no_ingest:
+                os.environ["X_AUTO_INGEST"] = "false"
             collect_forever(collector, query_provider, max(1.0, args.interval), mock_records)
         except XCliError as exc:
             logging.error("Collector loop stopped: %s", exc)
@@ -77,7 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.dry_run:
             _print_commands(queries)
+        offset = latest_offset(collector)
         result = collector.run(queries, dry_run=args.dry_run, mock_records=mock_records)
+        if not (args.dry_run or args.mock or args.no_ingest) and auto_ingest_enabled():
+            result["ingested"] = ingest_new(collector, offset)
     except XCliError as exc:
         logging.error("%s", exc)
         return 2

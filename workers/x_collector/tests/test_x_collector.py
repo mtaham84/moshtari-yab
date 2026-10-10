@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from workers.x_collector.client import XCliClient, XCliError
-from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, collect_forever
+from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, collect_forever, ingest_new, latest_offset
 from workers.x_collector.query_source import queries_from_products
 from workers.x_collector.__main__ import main
 
@@ -204,6 +204,41 @@ class XCollectorTests(unittest.TestCase):
         with patch("workers.x_collector.worker.time.sleep", return_value=None):
             with self.assertRaises(XCliError):
                 collect_forever(collector, ["q"], 1)
+
+    def test_ingest_new_loads_only_this_cycles_lines(self):
+        collector = self.collector()
+        latest = collector.output_dir / "latest.jsonl"
+        latest.parent.mkdir(parents=True, exist_ok=True)
+        latest.write_text('{"id": "1"}\n', encoding="utf-8")
+        offset = latest_offset(collector)
+        with latest.open("a", encoding="utf-8") as stream:
+            stream.write('{"id": "2"}\n{"id": "3"}\n{"id": "4"')   # last line still being written
+        seen = []
+        def loader(path):
+            seen.extend(json.loads(line)["id"] for line in Path(path).read_text(encoding="utf-8").splitlines())
+            return len(seen)
+        self.assertEqual(ingest_new(collector, offset, loader), 2)
+        self.assertEqual(seen, ["2", "3"])
+        self.assertEqual(list(collector.output_dir.glob(".ingest-*")), [])
+        self.assertEqual(ingest_new(collector, latest.stat().st_size, loader), 0)
+
+    def test_ingest_failure_does_not_raise(self):
+        collector = self.collector()
+        latest = collector.output_dir / "latest.jsonl"
+        latest.parent.mkdir(parents=True, exist_ok=True)
+        latest.write_text('{"id": "1"}\n', encoding="utf-8")
+        def broken(path):
+            raise RuntimeError("db down")
+        self.assertEqual(ingest_new(collector, 0, broken), 0)
+
+    def test_loop_ingests_after_each_cycle(self):
+        collector = self.collector()
+        collector.run = lambda *args, **kwargs: {"status": "AUTH_FAILED", "collected": 0}
+        with patch("workers.x_collector.worker.ingest_new", return_value=0) as ingest, \
+                patch.dict("os.environ", {"X_AUTO_INGEST": "true"}):
+            with self.assertRaises(XCliError):
+                collect_forever(collector, ["q"], 1)
+        ingest.assert_called_once()
 
     def test_flag_like_query_is_skipped_but_following_query_runs(self):
         client = FakeClient(self.fixture[:1])

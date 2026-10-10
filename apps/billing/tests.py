@@ -110,6 +110,48 @@ class OpsPanelTests(EngineSchemaMixin, TestCase):
         self.client.post(reverse("ops:communities"), {"handle_or_link": "@some_group"})
         self.assertEqual(MonitoredCommunity.objects.filter(business__isnull=True).count(), 1)
 
+    def test_x_page(self):
+        import json
+        import os
+        import tempfile
+        import uuid
+        from unittest.mock import patch
+
+        from django.db import connection
+        from django.test import override_settings
+
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get(reverse("ops:x")).status_code, 200)          # nothing collected yet
+        st = self.store()
+        st.add_cost("need_extraction_x_batch", "gem", 1000, 100, False, 0.002, 200, ref="x:1-9")
+        crawler = f"cr_{uuid.uuid4().hex[:8]}"
+        with connection.cursor() as c:
+            c.execute(f"CREATE SCHEMA {crawler}")
+            c.execute(f"""CREATE TABLE {crawler}.x_posts (row_id BIGSERIAL PRIMARY KEY, tweet_id BIGINT UNIQUE NOT NULL,
+                          author_id TEXT NOT NULL, author_handle TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ,
+                          url TEXT, query TEXT, loaded_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+            c.execute(f"""INSERT INTO {crawler}.x_posts (tweet_id, author_id, author_handle, text, query)
+                          VALUES (1, 'a', 'buyer1', 'هندزفری خوب چی بخرم', 'هندزفری lang:fa')""")
+        status = {"status": "COMPLETED", "collected": 3, "collected_today": 7, "daily_cap": 200, "failures": 0,
+                  "failed_queries": 0, "updated_at": "2026-01-01T00:00:00+00:00",
+                  "queries": [{"query": "(هندزفری) (بخرم) lang:fa", "kind": "intent", "last_run_at": None, "fetched": 4,
+                               "new_posts": 3}]}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(status, f, ensure_ascii=False)
+        try:
+            with override_settings(TG_DB_SCHEMA=crawler), patch.dict(os.environ, {"X_STATUS_FILE": f.name}):
+                resp = self.client.get(reverse("ops:x"))
+                page = resp.content.decode()
+                dash = self.client.get(reverse("ops:dashboard")).content.decode()
+        finally:
+            os.unlink(f.name)
+        self.assertIn("buyer1", page)
+        self.assertIn("(هندزفری) (بخرم) lang:fa", page)
+        o = resp.context["o"]
+        self.assertEqual((o["posts"], o["posts_total"], o["cost"]["extract_toman"], o["cost"]["extract_calls"]), (1, 1, 200.0, 1))
+        self.assertEqual(o["cost"]["per_post"], 200.0)
+        self.assertIn("جمع‌آور X", dash)
+
     def test_seller_header_shows_balance(self):
         self.client.force_login(self.seller_user)
         page = self.client.get(reverse("accounts:dashboard")).content.decode()

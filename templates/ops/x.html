@@ -1,0 +1,78 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}ایکس (توییتر){% endblock %}
+{% block content %}
+<div class="ops-head"><h1>ایکس (توییتر)</h1>{% include "ops/_periods.html" %}</div>
+
+<div class="grid g4">
+  <div class="card stat"><div class="label">پست جمع‌شده</div><div class="value">{{ o.posts|num }}</div>
+    <div class="sub">کل: {{ o.posts_total|num }} · در صف تحلیل: {{ o.pending|num }}{% if o.last_post %} · آخرین {{ o.last_post|date:"Y-m-d H:i" }}{% endif %}</div></div>
+  <div class="card stat"><div class="label">نیاز پیدا‌شده</div><div class="value">{{ o.needs|num }}</div>
+    <div class="sub">{{ o.open_needs|num }} باز · کل پست تحلیل‌شده تا الان: {{ o.analysed_total|num }}</div></div>
+  <div class="card stat"><div class="label">فرصت</div><div class="value">{{ o.opportunities|num }}</div>
+    <div class="sub">تحویل‌شده به فروشنده‌ها: {{ o.delivered|num }}</div></div>
+  <div class="card stat"><div class="label">هزینه‌ی واقعی هوش مصنوعی</div><div class="value">{{ o.cost.total_toman|toman }} <small>تومان</small></div>
+    <div class="sub">هر پست ≈ {{ o.cost.per_post|toman }} · هر فرصت ≈ {{ o.cost.per_opportunity|toman }} تومان</div></div>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h2>جمع‌آور</h2>
+    {% if service %}<p><span class="st {{ service.state }}">{{ service.name }}</span> <span class="muted">{{ service.detail }}</span></p>{% endif %}
+    {% if st %}
+    <table>
+      <tr><td>آخرین دور</td><td>{{ st.updated }} · {{ st.status }}</td></tr>
+      <tr><td>پست جدید در آخرین دور</td><td class="n">{{ st.collected|default:0|num }}</td></tr>
+      <tr><td>امروز / سقف روزانه</td><td class="n">{{ st.collected_today|default:0|num }} / {{ st.daily_cap|num }}</td></tr>
+      <tr><td>کوئری ناموفق در آخرین دور</td><td class="n">{{ st.failed_queries|default:0|num }}</td></tr>
+      {% if st.cooldown_until %}<tr><td>استراحت اجباری تا</td><td>{{ st.cooldown_until }}</td></tr>{% endif %}
+    </table>
+    {% else %}
+    <p class="muted">جمع‌آور هنوز اجرا نشده. اجرای دائمی: <code>docker compose --profile x up -d x</code></p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>هزینه‌ها</h2>
+    <table>
+      <tr><td>استخراج نیاز از پست‌ها (با پلتفرم)</td><td class="n">{{ o.cost.extract_toman|toman }} تومان · {{ o.cost.extract_calls|num }} فراخوانی</td></tr>
+      <tr><td>تطبیق و پیش‌نویس پاسخ نیازهای X</td><td class="n">{{ o.cost.downstream_toman|toman }} تومان</td></tr>
+      <tr><td>کسرشده از فروشنده‌ها</td><td class="n">{{ o.cost.billed_toman|toman }} تومان</td></tr>
+      <tr><td>جستجو در X</td><td class="n">رایگان (با کوکی حساب)</td></tr>
+    </table>
+    <p class="muted" style="margin-bottom:0">پست‌های X منبع عمومی‌اند: هزینه‌ی تحلیلشان با پلتفرم است؛ تطبیق و پاسخ از فروشنده‌ای که محصولش تطبیق داده می‌شود کسر می‌شود.</p>
+  </div>
+  <div class="card">
+    <h2>پیش‌فیلتر</h2>
+    <p class="muted">نگه‌داشته {{ o.kept|num }} · رد {{ o.dropped|num }}</p>
+    <table><tr><th>نتیجه</th><th>دلیل</th><th class="n">تعداد</th></tr>
+    {% for r in o.prefilter %}<tr><td>{% if r.keep %}<span class="st ok">نگه</span>{% else %}<span class="st down">رد</span>{% endif %}</td>
+      <td><code>{{ r.reason }}</code></td><td class="n">{{ r.n|num }}</td></tr>{% empty %}<tr><td class="muted" colspan="3">—</td></tr>{% endfor %}</table>
+  </div>
+  <div class="card">
+    <h2>تنظیمات (از ‎.env)</h2>
+    <table>{% for k, v, label in settings_rows %}<tr><td>{{ label }}</td><td><code>{{ k }}={{ v }}</code></td></tr>{% endfor %}</table>
+    <p class="muted" style="margin-bottom:0">برای تغییر: ‎.env را ویرایش کنید و <code>docker compose --profile x up -d x engine</code></p>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>کوئری‌ها ({{ queries|length }})</h2>
+  <table><tr><th>کوئری</th><th>نوع</th><th>آخرین اجرا</th><th class="n">دریافتی</th><th class="n">جدید</th></tr>
+  {% for q in queries %}<tr><td><code style="white-space:normal">{{ q.query }}</code></td><td>{{ q.kind }}</td>
+    <td class="muted">{{ q.last_run_at|default:"هنوز نه" }}</td><td class="n">{{ q.fetched|default:0|num }}</td><td class="n">{{ q.new_posts|default:0|num }}</td></tr>
+  {% empty %}<tr><td class="muted" colspan="5">—</td></tr>{% endfor %}</table>
+</div>
+
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h2>پست‌ها به تفکیک کوئری (در این بازه)</h2>
+    <table>{% for r in o.by_query %}<tr><td><code style="white-space:normal">{{ r.query|default:"—" }}</code></td><td class="n">{{ r.n|num }}</td></tr>
+    {% empty %}<tr><td class="muted">—</td></tr>{% endfor %}</table>
+  </div>
+  <div class="card">
+    <h2>آخرین پست‌ها</h2>
+    <table>{% for p in o.recent %}<tr><td><a href="{{ p.url|default:'#' }}" target="_blank" rel="noopener">@{{ p.author_handle }}</a>
+      <div class="muted" style="font-size:.8rem">{{ p.text|truncatechars:160 }}</div></td><td class="muted n">{{ p.created_at|date:"m-d H:i" }}</td></tr>
+    {% empty %}<tr><td class="muted">—</td></tr>{% endfor %}</table>
+  </div>
+</div>
+{% endblock %}
