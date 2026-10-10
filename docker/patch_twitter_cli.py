@@ -5,6 +5,7 @@
    Without a valid id, SearchTimeline answers 404.
 2. Query ids rotate (the bundled SearchTimeline id and the community twitter-openapi one are both stale):
    resolve live from X's own bundles first (also for the first try) and only then fall back to GitHub / constants.
+3. SearchTimeline GET/POST: GET first, on 404 retry as POST (TWITTER_SEARCH_METHOD=auto|get|post).
 """
 import pathlib
 import twitter_cli.client as client
@@ -27,6 +28,28 @@ PATCHES = {
         # resolve query ids live (from bundles) instead of trying the stale bundled id first and eating a 404
         ("query_id = _resolve_query_id(operation_name, prefer_fallback=True, url_fetch_fn=_url_fetch)",
          "query_id = _resolve_query_id(operation_name, prefer_fallback=False, url_fetch_fn=_url_fetch)"),
+        # SearchTimeline: x-web has flipped between GET and POST (upstream 199a149 vs 0.8.5). TWITTER_SEARCH_METHOD=
+        # auto (default: GET, on 404 retry as POST and remember) | get | post
+        ("""            data = self._graphql_get(operation_name, variables, FEATURES, field_toggles=field_toggles)""",
+         """            _sm = os.environ.get("TWITTER_SEARCH_METHOD", "auto").strip().lower()
+            if operation_name == "SearchTimeline" and (_sm == "post" or getattr(self, "_search_use_post", False)):
+                data = self._graphql_post(operation_name, variables, FEATURES)
+            else:
+                try:
+                    data = self._graphql_get(
+                        operation_name, variables, FEATURES, field_toggles=field_toggles)
+                except TwitterAPIError as _exc:
+                    if operation_name != "SearchTimeline" or _sm != "auto" or _exc.status_code != 404:
+                        raise
+                    logger.info("SearchTimeline GET answered 404, retrying as POST")
+                    data = self._graphql_post(operation_name, variables, FEATURES)
+                    self._search_use_post = True"""),
+        # search requests should look like they come from the search page, not the composer
+        ("""            headers["Referer"] = "https://x.com/compose/post"
+""", """            headers["Referer"] = "https://x.com/compose/post"
+        if "/SearchTimeline" in url:
+            headers["Referer"] = "https://x.com/explore"
+"""),
     ],
     graphql.__file__: [
         ('url_fetch_fn("https://x.com", {', 'url_fetch_fn("https://x.com/i/jf/", {'),
@@ -60,6 +83,7 @@ for path, edits in PATCHES.items():
     for old, new in edits:
         if old not in text and new not in text:
             raise SystemExit(f"twitter-cli patch does not apply to {p.name}: {old[:60]!r}")
-        text = text.replace(old, new)
+        if new not in text:   # idempotent: some replacements contain their anchor
+            text = text.replace(old, new)
     p.write_text(text, encoding="utf-8")
     print(f"patched {p}")
