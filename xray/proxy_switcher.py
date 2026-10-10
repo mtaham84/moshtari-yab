@@ -7,7 +7,7 @@ Peyda Xray Proxy Auto-Switcher & Health Monitor
 - If active connection disconnects or exceeds 2000ms, cycles through subsequent configs automatically
 - Automatically restarts Xray and Crawler on switch to resume crawling immediately
 - Preserves all configs in config.json with active one at index 0
-- Supports vless://, vmess://, trojan:// link parsing and batch import
+- Supports vless://, vmess://, trojan://, ss://, throne:// link parsing and batch import
 """
 
 import os
@@ -98,6 +98,24 @@ def parse_vless_url(url: str) -> dict:
         stream_settings["grpcSettings"] = {
             "serviceName": params.get("serviceName", [""])[0]
         }
+    elif network == "xhttp":
+        extra_raw = params.get("extra", ["{}"])[0]
+        try:
+            extra = json.loads(extra_raw)
+        except Exception:
+            extra = {}
+        stream_settings["xhttpSettings"] = {
+            "mode": params.get("mode", ["stream-up"])[0],
+            "path": path,
+            "host": ws_host,
+            "extra": extra
+        }
+
+    enc = params.get("encryption", ["none"])[0]
+    flow = params.get("flow", [""])[0]
+    user_obj = {"id": uuid, "encryption": enc}
+    if flow:
+        user_obj["flow"] = flow
 
     return {
         "tag": tag,
@@ -107,7 +125,7 @@ def parse_vless_url(url: str) -> dict:
                 {
                     "address": host,
                     "port": int(port),
-                    "users": [{"id": uuid, "encryption": "none"}]
+                    "users": [user_obj]
                 }
             ]
         },
@@ -201,8 +219,61 @@ def parse_trojan_url(url: str) -> dict:
     }
 
 
+def parse_ss_url(url: str) -> dict:
+    """Parses a standard ss://base64@host:port#tag URL into an Xray outbound dict."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    userinfo = urllib.parse.unquote(parsed.username or parsed.netloc.split("@")[0])
+    missing = len(userinfo) % 4
+    if missing:
+        userinfo += "=" * (4 - missing)
+    try:
+        decoded = base64.urlsafe_b64decode(userinfo).decode("utf-8")
+    except Exception:
+        decoded = base64.b64decode(userinfo).decode("utf-8")
+    method, password = decoded.split(":", 1)
+    tag = urllib.parse.unquote(parsed.fragment) if parsed.fragment else f"ss_{parsed.hostname}_{parsed.port}"
+    return {
+        "tag": tag,
+        "protocol": "shadowsocks",
+        "settings": {
+            "servers": [
+                {
+                    "address": parsed.hostname,
+                    "port": int(parsed.port),
+                    "method": method,
+                    "password": password
+                }
+            ]
+        }
+    }
+
+
+def parse_throne_url(url: str) -> dict:
+    """Parses a throne://add/base64 URL into an Xray shadowsocks outbound dict."""
+    raw = url.strip().split("throne://add/")[-1]
+    missing = len(raw) % 4
+    if missing:
+        raw += "=" * (4 - missing)
+    data = json.loads(base64.urlsafe_b64decode(raw).decode("utf-8"))
+    tag = data.get("tag", f"ss_{data.get('server')}_{data.get('server_port')}")
+    return {
+        "tag": tag,
+        "protocol": "shadowsocks",
+        "settings": {
+            "servers": [
+                {
+                    "address": data.get("server"),
+                    "port": int(data.get("server_port", 1080)),
+                    "method": data.get("method", "chacha20-ietf-poly1305"),
+                    "password": data.get("password")
+                }
+            ]
+        }
+    }
+
+
 def parse_link(link: str) -> dict:
-    """Auto-detects and parses vless, vmess, or trojan link."""
+    """Auto-detects and parses vless, vmess, trojan, ss, or throne links."""
     link = link.strip()
     if link.startswith("vless://"):
         return parse_vless_url(link)
@@ -210,7 +281,11 @@ def parse_link(link: str) -> dict:
         return parse_vmess_url(link)
     elif link.startswith("trojan://"):
         return parse_trojan_url(link)
-    raise ValueError(f"Unsupported protocol in link: {link[:10]}...")
+    elif link.startswith("ss://"):
+        return parse_ss_url(link)
+    elif link.startswith("throne://add/"):
+        return parse_throne_url(link)
+    raise ValueError(f"Unsupported link protocol: {link[:20]}...")
 
 
 def load_config_outbounds() -> list:
@@ -613,7 +688,7 @@ def run_daemon(interval_sec: int = CHECK_INTERVAL_SEC):
 
 
 def add_link_to_config(link: str):
-    """Adds a single vless/vmess/trojan link into config.json."""
+    """Adds a single link into config.json."""
     try:
         new_ob = parse_link(link)
     except Exception as e:
@@ -628,9 +703,18 @@ def add_link_to_config(link: str):
         cfg = json.load(f)
 
     outbounds = cfg.get("outbounds", [])
-    outbounds = [ob for ob in outbounds if ob.get("tag") != new_ob.get("tag")]
     direct = [ob for ob in outbounds if ob.get("protocol") == "freedom"]
     proxies = [ob for ob in outbounds if ob.get("protocol") != "freedom"]
+
+    # Ensure unique tag
+    existing_tags = {ob.get("tag") for ob in proxies}
+    base_tag = new_ob.get("tag")
+    tag = base_tag
+    c = 1
+    while tag in existing_tags:
+        tag = f"{base_tag}_{c}"
+        c += 1
+    new_ob["tag"] = tag
 
     cfg["outbounds"] = proxies + [new_ob] + direct
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -641,7 +725,7 @@ def add_link_to_config(link: str):
 
 
 def import_links_from_file(filepath: Path):
-    """Imports multiple links from a text file into config.json."""
+    """Imports multiple links from a text file into config.json, preserving existing ones."""
     if not filepath.exists():
         logger.error(f"File not found: {filepath}")
         return
@@ -649,12 +733,42 @@ def import_links_from_file(filepath: Path):
     with open(filepath, "r", encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
+    if not CONFIG_FILE.exists():
+        logger.error(f"{CONFIG_FILE} not found.")
+        return
+
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    outbounds = cfg.get("outbounds", [])
+    direct = [ob for ob in outbounds if ob.get("protocol") == "freedom"]
+    if not direct:
+        direct = [{"tag": "direct", "protocol": "freedom"}]
+    proxies = [ob for ob in outbounds if ob.get("protocol") != "freedom"]
+    existing_tags = {ob.get("tag") for ob in proxies}
+
     added = 0
     for line in lines:
-        if add_link_to_config(line):
+        try:
+            ob = parse_link(line)
+            base_tag = ob.get("tag", "proxy")
+            tag = base_tag
+            c = 1
+            while tag in existing_tags:
+                tag = f"{base_tag}_{c}"
+                c += 1
+            ob["tag"] = tag
+            existing_tags.add(tag)
+            proxies.append(ob)
             added += 1
+        except Exception as e:
+            logger.warning(f"Skipping link due to parse error: {e}")
 
-    logger.info(f"Imported {added} configs from {filepath}.")
+    cfg["outbounds"] = proxies + direct
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Successfully added {added} new configs to {CONFIG_FILE}! Total configs: {len(proxies)}.")
 
 
 def install_systemd_service():
@@ -697,7 +811,7 @@ def main():
     parser.add_argument("--switch", action="store_true", help="Find and connect best config now")
     parser.add_argument("--daemon", action="store_true", help="Run continuous 1-minute failover watchdog daemon")
     parser.add_argument("--interval", type=int, default=CHECK_INTERVAL_SEC, help="Watchdog check interval in seconds (default: 60)")
-    parser.add_argument("--add-link", type=str, help="Add a vless://, vmess://, or trojan:// URL into config.json")
+    parser.add_argument("--add-link", type=str, help="Add a vless://, vmess://, trojan://, ss://, throne:// URL into config.json")
     parser.add_argument("--import-links", type=str, help="Import links from a text file into config.json")
     parser.add_argument("--install-service", action="store_true", help="Install and start systemd daemon service")
 
