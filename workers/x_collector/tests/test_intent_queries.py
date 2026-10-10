@@ -94,7 +94,7 @@ def test_llm_terms_are_sanitized_cached_and_regenerated_on_change():
     store, llm = FakeStore(), FakeLLM()
     product = Product(product_id="7", title="ایرفون بلوتوثی")
     first = llm_terms([product], {}, store, llm, "m")
-    assert first["7"] == {"names": ["هندزفری"], "problems": ["صدام قطع میشه"], "model": None}
+    assert first["7"] == {"names": ["هندزفری"], "cues": [], "negatives": [], "problems": ["صدام قطع میشه"], "model": None}
     assert llm_terms([product], {}, store, llm, "m") == first and llm.calls == 1
     llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
     assert llm.calls == 2
@@ -154,3 +154,28 @@ def test_generic_words_are_not_search_terms():
     assert "اشتراک" not in terms and "اکانت" not in terms
     assert all(not t.startswith(("قیمت", "خرید")) for t in terms)
     assert "صندلی کمپینگ" in terms and "اکانت نوشن" in terms
+
+
+def test_product_queries_belong_to_one_product_and_keep_latin_names():
+    from workers.x_collector.intent_queries import product_queries
+
+    product = Product(product_id="9", business_id="3", title="اشتراک نوشن پلاس", discovery_priority=2)
+    terms = {"names": ["نوشن", "notion", "Notion AI", "اشتراک", "خرید اکانت نوشن"], "cues": ["پرمیوم", "موجود دارین", "از کجا"],
+             "negatives": ["تحویل آنی"], "problems": ["جزوه هام بهم ریخته"], "model": None}
+    queries = product_queries(product, terms)
+    assert all(q["product_ids"] == ["9"] and q["business_ids"] == ["3"] and q["priority"] == 2.0 for q in queries)
+    intent = next(q["query"] for q in queries if q["kind"] == "intent")
+    assert intent.startswith('(نوشن OR notion OR "Notion AI" OR "اکانت نوشن"')
+    assert ' اشتراک ' not in intent.split(")")[0]                      # generic word alone is not a name
+    assert '(پرمیوم OR "موجود دارین" OR "از کجا")' in intent
+    assert '-"تحویل آنی"' in intent and "-تخفیف" in intent and intent.endswith("lang:fa")
+    assert any(q["kind"] == "problem" and "جزوه هام بهم ریخته" in q["query"] for q in queries)
+
+
+def test_product_queries_without_llm_use_default_cues():
+    from workers.x_collector.intent_queries import PRODUCT_MODE_CUES, product_queries
+
+    queries = product_queries(Product(product_id="1", title="هندزفری بلوتوثی", product_type="هندزفری"))
+    assert queries and all(q["product_ids"] == ["1"] for q in queries)
+    assert all(c in queries[0]["query"] for c in ("بخرم", "موجود", '"از کجا"'))
+    assert len(PRODUCT_MODE_CUES) >= 10

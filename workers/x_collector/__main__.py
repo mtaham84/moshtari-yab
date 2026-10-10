@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .client import XCliError
-from .worker import XCollector, auto_ingest_enabled, collect_forever, ingest_new, latest_offset
+from .worker import XCollector, auto_ingest_enabled, charge_searches, collect_forever, ingest_new, latest_offset
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,18 +38,24 @@ def main(argv: list[str] | None = None) -> int:
             query_provider = lambda: collector_queries(args.queries)
         except RuntimeError as exc:
             parser.error(str(exc))
-    if not queries:
-        parser.error(f"No queries found. Add UTF-8 queries (one per line) to {args.queries}.")
+    if not queries and args.loop and not args.mock:
+        # per-product mode with no product switched on yet: keep running, products are re-read every cycle
+        logging.warning("No X search queries yet (no product has «جستجوی مشتری در X» on); waiting for products")
+    elif not queries:
+        parser.error(f"No queries found. Turn X search on for a product in the seller panel, or add UTF-8 queries "
+                     f"(one per line) to {args.queries}.")
     if args.print_queries:
         grouped = {}
         for item in queries:
             query = item["query"] if isinstance(item, dict) else item
             kind = item.get("kind", "product") if isinstance(item, dict) else "product"
+            if isinstance(item, dict) and item.get("product_ids"):
+                query = f"[product {','.join(item['product_ids'])}] {query}"
             grouped.setdefault(kind, []).append(query)
         print(json.dumps({kind: {"count": len(items), "queries": items} for kind, items in grouped.items()}, ensure_ascii=False, indent=2))
         return 0
     queries = [item for item in queries if not (item["query"] if isinstance(item, dict) else item).lstrip().startswith("-")]
-    if not queries:
+    if not queries and not args.loop:
         parser.error("All X search queries were skipped because they start with '-'.")
     output_dir = "data/x_collected_mock" if args.mock else args.output_dir
     state_path = "output/x_collector_mock_state.sqlite3" if args.mock else None
@@ -84,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
         result = collector.run(queries, dry_run=args.dry_run, mock_records=mock_records)
         if not (args.dry_run or args.mock or args.no_ingest) and auto_ingest_enabled():
             result["ingested"] = ingest_new(collector, offset)
+        if not (args.dry_run or args.mock):
+            charge_searches(getattr(collector, "searches", []))
     except XCliError as exc:
         logging.error("%s", exc)
         return 2

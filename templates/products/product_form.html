@@ -459,6 +459,12 @@
           <input type="checkbox" name="x_outreach_enabled" value="on" {% if not product or product.x_outreach_enabled %}checked{% endif %} style="accent-color: var(--obsidian-cyan);">
           <span>فعال‌سازی پیام‌رسانی در X (توییتر)</span>
         </label>
+
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer; color: var(--panel-text-main);"
+               title="برای همین محصول جداگانه در X جستجو و تحلیل می‌شود؛ هزینه‌ی جستجو و تحلیل از کیف پول شما کسر می‌شود.">
+          <input type="checkbox" name="x_search_enabled" value="on" {% if product.x_search_enabled %}checked{% endif %} style="accent-color: var(--obsidian-cyan);">
+          <span>جستجوی مشتری در X برای این محصول (هزینه از کیف پول)</span>
+        </label>
       </div>
     </div>
 

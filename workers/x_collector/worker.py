@@ -121,7 +121,7 @@ class SeenStore:
     @staticmethod
     def _key(record: dict[str, Any]) -> str:
         if record.get("id"):
-            value = "id:" + str(record["id"])
+            value = "id:" + str(record["id"]) + (f"|p:{record['product_id']}" if record.get("product_id") else "")
         else:
             value = "text:" + str(record.get("text", ""))
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -237,6 +237,7 @@ class XCollector:
         self.circuit_breaker = circuit_breaker if circuit_breaker is not None else int(os.getenv("X_COLLECT_CIRCUIT_BREAKER", "4"))
         self.sleeper, self.jitter = sleeper, jitter
         self.queries_per_cycle = int(os.getenv("X_COLLECT_QUERIES_PER_CYCLE", "12"))
+        self.searches: list[dict[str, Any]] = []
 
     @staticmethod
     def load_queries(query_file: str | Path | None = None) -> list[str]:
@@ -274,6 +275,9 @@ class XCollector:
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
+        query_products = {item["query"]: [str(x) for x in item.get("product_ids") or []] for item in scheduled}
+        query_sellers = {item["query"]: [str(x) for x in item.get("business_ids") or []] for item in scheduled}
+        self.searches = []   # successful searches of this run → per-seller search fee (charge_searches)
         collected, failures, failed_queries, consecutive_failures = [], 0, 0, 0
         stop_reason = None
         daily_remaining = max(0, self.daily_cap - self.state.count_today())
@@ -294,7 +298,7 @@ class XCollector:
                 try:
                     existing = json.loads(line)
                     if existing.get("id"):
-                        already_written.add(str(existing["id"]))
+                        already_written.add(str(existing["id"]) + (f"|{existing['product_id']}" if existing.get("product_id") else ""))
                 except json.JSONDecodeError:
                     continue
             stream.seek(0, os.SEEK_END)
@@ -313,9 +317,19 @@ class XCollector:
                         fetched_count = len(raw_items)
                         new_before = len(collected)
                         consecutive_failures = 0
+                        records = []
                         for raw in raw_items[: self.max_per_query]:
-                            normalized = normalize_tweet(raw, query=query)
-                            if normalized is None or normalized["id"] in already_written or self.state.has_seen(normalized):
+                            base = normalize_tweet(raw, query=query)
+                            if base is None:
+                                continue
+                            # per-product mode: one record per (post, product) — a post found for two sellers'
+                            # products is analysed (and paid) for each of them separately
+                            for pid in query_products.get(query) or [None]:
+                                records.append(base if pid is None else {**base, "product_id": pid,
+                                                                         "metadata": dict(base["metadata"])})
+                        for normalized in records:
+                            wkey = normalized["id"] + (f"|{normalized['product_id']}" if normalized.get("product_id") else "")
+                            if wkey in already_written or self.state.has_seen(normalized):
                                 continue
                             normalized["metadata"]["query_kind"] = query_kinds.get(query, "product")
                             if len(collected) >= daily_remaining:
@@ -332,9 +346,12 @@ class XCollector:
                             latest.write(line)
                             latest.flush()
                             os.fsync(latest.fileno())
-                            already_written.add(normalized["id"])
+                            already_written.add(wkey)
                             collected.append(normalized)
                         capped = len(collected) >= daily_remaining   # daily cap cut this search short: keep the old window
+                        if mock_records is None and (query_products.get(query) or query_sellers.get(query)):
+                            self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
+                                                  "business_ids": query_sellers.get(query) or []})
                         self.state.record_query(query, fetched_count, len(collected) - new_before, started_at=None if capped else started_at)
                         break
                     except XCliError as exc:
@@ -424,6 +441,41 @@ def ingest_new(collector: XCollector, offset: int, loader: Callable[[Path], int]
         return 0
 
 
+def charge_searches(searches: list[dict[str, Any]], store: Any = None) -> int:
+    """Per-seller fee for each search made for their products (X_SEARCH_FEE_TOMAN, default 0 = free).
+    Every seller whose product shares the query pays the whole fee. Never raises."""
+    fee = float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0)
+    if fee <= 0 or not searches:
+        return 0
+    try:
+        from need_engine.config import EngineConfig
+
+        cfg = EngineConfig()
+        own = store is None
+        if own:
+            from need_engine.store import Store
+
+            store = Store(cfg.database_url, cfg.state_schema)
+        rows = 0
+        try:
+            for search in searches:
+                sellers = sorted(set(search.get("business_ids") or []))
+                if not sellers:
+                    continue
+                usd = fee / max(1.0, float(cfg.usd_to_toman))
+                pids = ",".join(search.get("product_ids") or [])
+                store.add_cost("x_search", "x", 0, 0, False, usd * len(sellers), fee * len(sellers), ref=f"xq:{pids}",
+                               businesses=sellers)
+                rows += len(sellers)
+        finally:
+            if own:
+                store.close()
+        return rows
+    except Exception as exc:
+        log.error("X search fee not recorded: %s", exc)
+        return 0
+
+
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
         current_queries = queries() if callable(queries) else queries
@@ -432,6 +484,8 @@ def collect_forever(collector: XCollector, queries: list[str] | Callable[[], lis
         log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
         if mock_records is None and auto_ingest_enabled():
             ingest_new(collector, offset)
+        if mock_records is None:
+            charge_searches(getattr(collector, "searches", []))
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")
         time.sleep(interval)

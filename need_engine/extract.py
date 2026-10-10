@@ -10,7 +10,7 @@ import numpy as np
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient, QuotaExhausted
-from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X
+from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
 from need_engine.store import Store
 from need_engine.text import norm
@@ -135,7 +135,7 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
         author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
     real_author = {v: k for k, v in author_alias.items()}
     payload = [{"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
-                "bio": (m.author_bio or "")[:300], "text": m.text, "created_at": m.date.isoformat()}
+                "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
                for i, m in enumerate(messages)]
     try:
         data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
@@ -168,6 +168,61 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
             card.cost_toman = cost_share / max(1, len(result))
             cards.append(card)
     return cards, float(usage.get("toman") or 0), 1
+
+
+_FIT_RANK = {"yes": 2, "partly": 1, "no": 0}
+
+
+def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LLMClient, cfg: EngineConfig, now: datetime,
+                            payer: str | None = None) -> tuple[list[NeedCard], float, dict[int, tuple[str, str]]]:
+    """Per-product mode: posts that ONE product's search found, judged against that product only (one call, billed to
+    the product's seller). Returns (validated need cards, toman, {tweet_id: (fit, fit_reason)})."""
+    if not messages:
+        return [], 0.0, {}
+    author_alias: dict[str, str] = {}
+    for m in messages:
+        author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
+    real_author = {v: k for k, v in author_alias.items()}
+    posts = []
+    for i, m in enumerate(messages):
+        post = {"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
+                "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
+        if m.kind in {"reply", "quote"} and m.reply_to_text:
+            post["reply_to"] = m.reply_to_text[:400]
+        posts.append(post)
+    user = json.dumps({"product": product, "posts": posts}, ensure_ascii=False)
+    data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, NEED_SYSTEM_X_PRODUCT, user,
+                                    max_tokens=6000, ref=f"{chat_id}:{messages[0].message_id}-{messages[-1].message_id}",
+                                    businesses=[payer] if payer else None)
+    needs = (data or {}).get("needs") if isinstance(data, dict) else None
+    needs = [_from_local_ids(n, messages, real_author) for n in needs if isinstance(n, dict)] if isinstance(needs, list) else []
+    toman = float(usage.get("toman") or 0)
+    fits: dict[int, tuple[str, str]] = {}
+    cards = []
+    share = toman / max(1, len(messages))
+    for message in messages:
+        relevant = [n for n in needs if str(n.get("author_id")) == message.author_id
+                    and message.message_id in {int(v) for v in n.get("evidence_message_ids", []) if str(v).isdigit()}]
+        for n in relevant:
+            fit = str(n.get("fit") or "no").strip().lower()
+            fit = fit if fit in _FIT_RANK else "no"
+            if _FIT_RANK[fit] >= _FIT_RANK[fits.get(message.message_id, ("no", ""))[0]]:
+                fits[message.message_id] = (fit, str(n.get("fit_reason") or "")[:200])
+
+        class _Given:
+            def complete_json(self, *args, **kwargs):
+                return {"needs": relevant}, {"toman": share, "pt": 0, "ct": 0}
+
+        result, _ = extract_window(Window(chat_id, "X", [message]), _Given(), cfg, now)
+        for card in result:
+            card.cost_toman = share / max(1, len(result))
+            cards.append(card)
+    return cards, toman, fits
+
+
+def best_fit(evidence_ids: list[int], fits: dict[int, tuple[str, str]]) -> tuple[str, str]:
+    found = [fits[i] for i in evidence_ids if i in fits]
+    return max(found, key=lambda f: _FIT_RANK.get(f[0], 0), default=("no", ""))
 
 
 def _from_local_ids(need: dict, messages: list, real_author: dict) -> dict:

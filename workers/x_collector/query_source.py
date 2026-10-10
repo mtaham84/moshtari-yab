@@ -80,6 +80,30 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
     return terms, cards
 
 
+def targeted_queries_from_products(products: list[Any], terms: dict[str, dict] | None = None,
+                                   cards: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """NE_X_MODE=product: queries of the products whose seller turned X search on. An identical query of two products
+    is searched once and tagged with both (each seller still gets — and pays for — its own analysis)."""
+    from workers.x_collector.intent_queries import product_queries
+
+    terms, cards = terms or {}, cards or {}
+    merged: dict[str, dict[str, Any]] = {}
+    for product in sorted(products, key=lambda item: (-int(getattr(item, "discovery_priority", 1)), item.title.casefold())):
+        if not getattr(product, "x_search_enabled", False):
+            continue
+        pid = str(getattr(product, "product_id", ""))
+        for item in product_queries(product, terms=terms.get(pid), card=cards.get(pid)):
+            key = item["query"].casefold()
+            if key in merged:
+                hit = merged[key]
+                hit["product_ids"] = sorted(set(hit["product_ids"]) | set(item["product_ids"]))
+                hit["business_ids"] = sorted(set(hit["business_ids"]) | set(item["business_ids"]))
+                hit["priority"] = max(hit["priority"], item["priority"])
+            else:
+                merged[key] = item
+    return list(merged.values())
+
+
 def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
     config = EngineConfig()
     source = SQLProductSource(config)
@@ -87,6 +111,29 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
         products = source.all()
     finally:
         source.db.conn.close()
+    x_mode = (config.x_mode or "product").strip().lower()
+    if x_mode in {"product", "both"}:
+        products_on = [p for p in products if p.x_search_enabled]
+        try:   # sellers whose balance is used up: no search (and no search fee) until they top up
+            from need_engine.registry import ModelRegistry
+
+            blocked = ModelRegistry(config).blocked()
+        except Exception as exc:
+            log.warning("Seller balances unavailable, searching all X-enabled products: %s", exc)
+            blocked = frozenset()
+        if blocked:
+            skipped = [p.product_id for p in products_on if p.business_id and str(p.business_id) in blocked]
+            if skipped:
+                log.info("X search paused for %d products (seller balance used up)", len(skipped))
+            products_on = [p for p in products_on if not (p.business_id and str(p.business_id) in blocked)]
+        terms, cards = _terms_and_cards(config, products_on) if products_on else ({}, {})
+        out = targeted_queries_from_products(products_on, terms=terms, cards=cards)
+        if x_mode == "product":
+            return out
+        terms_all, cards_all = _terms_and_cards(config, products)
+        seen = {q["query"].casefold() for q in out}
+        return out + [q for q in intent_queries_from_products(products, mode=mode, terms=terms_all, cards=cards_all)
+                      if q["query"].casefold() not in seen]
     terms, cards = _terms_and_cards(config, products)
     return intent_queries_from_products(products, mode=mode, terms=terms, cards=cards)
 

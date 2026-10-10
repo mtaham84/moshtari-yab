@@ -162,3 +162,74 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
         if len(out) >= max_count:
             break
     return out
+
+
+# ── per-product mode (NE_X_MODE=product): every query belongs to one seller product ────────────────────────────
+# buying cues people write next to a product name; "موجود دارین" catches replies under competitors' ads
+PRODUCT_MODE_CUES = INTENT_WORDS + ("موجود", "دارین", "از کجا", "تهیه", "کدوم")
+# words of seller ads; a buyer rarely writes them
+PRODUCT_MODE_NEGATIVES = ("تخفیف", "کد تخفیف", "فروش ویژه", "ارسال رایگان")
+_LATIN_NAME = re.compile(r"[A-Za-z]{3,}")
+
+
+def _name_terms(values: list[Any], cap: int) -> list[str]:
+    """Product names for search: Persian or Latin («notion ai»), 1-3 words, no generic single words."""
+    out, seen = [], set()
+    generic = {norm(g) for g in GENERIC_SINGLE}
+    for value in values:
+        words = clean_term(value).split()
+        while words and norm(words[0]) in _LEADING_NOISE:
+            words = words[1:]
+        words = words[:3]
+        term = " ".join(words)
+        key = norm(term).casefold()
+        if not words or (len(words) == 1 and norm(words[0]) in generic) or key in seen:
+            continue
+        if not (_FA.search(term) or _LATIN_NAME.search(term)) or len(term) < 3:
+            continue
+        seen.add(key)
+        out.append(term)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _short_terms(values: Any, cap: int, max_words: int = 3) -> list[str]:
+    out = []
+    for value in values if isinstance(values, (list, tuple)) else []:
+        term = " ".join(clean_term(value).split()[:max_words])
+        if term and term not in out:
+            out.append(term)
+    return out[:cap]
+
+
+def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any = None) -> list[dict[str, Any]]:
+    """Queries of ONE product: ``(names) (buying cues) -seller-ad-words lang:fa``, problem phrases and brand/model.
+    Each query carries the product and its seller (the collector tags every post it finds with them)."""
+    terms = terms or {}
+    max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
+    max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "4"))
+    ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
+    llm_names = list(terms.get("names") or [])
+    model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
+    names = _name_terms(llm_names + ([model] if model else []) + core_terms(product, card), 8)
+    cues = _short_terms(terms.get("cues"), 10) or list(PRODUCT_MODE_CUES)
+    negatives = _short_terms(list(terms.get("negatives") or []) + list(PRODUCT_MODE_NEGATIVES), 6)
+    neg_ops = " ".join(f"-{_quote(n)}" for n in negatives)
+    tail = " ".join(x for x in ("(" + " OR ".join(_quote(c) for c in cues) + ")", neg_ops, ops) if x)
+    values = [(q, "intent") for q in or_queries(names, tail, max_chars)]
+    problems = _dedupe_terms(list(terms.get("problems") or []), 2, 5)
+    values += [(q, "problem") for q in or_queries(problems, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
+    pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
+    out, seen = [], set()
+    for query, kind in values:
+        query = " ".join(query.split())
+        key = norm(query)
+        if not query or query.startswith("-") or len(query) > max_chars or key in seen:
+            continue
+        seen.add(key)
+        out.append({"query": query, "kind": kind, "product_ids": [pid], "business_ids": [str(bid)] if bid else [],
+                    "priority": float(getattr(product, "discovery_priority", 1) or 1)})
+        if len(out) >= max_count:
+            break
+    return out

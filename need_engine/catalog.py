@@ -123,6 +123,7 @@ class Catalog:
             if p.product_id in current:
                 p.url = current[p.product_id].url
                 p.x_outreach_enabled = current[p.product_id].x_outreach_enabled
+                p.x_search_enabled = current[p.product_id].x_search_enabled
         return [p.product_id for p in changed]
 
     def _load(self) -> None:

@@ -490,7 +490,7 @@ def test_x_is_a_platform_source_under_the_panel_access_rule(cfg_for):
                 return [{"t": "public.discovery_monitoredcommunity"}]
             return [{"telegram_chat_id": -1001, "scope": "PRIVATE", "business_id": 7}]
 
-    c = cfg_for(source_access="panel", messages_source="db", x_enabled=True)
+    c = cfg_for(source_access="panel", messages_source="db", x_enabled=True, x_mode="public")
     acc = SourceAccess(c, db=FakeDB())
     acc.refresh()
     assert acc.monitored("x:public") and acc.analysed("x:public") and not acc.held("x:public")
@@ -507,10 +507,11 @@ def test_new_product_fields_keep_existing_hashes_and_x_flag_is_not_hashed():
     base = Product(product_id="1", title="کفش", description="d")
     legacy = hashlib.sha1(json.dumps(base.model_dump(exclude={"business_id", "url", "card_override", "category_path",
                                                                  "category_keywords", "discovery_priority",
-                                                                 "x_outreach_enabled"}),
+                                                                 "x_outreach_enabled", "x_search_enabled"}),
                                      ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
     assert base.content_hash() == legacy
-    assert Product(product_id="1", title="کفش", description="d", x_outreach_enabled=False, discovery_priority=5).content_hash() == legacy
+    assert Product(product_id="1", title="کفش", description="d", x_outreach_enabled=False, discovery_priority=5,
+                   x_search_enabled=True).content_hash() == legacy
     assert Product(product_id="1", title="کفش", description="d", category_path="پوشاک > کفش").content_hash() != legacy
 
 
@@ -551,3 +552,62 @@ def test_x_batch_uses_short_local_ids_and_maps_them_back(cfg_for):
     assert [p["post_id"] for p in seen["payload"]] == [1, 2, 3]
     assert [p["author_id"] for p in seen["payload"]] == ["a1", "a2", "a3"]
     assert len(cards) == 1 and cards[0].author_id == posts[1].author_id and cards[0].evidence_ids == [posts[1].message_id]
+
+
+def test_x_product_mode_analyses_each_product_separately_and_bills_its_seller(tmp_path, cfg_for, pg_dsn, pg_schema):
+    """NE_X_MODE=product: a post found by two products' searches is judged per product; only products with X search
+    on are analysed; the judging call is billed to that product's seller; replies («موجود دارین؟») are kept."""
+    from x_ingest.__main__ import load
+
+    crawler = pg_schema("xcr")
+    items = [
+        {"product_id": "P1", "seller_id": "S1", "title": "اکانت نوشن پلاس", "product_type": "اشتراک", "x_search_enabled": True},
+        {"product_id": "P2", "seller_id": "S2", "title": "اکانت نوشن بیزینس", "product_type": "اشتراک", "x_search_enabled": False},
+        {"product_id": "P3", "seller_id": "S3", "title": "اشتراک نوشن", "product_type": "اشتراک", "x_search_enabled": True},
+    ]
+    (tmp_path / "products.jsonl").write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in items), encoding="utf-8")
+    now = datetime.now(timezone.utc)
+    base = {"source": "x", "author_id": "501", "author_handle": "buyer", "author_name": "خریدار", "url": "https://x.com/buyer/status/9001",
+            "text": "@crypttopia اکانت notion هم موجود دارین؟", "created_at": (now - timedelta(hours=1)).isoformat(),
+            "kind": "reply", "in_reply_to_tweet_id": "8000", "metadata": {"lang": "fa", "query": "q"}}
+    parent = dict(base, id="8000", author_id="77", author_handle="shop", text="فروش اکانت نوشن بیزینس، دایرکت", kind="post",
+                  in_reply_to_tweet_id=None)
+    lines = [parent] + [dict(base, id="9001", product_id=p) for p in ("P1", "P2", "P3")]
+    path = tmp_path / "x.jsonl"
+    path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in lines), encoding="utf-8")
+    import os
+    old = os.environ.get("NE_CRAWLER_SCHEMA")
+    os.environ["NE_CRAWLER_SCHEMA"] = crawler
+    try:
+        assert load(path, pg_dsn) == 4
+    finally:
+        os.environ.pop("NE_CRAWLER_SCHEMA") if old is None else os.environ.__setitem__("NE_CRAWLER_SCHEMA", old)
+    calls = []
+
+    def spy(stage, system, user):
+        if stage == "need_extraction_x_product":
+            payload = json.loads(user)
+            calls.append(payload)
+            fit = "yes" if "پلاس" in payload["product"]["title"] else "no"
+            return {"needs": [{"author_id": "a1", "evidence_message_ids": [1], "label": "explicit_need", "buyer_intent_confirmed": True,
+                               "is_opportunity": True, "author_type": "individual", "promotional_content": False,
+                               "situation": "دنبال اکانت نوشن است", "need": "اکانت نوشن", "solution_queries": ["اکانت نوشن"],
+                               "strength": "medium", "fit": fit, "fit_reason": "همین را می‌خواهد"}]}
+        if stage == "reply_x":
+            return {"public": "سلام، داریم", "dm": "سلام", "short": "داریم"}
+        return mock_llm(stage, system, user)
+
+    eng = NeedEngine(cfg_for(crawler_schema=crawler, x_enabled=True, x_mode="product", x_prefilter="off"), mock_llm=spy)
+    eng.messages = type("Empty", (), {"fetch_after": lambda self, c, n: []})()
+    r = eng.run_once()
+    assert len(calls) == 2                                            # P1 and P3; P2 has X search off
+    assert {c["product"]["title"] for c in calls} == {"اکانت نوشن پلاس", "اشتراک نوشن"}
+    assert all(len(c["posts"]) == 1 and c["posts"][0]["reply_to"] == "فروش اکانت نوشن بیزینس، دایرکت" for c in calls)
+    assert len(r.opportunities) == 1                                   # P3 judged «no fit»
+    o = r.opportunities[0]
+    assert [m.product_id for m in o.matched_products] == ["P1"] and o.source.chat_id == "x:p:P1"
+    assert o.matched_products[0].reply_variants["public"] == "سلام، داریم"
+    billed = eng.store._all("SELECT stage, business_id FROM {s}.costs WHERE stage = 'need_extraction_x_product' ORDER BY business_id")
+    assert [(b["stage"], b["business_id"]) for b in billed] == [("need_extraction_x_product", "S1"), ("need_extraction_x_product", "S3")]
+    assert eng.run_once().opportunities == []                          # nothing new, nothing re-billed
+    assert len(calls) == 2

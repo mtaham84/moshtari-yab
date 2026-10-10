@@ -108,6 +108,12 @@ class EngineConfig:
     communities_table: str = _f("NE_COMMUNITIES_TABLE", "public.discovery_monitoredcommunity")
     styles_table: str = _f("NE_STYLES_TABLE", "public.businesses_messagestyle")   # sellers' reply style
     x_enabled: bool = _f("NE_X_ENABLED", False)
+    # product: every seller product with «جستجوی مشتری در X» has its own queries and analysis, billed to its seller
+    # public: one generic search/extraction for all products, platform pays (old behaviour) | both
+    x_mode: str = _f("NE_X_MODE", "product")
+    x_bio_chars: int = _f("NE_X_BIO_CHARS", 120)              # bio sent to the LLM (spots shops; costs tokens)
+    x_fit_yes_score: float = _f("NE_X_FIT_YES_SCORE", 0.9)      # per-product mode: match score of fit yes / partly
+    x_fit_partly_score: float = _f("NE_X_FIT_PARTLY_SCORE", 0.7)
     x_max_per_run: int = _f("NE_X_MAX_PER_RUN", 200)
     x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 65.0)
     x_prefilter: str = _f("NE_X_PREFILTER", "shadow")

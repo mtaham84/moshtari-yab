@@ -240,6 +240,38 @@ class XCollectorTests(unittest.TestCase):
                 collect_forever(collector, ["q"], 1)
         ingest.assert_called_once()
 
+    def test_product_queries_tag_posts_per_product_and_record_searches(self):
+        client = FakeClient(self.fixture[:1])
+        collector = self.collector(client)
+        q = {"query": "notion (اکانت) lang:fa", "kind": "intent", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}
+        result = collector.run([q])
+        self.assertEqual(result["collected"], 2)                       # one post, two products → two records
+        records = load_file(self.root / "collected" / "latest.jsonl")
+        self.assertEqual(sorted(r["product_id"] for r in records), ["1", "2"])
+        self.assertEqual(len({r["id"] for r in records}), 1)
+        self.assertEqual(collector.searches, [{"query": q["query"], "product_ids": ["1", "2"], "business_ids": ["7", "8"]}])
+        again = self.collector(FakeClient(self.fixture[:1])).run([q])
+        self.assertEqual(again["collected"], 0)                        # same post × product is not collected twice
+
+    def test_search_fee_bills_every_seller_in_full(self):
+        from workers.x_collector.worker import charge_searches
+
+        rows = []
+
+        class Store:
+            def add_cost(self, *args, **kwargs):
+                rows.append((args, kwargs))
+
+        searches = [{"query": "q", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}]
+        with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "0"}):
+            self.assertEqual(charge_searches(searches, Store()), 0)
+        with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "50", "NE_USD_TO_TOMAN": "100000"}):
+            self.assertEqual(charge_searches(searches, Store()), 2)
+        (args, kwargs), = rows
+        self.assertEqual(args[0], "x_search")
+        self.assertEqual(args[6], 100.0)                                # 50 toman × 2 sellers (each pays it all)
+        self.assertEqual(kwargs["businesses"], ["7", "8"])
+
     def test_flag_like_query_is_skipped_but_following_query_runs(self):
         client = FakeClient(self.fixture[:1])
         result = self.collector(client).run(["--help", "coffee"])

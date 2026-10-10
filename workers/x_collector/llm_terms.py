@@ -9,19 +9,30 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 from workers.x_collector.intent_queries import _FA, clean_term
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 KV_PREFIX = "x_qterms:"
-X_QUERY_TERMS_SYSTEM = """You write X (Twitter) search terms that find Persian posts of people who need or want to buy a product.
-For each product return:
-- names: 3-6 short names (1-3 words) ordinary Iranians actually type for this kind of product, colloquial names and common spellings included (e.g. هندزفری next to ایرفون). No brand, model, store name or marketing adjectives.
-- problems: 2-5 short phrases (2-4 words) a person literally writes when they have the problem this product solves, colloquial first person (e.g. "انگشتم عرق میکنه", "صدای هندزفریم قطع و وصل میشه"). Only problems this product really solves. Never generic words that match any post (خرید، قیمت، فروش).
-- model: brand + model the way people write it (e.g. "Airfly M7"), or null if there is no well-known brand/model.
-All names/problems in Persian. Return JSON: {"items":[{"product_id":"...","names":[...],"problems":[...],"model":null}]}"""
+X_QUERY_TERMS_SYSTEM = """You write X (Twitter) search terms that find Persian posts of people who want to buy ONE specific product
+(or ask where to get it, ask for a recommendation, or ask a seller «موجود دارین؟» under an ad). X matches words literally:
+a query is (any name) AND (any cue). Return for each product:
+- names: 3-8 ways ordinary Iranians write this product on X, 1-3 words each: Persian, English and Finglish spellings
+  (e.g. «نوشن», «notion», «notion ai», «اکانت نوشن»; «هندزفری», «ایرفون»). Include the brand when people search the
+  product by brand. Each name must be specific to this product: never a generic word alone (اشتراک، اکانت، خرید، قیمت).
+- cues: 4-10 short words/phrases (1-3 words) a BUYER writes next to the name, specific to this kind of product
+  (subscriptions: «پرمیوم», «پولی», «اکانت», «موجود دارین», «از کجا», «بخرم»; physical goods: «بخرم», «چی بگیرم»,
+  «پیشنهاد», «کدوم بهتره»). No words that sellers' ads use.
+- negatives: 0-5 words that appear in SELLERS' ads for this product and that a buyer would not write
+  (e.g. «تخفیف», «کد تخفیف», «فعالسازی فوری», «تحویل آنی»).
+- problems: 2-5 short phrases (2-4 words) a person literally writes when they have the problem this product solves,
+  colloquial first person. Only problems this product really solves.
+- model: brand + model the way people write it (e.g. "Airfly M7"), or null.
+Return JSON: {"items":[{"product_id":"...","names":[...],"cues":[...],"negatives":[...],"problems":[...],"model":null}]}"""
+_LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
 def _key(product: Any, card: Any) -> str:
@@ -42,7 +53,17 @@ def sanitize(raw: Any) -> dict[str, Any]:
 
     model = clean_term(raw.get("model") or "")
     model = model if model and model.lower() not in {"null", "none"} and len(model.split()) <= 3 and len(model) >= 3 else None
-    return {"names": terms(raw.get("names"), 1, 3, 6), "problems": terms(raw.get("problems"), 2, 5, 5), "model": model}
+    def words(values: Any, lo: int, hi: int, cap: int) -> list[str]:   # Persian or Latin
+        out = []
+        for value in values if isinstance(values, list) else []:
+            term = clean_term(value)
+            if lo <= len(term.split()) <= hi and (_FA.search(term) or _LATIN.search(term)) and term not in out:
+                out.append(term)
+        return out[:cap]
+
+    return {"names": words(raw.get("names"), 1, 3, 8), "cues": words(raw.get("cues"), 1, 3, 10),
+            "negatives": words(raw.get("negatives"), 1, 3, 5), "problems": terms(raw.get("problems"), 2, 5, 5),
+            "model": model}
 
 
 def _user(product: Any, card: Any) -> dict[str, Any]:

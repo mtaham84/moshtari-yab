@@ -125,6 +125,13 @@
           </div>
 
           <div class="product-card-actions">
+            <form method="post" action="{% url 'products:toggle_x_search' prod.pk %}" style="display:inline">{% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" class="card-btn-icon" style="width:auto;padding:0 8px;font-size:.72rem;{% if prod.x_search_enabled %}color:var(--obsidian-cyan);border-color:var(--obsidian-cyan);{% endif %}"
+                      title="{% if prod.x_search_enabled %}جستجوی مشتری در X روشن است — برای خاموش کردن بزنید{% else %}روشن کردن جستجوی مشتری در X (هزینه از کیف پول){% endif %}">
+                X {% if prod.x_search_enabled %}روشن{% else %}خاموش{% endif %}
+              </button>
+            </form>
             <a href="{% url 'products:detail' prod.pk %}" class="card-btn-view" title="مشاهده جزئیات">
               مشاهده ساختار دانش
             </a>

@@ -9,6 +9,7 @@ urlpatterns = [
     path("<int:pk>/", views.product_detail_view, name="detail"),
     path("<int:pk>/card/", views.public_product_card_view, name="public_card"),
     path("<int:pk>/edit/", views.product_edit_view, name="edit"),
+    path("<int:pk>/x-search/", views.product_toggle_x_search_view, name="toggle_x_search"),
     path("<int:pk>/agent-card/", views.product_agent_card_view, name="agent_card"),
     path("api/autofill/", views.api_autofill_from_url, name="api_autofill"),
     path("<int:pk>/delete/", views.product_delete_view, name="delete"),

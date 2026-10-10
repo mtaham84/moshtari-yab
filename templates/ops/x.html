@@ -33,12 +33,12 @@
   <div class="card">
     <h2>هزینه‌ها</h2>
     <table>
-      <tr><td>استخراج نیاز از پست‌ها (با پلتفرم)</td><td class="n">{{ o.cost.extract_toman|toman }} تومان · {{ o.cost.extract_calls|num }} فراخوانی</td></tr>
+      <tr><td>تحلیل پست‌ها</td><td class="n">{{ o.cost.extract_toman|toman }} تومان · {{ o.cost.extract_calls|num }} فراخوانی</td></tr>
       <tr><td>تطبیق و پیش‌نویس پاسخ نیازهای X</td><td class="n">{{ o.cost.downstream_toman|toman }} تومان</td></tr>
       <tr><td>کسرشده از فروشنده‌ها</td><td class="n">{{ o.cost.billed_toman|toman }} تومان</td></tr>
-      <tr><td>جستجو در X</td><td class="n">رایگان (با کوکی حساب)</td></tr>
+      <tr><td>کارمزد جستجو (X_SEARCH_FEE_TOMAN)</td><td class="n">{{ search_fee|toman }} تومان برای هر جستجو</td></tr>
     </table>
-    <p class="muted" style="margin-bottom:0">پست‌های X منبع عمومی‌اند: هزینه‌ی تحلیلشان با پلتفرم است؛ تطبیق و پاسخ از فروشنده‌ای که محصولش تطبیق داده می‌شود کسر می‌شود.</p>
+    <p class="muted" style="margin-bottom:0">حالت هر محصول (NE_X_MODE=product): جستجو، تحلیل و پاسخ هر محصول کامل از فروشنده‌ی همان محصول کسر می‌شود؛ اگر یک پست برای محصول دو فروشنده پیدا شود، هر کدام جدا تحلیل می‌شود و هر کدام کامل می‌پردازد. حالت عمومی (public): هزینه‌ی تحلیل با پلتفرم است.</p>
   </div>
   <div class="card">
     <h2>پیش‌فیلتر</h2>
@@ -52,6 +52,19 @@
     <table>{% for k, v, label in settings_rows %}<tr><td>{{ label }}</td><td><code>{{ k }}={{ v }}</code></td></tr>{% endfor %}</table>
     <p class="muted" style="margin-bottom:0">برای تغییر: ‎.env را ویرایش کنید و <code>docker compose --profile x up -d x engine</code></p>
   </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>محصولات با جستجوی X ({{ o.products|length }})</h2>
+  <table><tr><th>محصول</th><th>فروشنده</th><th class="n">پست پیدا‌شده</th><th class="n">نیاز</th><th class="n">فرصت</th>
+    <th class="n">تحلیل</th><th class="n">جستجو</th><th class="n">پاسخ</th><th class="n">جمع (تومان)</th></tr>
+  {% for r in o.products %}<tr><td>{{ r.name }}{% if not r.on %} <span class="muted">(خاموش)</span>{% endif %}</td>
+    <td>{% if r.business_id %}<a href="{% url 'ops:wallet_detail' r.business_id %}">{{ r.business }}</a>{% else %}—{% endif %}</td>
+    <td class="n">{{ r.hits|num }}</td><td class="n">{{ r.needs|num }}</td><td class="n">{{ r.opportunities|num }}</td>
+    <td class="n">{{ r.analysis_toman|toman }}</td><td class="n">{{ r.search_toman|toman }}</td><td class="n">{{ r.reply_toman|toman }}</td>
+    <td class="n">{{ r.total_toman|toman }}</td></tr>
+  {% empty %}<tr><td class="muted" colspan="9">هیچ فروشنده‌ای جستجوی X را برای محصولی روشن نکرده است.</td></tr>{% endfor %}</table>
+  <p class="muted" style="margin-bottom:0">هر محصول جدا جستجو و تحلیل می‌شود و هزینه‌اش کامل از فروشنده‌ی همان محصول کسر می‌شود.</p>
 </div>
 
 <div class="card" style="margin-top:14px">

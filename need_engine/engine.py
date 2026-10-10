@@ -29,14 +29,14 @@ from need_engine.access import SourceAccess
 from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
-from need_engine.extract import extract_window, extract_x_batch, remember
+from need_engine.extract import best_fit, extract_window, extract_x_batch, extract_x_product_batch, remember
 from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.retrieve import retrieve
 from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, ChatMessage, Cost, Evidence, MatchedProduct,
-                                 NeedCard, NeedOut, Opportunity, Source)
+                                 NeedCard, NeedOut, Opportunity, Source, Verdict)
 from need_engine.reply import MessageStyle
-from need_engine.sources import (MessageSource, ProductSource, StyleSource, XMessageSource, message_source,
-                                 product_source)
+from need_engine.sources import (X_PRODUCT_PREFIX, MessageSource, ProductSource, StyleSource, XMessageSource,
+                                 XProductHitSource, message_source, product_source)
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
 from need_engine.windowing import build_windows, ready_batch
@@ -115,19 +115,32 @@ class NeedEngine:
         self.access = SourceAccess(self.cfg, registry=self.llm.registry)
         self.style_source = styles or StyleSource(self.cfg)
         self.styles: dict[str, MessageStyle] = {}
+        self.x_products: dict[str, str | None] = {}   # per-product X mode: product_id → seller (X search switched on)
 
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
         total = self._ingest_source(self.messages, "fetch_cursor")
         if self.cfg.x_enabled:
-            x_source = XMessageSource(self.cfg)
-            try:
-                total += self._ingest_source(x_source, "fetch_cursor_x", self.cfg.x_ingest_max_per_run)
-            finally:
-                conn = getattr(getattr(x_source, "db", None), "conn", None)
-                if conn is not None:
-                    conn.close()
+            sources = []
+            if self.cfg.x_mode in {"public", "both"}:
+                sources.append((XMessageSource, "fetch_cursor_x"))
+            if self.cfg.x_mode in {"product", "both"}:
+                sources.append((XProductHitSource, "fetch_cursor_xp"))
+            for cls, cursor_key in sources:
+                x_source = cls(self.cfg)
+                try:
+                    total += self._ingest_source(x_source, cursor_key, self.cfg.x_ingest_max_per_run)
+                finally:
+                    conn = getattr(getattr(x_source, "db", None), "conn", None)
+                    if conn is not None:
+                        conn.close()
         return total
+
+    def refresh_x_products(self) -> None:
+        """Per-product X mode: products whose seller switched «جستجوی مشتری در X» on (read every run)."""
+        self.x_products = {p.product_id: p.business_id for p in self.catalog.products if p.x_search_enabled} \
+            if self.cfg.x_enabled and self.cfg.x_mode in {"product", "both"} else {}
+        self.access.set_x_products(self.x_products)
 
     def _ingest_source(self, source: MessageSource, cursor_key: str, limit: int | None = None) -> int:
         cursor = int(self.store.get(cursor_key, 0))
@@ -169,7 +182,8 @@ class NeedEngine:
         for pid in changed:
             j = self.catalog.pid_index.get(pid)
             owner = self.catalog.products[j].business_id if j is not None else None
-            visible = [(n, v) for n, v in needs if self.access.allows(n.chat_id, owner)]
+            visible = [(n, v) for n, v in needs if self.access.allows(n.chat_id, owner)
+                       and not n.chat_id.startswith(X_PRODUCT_PREFIX)]   # a product's own X search: that product only
             hits, toman = verify_new_product(pid, visible, self.catalog, self.llm, self.cfg)
             report.cost_matching_toman += toman
             for need_id, mp in hits.items():
@@ -239,7 +253,7 @@ class NeedEngine:
 
     def _finish_and_emit(self, n: NeedCard, matches: list[MatchedProduct], report: RunReport, extra_cost: float = 0.0) -> None:
         if n.chat_id.startswith("x:"):
-            matches = self._x_allowed(matches)
+            matches = self._x_allowed(matches, own_search=n.chat_id.startswith(X_PRODUCT_PREFIX))
         matches = sorted(matches, key=lambda m: -m.match_score)[:self.cfg.max_products_per_opportunity]
         n.cost_toman += extra_cost
         if self.cfg.write_replies:
@@ -364,8 +378,13 @@ class NeedEngine:
                 continue
             pending = self.store.pending(chat_id)
             is_x = chat_id.startswith("x:")
+            product_x = chat_id[len(X_PRODUCT_PREFIX):] if chat_id.startswith(X_PRODUCT_PREFIX) else None
+            if product_x is not None and product_x not in self.x_products:   # X search switched off / product removed
+                self.store.drop_pending(chat_id, [m.message_id for m in pending])
+                log.info("chat %s: X search is off for the product, dropped %d posts", chat_id, len(pending))
+                continue
             if is_x:
-                pending = self._select_x_pending(pending, report, now)
+                pending = self._select_x_pending(pending, report, now, keep_threads=product_x is not None)
             if is_x:   # X posts are independent: no count trigger, x_max_per_run already bounds a run
                 batch, why = pending, "x"
             else:
@@ -375,10 +394,20 @@ class NeedEngine:
             log.info("chat %s: analysing %d of %d pending messages (%s)", chat_id, len(batch), len(pending), why)
             windows = build_windows(chat_id, batch, self.store, self.cfg)
             if is_x:
-                windows = self._x_batches(windows)
+                windows = self._x_batches(windows, chat_id)
             for w in windows:
+                fits: dict[int, tuple[str, str]] = {}
                 try:
-                    if w.new and w.new[0].platform == "x":
+                    if product_x is not None:
+                        j = self.catalog.pid_index.get(product_x)
+                        if j is None:   # not carded yet (e.g. waiting for payment): keep the posts pending
+                            break
+                        cards, toman, fits = extract_x_product_batch(
+                            w.new, chat_id, self._x_product_brief(j), self.llm,
+                            self.cfg, now, payer=self.x_products.get(product_x))
+                        report.x_batches += 1
+                        report.x_posts_sent_to_llm += len(w.new)
+                    elif w.new and w.new[0].platform == "x":
                         cards, toman, calls = extract_x_batch(w.new, self.llm, self.cfg, now)
                         report.x_batches += int(calls == 1)
                         report.x_single_post_retries += int(calls > 1)
@@ -400,7 +429,10 @@ class NeedEngine:
                     report.needs_updated += int(not is_new)
                     if rematch and n.status == "open" and STRENGTH_RANK[n.strength] >= STRENGTH_RANK[self.cfg.verify_min_strength]:
                         try:
-                            self._match(n, self.store.query_vecs(n.need_id), report)
+                            if product_x is not None:
+                                self._match_x_product(n, product_x, fits, report)
+                            else:
+                                self._match(n, self.store.query_vecs(n.need_id), report)
                         except QuotaExhausted:
                             raise
                         except Exception as e:
@@ -410,9 +442,11 @@ class NeedEngine:
                         self._close(n, report)
 
     # ── X: independent public posts ─────────────────────────────────────────
-    def _select_x_pending(self, pending: list[ChatMessage], report: RunReport, now: datetime) -> list[ChatMessage]:
-        """Thread rows skipped, stale posts dropped, cheap prefilter (shadow|on), per-author throttle, x_max_per_run."""
-        thread_rows = [message for message in pending if message.kind in {"reply", "quote"}]
+    def _select_x_pending(self, pending: list[ChatMessage], report: RunReport, now: datetime,
+                          keep_threads: bool = False) -> list[ChatMessage]:
+        """Thread rows skipped (kept for a product's own search: «موجود دارین؟» under an ad is the buyer), stale posts
+        dropped, cheap prefilter (shadow|on), per-author throttle, x_max_per_run."""
+        thread_rows = [message for message in pending if message.kind in {"reply", "quote"}] if not keep_threads else []
         if thread_rows:
             log.warning("Skipping %d X thread rows: dedicated thread analyzer is not implemented; they remain unprocessed", len(thread_rows))
             pending = [message for message in pending if message.kind not in {"reply", "quote"}]
@@ -453,7 +487,7 @@ class NeedEngine:
             self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
         return [m for m in selected if m in kept]
 
-    def _x_batches(self, windows: list) -> list:
+    def _x_batches(self, windows: list, chat_id: str = "x:public") -> list:
         """Regroup X posts into LLM batches of x_batch_size posts / x_batch_max_chars characters."""
         from need_engine.windowing import Window
 
@@ -468,14 +502,42 @@ class NeedEngine:
                 chars += len(message.text)
             if chunk:
                 chunks.append(chunk)
-        return [Window("x:public", "X", c, consumed=c) for c in chunks]
+        return [Window(chat_id, "X", c, consumed=c) for c in chunks]
 
-    def _x_allowed(self, matches: list[MatchedProduct]) -> list[MatchedProduct]:
-        """X opportunities: only products whose seller enabled «ارتباط از طریق X» and above x_min_match_score."""
+    def _x_product_brief(self, j: int) -> dict:
+        p = self.catalog.products[j]
+        card = self.catalog.cards.get(p.product_id)
+        brief = {"title": p.title, "type": p.product_type, "summary": self.catalog.line(j)}
+        if card is not None:
+            brief.update(what_it_is=card.what_it_is, aliases=card.aliases[:8], problems_solved=card.problems_solved[:5])
+        return brief
+
+    def _match_x_product(self, n: NeedCard, pid: str, fits: dict[int, tuple[str, str]], report: RunReport) -> None:
+        """Per-product mode: the product is known (its own search found the post) — no retrieval, no verify call."""
+        fit, reason = best_fit(n.evidence_ids, fits)
+        if fit not in {"yes", "partly"} or self.catalog.pid_index.get(pid) is None:
+            if not fits:   # merged into an earlier need without new evidence: keep what was emitted
+                return
+            self.store.update_need(n)
+            return
+        score = self.cfg.x_fit_yes_score if fit == "yes" else self.cfg.x_fit_partly_score
+        mp = MatchedProduct(product_id=pid, match_score=score, similarity=1.0,
+                            verdict=Verdict(solves=fit, reason=reason or None))
+        prev = self.store.emitted(n.need_id)
+        if prev:   # keep the drafted reply of an earlier run
+            old = [MatchedProduct.model_validate(x) for x in json.loads(prev[1])["matched_products"]]
+            same = next((m for m in old if m.product_id == pid), None)
+            if same is not None and same.reply_draft:
+                mp.reply_draft, mp.reply_variants = same.reply_draft, same.reply_variants
+        self._finish_and_emit(n, [mp], report)
+
+    def _x_allowed(self, matches: list[MatchedProduct], own_search: bool = False) -> list[MatchedProduct]:
+        """X opportunities: only products whose seller enabled «ارتباط از طریق X» and above x_min_match_score.
+        A product's own X search (per-product mode) is the seller's consent already."""
         out = []
         for m in matches:
             j = self.catalog.pid_index.get(m.product_id)
-            if j is not None and not getattr(self.catalog.products[j], "x_outreach_enabled", True):
+            if j is not None and not own_search and not getattr(self.catalog.products[j], "x_outreach_enabled", True):
                 continue
             if m.match_score * 100 >= self.cfg.x_min_match_score:
                 out.append(m)
@@ -565,6 +627,7 @@ class NeedEngine:
             self.access.refresh()
             self.styles = {b: MessageStyle.from_dict(d) for b, d in self.style_source.all().items()}
             self.sync_products(report)
+            self.refresh_x_products()
             self.release(report)
             report.ingested = self.ingest()
             self.process(report, now=now, flush=flush)

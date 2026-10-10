@@ -64,7 +64,8 @@ def validate_record(record: object) -> dict:
             "created_at": created, "lang": metadata.get("lang"), "url": record.get("url"),
             "query": metadata.get("query"), "author_verified": bool(record.get("author_verified")),
             "author_bio": str(record.get("author_bio") or "")[:500], "kind": kind,
-            **thread_ids, "in_reply_to_author_id": str(record.get("in_reply_to_author_id") or "") or None, "raw": record}
+            **thread_ids, "in_reply_to_author_id": str(record.get("in_reply_to_author_id") or "") or None,
+            "product_id": str(record["product_id"]) if record.get("product_id") else None, "raw": record}
 
 
 def load(path: str | Path, dsn: str | None = None) -> int:
@@ -89,6 +90,10 @@ def load(path: str | Path, dsn: str | None = None) -> int:
         conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS conversation_id BIGINT")
         conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS in_reply_to_tweet_id BIGINT")
         conn.execute(f"ALTER TABLE {schema}.x_posts ADD COLUMN IF NOT EXISTS in_reply_to_author_id TEXT")
+        # per-product mode: which seller product's search found the post (one row per post × product)
+        conn.execute(f"""CREATE TABLE IF NOT EXISTS {schema}.x_post_products (
+            hit_id BIGSERIAL PRIMARY KEY, tweet_id BIGINT NOT NULL, product_id TEXT NOT NULL, query TEXT,
+            found_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (tweet_id, product_id))""")
         with Path(path).open(encoding="utf-8") as stream:
             for line_no, line in enumerate(stream, 1):
                 if not line.strip() or line.lstrip().startswith("//"):
@@ -110,6 +115,10 @@ def load(path: str | Path, dsn: str | None = None) -> int:
                      record["text"], record["created_at"], record["lang"], record["url"], record["query"],
                      bool(record.get("author_verified")), record.get("author_bio"), Jsonb(record["raw"]), record["kind"],
                      record["conversation_id"], record["in_reply_to_tweet_id"], record["in_reply_to_author_id"]))
+                if record["product_id"]:
+                    conn.execute(f"""INSERT INTO {schema}.x_post_products (tweet_id, product_id, query) VALUES (%s,%s,%s)
+                                     ON CONFLICT (tweet_id, product_id) DO NOTHING""",
+                                 (record["tweet_id"], record["product_id"], record["query"]))
                 count += 1
     return count
 

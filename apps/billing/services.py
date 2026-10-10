@@ -540,6 +540,8 @@ def x_settings() -> list[tuple[str, str, str]]:
         ("X_AUTO_INGEST", "true", "ورود خودکار پست‌ها به پایگاه داده"),
         ("TWITTER_SEARCH_METHOD", "auto", "روش درخواست جستجو"),
         ("NE_X_ENABLED", "false", "تحلیل پست‌های X در موتور"),
+        ("NE_X_MODE", "product", "product = هر محصول جدا با هزینه‌ی فروشنده؛ public = عمومی"),
+        ("X_SEARCH_FEE_TOMAN", "0", "کارمزد هر جستجو برای فروشنده (تومان)"),
         ("NE_X_PREFILTER", "shadow", "پیش‌فیلتر (shadow = فقط ثبت، حذف نمی‌کند)"),
         ("NE_X_MAX_POST_AGE_HOURS", "168", "قدیمی‌ترین پست قابل تحلیل (ساعت)"),
         ("NE_X_NEED_TTL_HOURS", "168", "عمر نیاز X (ساعت)"),
@@ -553,7 +555,7 @@ def x_overview(days: float) -> dict:
     out = {"posts": 0, "posts_total": 0, "last_post": None, "analysed_total": 0, "prefilter": [], "kept": 0, "dropped": 0,
            "needs": 0, "open_needs": 0, "opportunities": 0, "delivered": 0, "pending": 0,
            "cost": {"extract_toman": 0.0, "extract_calls": 0, "downstream_toman": 0.0, "billed_toman": 0.0, "usd": 0.0},
-           "by_query": [], "recent": []}
+           "by_query": [], "recent": [], "products": []}
     try:
         cs = _crawler_schema()
         if _crawler_table_exists("x_posts"):
@@ -569,9 +571,9 @@ def x_overview(days: float) -> dict:
                               WHERE loaded_at >= to_timestamp(%s) GROUP BY 1 ORDER BY 2 DESC LIMIT 15""", [since])
                 out["by_query"] = [{"query": q, "n": n} for q, n in c.fetchall()]
         if _table_exists("pending"):
-            out["pending"] = _rows("SELECT COUNT(*) AS n FROM {s}.pending WHERE chat_id = %s", (X_CHAT,))[0]["n"]
+            out["pending"] = _rows("SELECT COUNT(*) AS n FROM {s}.pending WHERE chat_id LIKE %s", ("x:%",))[0]["n"]
         if _table_exists("chat_analysed"):
-            r = _rows("SELECT n FROM {s}.chat_analysed WHERE chat_id = %s", (X_CHAT,))
+            r = _rows("SELECT COALESCE(SUM(n), 0) AS n FROM {s}.chat_analysed WHERE chat_id LIKE %s", ("x:%",))
             out["analysed_total"] = int(r[0]["n"]) if r else 0
         if _table_exists("x_filter_decisions"):
             rows = _rows("""SELECT keep, reason, COUNT(*) AS n FROM {s}.x_filter_decisions
@@ -610,8 +612,74 @@ def x_overview(days: float) -> dict:
                 out["cost"]["billed_toman"] = float(r["billed"]) * float(cfg.usd_to_toman * cfg.multiplier)
     except Exception:  # pragma: no cover - engine/crawler schema not reachable
         log.exception("x overview")
+    out["products"] = x_product_rows(days)
     c = out["cost"]
     c["total_toman"] = c["extract_toman"] + c["downstream_toman"]
     c["per_post"] = c["extract_toman"] / out["posts"] if out["posts"] else 0.0
     c["per_opportunity"] = c["total_toman"] / out["opportunities"] if out["opportunities"] else 0.0
     return out
+
+
+def x_product_rows(days: float) -> list[dict]:
+    """Per-product X search (NE_X_MODE=product): products with X search on and what their search cost/brought."""
+    from apps.products.models import Product
+
+    since = _since(days)
+    rows: dict[str, dict] = {}
+    for p in Product.objects.filter(x_search_enabled=True).select_related("business").order_by("business__name", "name"):
+        rows[str(p.pk)] = {"id": p.pk, "name": p.name, "business": p.business.name if p.business_id else "—",
+                           "business_id": p.business_id, "on": True, "hits": 0, "needs": 0, "opportunities": 0,
+                           "analysis_toman": 0.0, "search_toman": 0.0, "reply_toman": 0.0}
+
+    def row(pid: str) -> dict | None:
+        if pid not in rows:
+            p = Product.objects.filter(pk=pid).select_related("business").first() if str(pid).isdigit() else None
+            if p is None:
+                return None
+            rows[pid] = {"id": p.pk, "name": p.name, "business": p.business.name if p.business_id else "—",
+                         "business_id": p.business_id, "on": p.x_search_enabled, "hits": 0, "needs": 0, "opportunities": 0,
+                         "analysis_toman": 0.0, "search_toman": 0.0, "reply_toman": 0.0}
+        return rows[pid]
+
+    try:
+        if _crawler_table_exists("x_post_products"):
+            with connection.cursor() as c:
+                c.execute(f"""SELECT product_id, COUNT(*) FROM {_crawler_schema()}.x_post_products
+                              WHERE found_at >= to_timestamp(%s) GROUP BY 1""", [since])
+                for pid, n in c.fetchall():
+                    if (r := row(str(pid))) is not None:
+                        r["hits"] = int(n)
+        if _table_exists("costs"):
+            for r in _rows("""SELECT split_part(ref, ':', 3) AS pid, COALESCE(SUM(toman), 0) AS toman FROM {s}.costs
+                              WHERE ts >= %s AND stage LIKE 'need_extraction%%' AND ref LIKE 'x:p:%%' GROUP BY 1""", (since,)):
+                if (x := row(r["pid"])) is not None:
+                    x["analysis_toman"] = float(r["toman"])
+            for r in _rows("""SELECT substr(ref, 4) AS pids, COALESCE(SUM(toman), 0) AS toman FROM {s}.costs
+                              WHERE ts >= %s AND stage = 'x_search' GROUP BY 1""", (since,)):
+                pids = [p for p in str(r["pids"]).split(",") if p]
+                for pid in pids:
+                    if (x := row(pid)) is not None:
+                        x["search_toman"] += float(r["toman"]) / max(1, len(pids))
+            if _table_exists("needs"):
+                for r in _rows("""SELECT substr(n.chat_id, 5) AS pid, COALESCE(SUM(c.toman), 0) AS toman FROM {s}.costs c
+                                  JOIN {s}.needs n ON n.need_id = split_part(c.ref, ':', 1)
+                                  WHERE c.ts >= %s AND c.stage NOT LIKE 'need_extraction%%' AND n.chat_id LIKE 'x:p:%%'
+                                  GROUP BY 1""", (since,)):
+                    if (x := row(r["pid"])) is not None:
+                        x["reply_toman"] = float(r["toman"])
+        if _table_exists("needs"):
+            for r in _rows("""SELECT substr(chat_id, 5) AS pid, COUNT(*) AS n FROM {s}.needs
+                              WHERE chat_id LIKE 'x:p:%%' AND updated_at >= %s GROUP BY 1""", (since,)):
+                if (x := row(r["pid"])) is not None:
+                    x["needs"] = int(r["n"])
+        if _table_exists("opportunities"):
+            for r in _rows("""SELECT substr(payload->'source'->>'chat_id', 5) AS pid, COUNT(*) AS n FROM {s}.opportunities
+                              WHERE payload->'source'->>'chat_id' LIKE 'x:p:%%' AND updated_at >= to_timestamp(%s)
+                              GROUP BY 1""", (since,)):
+                if (x := row(r["pid"])) is not None:
+                    x["opportunities"] = int(r["n"])
+    except Exception:  # pragma: no cover
+        log.exception("x product rows")
+    for r in rows.values():
+        r["total_toman"] = r["analysis_toman"] + r["search_toman"] + r["reply_toman"]
+    return sorted(rows.values(), key=lambda r: (-r["total_toman"], r["name"]))

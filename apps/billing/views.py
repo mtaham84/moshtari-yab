@@ -1,4 +1,5 @@
 """Admin panel (/ops/): costs, providers & models with prices, wallets, Telegram sources, service status."""
+import os
 from decimal import Decimal
 from functools import wraps
 
@@ -74,6 +75,7 @@ def x_source(request):
     return render(request, "ops/x.html", {
         "nav": "x", "days": days, "periods": PERIODS, "o": services.x_overview(float(days)), "st": st,
         "service": services.x_collector_service(), "queries": queries, "settings_rows": services.x_settings(),
+        "search_fee": float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0),
     })
 
 
