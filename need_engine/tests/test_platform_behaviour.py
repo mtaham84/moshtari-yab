@@ -102,7 +102,6 @@ def test_unrecognised_message_platform_keeps_telegram_behaviour():
 
 def test_non_platform_modules_do_not_embed_x_chat_id_literals():
     root = Path(__file__).parents[1]
-    justified_exceptions = {}
     violations = []
     for path in root.rglob("*.py"):
         relative = path.relative_to(root)
@@ -111,7 +110,5 @@ def test_non_platform_modules_do_not_embed_x_chat_id_literals():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("x:"):
-                location = f"{relative}:{node.lineno}"
-                if location not in justified_exceptions:
-                    violations.append(location)
+                violations.append(f"{relative}:{node.lineno}")
     assert violations == [], "Platform-specific literals need a documented exception: " + ", ".join(violations)

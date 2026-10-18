@@ -207,8 +207,6 @@ def message_source(cfg: EngineConfig) -> MessageSource:
         return JsonlMessageSource(cfg.messages_source[6:])
     if cfg.messages_source != "db":
         raise ValueError(f"unsupported NE_MESSAGES_SOURCE: {cfg.messages_source}")
-    if not cfg.x_enabled:
-        return SQLMessageSource(cfg)
     return SQLMessageSource(cfg)
 
 
