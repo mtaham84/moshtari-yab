@@ -19,11 +19,12 @@ import logging
 from typing import Any
 
 from need_engine.config import EngineConfig
+from need_engine.platforms import get, is_product_chat
+from need_engine.platforms.x import mode as x_mode, enabled as x_enabled
 
 log = logging.getLogger("need_engine.access")
 ALL = "*"   # marker: every seller
-X_CHAT = "x:public"   # chat_id of every X post (sources.XMessageSource)
-X_PRODUCT_PREFIX = "x:p:"   # per-product X chats (sources.XProductHitSource)
+X_CHAT = get("x").chat_id()
 
 
 class SourceAccess:
@@ -69,19 +70,19 @@ class SourceAccess:
             private[key] = private.get(key, frozenset()) | {str(r["business_id"])}
             if rules.get(key) != ALL:
                 rules[key] = private[key]
-        if self.cfg.x_enabled and self.cfg.x_mode in {"public", "both"}:   # public X posts: platform source, platform pays
+        if x_enabled(self.cfg) and x_mode(self.cfg) in {"public", "both"}:   # public X posts: platform source, platform pays
             rules[X_CHAT] = ALL
-        rules.update({k: v for k, v in self.rules.items() if k.startswith(X_PRODUCT_PREFIX)})   # kept across refreshes
-        private.update({k: v for k, v in self.private.items() if k.startswith(X_PRODUCT_PREFIX)})
+        rules.update({k: v for k, v in self.rules.items() if is_product_chat(k)})   # kept across refreshes
+        private.update({k: v for k, v in self.private.items() if is_product_chat(k)})
         self.rules, self.private, self.loaded = rules, private, True
 
     def set_x_products(self, owners: dict[str, str | None]) -> None:
         """Per-product X mode: chat ``x:p:<product>`` belongs to the product's seller only — only that product is
         matched, the seller pays every call, and the posts wait («در انتظار پرداخت») while the balance is used up."""
-        self.rules = {k: v for k, v in self.rules.items() if not k.startswith(X_PRODUCT_PREFIX)}
-        self.private = {k: v for k, v in self.private.items() if not k.startswith(X_PRODUCT_PREFIX)}
+        self.rules = {k: v for k, v in self.rules.items() if not is_product_chat(k)}
+        self.private = {k: v for k, v in self.private.items() if not is_product_chat(k)}
         for pid, bid in owners.items():
-            key = X_PRODUCT_PREFIX + str(pid)
+            key = get("x").chat_id(pid)
             if bid:
                 self.rules[key] = self.private[key] = frozenset({str(bid)})
             else:
