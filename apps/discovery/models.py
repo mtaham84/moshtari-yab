@@ -153,6 +153,18 @@ EVIDENCE_TYPE_CHOICES = [
     ("other", "سایر شواهد"),
 ]
 
+SELLER_FEEDBACK_CHOICES = [
+    ("", "ثبت نشده"),
+    ("relevant", "مشتری واقعی"),
+    ("irrelevant", "نامرتبط"),
+]
+SELLER_FEEDBACK_REASON_CHOICES = [
+    ("not_a_buyer", "قصد خرید نداشت"),
+    ("wrong_product", "محصول اشتباه بود"),
+    ("already_bought", "قبلاً خریده بود"),
+    ("spam", "هرزنامه یا تبلیغ"),
+]
+
 
 class Customer(models.Model):
     """
@@ -318,6 +330,9 @@ class Opportunity(models.Model):
     source_query = models.CharField(max_length=255, blank=True, db_index=True)
     lead_feedback = models.CharField(max_length=32, null=True, blank=True, choices=[("good", "مشتری مناسب"), ("bad_not_buyer", "قصد خرید ندارد"), ("bad_seller_or_ad", "فروشنده/تبلیغ"), ("bad_wrong_product", "محصول نامرتبط"), ("bad_too_old", "قدیمی")])
     lead_feedback_at = models.DateTimeField(null=True, blank=True)
+    feedback = models.CharField(max_length=16, blank=True, choices=SELLER_FEEDBACK_CHOICES, default="", db_index=True)
+    feedback_at = models.DateTimeField(null=True, blank=True)
+    feedback_reason = models.CharField(max_length=32, blank=True, choices=SELLER_FEEDBACK_REASON_CHOICES, default="")
     thread_root_tweet_id = models.BigIntegerField(null=True, blank=True)
     parent_opportunity = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="thread_opportunities")
     demand_count = models.PositiveIntegerField(default=0)

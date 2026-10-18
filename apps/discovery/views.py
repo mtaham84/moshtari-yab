@@ -20,7 +20,7 @@ from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.products.models import Category, Product
 from need_engine.text import norm
 
-from .models import (MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, XCollectorState,
+from .models import (MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
                     XNegativeTerm, XSearchQuery)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
@@ -440,16 +440,25 @@ def opportunity_feedback_view(request, pk):
     feedback = request.POST.get("feedback", "").strip()
     if feedback not in {"relevant", "irrelevant"}:
         return JsonResponse({"status": "error", "message": "بازخورد نامعتبر است."}, status=400)
+    reason = request.POST.get("reason", "").strip()
+    if reason and reason not in dict(SELLER_FEEDBACK_REASON_CHOICES):
+        return JsonResponse({"status": "error", "message": "دلیل بازخورد نامعتبر است."}, status=400)
 
     metadata = dict(opportunity.trace_metadata or {})
     metadata["seller_feedback"] = feedback
+    opportunity.feedback = feedback
+    opportunity.feedback_at = timezone.now()
+    opportunity.feedback_reason = reason
+    metadata["seller_feedback_at"] = opportunity.feedback_at.isoformat()
+    metadata["seller_feedback_reason"] = reason
+    opportunity.trace_metadata = metadata
+    update_fields = ["feedback", "feedback_at", "feedback_reason", "trace_metadata", "updated_at"]
     if opportunity.source_platform == "x":
         opportunity.lead_feedback = "good" if feedback == "relevant" else "bad_not_buyer"
-        opportunity.lead_feedback_at = timezone.now()
-        opportunity.save(update_fields=["lead_feedback", "lead_feedback_at", "updated_at"])
-    opportunity.trace_metadata = metadata
-    opportunity.save(update_fields=["trace_metadata", "updated_at"])
-    return JsonResponse({"status": "success", "feedback": feedback})
+        opportunity.lead_feedback_at = opportunity.feedback_at
+        update_fields.extend(["lead_feedback", "lead_feedback_at"])
+    opportunity.save(update_fields=update_fields)
+    return JsonResponse({"status": "success", "feedback": feedback, "reason": reason})
 
 
 @login_required

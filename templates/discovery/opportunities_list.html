@@ -354,6 +354,11 @@
               <span>جزئیات</span>
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </a>
+            <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+              <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+            </select>
+            <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مشتری واقعی</button>
+            <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
             <span class="opp-cost" title="هزینه‌ی هوش مصنوعی برای این فرصت">هزینه‌ی هوش مصنوعی: {{ opp.cost_toman_display }} تومان</span>
           </div>
         </div>
@@ -468,7 +473,12 @@
           <span style="font-size: 0.76rem; color: var(--stone-text-muted);">• تاریخ ثبت: {{ opp.created_at_jalali }}</span>
         </div>
 
-        <div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+            <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+          </select>
+          <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مشتری واقعی</button>
+          <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
           <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary" style="padding: 6px 14px; font-size: 0.82rem;">
             <span>مشاهده تحلیل کامل و پیش‌نویس پاسخ</span>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
