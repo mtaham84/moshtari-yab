@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator, Protocol
 
 from need_engine.config import EngineConfig
+from need_engine.platforms.x import chat_id as x_chat_id
 from need_engine.schemas import ChatMessage, Product
 
 
@@ -122,7 +123,7 @@ class XMessageSource:
         for row in rows:
             handle = str(row.get("author_handle") or "").lstrip("@") or None
             messages.append(ChatMessage(
-                chat_id="x:public", message_id=int(row["tweet_id"]), row_id=int(row["row_id"]),
+                chat_id=x_chat_id(), message_id=int(row["tweet_id"]), row_id=int(row["row_id"]),
                 author_id=f"x_{row['author_id']}",
                 author_name=row.get("author_name"), author_username=handle, text=row.get("text") or "",
                 date=parse_dt(row.get("created_at") or row.get("loaded_at") or datetime.now(timezone.utc)),
@@ -135,9 +136,6 @@ class XMessageSource:
                 reply_to_author_id=str(row.get("parent_author_id") or row.get("in_reply_to_author_id") or "") or None,
                 reply_to_date=parse_dt(row["parent_date"]) if row.get("parent_date") else None))
         return messages
-
-
-X_PRODUCT_PREFIX = "x:p:"   # chat_id of the posts one product's search found: x:p:<product_id>
 
 
 class XProductHitSource(XMessageSource):
@@ -168,7 +166,7 @@ class XProductHitSource(XMessageSource):
         by_row = {int(r["row_id"]): str(r["product_id"]) for r in rows}
         messages = self._messages(rows)
         for m in messages:
-            m.chat_id = X_PRODUCT_PREFIX + by_row[m.row_id]
+            m.chat_id = x_chat_id(by_row[m.row_id])
         return messages
 
 
