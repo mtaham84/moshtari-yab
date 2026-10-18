@@ -12,7 +12,7 @@ def get(key: str) -> Platform:
 
 
 def for_message(message) -> Platform:
-    return get(message.platform)
+    return _PLATFORMS.get(message.platform, TELEGRAM)
 
 
 def for_chat_id(chat_id: str) -> Platform:

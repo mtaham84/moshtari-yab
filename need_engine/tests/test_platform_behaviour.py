@@ -1,11 +1,14 @@
+import ast
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from need_engine.config import EngineConfig
-from need_engine.engine import NeedEngine, RunReport, _message_url
+from need_engine.engine import NeedEngine, RunReport
+from need_engine.platforms import for_message
+from need_engine.platforms.x import X, batch_limits, cheap_x_filter
 from need_engine.schemas import ChatMessage, NeedCard
 from need_engine.windowing import build_windows
-from need_engine.x_filters import cheap_x_filter
 
 
 NOW = datetime(2026, 10, 17, 9, 0, tzinfo=timezone.utc)
@@ -48,11 +51,13 @@ def test_x_prefilter_keeps_buyer_request_and_drops_promotion_while_telegram_has_
 
 
 def test_message_urls_keep_telegram_fallbacks_and_explicit_x_url():
-    assert _message_url(message("-100123", 55)) == "https://t.me/c/123/55"
-    assert _message_url(message("-100123", 55, chat_username="publicgroup")) == "https://t.me/publicgroup/55"
-    assert _message_url(message("x:public", 99, platform="x", url="https://x.com/buyer/status/99")) == \
+    telegram = for_message(message("-100123", 55))
+    x = for_message(message("x:public", 99, platform="x"))
+    assert telegram.message_url(message("-100123", 55)) == "https://t.me/c/123/55"
+    assert telegram.message_url(message("-100123", 55, chat_username="publicgroup")) == "https://t.me/publicgroup/55"
+    assert x.message_url(message("x:public", 99, platform="x", url="https://x.com/buyer/status/99")) == \
         "https://x.com/buyer/status/99"
-    assert _message_url(message("x:public", 99, platform="x")) is None
+    assert x.message_url(message("x:public", 99, platform="x")) is None
 
 
 def test_only_x_opportunities_apply_x_seller_consent_and_match_floor():
@@ -79,3 +84,34 @@ def test_only_x_opportunities_apply_x_seller_consent_and_match_floor():
 
     assert emitted[0] == [matches[1], matches[0], matches[2]]
     assert emitted[1] == [matches[0]]
+
+
+def test_platforms_keep_existing_ids_and_x_configuration():
+    cfg = EngineConfig(x_min_match_score=62.5, x_batch_size=3, x_batch_max_chars=4200)
+    assert X.id_prefix == "x_"
+    assert X.chat_id() == "x:public"
+    assert X.chat_id("p1") == "x:p:p1"
+    assert X.min_match_score(cfg) == 62.5
+    assert X.prefilter is cheap_x_filter
+    assert batch_limits(cfg) == (3, 4200)
+
+
+def test_unrecognised_message_platform_keeps_telegram_behaviour():
+    assert for_message(message("-100123", 1, platform="other")) == for_message(message("-100123", 1))
+
+
+def test_non_platform_modules_do_not_embed_x_chat_id_literals():
+    root = Path(__file__).parents[1]
+    justified_exceptions = {}
+    violations = []
+    for path in root.rglob("*.py"):
+        relative = path.relative_to(root)
+        if relative.parts[0] in {"platforms", "tests"}:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("x:"):
+                location = f"{relative}:{node.lineno}"
+                if location not in justified_exceptions:
+                    violations.append(location)
+    assert violations == [], "Platform-specific literals need a documented exception: " + ", ".join(violations)
