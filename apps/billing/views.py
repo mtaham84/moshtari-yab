@@ -1,12 +1,14 @@
 """Admin panel (/ops/): costs, providers & models with prices, wallets, Telegram sources, service status."""
 import os
 from decimal import Decimal
+from datetime import date, datetime, time, timedelta
 from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
+from django.utils import timezone
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -76,6 +78,38 @@ def x_source(request):
         "nav": "x", "days": days, "periods": PERIODS, "o": services.x_overview(float(days)), "st": st,
         "service": services.x_collector_service(), "queries": queries, "settings_rows": services.x_settings(),
         "search_fee": float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0),
+    })
+
+
+@staff_required
+def funnel(request):
+    from apps.discovery.funnel import funnel as build_funnel
+
+    source = request.GET.get("source", "telegram")
+    if source not in {"telegram", "x", "instagram"}:
+        source = "telegram"
+    today = timezone.localdate()
+    try:
+        start = date.fromisoformat(request.GET.get("since", ""))
+    except ValueError:
+        start = today - timedelta(days=29)
+    try:
+        end = date.fromisoformat(request.GET.get("until", ""))
+    except ValueError:
+        end = today
+    if end < start:
+        start, end = end, start
+    since = timezone.make_aware(datetime.combine(start, time.min))
+    until = timezone.make_aware(datetime.combine(end + timedelta(days=1), time.min))
+    business_id = request.GET.get("business", "").strip()
+    business = Business.objects.filter(pk=business_id).first() if business_id.isdigit() else None
+    metrics = build_funnel(source, since, until, business=business)
+    metrics["precision_percent"] = (metrics["precision_from_feedback"] * 100
+                                       if metrics["precision_from_feedback"] is not None else None)
+    return render(request, "ops/funnel.html", {
+        "nav": "funnel", "source": source, "sources": (("telegram", "تلگرام"), ("x", "X"), ("instagram", "Instagram")),
+        "since": start.isoformat(), "until": end.isoformat(), "metrics": metrics,
+        "businesses": Business.objects.order_by("name"), "business": business,
     })
 
 
