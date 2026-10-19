@@ -105,6 +105,12 @@
               <span aria-hidden="true">←</span>
             </a>
           </div>
+
+            <div style="margin-top: 10px; background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 10px; padding: 10px 12px; text-align: center;">
+              <p style="margin: 0; font-size: 0.78rem; color: #e2e8f0; line-height: 1.6;">
+                💡 جهت مشاهده اکانت های تست برای مشاهده نتایج میتوانید از قسمت ورود وارد شوید و اکانت های از پیش ساخته را مشاهده کنید یا ثبت نام کنید و خودتان کالا یا خدمات اضافه کنید.
+              </p>
+            </div>
         {% endif %}
       </li>
     </ul>
@@ -143,6 +149,23 @@
       </button>
     </div>
   </nav>
+
+  <!-- Test Accounts & Evaluation Notice (Directly under navbar/login section) -->
+  <div class="landing-eval-banner" style="max-width: 1320px; width: 100%; margin: -6px auto 20px auto; padding: 0 32px; box-sizing: border-box; position: relative; z-index: 15;">
+    <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 14px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; backdrop-filter: blur(12px); box-shadow: 0 4px 24px rgba(168, 85, 247, 0.18);">
+      <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 260px;">
+        <span style="font-size: 1.2rem; line-height: 1;">💡</span>
+        <span style="font-size: 0.86rem; color: #f1f5f9; line-height: 1.6; font-weight: 500;">
+          جهت مشاهده اکانت های تست برای مشاهده نتایج میتوانید از <a href="{% url 'accounts:login' %}" style="color: #c084fc; font-weight: 700; text-decoration: underline;">قسمت ورود</a> وارد شوید و اکانت های از پیش ساخته را مشاهده کنید یا <a href="{% url 'accounts:signup' %}" style="color: #38bdf8; font-weight: 700; text-decoration: underline;">ثبت نام</a> کنید و خودتان کالا یا خدمات اضافه کنید.
+        </span>
+      </div>
+      <a href="{% url 'accounts:login' %}" style="background: rgba(168, 85, 247, 0.28); color: #f3e8ff; border: 1px solid rgba(168, 85, 247, 0.5); padding: 8px 16px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
+        <span>ورود به اکانت‌های تست</span>
+        <span aria-hidden="true">←</span>
+      </a>
+    </div>
+  </div>
+
 
   <!-- Hero Content Body -->
   <div class="hero-body">

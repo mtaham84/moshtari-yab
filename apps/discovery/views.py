@@ -1,4 +1,5 @@
 import csv
+import io
 import json
 import os
 import re
@@ -214,7 +215,13 @@ def opportunity_list_view(request):
 def opportunity_export_view(request):
     """
     Exports filtered opportunities into an Excel-compatible CSV file (UTF-8 BOM).
-    Preserves all active search, product, date, and score filters.
+    Columns:
+    1. آیدی مشتری
+    2. شبکه اجتماعی مشتری
+    3. لینک پروفایل کامل مشتری
+    4. پیام مشتری
+    5. کالا های پیشنهاد شده برای مشتری
+    6. پیام ساجست شده برای مشتری
     """
     business = getattr(request.user, "business", None)
     if not business:
@@ -223,80 +230,145 @@ def opportunity_export_view(request):
     qs, _ = _filter_opportunities_queryset(business, request.GET)
 
     today_str = format_jalali_date(timezone.now().date(), persian_digits=False).replace("/", "-")
-    filename = f"peyda_customers_{today_str}.csv"
+    filename = f"customers_{today_str}.csv"
 
-    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, dialect="excel", quoting=csv.QUOTE_ALL, lineterminator="\r\n")
 
-    # UTF-8 BOM for seamless Persian rendering in MS Excel
-    response.write("\ufeff")
+    headers = [
+        "آیدی مشتری",
+        "شبکه اجتماعی مشتری",
+        "لینک پروفایل کامل مشتری",
+        "پیام مشتری",
+        "کالا های پیشنهاد شده برای مشتری",
+        "پیام ساجست شده برای مشتری",
+    ]
+    writer.writerow(headers)
 
-    writer = csv.writer(response)
-    writer.writerow([
-        "ردیف",
-        "شناسه فرصت",
-        "پلتفرم",
-        "نام خریدار",
-        "نام کاربری / هندل",
-        "شماره تماس",
-        "پیام خریدار در شبکه اجتماعی",
-        "نیاز یا مسئله استخراج‌شده",
-        "کالای پیشنهادی کاتالوگ",
-        "شاخه دسته‌بندی کالا",
-        "درصد احتمال خرید (نیت)",
-        "درصد تطابق با کالا",
-        "وضعیت",
-        "دلیل انتخاب هوش مصنوعی",
-        "پیش‌نویس پاسخ آماده",
-        "تاریخ و زمان ثبت (شمسی)",
-        "هزینه پردازش (تومان)",
-        "توکن‌های مصرفی",
-    ])
+    platform_map = {
+        "telegram": "تلگرام",
+        "x": "ایکس (توییتر)",
+        "twitter": "ایکس (توییتر)",
+        "instagram": "اینستاگرام",
+        "divar": "دیوار",
+        "bale": "بله",
+        "eitaa": "ایتا",
+    }
 
-    for idx, opp in enumerate(qs, start=1):
-        primary_match = opp.primary_product_match
-        prod_name = primary_match.product.name if primary_match else "-"
-        analysis = getattr(opp, "ai_analysis", None)
+    for opp in qs.select_related("customer", "ai_analysis").prefetch_related("product_matches__product", "evidence_items"):
+        c = opp.customer
 
-        need_text = analysis.need if analysis else "-"
-        why_selected = analysis.why_selected if analysis else "-"
-        suggested_reply = analysis.suggested_reply if analysis else "-"
-        cost_toman = analysis.cost_toman if analysis else 0
-        tokens_used = analysis.tokens_used if analysis else 0
-        intent_pct = f"{opp.intent_score_percentage}٪"
-        fit_pct = f"{opp.product_fit_score_percentage}٪"
-        phone = opp.customer.phone_number or "-"
-        username = f"@{opp.customer.source_username}" if opp.customer.source_username else "-"
+        # 1. آیدی مشتری (Clean English Identifier)
+        customer_id = "-"
+        if c:
+            if c.source_username and c.source_username.strip():
+                u_str = c.source_username.strip().lstrip("@")
+                customer_id = f"@{u_str}" if u_str else "-"
+            elif c.external_user_id and c.external_user_id.strip():
+                raw_id = c.external_user_id.strip()
+                for pfx in ("telegram_", "x_", "instagram_", "divar_"):
+                    if raw_id.startswith(pfx):
+                        raw_id = raw_id[len(pfx):]
+                        break
+                customer_id = raw_id or "-"
+            elif c.phone_number and c.phone_number.strip():
+                customer_id = c.phone_number.strip()
+            elif c.name and c.name.strip():
+                customer_id = c.name.strip()
 
-        platform_label = "تلگرام" if opp.source_platform == "telegram" else (
-            "ایکس (توییتر)" if opp.source_platform == "x" else (
-                "اینستاگرام" if opp.source_platform == "instagram" else (
-                    "دیوار" if opp.source_platform == "divar" else opp.source_platform
-                )
-            )
-        )
+        # 2. شبکه اجتماعی مشتری
+        social_network = platform_map.get(opp.source_platform.lower(), opp.source_platform or "نامشخص")
+
+        # 3. لینک پروفایل کامل مشتری (Complete English URL)
+        profile_link = ""
+        if c:
+            if c.source_profile_url and c.source_profile_url.startswith("http"):
+                profile_link = c.source_profile_url.strip()
+            elif c.source_username and c.source_username.strip():
+                clean_un = c.source_username.strip().lstrip("@")
+                if clean_un:
+                    if opp.source_platform == "telegram":
+                        profile_link = f"https://t.me/{clean_un}"
+                    elif opp.source_platform in ("x", "twitter"):
+                        profile_link = f"https://x.com/{clean_un}"
+                    elif opp.source_platform == "instagram":
+                        profile_link = f"https://instagram.com/{clean_un}"
+            elif c.external_user_id and c.external_user_id.strip():
+                raw_id = c.external_user_id.strip()
+                for pfx in ("telegram_", "x_", "instagram_", "divar_"):
+                    if raw_id.startswith(pfx):
+                        raw_id = raw_id[len(pfx):]
+                        break
+                if raw_id.isdigit():
+                    if opp.source_platform == "telegram":
+                        profile_link = f"https://t.me/c/{raw_id}"
+                    elif opp.source_platform in ("x", "twitter"):
+                        profile_link = f"https://x.com/i/user/{raw_id}"
+        if not profile_link:
+            profile_link = "-"
+
+        # 4. پیام مشتری (Persian Message - Newlines normalized to keep single row)
+        raw_msg = (opp.source_raw_message or "").strip()
+        if not raw_msg:
+            cust_evs = [e.content.strip() for e in opp.evidence_items.all() if e.evidence_type == "customer_message" and e.content]
+            if cust_evs:
+                raw_msg = " | ".join(cust_evs)
+            else:
+                need_evs = [e.content.strip() for e in opp.evidence_items.all() if e.evidence_type == "need_signal" and e.content]
+                if need_evs:
+                    raw_msg = " | ".join(need_evs)
+                elif hasattr(opp, "ai_analysis") and opp.ai_analysis:
+                    raw_msg = (opp.ai_analysis.need or "").strip()
+
+        customer_message = " ".join(raw_msg.split()) if raw_msg else "-"
+
+        # 5. کالا های پیشنهاد شده برای مشتری (Comma-separated product names)
+        matches = list(opp.product_matches.all())
+        if matches:
+            prods = [m.product.name.strip() for m in matches if m.product and m.product.name]
+            recommended_products = " ، ".join(prods) if prods else "-"
+        elif opp.primary_product_match and opp.primary_product_match.product:
+            recommended_products = opp.primary_product_match.product.name.strip()
+        else:
+            recommended_products = "-"
+
+        # 6. پیام ساجست شده برای مشتری
+        suggested_reply = ""
+        if hasattr(opp, "ai_analysis") and opp.ai_analysis:
+            suggested_reply = (opp.ai_analysis.suggested_reply or "").strip()
+
+        if not suggested_reply:
+            try:
+                drafts = drafts_for(opp)
+                if drafts:
+                    suggested_reply = next((v for v in drafts.values() if v), "").strip()
+            except Exception:
+                pass
+
+        if not suggested_reply:
+            first_prod = matches[0].product.name.strip() if (matches and matches[0].product) else ""
+            need_str = (opp.ai_analysis.need.strip() if hasattr(opp, "ai_analysis") and opp.ai_analysis and opp.ai_analysis.need else "").strip()
+            if first_prod and need_str:
+                suggested_reply = f"سلام وقت بخیر؛ در رابطه با {need_str}، پیشنهاد می‌کنم «{first_prod}» رو بررسی بفرمایید."
+            elif first_prod:
+                suggested_reply = f"سلام وقت بخیر؛ در رابطه با موضوعی که مطرح کردید، پیشنهاد می‌کنم «{first_prod}» رو بررسی بفرمایید."
+            else:
+                suggested_reply = "-"
+        else:
+            suggested_reply = " ".join(suggested_reply.split())
 
         writer.writerow([
-            idx,
-            opp.id,
-            platform_label,
-            opp.customer.name or "ناشناس",
-            username,
-            phone,
-            opp.source_raw_message.replace("\n", " ").strip(),
-            need_text.replace("\n", " ").strip(),
-            prod_name,
-            opp.category_name_snapshot or (opp.category.name if opp.category else "-"),
-            intent_pct,
-            fit_pct,
-            opp.get_status_display(),
-            why_selected.replace("\n", " ").strip(),
-            suggested_reply.replace("\n", " ").strip(),
-            opp.created_at_jalali or "-",
-            cost_toman,
-            tokens_used,
+            customer_id,
+            social_network,
+            profile_link,
+            customer_message,
+            recommended_products,
+            suggested_reply,
         ])
 
+    csv_bytes = b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")
+    response = HttpResponse(csv_bytes, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 

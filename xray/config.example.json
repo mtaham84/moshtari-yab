@@ -20,6 +20,20 @@
         "tlsSettings": { "serverName": "SNI_HOST", "fingerprint": "chrome", "allowInsecure": false },
         "wsSettings": { "path": "/", "headers": { "Host": "WS_HOST" } }
       }
+    },
+    {
+      "tag": "shadowsocks-proxy",
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "SERVER_ADDRESS",
+            "port": 2083,
+            "method": "chacha20-ietf-poly1305",
+            "password": "YOUR_PASSWORD"
+          }
+        ]
+      }
     }
   ]
 }
