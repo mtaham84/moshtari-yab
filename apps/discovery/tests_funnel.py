@@ -40,6 +40,27 @@ class UnsupportedFunnelStageTests(SimpleTestCase):
 
 
 class FunnelTests(EngineSchemaMixin, TestCase):
+    def test_x_funnel_stages_bind_chat_prefix_across_modes_and_businesses(self):
+        _, business = seller("funnel-matrix@example.com", "فروشگاه آزمایش")
+        since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        until = since + timedelta(days=1)
+
+        for mode in ("product", "query"):
+            for scoped_business in (None, business):
+                with self.subTest(mode=mode, business=scoped_business), patch.dict(
+                    os.environ, {"NE_X_PREFILTER": "on", "NE_X_ENABLED": "true", "NE_X_MODE": mode}
+                ), patch("apps.discovery.funnel._schema_table_exists", return_value=False), patch(
+                    "apps.discovery.funnel._table_exists", return_value=True
+                ), patch("apps.discovery.funnel._query_count", return_value=0) as query_count:
+                    funnel("x", since, until, scoped_business)
+
+                expected_stages = 3 if mode == "product" else 1
+                self.assertEqual(query_count.call_count, expected_stages)
+                for sql, params in (call.args for call in query_count.call_args_list):
+                    self.assertIn("e.chat_id LIKE %s", sql)
+                    self.assertIn("x:%", params)
+                    self.assertNotIn("LIKE 'x:%'", sql)
+
     def test_funnel_counts_opportunities_feedback_and_known_x_stages(self):
         user, business = seller("funnel@example.com", "فروشگاه قیف")
         product = Product.objects.create(business=business, name="چراغ", description="")

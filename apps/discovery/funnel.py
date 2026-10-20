@@ -34,7 +34,7 @@ def _prefiltered_in_count(source: str, since: datetime, until: datetime, busines
         return None
     if not _table_exists("x_filter_decisions"):
         return None
-    params = [since, until]
+    params = [since, until, "x:%"]
     product_join = ""
     business_filter = ""
     if business is not None:
@@ -45,7 +45,7 @@ def _prefiltered_in_count(source: str, since: datetime, until: datetime, busines
         business_filter = " AND p.business_id = %s"
         params.append(business.pk)
     sql = f"""SELECT COUNT(*) FROM {_schema()}.x_filter_decisions e{product_join}
-             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE 'x:%'
+             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE %s
                AND e.keep AND e.mode = 'on'{business_filter}"""
     return _query_count(sql, params)
 
@@ -55,7 +55,7 @@ def _extracted_count(source: str, since: datetime, until: datetime, business=Non
         return None
     if not _table_exists("x_hit_results"):
         return None
-    params = [since, until]
+    params = [since, until, "x:%"]
     product_join = ""
     business_filter = ""
     if business is not None:
@@ -66,7 +66,7 @@ def _extracted_count(source: str, since: datetime, until: datetime, business=Non
         business_filter = " AND p.business_id = %s"
         params.append(business.pk)
     sql = f"""SELECT COUNT(*) FROM {_schema()}.x_hit_results e{product_join}
-             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE 'x:%'
+             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE %s
                AND e.need_id IS NOT NULL{business_filter}"""
     return _query_count(sql, params)
 
@@ -76,7 +76,7 @@ def _matched_count(source: str, since: datetime, until: datetime, business=None)
         return None
     if not _table_exists("x_hit_results"):
         return None
-    params = [since, until]
+    params = [since, until, "x:%"]
     product_join = ""
     business_filter = ""
     if business is not None:
@@ -87,7 +87,7 @@ def _matched_count(source: str, since: datetime, until: datetime, business=None)
         business_filter = " AND p.business_id = %s"
         params.append(business.pk)
     sql = f"""SELECT COUNT(*) FROM {_schema()}.x_hit_results e{product_join}
-             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE 'x:%'
+             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE %s
                AND e.outcome = 'customer'{business_filter}"""
     return _query_count(sql, params)
 
