@@ -96,8 +96,17 @@ def test_platforms_keep_existing_ids_and_x_configuration():
     assert batch_limits(cfg) == (3, 4200)
 
 
-def test_unrecognised_message_platform_keeps_telegram_behaviour():
-    assert for_message(message("-100123", 1, platform="other")) == for_message(message("-100123", 1))
+def test_missing_or_empty_message_platform_uses_telegram():
+    assert message("-100123", 1).platform == "telegram"
+    assert for_message(message("-100123", 1, platform="")).key == "telegram"
+    assert for_message(SimpleNamespace(platform=None)).key == "telegram"
+
+
+def test_unregistered_message_platform_raises_clear_error():
+    import pytest
+
+    with pytest.raises(ValueError, match="unsupported message platform: 'other'"):
+        for_message(message("-100123", 1, platform="other"))
 
 
 def test_non_platform_modules_do_not_embed_x_chat_id_literals():

@@ -12,7 +12,11 @@ def get(key: str) -> Platform:
 
 
 def for_message(message) -> Platform:
-    return _PLATFORMS.get(message.platform, TELEGRAM)
+    key = message.platform or TELEGRAM.key
+    try:
+        return get(key)
+    except KeyError as exc:
+        raise ValueError(f"unsupported message platform: {key!r}") from exc
 
 
 def for_chat_id(chat_id: str) -> Platform:
