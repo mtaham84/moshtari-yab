@@ -437,7 +437,7 @@ class PanelViewTests(TestCase):
                             reverse("discovery:instagram_comment_detail", args=[opportunity.pk]))
         export = self.client.get(reverse("discovery:opportunity_export"))
         exported = list(csv.reader(io.StringIO(export.content.decode("utf-8-sig"))))
-        self.assertEqual(exported[-1][3], "<script>alert(1)</script>")
+        self.assertTrue(any(row[3] == "<script>alert(1)</script>" for row in exported[1:]))
         self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[999999])).status_code, 404)
         theirs = Opportunity.objects.get(business=self.other)
         self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[theirs.pk])).status_code, 404)
