@@ -412,6 +412,259 @@ class PanelViewTests(TestCase):
             self.assertContains(response, "یک ساعت", status_code=429)
         cache.clear()
 
+    def test_instagram_comment_detail_escapes_comment_and_scopes_opportunity(self):
+        customer = Customer.objects.create(business=self.biz, source_platform="instagram",
+                                           external_user_id="7105", source_username="buyer",
+                                           source_profile_url="https://www.instagram.com/buyer/")
+        opportunity = Opportunity.objects.create(
+            business=self.biz, customer=customer, source_platform="instagram",
+            source_message_id="ig:IGAd102:cc-5", source_query="shop_page",
+            source_raw_message="<script>alert(1)</script>",
+            trace_metadata={"instagram": {"post_url": "https://www.instagram.com/p/IGAd102/"}},
+        )
+        response = self.client.get(reverse("discovery:instagram_comment_detail", args=[opportunity.pk]))
+
+        self.assertContains(response, "&lt;script&gt;alert(1)&lt;/script&gt;")
+        self.assertNotContains(response, "<script>alert(1)</script>")
+        self.assertContains(self.client.get(reverse("discovery:opportunity_list")),
+                            "&lt;script&gt;alert(1)&lt;/script&gt;")
+        detail = self.client.get(reverse("discovery:opportunity_detail", args=[opportunity.pk]))
+        self.assertContains(detail, "https://www.instagram.com/buyer/")
+        self.assertNotContains(detail, "javascript:")
+        self.assertContains(self.client.get(reverse("discovery:opportunity_list")),
+                            reverse("discovery:instagram_comment_detail", args=[opportunity.pk]))
+        export = self.client.get(reverse("discovery:opportunity_export"))
+        exported = list(csv.reader(io.StringIO(export.content.decode("utf-8-sig"))))
+        self.assertEqual(exported[-1][3], "<script>alert(1)</script>")
+        self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[999999])).status_code, 404)
+        theirs = Opportunity.objects.get(business=self.other)
+        self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[theirs.pk])).status_code, 404)
+        from unittest.mock import patch
+        with patch("apps.discovery.views.rewrite_reply", side_effect=AssertionError("must not call the LLM")) as rewrite:
+            response = self.client.post(reverse("discovery:opportunity_rewrite", args=[opportunity.pk]))
+        self.assertEqual(response.status_code, 400)
+        rewrite.assert_not_called()
+        self.assertNotContains(detail, "btn-rewrite-reply")
+
+    def test_instagram_ingest_is_idempotent_and_fans_out(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        InstagramPage.objects.create(business=self.other, handle="SHOP_PAGE")
+        record = {
+            "id": "ig:IGAd102:cc-5", "source": "instagram", "kind": "comment",
+            "text": "قیمت؟", "author_handle": "@buyer", "author_id": "7105",
+            "created_at": "2026-10-12T09:00:00+00:00",
+            "url": "https://www.instagram.com/p/IGAd102/",
+            "metadata": {
+                "seed": "account:shop_page",
+                "parent_post": {"id": "ig:IGAd102", "caption": "کفش چرمی مردانه",
+                                 "url": "javascript:alert(1)"},
+                "intent": {"label": "price_question", "cue": "قیمت؟"},
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        opportunities = Opportunity.objects.filter(source_platform="instagram", source_message_id=record["id"])
+        self.assertEqual(opportunities.count(), 2)
+        self.assertEqual(Customer.objects.filter(source_platform="instagram").count(), 2)
+        self.assertEqual(set(opportunities.values_list("trace_metadata__instagram__post_url", flat=True)),
+                         {"https://www.instagram.com/p/IGAd102/"})
+        self.assertTrue(all(item.customer.source_username == "buyer" for item in opportunities.select_related("customer")))
+        self.assertEqual(list(opportunities.values_list("trace_metadata__instagram__product_match", flat=True)),
+                         ["caption_tokens", "caption_tokens"])
+
+    def test_instagram_ingest_uses_default_product_when_caption_does_not_match(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page", default_product=self.p1)
+        record = {"id": "ig:IGAd102:c8", "source": "instagram", "kind": "comment",
+                  "text": "قیمت؟", "author_handle": "@buyer", "author_id": "7108",
+                  "created_at": None, "url": "https://www.instagram.com/p/IGAd102/",
+                  "metadata": {"seed": "account:shop_page",
+                               "parent_post": {"id": "ig:IGAd102", "caption": "وسیله ناشناخته"},
+                               "intent": {"label": "price_question", "cue": "قیمت"}}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        opportunity = Opportunity.objects.get(source_platform="instagram", source_message_id=record["id"])
+        self.assertEqual(opportunity.trace_metadata["instagram"]["product_match"], "default_product")
+        self.assertEqual(opportunity.product_matches.get().product, self.p1)
+
+    def test_instagram_owner_comment_and_invalid_intent_are_skipped(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        records = []
+        for comment_id, author, label in (("1", "shop_page", "interest"),
+                                          ("2", "buyer", "follow_for_follow")):
+            records.append({
+                "id": f"ig:IGAd102:c{comment_id}", "source": "instagram", "kind": "comment",
+                "text": "میخوام", "author_handle": f"@{author}", "author_id": None,
+                "created_at": None, "url": "https://www.instagram.com/p/IGAd102/",
+                "metadata": {"seed": "account:shop_page",
+                               "parent_post": {"id": "ig:IGAd102", "caption": "کفش"},
+                               "intent": {"label": label, "cue": "میخوام"}},
+            })
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in records) + "\n",
+                           encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        self.assertFalse(Opportunity.objects.filter(source_platform="instagram").exists())
+
+    def test_instagram_outcomes_only_apply_to_queued_run_and_all_watching_businesses(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.utils import timezone
+
+        pages = [InstagramPage.objects.create(business=business, handle=handle)
+                 for business, handle in ((self.biz, "shop_page"), (self.other, "SHOP_PAGE"))]
+        queued = timezone.now() - timedelta(minutes=2)
+        InstagramPage.objects.filter(pk__in=[page.pk for page in pages]).update(queued_at=queued)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({
+                "started_at": queued.isoformat(),
+                "updated_at": timezone.now().isoformat(),
+                "handles": {"shop_page": {"status": "not_found", "posts": 0, "comments": 0}},
+            }), encoding="utf-8")
+            from unittest.mock import patch
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                call_command("ig_sync_seeds", apply_status=True)
+        for page in pages:
+            page.refresh_from_db()
+            self.assertEqual(page.last_status, "not_found")
+            self.assertIsNone(page.queued_at)
+            self.assertEqual(page.consecutive_failures, 1)
+
+    def test_instagram_seed_file_is_deduplicated_and_fair(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from unittest.mock import patch
+        from django.test import override_settings
+
+        first = InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        InstagramPage.objects.create(business=self.other, handle="SHOP_PAGE")
+        second = InstagramPage.objects.create(business=self.other, handle="second_shop")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "collector"
+            with patch.dict("os.environ", {"IG_MAX_HANDLES_PER_CYCLE": "1", "IG_CYCLE_MINUTES": "60",
+                                             "IG_COLLECT_OUTPUT_DIR": str(output)}):
+                with override_settings(BASE_DIR=root):
+                    call_command("ig_sync_seeds", stdout=StringIO())
+                    payload = json.loads((root / "data" / "ig_seeds.json").read_text(encoding="utf-8"))
+
+        self.assertEqual([item["username"] for item in payload["accounts"]], ["shop_page"])
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertIsNotNone(first.queued_at)
+        self.assertIsNone(second.queued_at)
+
+    def test_instagram_private_page_is_not_seeded_again_for_24_hours(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.test import override_settings
+        from django.utils import timezone
+        from unittest.mock import patch
+
+        page = InstagramPage.objects.create(business=self.biz, handle="private_shop", last_status="private",
+                                            last_run_at=timezone.now() - timedelta(hours=1))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root / "collector")}):
+                with override_settings(BASE_DIR=root):
+                    call_command("ig_sync_seeds", stdout=StringIO())
+                    payload = json.loads((root / "data" / "ig_seeds.json").read_text(encoding="utf-8"))
+        self.assertEqual(payload["accounts"], [])
+        page.refresh_from_db()
+        self.assertIsNone(page.queued_at)
+
+    def test_instagram_ignores_old_outcome_and_pauses_after_three_not_found(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.utils import timezone
+        from unittest.mock import patch
+
+        page = InstagramPage.objects.create(business=self.biz, handle="shop_page", consecutive_failures=2)
+        queued = timezone.now() - timedelta(minutes=2)
+        page.queued_at = queued
+        page.save(update_fields=["queued_at"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({
+                "started_at": (queued - timedelta(seconds=1)).isoformat(),
+                "updated_at": timezone.now().isoformat(),
+                "handles": {"shop_page": {"status": "not_found", "posts": 0, "comments": 0}},
+            }), encoding="utf-8")
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                call_command("ig_sync_seeds", apply_status=True)
+        page.refresh_from_db()
+        self.assertTrue(page.is_active)
+        self.assertEqual(page.consecutive_failures, 2)
+
+        page.queued_at = queued
+        page.save(update_fields=["queued_at"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({
+                "started_at": queued.isoformat(),
+                "updated_at": timezone.now().isoformat(),
+                "handles": {"shop_page": {"status": "not_found", "posts": 0, "comments": 0}},
+            }), encoding="utf-8")
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                call_command("ig_sync_seeds", apply_status=True)
+        page.refresh_from_db()
+        self.assertFalse(page.is_active)
+        self.assertEqual(page.consecutive_failures, 3)
+
+    def test_instagram_ingest_counts_bad_lines_and_rejects_invalid_owner(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        valid = {
+            "id": "ig:IGAd102:c5", "source": "instagram", "kind": "comment",
+            "text": "قیمت؟", "author_handle": "javascript:alert(1)", "author_id": None,
+            "created_at": None, "url": "javascript:alert(1)",
+            "metadata": {"seed": "account:shop_page", "parent_post": {"id": "ig:IGAd102"},
+                         "intent": {"label": "price_question", "cue": "قیمت"}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text("not json\n" + json.dumps(valid, ensure_ascii=False) + "\n", encoding="utf-8")
+            output = StringIO()
+            call_command("ig_ingest", path=str(path), stdout=output)
+
+        self.assertIn('"invalid_json":1', output.getvalue())
+        self.assertFalse(Opportunity.objects.filter(source_platform="instagram").exists())
+
     def test_dashboard_shows_real_numbers_only(self):
         r = self.client.get(reverse("accounts:dashboard"))
         self.assertEqual(r.status_code, 200)

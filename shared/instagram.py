@@ -27,13 +27,13 @@ def parse_page_ref(text: str) -> str:
     """Return a validated lowercase Instagram handle from a handle or profile URL."""
     if not isinstance(text, str):
         raise PageRefError("invalid_type")
-    if len(text) > 200:
-        raise PageRefError("too_long")
     if any(unicodedata.category(char) == "Cc" or char == "\x00" for char in text):
         raise PageRefError("control_character")
     value = text.strip()
     if not value:
         raise PageRefError("empty")
+    if len(value) > 200:
+        raise PageRefError("too_long")
     if any(char.isspace() for char in value):
         raise PageRefError("internal_whitespace")
     if not value.isascii():

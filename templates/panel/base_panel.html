@@ -195,7 +195,7 @@
           <span class="sidebar-badge">{{ user.business.monitored_communities.count|default:"0" }}</span>
         </a>
         <a href="{% url 'discovery:instagram_pages' %}" class="sidebar-link {% block nav_instagram_pages %}{% endblock %}">
-          <span>صفحه‌های اینستاگرام</span>
+          <div class="sidebar-link-content"><span>صفحه‌های اینستاگرام</span></div>
         </a>
         {% if X_SELLER_UI %}
         <a href="{% url 'discovery:x_search' %}" class="sidebar-link {% block nav_x_management %}{% endblock %}">

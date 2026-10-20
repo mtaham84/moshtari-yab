@@ -34,25 +34,30 @@ def _main(argv: list[str] | None = None, *, project_root: Path) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Read-only Instagram collector (Persian intent prefilter + JSONL)")
-    parser.add_argument("--backend", choices=("instaloader", "hikerapi", "mock"), default=os.getenv("IG_BACKEND", "instaloader"))
+    parser.add_argument("--backend", choices=("instaloader", "hikerapi", "mock"), default=os.getenv("IG_BACKEND") or None)
     parser.add_argument("--seeds", default=os.getenv("IG_SEEDS_FILE", "data/ig_seeds.json"))
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval", type=float, default=float(os.getenv("IG_COLLECT_INTERVAL_SECONDS", "900")))
+    parser.add_argument("--loop-interval", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--mock", action="store_true", help="force fixture backend with isolated output and state")
     parser.add_argument("--keep-rejected", action="store_true", help="save rejection reasons without post text or identities")
     parser.add_argument("--output-dir", default=os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
     args = parser.parse_args(argv)
+    if args.loop_interval is not None:
+        args.interval = args.loop_interval
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     if args.once and args.loop:
         parser.error("Choose either --once or --loop.")
+    if not args.backend and not args.mock:
+        parser.error("Set IG_BACKEND to hikerapi or instaloader before starting live collection.")
 
-    is_mock = args.mock or args.backend == "mock"
+    isolated_mock = args.mock
     if not (args.once or args.loop or args.dry_run or args.mock):
         parser.error("Choose --once, --loop, --dry-run, or --mock.")
     try:
-        if is_mock:
+        if isolated_mock:
             backend = MockInstagramBackend()
             # Mock mode is reproducible and cannot read private seeds or touch a
             # live backend. Its own deterministic seed always selects the fixture.

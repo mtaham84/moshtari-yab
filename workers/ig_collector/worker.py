@@ -232,7 +232,7 @@ class InstagramCollector:
         try:
             with exclusive_file_lock(lock):
                 result = self._run_locked(seeds, comments, keep_rejected)
-            if result.get("status") in {"COMPLETED", "DAILY_CAP_REACHED"} and not result.get("failures"):
+            if result.get("status") in {"COMPLETED", "DAILY_CAP_REACHED", "PARTIAL", "CIRCUIT_OPEN"} and not result.get("failures"):
                 beat_ok("instagram", int(result.get("collected", 0)))
             else:
                 beat_error("instagram", f"cycle status {result.get('status', 'unknown')}",
@@ -247,7 +247,11 @@ class InstagramCollector:
         now = datetime.now(timezone.utc)
         cooldown = Cooldown(self.store, self.cooldown_seconds).active_until(now)
         if cooldown:
-            result = self._result("RATE_LIMITED", [], 0, 0, cooldown_until=cooldown)
+            result = self._result("RATE_LIMITED", [], 0, 0, cooldown_until=cooldown,
+                                  started_at=now.isoformat(), updated_at=now.isoformat(),
+                                  handles={str(seed.get("value", "")): {
+                                      "status": "rate_limited", "posts": 0, "comments": 0
+                                  } for seed in seeds if seed.get("kind") == "account"})
             self._write_status(result)
             return result
         collected: list[dict[str, Any]] = []
@@ -267,6 +271,9 @@ class InstagramCollector:
         if policy_name not in COMMENT_POLICIES:
             policy_name = "buyer_request"
 
+        handle_outcomes: dict[str, dict[str, Any]] = {}
+        processed_handles: set[str] = set()
+        stopped = False
         for seed_index, seed in enumerate(seeds):
             if DailyCap(self.daily_cap, self.store.count_today() + len(collected)
                         + len(pending_seller_lead_ids)).reached():
@@ -274,12 +281,29 @@ class InstagramCollector:
                 break
             kind, value, limit = seed.get("kind"), str(seed.get("value", "")), int(seed.get("limit", 0))
             seed_key = f"{kind}:{value}"
+            if kind == "account" and value in processed_handles:
+                continue
+            if kind == "account":
+                processed_handles.add(value)
+            outcome = {"status": "ok", "posts": 0, "comments": 0}
+            cooldown_until = self.store.get_seed_progress(f"skip_until:{seed_key}") if kind == "account" else None
+            private_until = self.store.get_seed_progress(f"private:{seed_key}") if kind == "account" else None
+            now = datetime.now(timezone.utc)
+            if private_until and private_until > now:
+                outcome.update(status="private", reason="private_cooldown")
+                handle_outcomes[value] = outcome
+                continue
+            if cooldown_until and cooldown_until > now:
+                outcome.update(status="error", reason="not_found_cooldown")
+                handle_outcomes[value] = outcome
+                continue
             capability = "user_posts" if kind == "account" else "hashtag_posts"
             try:
                 self.backend.require(capability)
                 progress_key = f"seller_post:{seed_key}" if policy_name == "seller_post" else seed_key
                 since = self.store.get_seed_progress(progress_key) if kind == "account" else None
                 posts = self._with_retry(lambda: self.backend.user_posts(value, limit, since) if kind == "account" else self.backend.hashtag_posts(value, limit))
+                outcome["posts"] = len(posts)
                 if policy_name == "seller_post":
                     posts = [post for post in posts if post.shortcode not in comment_candidate_ids
                              and not self.store.comments_were_fetched(f"seller_post:{post.shortcode}")]
@@ -327,33 +351,51 @@ class InstagramCollector:
                 if not reached_cap:
                     pending_seed_progress[progress_key] = latest
             except UnsupportedCapability as exc:
+                outcome.update(status="error", reason="unsupported")
                 log.warning("Skipping %s: %s", seed_key, exc)
-            except RateLimited:
-                Cooldown(self.store, self.cooldown_seconds).start()
+            except RateLimited as exc:
+                cooldown_until = Cooldown(self.store, self.cooldown_seconds).start()
+                outcome.update(status=self.backend.outcome_for_error(exc), reason="rate_limited",
+                               cooldown_until=cooldown_until)
                 status = "RATE_LIMITED"
+                for later in seeds[seed_index + 1:]:
+                    handle_outcomes[str(later.get("value", ""))] = {"status": "rate_limited", "posts": 0, "comments": 0}
+                handle_outcomes[value] = outcome
+                stopped = True
                 break
             except AuthFailed as exc:
+                outcome.update(status="error", reason="auth_failed")
                 log.error("Instagram backend authentication failed: %s", exc)
-                status, failures = "AUTH_FAILED", failures + 1
-                break
+                failures += 1
+                status = "PARTIAL"
             except Transient as exc:
+                outcome.update(status=self.backend.outcome_for_error(exc), reason=type(exc).__name__)
                 failures += 1
                 circuit_open = breaker.failure()
                 log.warning("Temporary Instagram backend failure for %s (%s)", seed_key, type(exc).__name__)
                 if circuit_open:
                     status = "CIRCUIT_OPEN"
-                    break
-                status = "PARTIAL"
+                else:
+                    status = "PARTIAL"
             except Fatal as exc:
+                outcome["status"] = self.backend.outcome_for_error(exc)
+                outcome["reason"] = outcome["status"]
+                if outcome["status"] == "private":
+                    private_until = datetime.now(timezone.utc) + timedelta(
+                        seconds=self.backend.request_cooldown_seconds() or 86400
+                    )
+                    self.store.set_seed_progress(f"private:{seed_key}", private_until.isoformat())
+                elif outcome["status"] == "not_found":
+                    outcome["auto_paused"] = False
                 failures += 1
                 log.error("Instagram backend rejected %s (%s)", seed_key, type(exc).__name__)
-                status = "FAILED"
-                break
+                status = "PARTIAL"
             except Exception as exc:
+                outcome.update(status="error", reason=type(exc).__name__)
                 failures += 1
                 log.error("Unexpected Instagram collection failure for %s (%s)", seed_key, type(exc).__name__)
-                status = "FAILED"
-                break
+                status = "PARTIAL"
+            handle_outcomes[value] = outcome
             if seed_index < len(seeds) - 1:
                 self.sleeper(max(0.0, self.jitter(self.sleep_min, self.sleep_max)))
 
@@ -376,6 +418,9 @@ class InstagramCollector:
                 try:
                     self.backend.require("post_comments")
                     comments_rows = self._with_retry(lambda: self.backend.post_comments(post, max_comments))
+                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    if outcome:
+                        outcome["comments"] += len(comments_rows)
                     comment_fetch_key = (f"seller_post:{post.shortcode}" if policy_name == "seller_post"
                                          else post.shortcode)
                     pending_comment_fetches.add(comment_fetch_key)
@@ -414,25 +459,44 @@ class InstagramCollector:
                             continue
                 except UnsupportedCapability as exc:
                     log.warning("Skipping comments for %s: %s", post.shortcode, exc)
-                    break
-                except RateLimited:
-                    Cooldown(self.store, self.cooldown_seconds).start()
+                    continue
+                except RateLimited as exc:
+                    cooldown_until = Cooldown(self.store, self.cooldown_seconds).start()
                     status = "RATE_LIMITED"
+                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    if outcome:
+                        outcome.update(status=self.backend.outcome_for_error(exc), reason="rate_limited",
+                                       cooldown_until=cooldown_until)
                     break
                 except AuthFailed as exc:
                     log.error("Instagram backend authentication failed: %s", exc)
-                    status = "AUTH_FAILED"
-                    break
+                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    if outcome:
+                        outcome.update(status="error", reason="auth_failed")
+                    failures += 1
+                    status = "PARTIAL"
+                    continue
                 except Transient:
                     failures += 1
                     log.warning("Temporary Instagram comment read failure")
                     status = "CIRCUIT_OPEN" if failures >= self.circuit_breaker else "PARTIAL"
-                    break
+                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    if outcome:
+                        outcome.update(status="error", reason="transient")
+                    continue
                 except Fatal:
                     failures += 1
                     log.warning("Instagram comment request was rejected")
-                    status = "FAILED"
-                    break
+                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    if outcome:
+                        outcome.update(status="error", reason="fatal")
+                    status = "PARTIAL"
+                    continue
+        if stopped or status == "RATE_LIMITED":
+            for seed in seeds:
+                value = str(seed.get("value", ""))
+                if value not in handle_outcomes:
+                    handle_outcomes[value] = {"status": "rate_limited", "posts": 0, "comments": 0}
 
         if DailyCap(self.daily_cap, self.store.count_today() + len(collected)
                     + len(pending_seller_lead_ids)).reached() and status in {"COMPLETED", "PARTIAL"}:
@@ -464,6 +528,10 @@ class InstagramCollector:
             self._write_rejected(rejected, self.output_dir / f"{date.today().isoformat()}.rejected.jsonl")
         result = self._result(status, collected, filtered, failures,
                               output=str(output), rejected=len(rejected),
+                              started_at=now.isoformat(),
+                              updated_at=datetime.now(timezone.utc).isoformat(),
+                              handles=handle_outcomes,
+                              cooldown_until=self.store.get_setting("rate_limit_until"),
                               seller_leads=seller_lead_count)
         self._write_status(result)
         return result

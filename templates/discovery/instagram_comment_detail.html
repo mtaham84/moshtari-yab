@@ -1,0 +1,16 @@
+{% extends "panel/base_panel.html" %}
+
+{% block title %}جزئیات سرنخ اینستاگرام | پیدا{% endblock %}
+{% block breadcrumb %}سرنخ اینستاگرام{% endblock %}
+{% block nav_instagram_pages %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header"><div class="p-header-titles"><h1 class="p-page-title">سرنخ اینستاگرام</h1></div></div>
+<div class="p-card" style="padding: 24px;">
+  <p><strong>کاربر:</strong> {{ customer.display_identifier }}</p>
+  {% if instagram_profile_url %}<a href="{{ instagram_profile_url }}" target="_blank" rel="noopener noreferrer nofollow">مشاهدهٔ پروفایل عمومی</a>{% endif %}
+  <h2>کامنت</h2><blockquote>{{ opportunity.source_raw_message }}</blockquote>
+  <h2>محصول پیشنهادی</h2>{% for match in opportunity.product_matches.all %}<p>{{ match.product.name }}</p>{% empty %}<p>محصولی پیشنهاد نشده است.</p>{% endfor %}
+  {% if instagram_post_url %}<p><a href="{{ instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow">مشاهدهٔ پست اصلی</a></p>{% endif %}
+</div>
+{% endblock %}

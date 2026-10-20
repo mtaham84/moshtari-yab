@@ -26,6 +26,14 @@ class Fatal(InstagramBackendError):
     kind = "fatal"
 
 
+class NotFound(Fatal):
+    kind = "not_found"
+
+
+class PrivateProfile(Fatal):
+    kind = "private"
+
+
 class UnsupportedCapability(InstagramBackendError):
     kind = "unsupported"
 
@@ -73,6 +81,16 @@ class InstagramBackend(ABC):
 
     name = "base"
     capabilities = BackendCapabilities()
+
+    def outcome_for_error(self, error: Exception) -> str:
+        if isinstance(error, NotFound):
+            return "not_found"
+        if isinstance(error, PrivateProfile):
+            return "private"
+        return "rate_limited" if isinstance(error, RateLimited) else "error"
+
+    def request_cooldown_seconds(self) -> int:
+        return 0
 
     @abstractmethod
     def user_posts(self, username: str, limit: int, since: datetime | None) -> list[InstagramPost]:

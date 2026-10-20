@@ -284,6 +284,8 @@
             <strong class="opp-name">{{ opp.customer.display_identifier }}</strong>
             {% if opp.customer.source_username and opp.source_platform == 'x' %}
               <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+            {% elif opp.customer.source_username and opp.source_platform == 'instagram' %}
+              {% if opp.instagram_profile_url %}<a class="opp-handle" href="{{ opp.instagram_profile_url }}" target="_blank" rel="noopener noreferrer nofollow">@{{ opp.customer.source_username|cut:'@' }}</a>{% endif %}
             {% elif opp.customer.source_username %}
               <a class="opp-handle" href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
             {% endif %}
@@ -311,7 +313,8 @@
         <div class="opp-item-body">
           <div class="opp-col">
             <div class="opp-label">پیام خریدار</div>
-            <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
+          <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
+          {% if opp.instagram_comment_detail_url %}<a href="{{ opp.instagram_comment_detail_url }}">جزئیات کامنت</a>{% endif %}
             {% if opp.ai_analysis.need %}
               <div class="opp-need"><span>نیاز:</span> {{ opp.ai_analysis.need }}</div>
             {% endif %}
@@ -454,6 +457,7 @@
       <div style="background: var(--stone-surface-sunken); border-right: 3px solid var(--brand-purple); padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 14px;">
         <p style="margin: 0; font-size: 0.86rem; color: var(--panel-text-main); line-height: 1.6;">
           «{{ opp.source_raw_message|default:opp.ai_analysis.need }}»
+          {% if opp.instagram_comment_detail_url %}<a href="{{ opp.instagram_comment_detail_url }}">جزئیات کامنت</a>{% endif %}
         </p>
       </div>
 

@@ -12,12 +12,15 @@ from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
 from .. import hikerapi_mapping as mapping
-from .base import AuthFailed, BackendCapabilities, Fatal, InstagramBackend, InstagramComment, InstagramPost, RateLimited, Transient
+from .base import AuthFailed, BackendCapabilities, Fatal, InstagramBackend, InstagramComment, InstagramPost, NotFound, PrivateProfile, RateLimited, Transient
 
 
 class HikerAPIBackend(InstagramBackend):
     name = "hikerapi"
     capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True)
+
+    def request_cooldown_seconds(self) -> int:
+        return 24 * 60 * 60
 
     def __init__(self, api_key: str | None = None, *, timeout: float = 20.0, opener=None,
                  proxy_url: str | None = None, sleep_min: float | None = None,
@@ -67,7 +70,11 @@ class HikerAPIBackend(InstagramBackend):
             return
         if status == 429:
             raise RateLimited("HikerAPI rate limit received (HTTP 429)")
-        if status in {401, 403}:
+        if status == 404:
+            raise NotFound("HikerAPI profile or post was not found")
+        if status == 403:
+            raise PrivateProfile("HikerAPI profile is private or inaccessible")
+        if status == 401:
             raise AuthFailed(f"HikerAPI authentication failed (HTTP {status})")
         if status in {408, 425} or status >= 500:
             raise Transient(f"HikerAPI temporary failure (HTTP {status})")

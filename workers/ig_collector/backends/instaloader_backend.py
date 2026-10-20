@@ -9,12 +9,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .base import AuthFailed, BackendCapabilities, Fatal, InstagramBackend, InstagramComment, InstagramPost, RateLimited, Transient
+from .base import AuthFailed, BackendCapabilities, Fatal, InstagramBackend, InstagramComment, InstagramPost, NotFound, PrivateProfile, RateLimited, Transient
 
 
 class InstaloaderBackend(InstagramBackend):
     name = "instaloader"
     capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True)
+
+    def request_cooldown_seconds(self) -> int:
+        return 24 * 60 * 60
 
     def __init__(self, *, loader: Any = None, module: Any = None, sleep_min: float | None = None,
                  sleep_max: float | None = None, sleeper=time.sleep, jitter=random.uniform):
@@ -40,6 +43,12 @@ class InstaloaderBackend(InstagramBackend):
             download_video_thumbnails=False, download_geotags=False, download_comments=False,
             save_metadata=False, compress_json=False,
         )
+        context = self._loader.context
+        if hasattr(context, "request_timeout"):
+            context.request_timeout = 30
+        for session in (getattr(context, "_session", None), getattr(context, "_graphql_session", None)):
+            if session is not None:
+                session.timeout = (10, 30)
         session_path = os.getenv("IG_INSTALOADER_SESSION_FILE", "").strip()
         if session_path:
             try:
@@ -64,7 +73,11 @@ class InstaloaderBackend(InstagramBackend):
             return RateLimited("Instaloader rate limit received")
         if any(matches(name) for name in ("LoginRequiredException", "LoginException", "BadCredentialsException", "TwoFactorAuthRequiredException")):
             return AuthFailed("Instaloader authentication failed")
-        if matches("ProfileNotExistsException") or matches("InvalidArgumentException"):
+        if matches("ProfileNotExistsException"):
+            return NotFound("Instagram profile does not exist")
+        if matches("PrivateProfileNotFollowedException") or matches("PrivateProfileException"):
+            return PrivateProfile("Instagram profile is private")
+        if matches("InvalidArgumentException"):
             return Fatal(f"Instaloader rejected the requested profile/argument ({type(exc).__name__})")
         if any(matches(name) for name in ("ConnectionException", "BadResponseException")):
             return Transient(f"Instaloader request failed ({type(exc).__name__})")

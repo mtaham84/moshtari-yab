@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from workers.ig_collector.backends.base import (
-    AuthFailed, BackendCapabilities, Fatal, InstagramBackend, InstagramComment,
+    AuthFailed, BackendCapabilities, Fatal, InstagramBackend, InstagramComment, NotFound,
     InstagramPost, RateLimited, Transient,
 )
 from workers.ig_collector.backends.mock import MockInstagramBackend
@@ -22,6 +22,12 @@ from workers.ig_collector.worker import (
 FIXTURE = Path(__file__).parent / "fixtures" / "instagram.json"
 SEEDS = [{"kind": "account", "value": "demo_demand", "limit": 12}]
 COMMENTS = {"mode": "signals", "max_posts_per_run": 5, "max_per_post": 50}
+
+
+@pytest.fixture(autouse=True)
+def collector_tests_do_not_write_database_heartbeats(monkeypatch):
+    monkeypatch.setattr("workers.ig_collector.worker.beat_ok", lambda *args: None)
+    monkeypatch.setattr("workers.ig_collector.worker.beat_error", lambda *args: None)
 
 
 def collector(tmp_path, backend=None, **kwargs):
@@ -188,19 +194,50 @@ def test_transient_retry_and_circuit_breaker(tmp_path):
         def user_posts(self, username, limit, since):
             raise Transient("down")
 
-    result = collector(tmp_path, Broken(FIXTURE), max_retries=0, circuit_breaker=2).run(SEEDS * 2)
+    seeds = [
+        {"kind": "account", "value": "demo_demand", "limit": 1},
+        {"kind": "account", "value": "another_shop", "limit": 1},
+    ]
+    result = collector(tmp_path, Broken(FIXTURE), max_retries=0, circuit_breaker=2).run(seeds)
     assert result["status"] == "CIRCUIT_OPEN"
     assert result["failures"] == 2
 
 
-def test_fatal_failure_stops_collection_without_leaking_error(tmp_path, caplog):
+def test_fatal_failure_is_isolated_and_does_not_leak_error(tmp_path, caplog):
     class Rejected(MockInstagramBackend):
         def user_posts(self, username, limit, since):
-            raise Fatal("private-response-secret")
+            if username == "rejected_shop":
+                raise Fatal("private-response-secret")
+            return super().user_posts(username, limit, since)
 
-    result = collector(tmp_path, Rejected(FIXTURE), max_retries=0).run(SEEDS)
-    assert result["status"] == "FAILED"
+    worker = collector(tmp_path, Rejected(FIXTURE), max_retries=0)
+    result = worker.run([
+        {"kind": "account", "value": "rejected_shop", "limit": 5},
+        {"kind": "account", "value": "demo_demand", "limit": 5},
+    ])
+    assert result["status"] == "PARTIAL"
+    assert result["handles"]["demo_demand"]["status"] == "ok"
+    assert result["handles"]["rejected_shop"]["status"] == "error"
+    assert result["collected"] > 0
     assert "private-response-secret" not in caplog.text
+
+
+def test_successful_rerun_recovers_from_not_found(tmp_path):
+    class SometimesMissing(MockInstagramBackend):
+        missing = True
+
+        def user_posts(self, username, limit, since):
+            if self.missing:
+                raise NotFound("profile missing")
+            return super().user_posts(username, limit, since)
+
+    backend = SometimesMissing(FIXTURE)
+    worker = collector(tmp_path, backend, max_retries=0)
+    first = worker.run([{"kind": "account", "value": "demo_demand", "limit": 1}])
+    assert first["handles"]["demo_demand"]["status"] == "not_found"
+    backend.missing = False
+    second = worker.run([{"kind": "account", "value": "demo_demand", "limit": 1}])
+    assert second["handles"]["demo_demand"]["status"] == "ok"
 
 
 def test_comments_all_includes_selected_zero_intent_posts(tmp_path):
@@ -315,6 +352,25 @@ def test_mock_cli_isolated_and_repeatable(tmp_path, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["collected"] == 0
 
 
+def test_configured_mock_backend_uses_seller_post_seed_file(tmp_path, monkeypatch, capsys):
+    from workers.ig_collector.cli import _main
+
+    seed_path = tmp_path / "data" / "ig_seeds.json"
+    seed_path.parent.mkdir()
+    seed_path.write_text(json.dumps({
+        "accounts": [{"username": "demo_demand", "limit": 5}],
+        "comments": {"mode": "all", "policy": "seller_post",
+                       "max_posts_per_run": 5, "max_per_post": 30},
+    }), encoding="utf-8")
+    output_dir = tmp_path / "collected"
+    monkeypatch.setenv("IG_COLLECT_STATE_FILE", str(tmp_path / "state.sqlite3"))
+
+    assert _main(["--backend", "mock", "--once", "--seeds", str(seed_path),
+                  "--output-dir", str(output_dir)], project_root=tmp_path) == 0
+    records = rows(output_dir / "seller_leads.jsonl")
+    assert [record["id"] for record in records] == ["ig:IGAd102:cc-5"]
+
+
 def test_no_write_methods_on_contract_and_backends():
     forbidden = {"follow", "like", "comment", "send_dm", "save", "direct_message"}
     classes = [InstagramBackend, MockInstagramBackend]
@@ -325,6 +381,89 @@ def test_no_write_methods_on_contract_and_backends():
         assert forbidden.isdisjoint(set(dir(cls)))
         assert not any(any(word in method.casefold() for word in ("follow", "like", "send_dm", "direct_message"))
                        for method in dir(cls))
+
+
+def test_handle_outcome_is_written_to_status_json(tmp_path):
+    worker = collector(tmp_path)
+    result = worker.run(SEEDS, COMMENTS)
+    status = json.loads((worker.output_dir / "status.json").read_text(encoding="utf-8"))
+    assert status["handles"]["demo_demand"]["status"] == "ok"
+    assert status["handles"]["demo_demand"]["posts"] == 5
+    assert result["seller_leads"] == 0
+
+
+def test_seller_post_policy_writes_only_lead_comments_to_separate_file(tmp_path):
+    worker = collector(tmp_path)
+    result = worker.run(SEEDS, {"mode": "all", "policy": "seller_post",
+                                "max_posts_per_run": 10, "max_per_post": 10})
+
+    records = rows(worker.output_dir / "seller_leads.jsonl")
+    assert result["seller_leads"] == 1
+    assert [record["id"] for record in records] == ["ig:IGAd102:cc-5"]
+    assert records[0]["metadata"]["intent"]["label"] == "price_question"
+
+
+def test_rate_limit_keeps_completed_handle_outcome(tmp_path):
+    class Limited(MockInstagramBackend):
+        def user_posts(self, username, limit, since):
+            if username == "limited_shop":
+                raise RateLimited("request limited")
+            return super().user_posts(username, limit, since)
+
+    worker = collector(tmp_path, Limited(FIXTURE), max_retries=0)
+    result = worker.run([
+        {"kind": "account", "value": "demo_demand", "limit": 1},
+        {"kind": "account", "value": "limited_shop", "limit": 1},
+        {"kind": "account", "value": "later_shop", "limit": 1},
+    ])
+
+    assert result["handles"]["demo_demand"]["status"] == "ok"
+    assert result["handles"]["limited_shop"]["status"] == "rate_limited"
+    assert result["handles"]["later_shop"]["status"] == "rate_limited"
+
+
+def test_one_missing_handle_does_not_stop_the_other_handles(tmp_path):
+    class OneMissing(MockInstagramBackend):
+        def user_posts(self, username, limit, since):
+            if username == "missing_shop":
+                raise NotFound("profile missing")
+            return super().user_posts(username, limit, since)
+
+    worker = collector(tmp_path, OneMissing(FIXTURE), max_retries=0)
+    result = worker.run([
+        {"kind": "account", "value": "missing_shop", "limit": 5},
+        {"kind": "account", "value": "demo_demand", "limit": 5},
+    ])
+
+    assert result["handles"]["missing_shop"]["status"] == "not_found"
+    assert result["handles"]["demo_demand"]["status"] == "ok"
+    assert result["collected"] > 0
+
+
+def test_private_profile_cooldown_is_persisted_and_skips_next_request(tmp_path):
+    from workers.ig_collector.backends.base import PrivateProfile
+
+    class Private(MockInstagramBackend):
+        def __init__(self, fixture):
+            super().__init__(fixture)
+            self.calls = 0
+
+        def user_posts(self, username, limit, since):
+            self.calls += 1
+            raise PrivateProfile("private profile")
+
+    backend = Private(FIXTURE)
+    worker = collector(tmp_path, backend, max_retries=0)
+    seed = [{"kind": "account", "value": "private_shop", "limit": 1}]
+
+    first = worker.run(seed)
+    cooldown = worker.store.get_seed_progress("private:account:private_shop")
+    second = worker.run(seed)
+
+    assert first["handles"]["private_shop"]["status"] == "private"
+    assert cooldown is not None and cooldown.tzinfo is not None
+    assert second["handles"]["private_shop"]["reason"] == "private_cooldown"
+    assert backend.calls == 1
 
 
 def test_instaloader_maps_fake_exception_types_without_importing_package():
@@ -363,7 +502,9 @@ def test_instaloader_session_load_failure_does_not_expose_path(monkeypatch, capl
 
     class Loader:
         def __init__(self, **kwargs):
-            self.context = object()
+            self.context = type("Context", (), {"request_timeout": None, "_session": None,
+                                                  "_graphql_session": None})()
+            type(self).context = self.context
 
         def load_session_from_file(self, username, **kwargs):
             assert username == "session-cookie-secret"
@@ -376,6 +517,7 @@ def test_instaloader_session_load_failure_does_not_expose_path(monkeypatch, capl
     with pytest.raises(AuthFailed) as error:
         InstaloaderBackend()._ensure()
     assert secret_path not in str(error.value) + caplog.text
+    assert Loader.context.request_timeout == 30
 
 
 def test_hikerapi_hashtag_mapping_parses_documented_response_shape():

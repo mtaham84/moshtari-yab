@@ -29,7 +29,7 @@ workers/ig_collector → JSONL (experimental; separate Flow A leads and Flow B r
 | پل به پنل | `apps/discovery/engine_bridge.py` + `sync_opportunities` | فرصت‌های منتشرشده را idempotent در مدل‌های Django می‌نویسد (به تفکیک کسب‌وکار) |
 | پنل | `apps/` + `templates/` | ثبت‌نام/ورود، محصولات، فرصت‌ها، داشبورد با اعداد واقعی |
 | جمع‌آوری X | `workers/x_collector/` + `x_ingest/` | worker فقط‌خواندنی، JSONL و upsert idempotent در `crawler.x_posts` |
-| جمع‌آوری Instagram | `workers/ig_collector/` + `instagram_discovery/` | دو مسیر آزمایشی: پست فروشنده ← لیدهای کامنت، یا پست درخواست خرید؛ JSONL جدا، هنوز به موتور نیاز وصل نیست |
+| جمع‌آوری Instagram | `workers/ig_collector/` + `instagram_discovery/` | فروشنده صفحه ثبت می‌کند؛ کامنت‌های دارای intent به فرصت پنل تبدیل می‌شوند، هنوز به موتور نیاز وصل نیست |
 
 ## امنیت، کلیدها و نگهداری داده
 
@@ -135,6 +135,12 @@ docker compose logs -f crawler engine sync
   - کامنت‌ها پیش‌فرض خاموش‌اند. پس از تنظیم seed و سقف‌های محدود، برای A از `comments.mode=all` استفاده کنید. `data/ig_lexicon_fa.json` cueهای طبقه‌بند A و `workers/ig_collector/policies.py` دو سیاست را نگه می‌دارند. برای ساخت batch برچسب‌گذاری و گزارش precision: `python -m instagram_discovery label-export --in data/ig_collected/seller_leads.jsonl --out data/ig_label/batch.csv --sample 200` و سپس `python -m instagram_discovery label-report --in data/ig_label/batch.csv`. فایل برچسب‌ها نادیده گرفته می‌شود چون ممکن است handle واقعی داشته باشد.
   - اجرای backendهای واقعی هنوز نیازمند بازبینی مجوز داده و قرارداد provider است؛ در این تغییر هیچ جمع‌آوری زنده یا بررسی میدانی انجام نشده است.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
+
+## Instagram pages
+- از «صفحه‌های اینستاگرام» در پنل، لینک یا آیدی صفحهٔ خودتان یا رقیب را ثبت کنید؛ برای هر صفحه می‌توان محصول پیش‌فرض گذاشت و پایش را متوقف یا حذف کرد.
+- سرویس اختیاری با `docker compose --profile ig up ig` هر چرخه seedها را می‌سازد، collector را اجرا و کامنت‌های دارای intent را به فرصت‌های پنل وارد می‌کند؛ backend را صریحاً در `IG_BACKEND` تنظیم کنید.
+- داده‌های خوانده‌شده شامل کپشن، متن کامنت و شناسه/نام کاربری عمومی است و در JSONL و فرصت پنل می‌ماند؛ درخواست‌ها فقط در worker انجام می‌شوند.
+- روش‌های scraping ممکن است شرایط Instagram را نقض کنند؛ مسیر پشتیبانی‌شدهٔ تولیدی Graph API است و در این کد پیاده‌سازی نشده است.
 
 Query generation supports X_QUERY_MODE=product|intent|both (default both), a per-cycle budget, query length/count caps, and an optional suffix. Use --print-queries to review generated queries and --dry-run to inspect the next cycle without invoking the CLI. LLM-generated problem phrases are not implemented yet (X_QUERY_LLM=false).
 

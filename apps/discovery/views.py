@@ -16,6 +16,7 @@ from django.core.cache import cache
 from django.db import IntegrityError
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
@@ -190,6 +191,17 @@ def opportunity_list_view(request):
     paginator = Paginator(qs, 25)
     page_obj = paginator.get_page(request.GET.get("page"))
     opportunities = page_obj.object_list
+    for opportunity in opportunities:
+        if opportunity.source_platform == "instagram":
+            opportunity.instagram_comment_detail_url = reverse(
+                "discovery:instagram_comment_detail", args=[opportunity.pk]
+            )
+            try:
+                author = parse_page_ref(opportunity.customer.source_username or "")
+            except PageRefError:
+                opportunity.instagram_profile_url = ""
+            else:
+                opportunity.instagram_profile_url = f"https://www.instagram.com/{author}/"
 
     # Global summary stats
     all_opps = Opportunity.objects.filter(business=business)
@@ -330,7 +342,14 @@ def opportunity_export_view(request):
                         profile_link = f"https://t.me/c/{raw_id}"
                     elif opp.source_platform in ("x", "twitter"):
                         profile_link = f"https://x.com/i/user/{raw_id}"
-        if not profile_link:
+        if opp.source_platform == "instagram":
+            try:
+                handle = parse_page_ref(c.source_username or "") if c else None
+            except PageRefError:
+                profile_link = "-"
+            else:
+                profile_link = f"https://www.instagram.com/{handle}/" if handle else "-"
+        elif not profile_link:
             profile_link = "-"
 
         # 4. پیام مشتری (Persian Message - Newlines normalized to keep single row)
@@ -415,11 +434,20 @@ def opportunity_detail_view(request, pk):
     matches = list(opportunity.product_matches.select_related("product").order_by("rank"))
     drafts = drafts_for(opportunity)
     analysis = getattr(opportunity, "ai_analysis", None)
+    customer_profile_url = opportunity.customer.source_profile_url
+    if opportunity.source_platform == "instagram":
+        try:
+            author = parse_page_ref(opportunity.customer.source_username or "")
+        except PageRefError:
+            customer_profile_url = ""
+        else:
+            customer_profile_url = f"https://www.instagram.com/{author}/"
     if matches and analysis and analysis.suggested_reply and not drafts.get(str(matches[0].product_id)):
         drafts[str(matches[0].product_id)] = analysis.suggested_reply
     context = {
         "opportunity": opportunity,
         "customer": opportunity.customer,
+        "customer_profile_url": customer_profile_url,
         "analysis": analysis,
         "product_matches": matches,
         "evidence_items": opportunity.evidence_items.all(),
@@ -456,6 +484,8 @@ def opportunity_rewrite_view(request, pk):
     """«دوباره بنویس»: a new draft for one matched product, with the seller's saved message style."""
     business = getattr(request.user, "business", None)
     opportunity = get_object_or_404(Opportunity.objects.select_related("business", "ai_analysis"), pk=pk, business=business)
+    if opportunity.source_platform == "instagram":
+        return JsonResponse({"status": "error", "message": "بازنویسی برای فرصت‌های اینستاگرام فعال نیست."}, status=400)
     pid = (request.POST.get("product_id") or "").strip()
     matches = opportunity.product_matches.select_related("product").order_by("rank")
     match = matches.filter(product_id=pid).first() if pid.isdigit() else matches.first()
@@ -644,6 +674,17 @@ def instagram_pages_view(request):
         return redirect("accounts:dashboard")
 
     pages = InstagramPage.objects.filter(business=business).select_related("default_product")
+    for page in pages:
+        try:
+            handle = parse_page_ref(page.handle)
+        except PageRefError:
+            page.profile_url = ""
+        else:
+            page.profile_url = f"https://www.instagram.com/{handle}/"
+    status_labels = {"ok": "موفق", "queued": "در صف", "not_found": "صفحه پیدا نشد",
+                     "private": "خصوصی", "rate_limited": "محدودیت موقت", "error": "خطا"}
+    for page in pages:
+        page.status_label = status_labels.get(page.last_status, page.last_status)
     products = Product.objects.filter(business=business, status="ACTIVE").order_by("name")
     if request.method == "POST":
         action = request.POST.get("action", "add")
@@ -661,7 +702,17 @@ def instagram_pages_view(request):
                 if kind not in {"own", "watched"}:
                     kind = "watched"
                 product_id = request.POST.get("default_product", "")
-                default_product = Product.objects.filter(pk=product_id, business=business).first() if product_id.isdigit() else None
+                if product_id and not product_id.isdigit():
+                    messages.error(request, "محصول پیش‌فرض معتبر نیست.")
+                    return render(request, "discovery/instagram_pages.html", {
+                        "pages": pages, "products": products,
+                    })
+                default_product = Product.objects.filter(pk=product_id, business=business).first() if product_id else None
+                if product_id and default_product is None:
+                    messages.error(request, "این محصول به کسب‌وکار شما تعلق ندارد.")
+                    return render(request, "discovery/instagram_pages.html", {
+                        "pages": pages, "products": products,
+                    })
                 try:
                     InstagramPage.objects.create(business=business, handle=handle, kind=kind, default_product=default_product)
                 except IntegrityError:
@@ -684,6 +735,30 @@ def instagram_pages_view(request):
             messages.success(request, "پایش صفحه فعال شد." if page.is_active else "پایش صفحه متوقف شد.")
             return redirect("discovery:instagram_pages")
     return render(request, "discovery/instagram_pages.html", {"pages": pages, "products": products})
+
+
+@login_required
+def instagram_comment_detail_view(request, pk):
+    business = getattr(request.user, "business", None)
+    opportunity = get_object_or_404(
+        Opportunity.objects.select_related("customer", "ai_analysis").prefetch_related(
+            "evidence_items", "product_matches__product",
+        ),
+        pk=pk, business=business, source_platform="instagram",
+    )
+    try:
+        author = parse_page_ref(opportunity.customer.source_username or "")
+    except PageRefError:
+        profile_url = ""
+    else:
+        profile_url = f"https://www.instagram.com/{author}/"
+    source_id = re.fullmatch(r"ig:([A-Za-z0-9_-]{1,80}):c[A-Za-z0-9_-]{1,80}", opportunity.source_message_id)
+    post_url = f"https://www.instagram.com/p/{source_id.group(1)}/" if source_id else ""
+    return render(request, "discovery/instagram_comment_detail.html", {
+        "opportunity": opportunity, "customer": opportunity.customer,
+        "analysis": getattr(opportunity, "ai_analysis", None),
+        "instagram_profile_url": profile_url, "instagram_post_url": post_url,
+    })
 
 
 @login_required

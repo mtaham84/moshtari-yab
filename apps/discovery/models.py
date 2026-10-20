@@ -364,6 +364,11 @@ class Opportunity(models.Model):
         verbose_name = "فرصت فروش"
         verbose_name_plural = "فرصت‌های فروش"
         ordering = ["-created_at"]
+        constraints = [models.UniqueConstraint(
+            fields=["business", "source_platform", "source_message_id"],
+            condition=models.Q(source_platform="instagram") & ~models.Q(source_message_id=""),
+            name="uniq_ig_opportunity_business_message",
+        )]
 
     def __str__(self):
         return f"فرصت #{self.id} - {self.customer} - {self.get_status_display()}"
@@ -725,6 +730,7 @@ class InstagramPage(models.Model):
                                         related_name="instagram_pages")
     is_active = models.BooleanField(default=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    queued_at = models.DateTimeField(null=True, blank=True)
     last_status = models.CharField(max_length=24, blank=True, default="")
     consecutive_failures = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -733,6 +739,7 @@ class InstagramPage(models.Model):
         constraints = [models.UniqueConstraint(Lower("handle"), "business",
                                                name="uniq_instagram_page_business_handle")]
         ordering = ["-is_active", "handle"]
+        indexes = [models.Index(fields=["business", "is_active", "last_run_at"], name="igpage_active_fair_idx")]
 
     def __str__(self):
         return f"@{self.handle} ({self.business})"

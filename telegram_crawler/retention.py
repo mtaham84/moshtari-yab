@@ -86,7 +86,7 @@ def scrub_panel_opportunities(cutoff: datetime, *, delete: bool) -> dict[str, in
     from apps.discovery.models import AIAnalysis, Customer, Evidence, Opportunity, OpportunityProductMatch
 
     qs = Opportunity.objects.filter(
-        source_platform__in=("telegram", "x"),
+        source_platform__in=("telegram", "x", "instagram"),
         trace_metadata__retention_scrubbed__isnull=True,
     ).annotate(_retention_age=Coalesce("source_posted_at", "source_message_timestamp", "created_at")).filter(
         _retention_age__lt=cutoff

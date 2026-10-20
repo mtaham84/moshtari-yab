@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+.cache/
 *.sqlite3
 *.db
 *.db-*
@@ -30,9 +31,6 @@ output/x_collector_state.sqlite3-wal
 venv/
 staticfiles/
 media/
-pytest-cache-files-*/
-output/.pytest_cache/
-output/pytest-cache-files-*/
 .DS_Store
 
 groups.txt

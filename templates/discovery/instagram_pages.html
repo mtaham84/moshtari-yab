@@ -27,15 +27,16 @@
 </div>
 <div class="p-card" style="padding: 24px;">
   <h2>صفحه‌های ثبت‌شده ({{ pages|length }})</h2>
-  {% if pages %}<div style="overflow-x: auto;"><table style="width: 100%; text-align: right;"><thead><tr><th>صفحه</th><th>نوع</th><th>محصول پیش‌فرض</th><th>وضعیت</th><th>آخرین اجرا</th><th>عملیات</th></tr></thead><tbody>
+{% if pages %}<div style="overflow-x: auto;"><table style="width: 100%; text-align: right;"><thead><tr><th>صفحه</th><th>نوع</th><th>محصول پیش‌فرض</th><th>وضعیت</th><th>آخرین اجرا</th><th>عملیات</th></tr></thead><tbody>
   {% for page in pages %}<tr>
-    <td><a href="https://www.instagram.com/{{ page.handle }}/" target="_blank" rel="noopener noreferrer nofollow">@{{ page.handle }}</a></td>
+    <td><a href="{{ page.profile_url }}" target="_blank" rel="noopener noreferrer nofollow">@{{ page.handle }}</a></td>
     <td>{{ page.get_kind_display }}</td><td>{{ page.default_product.name|default:"—" }}</td>
-    <td>{% if page.is_active %}فعال{% else %}متوقف{% endif %}{% if page.last_status %} · {{ page.last_status }}{% endif %}</td>
+    <td>{% if page.is_active %}فعال{% else %}متوقف{% endif %}{% if page.status_label %} · {{ page.status_label }}{% endif %}</td>
     <td>{{ page.last_run_at|default:"—" }}</td>
     <td><form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm p-btn-secondary" name="action" value="toggle" type="submit">{% if page.is_active %}توقف پایش{% else %}فعال‌سازی{% endif %}</button></form>
     <form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm" name="action" value="remove" type="submit">حذف</button></form></td>
   </tr>{% endfor %}
   </tbody></table></div>{% else %}<p>هنوز صفحه‌ای اضافه نشده است.</p>{% endif %}
 </div>
+<p style="margin-top: 18px;">توجه: روش‌های جمع‌آوری از وب ممکن است با شرایط اینستاگرام ناسازگار باشند. مسیر پیشنهادی برای استفادهٔ تولیدی Graph API است که در این نسخه پیاده‌سازی نشده.</p>
 {% endblock %}
