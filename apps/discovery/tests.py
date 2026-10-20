@@ -301,6 +301,8 @@ class PanelViewTests(TestCase):
         self.assertEqual(_safe_csv_cell("متن فارسی"), "متن فارسی")
 
     def test_csv_export_keeps_dash_placeholder(self):
+        from unittest.mock import patch
+
         self.mine.customer.source_username = ""
         self.mine.customer.external_user_id = ""
         self.mine.customer.phone_number = None
@@ -315,7 +317,8 @@ class PanelViewTests(TestCase):
         self.mine.ai_analysis.suggested_reply = ""
         self.mine.ai_analysis.save(update_fields=["need", "suggested_reply"])
 
-        response = self.client.get(reverse("discovery:opportunity_export"))
+        with patch("apps.discovery.views.drafts_for", return_value={}):
+            response = self.client.get(reverse("discovery:opportunity_export"))
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
 
         self.assertEqual(rows[1][0], "-")
