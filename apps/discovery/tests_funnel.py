@@ -93,7 +93,9 @@ class FunnelTests(EngineSchemaMixin, TestCase):
                     (decided_at, f"x:p:{product.pk}"))
         for opportunity in Opportunity.objects.all():
             AIAnalysis.objects.create(opportunity=opportunity, cost_toman=100)
-        with override_settings(NEED_ENGINE_SCHEMA=self._ne_store.schema), patch.dict(os.environ, {"NE_X_ENABLED": "true", "NE_X_MODE": "product"}):
+        with override_settings(NEED_ENGINE_SCHEMA=self._ne_store.schema), patch.dict(
+            os.environ, {"NE_X_ENABLED": "true", "NE_X_MODE": "product", "NE_X_PREFILTER": "on"}
+        ):
             result = funnel("x", since, until, business)
         assert result["shown"] == 20
         assert result["contacted"] == 5
