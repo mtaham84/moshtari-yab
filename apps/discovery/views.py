@@ -13,7 +13,7 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.core.paginator import Paginator
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -713,8 +713,14 @@ def instagram_pages_view(request):
                     return render(request, "discovery/instagram_pages.html", {
                         "pages": pages, "products": products,
                     })
+                if InstagramPage.objects.filter(business=business, handle__iexact=handle).exists():
+                    messages.error(request, "این صفحه قبلاً به فهرست شما اضافه شده است.")
+                    return render(request, "discovery/instagram_pages.html", {
+                        "pages": pages, "products": products,
+                    })
                 try:
-                    InstagramPage.objects.create(business=business, handle=handle, kind=kind, default_product=default_product)
+                    with transaction.atomic():
+                        InstagramPage.objects.create(business=business, handle=handle, kind=kind, default_product=default_product)
                 except IntegrityError:
                     messages.error(request, "این صفحه قبلاً به فهرست شما اضافه شده است.")
                 else:
