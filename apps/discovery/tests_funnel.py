@@ -2,13 +2,41 @@ import os
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.discovery.models import AIAnalysis, Customer, Opportunity
 from apps.products.models import Product
 
-from .funnel import funnel
+from .funnel import _extracted_count, _matched_count, _prefiltered_in_count, funnel
 from .tests import EngineSchemaMixin, seller
+
+
+class UnsupportedFunnelStageTests(SimpleTestCase):
+    def test_unsupported_sources_return_before_checking_engine_tables(self):
+        since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        until = since + timedelta(days=1)
+        for count in (_prefiltered_in_count, _extracted_count, _matched_count):
+            for source in ("telegram", "instagram"):
+                with self.subTest(count=count.__name__, source=source):
+                    with patch("apps.discovery.funnel._table_exists", side_effect=AssertionError("database accessed")):
+                        self.assertIsNone(count(source, since, until))
+
+    def test_x_engine_stages_use_stage_specific_sql_and_bound_parameters(self):
+        since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        until = since + timedelta(days=1)
+
+        for count, expected in (
+            (_prefiltered_in_count, "e.keep AND e.mode = 'on'"),
+            (_extracted_count, "e.need_id IS NOT NULL"),
+            (_matched_count, "e.outcome = 'customer'"),
+        ):
+            with self.subTest(stage=count.__name__), patch("apps.discovery.funnel._table_exists", return_value=True), patch(
+                "apps.discovery.funnel._query_count", return_value=7
+            ) as query_count:
+                self.assertEqual(count("x", since, until), 7)
+            sql, params = query_count.call_args.args
+            self.assertIn(expected, sql)
+            self.assertEqual(params, [since, until])
 
 
 class FunnelTests(EngineSchemaMixin, TestCase):

@@ -23,40 +23,73 @@ def _table_exists(name: str) -> bool:
         return cursor.fetchone()[0] is not None
 
 
-def _engine_count(table: str, source: str, since: datetime, until: datetime, business=None,
-                  time_column: str = "decided_at", filters: str = "") -> int | None:
-    if not _table_exists(table):
-        return None
-    timestamp_value = f"to_timestamp(e.{time_column})" if time_column == "ts" else f"e.{time_column}"
-    params = [since, until]
-    from_clause = f"{_schema()}.{table} e"
-    where = [f"{timestamp_value} >= %s", f"{timestamp_value} < %s"]
-    if source == "instagram":
-        return None
-    if table == "chat_analysed":
-        where.append("e.chat_id = 'x:public'" if source == "x" else "e.chat_id NOT LIKE 'x:%'")
-    elif source == "x":
-        where.append("e.chat_id LIKE 'x:%'")
-    else:
-        if table == "chat_analysed":
-            where.append("e.chat_id NOT LIKE 'x:%'")
-        else:
-            return None
-    if business is not None:
-        if source != "x" or table not in {"x_filter_decisions", "x_hit_results"}:
-            return None
-        from apps.products.models import Product
-
-        product_table = connection.ops.quote_name(Product._meta.db_table)
-        from_clause += f" JOIN {product_table} p ON e.chat_id = 'x:p:' || p.id::text"
-        where.append("p.business_id = %s")
-        params.append(business.pk)
-    if filters:
-        where.append(filters.replace("outcome", "e.outcome").replace("keep", "e.keep").replace("need_id", "e.need_id").replace("mode", "e.mode"))
-    sql = f"SELECT COUNT(*) FROM {from_clause} WHERE {' AND '.join(where)}"
+def _query_count(sql: str, params: list) -> int:
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
         return int(cursor.fetchone()[0])
+
+
+def _prefiltered_in_count(source: str, since: datetime, until: datetime, business=None) -> int | None:
+    if source != "x":
+        return None
+    if not _table_exists("x_filter_decisions"):
+        return None
+    params = [since, until]
+    product_join = ""
+    business_filter = ""
+    if business is not None:
+        from apps.products.models import Product
+
+        product_table = connection.ops.quote_name(Product._meta.db_table)
+        product_join = f" JOIN {product_table} p ON e.chat_id = 'x:p:' || p.id::text"
+        business_filter = " AND p.business_id = %s"
+        params.append(business.pk)
+    sql = f"""SELECT COUNT(*) FROM {_schema()}.x_filter_decisions e{product_join}
+             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE 'x:%'
+               AND e.keep AND e.mode = 'on'{business_filter}"""
+    return _query_count(sql, params)
+
+
+def _extracted_count(source: str, since: datetime, until: datetime, business=None) -> int | None:
+    if source != "x":
+        return None
+    if not _table_exists("x_hit_results"):
+        return None
+    params = [since, until]
+    product_join = ""
+    business_filter = ""
+    if business is not None:
+        from apps.products.models import Product
+
+        product_table = connection.ops.quote_name(Product._meta.db_table)
+        product_join = f" JOIN {product_table} p ON e.chat_id = 'x:p:' || p.id::text"
+        business_filter = " AND p.business_id = %s"
+        params.append(business.pk)
+    sql = f"""SELECT COUNT(*) FROM {_schema()}.x_hit_results e{product_join}
+             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE 'x:%'
+               AND e.need_id IS NOT NULL{business_filter}"""
+    return _query_count(sql, params)
+
+
+def _matched_count(source: str, since: datetime, until: datetime, business=None) -> int | None:
+    if source != "x":
+        return None
+    if not _table_exists("x_hit_results"):
+        return None
+    params = [since, until]
+    product_join = ""
+    business_filter = ""
+    if business is not None:
+        from apps.products.models import Product
+
+        product_table = connection.ops.quote_name(Product._meta.db_table)
+        product_join = f" JOIN {product_table} p ON e.chat_id = 'x:p:' || p.id::text"
+        business_filter = " AND p.business_id = %s"
+        params.append(business.pk)
+    sql = f"""SELECT COUNT(*) FROM {_schema()}.x_hit_results e{product_join}
+             WHERE e.decided_at >= %s AND e.decided_at < %s AND e.chat_id LIKE 'x:%'
+               AND e.outcome = 'customer'{business_filter}"""
+    return _query_count(sql, params)
 
 
 def funnel(source: str, since: datetime, until: datetime, business=None) -> dict:
@@ -96,18 +129,14 @@ def funnel(source: str, since: datetime, until: datetime, business=None) -> dict
                 )
                 collected = int(cursor.fetchone()[0])
 
-    engine_counts = {"prefiltered_in": None}
+    prefiltered_in = None
     if source == "x" and os.getenv("NE_X_PREFILTER", "shadow") == "on":
-        engine_counts["prefiltered_in"] = _engine_count("x_filter_decisions", source, since, until, business, filters="keep AND mode = 'on'")
-    matched = None
+        prefiltered_in = _prefiltered_in_count(source, since, until, business)
     x_enabled = os.getenv("NE_X_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
     x_mode = os.getenv("NE_X_MODE", "product")
-    if source == "x" and x_enabled and x_mode == "product" and business is None:
-        matched = _engine_count("x_hit_results", source, since, until, filters="outcome = 'customer'")
-    elif source == "x" and business is not None and x_enabled and x_mode == "product":
-        matched = _engine_count("x_hit_results", source, since, until, business, filters="outcome = 'customer'")
+    matched = _matched_count(source, since, until, business) if source == "x" and x_enabled and x_mode == "product" else None
     if source == "x" and x_enabled and x_mode == "product":
-        extraction_count = _engine_count("x_hit_results", source, since, until, business, filters="need_id IS NOT NULL")
+        extraction_count = _extracted_count(source, since, until, business)
     shown = opportunities.count()
     opportunity_costs = opportunities.aggregate(
         total=Sum("ai_analysis__cost_toman"),
@@ -121,7 +150,7 @@ def funnel(source: str, since: datetime, until: datetime, business=None) -> dict
     return {
         "source": source,
         "collected": collected if business is None else None,
-        "prefiltered_in": engine_counts["prefiltered_in"] if source == "x" and os.getenv("NE_X_PREFILTER", "shadow") == "on" else None,
+        "prefiltered_in": prefiltered_in,
         "extracted": extraction_count,
         "matched": matched,
         "shown": shown,
