@@ -464,8 +464,6 @@ class PanelViewTests(TestCase):
         products = Product.objects.filter(business__in=[self.biz, self.other], status="ACTIVE",
                                            is_discovery_active=True)
         product_tokens = {name: set(tokens(name)) for name in products.values_list("name", flat=True)}
-        print("caption_tokens:", sorted(caption_tokens))
-        print("product_tokens:", {name: sorted(value) for name, value in product_tokens.items()})
         if not any(caption_tokens & item_tokens for item_tokens in product_tokens.values()):
             for business in (self.biz, self.other):
                 Product.objects.create(business=business, name=caption, description="x",
