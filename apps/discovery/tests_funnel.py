@@ -36,7 +36,9 @@ class UnsupportedFunnelStageTests(SimpleTestCase):
                 self.assertEqual(count("x", since, until), 7)
             sql, params = query_count.call_args.args
             self.assertIn(expected, sql)
-            self.assertEqual(params, [since, until])
+            self.assertIn("LIKE %s", sql)
+            self.assertNotIn("%'", sql)
+            self.assertEqual(params, [since, until, "x:%"])
 
 
 class FunnelTests(EngineSchemaMixin, TestCase):
