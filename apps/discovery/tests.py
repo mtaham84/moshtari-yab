@@ -398,7 +398,8 @@ class PanelViewTests(TestCase):
         self.assertEqual(InstagramPage.objects.filter(business=self.biz).count(), 1)
         response = self.client.post(url, {"page_ref": "javascript:alert(1)"})
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(any("معتبر" in str(message) for message in get_messages(response.wsgi_request)))
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertIn("لینک باید با http یا https باشد؛ می‌توانید فقط آیدی صفحه را هم وارد کنید.", messages)
         theirs = InstagramPage.objects.create(business=self.other, handle="other_shop")
         self.assertNotContains(self.client.get(url), "@other_shop")
         self.assertEqual(self.client.post(url, {"action": "remove", "page_id": theirs.pk}).status_code, 404)
