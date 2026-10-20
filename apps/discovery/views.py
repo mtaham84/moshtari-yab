@@ -27,6 +27,12 @@ from .models import (MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
 
+def _safe_csv_cell(value):
+    value = str(value)
+    if value != "-" and value.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + value
+    return value
+
 
 @login_required
 def api_analytics_report_view(request):
@@ -370,12 +376,12 @@ def opportunity_export_view(request):
             suggested_reply = " ".join(suggested_reply.split())
 
         writer.writerow([
-            customer_id,
-            social_network,
-            profile_link,
-            customer_message,
-            recommended_products,
-            suggested_reply,
+            _safe_csv_cell(customer_id),
+            _safe_csv_cell(social_network),
+            _safe_csv_cell(profile_link),
+            _safe_csv_cell(customer_message),
+            _safe_csv_cell(recommended_products),
+            _safe_csv_cell(suggested_reply),
         ])
 
     csv_bytes = b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")

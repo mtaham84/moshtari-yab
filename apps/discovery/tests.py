@@ -1,4 +1,6 @@
 """Panel side of the pipeline: need_engine.opportunities → panel records → views, dashboard and product-card tracking."""
+import io
+import csv
 import json
 import tempfile
 import uuid
@@ -18,6 +20,7 @@ from apps.products.models import Category, Product
 
 from .engine_bridge import engine_totals, import_opportunity
 from .models import Customer, Opportunity, ProductOrder
+from .views import _safe_csv_cell
 
 User = get_user_model()
 T0 = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
@@ -265,6 +268,59 @@ class PanelViewTests(TestCase):
         body = resp.content.decode("utf-8-sig")
         self.assertIn("دستکش گرم", body)
         self.assertNotIn("دستکش موتور", body)            # only the seller's own opportunities
+
+    def test_csv_export_escapes_formulas_and_keeps_persian_and_empty_marker(self):
+        self.mine.customer.source_username = ""
+        self.mine.customer.external_user_id = "telegram_=HYPERLINK(\"https://bad.invalid\")"
+        self.mine.customer.source_profile_url = "https://t.me/ali"
+        self.mine.customer.save()
+        self.mine.source_raw_message = "=HYPERLINK(\"https://bad.invalid\")"
+        self.mine.save()
+        match = self.mine.product_matches.first()
+        match.product.name = "+1+1"
+        match.product.save(update_fields=["name"])
+        self.mine.ai_analysis.suggested_reply = "@SUM(1,1)"
+        self.mine.ai_analysis.save(update_fields=["suggested_reply"])
+
+        response = self.client.get(reverse("discovery:opportunity_export"))
+
+        self.assertEqual(response.content[:3], b"\xef\xbb\xbf")
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+        self.assertEqual(rows[1][0], "'=HYPERLINK(\"https://bad.invalid\")")
+        self.assertEqual(rows[1][2], "https://t.me/ali")
+        self.assertEqual(rows[1][3], "'=HYPERLINK(\"https://bad.invalid\")")
+        self.assertEqual(rows[1][4], "'+1+1")
+        self.assertEqual(rows[1][5], "'@SUM(1,1)")
+        self.assertEqual(rows[1][1], "تلگرام")
+
+    def test_csv_cell_helper_escapes_formula_prefixes(self):
+        for prefix in ("=", "+", "-", "@", "\t", "\r"):
+            with self.subTest(prefix=repr(prefix)):
+                self.assertEqual(_safe_csv_cell(prefix + "1"), "'" + prefix + "1")
+        self.assertEqual(_safe_csv_cell("-"), "-")
+        self.assertEqual(_safe_csv_cell("متن فارسی"), "متن فارسی")
+
+    def test_csv_export_keeps_dash_placeholder(self):
+        self.mine.customer.source_username = ""
+        self.mine.customer.external_user_id = ""
+        self.mine.customer.phone_number = None
+        self.mine.customer.name = ""
+        self.mine.customer.source_profile_url = ""
+        self.mine.customer.save()
+        self.mine.source_raw_message = ""
+        self.mine.save()
+        self.mine.product_matches.all().delete()
+        self.mine.ai_analysis.suggested_reply = ""
+        self.mine.ai_analysis.save(update_fields=["suggested_reply"])
+
+        response = self.client.get(reverse("discovery:opportunity_export"))
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+
+        self.assertEqual(rows[1][0], "-")
+        self.assertEqual(rows[1][2], "-")
+        self.assertEqual(rows[1][3], "-")
+        self.assertEqual(rows[1][4], "-")
+        self.assertEqual(rows[1][5], "-")
 
     def test_status_update(self):
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "CONTACTED"})
