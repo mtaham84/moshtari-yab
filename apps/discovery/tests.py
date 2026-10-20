@@ -310,8 +310,10 @@ class PanelViewTests(TestCase):
         self.mine.source_raw_message = ""
         self.mine.save()
         self.mine.product_matches.all().delete()
+        self.mine.evidence_items.all().delete()
+        self.mine.ai_analysis.need = ""
         self.mine.ai_analysis.suggested_reply = ""
-        self.mine.ai_analysis.save(update_fields=["suggested_reply"])
+        self.mine.ai_analysis.save(update_fields=["need", "suggested_reply"])
 
         response = self.client.get(reverse("discovery:opportunity_export"))
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
