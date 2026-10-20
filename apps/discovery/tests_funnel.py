@@ -80,14 +80,17 @@ class FunnelTests(EngineSchemaMixin, TestCase):
                 created_at=since + timedelta(hours=index), feedback_at=since + timedelta(hours=index)
             )
         store = self.store()
-        store._exec("INSERT INTO {s}.x_filter_decisions (chat_id, message_id, author_id, keep, reason, signals, mode) VALUES (%s,%s,'author',TRUE,'ok','{}','on')",
-                    (f"x:p:{product.pk}", 1))
+        decided_at = since + timedelta(hours=1)
+        store._exec("INSERT INTO {s}.x_filter_decisions (chat_id, message_id, author_id, keep, reason, signals, mode, decided_at) VALUES (%s,%s,'author',TRUE,'ok','{}','on',%s)",
+                    (f"x:p:{product.pk}", 1, decided_at))
         store.record_x_hit_results([
             (f"x:p:{product.pk}", index, "customer", "matched", f"need_{index}")
             if index < 10 else
             (f"x:p:{product.pk}", index, "not_fit", "wrong product", None)
             for index in range(20)
         ])
+        store._exec("UPDATE {s}.x_hit_results SET decided_at = %s WHERE chat_id = %s",
+                    (decided_at, f"x:p:{product.pk}"))
         for opportunity in Opportunity.objects.all():
             AIAnalysis.objects.create(opportunity=opportunity, cost_toman=100)
         with override_settings(NEED_ENGINE_SCHEMA=self._ne_store.schema), patch.dict(os.environ, {"NE_X_ENABLED": "true", "NE_X_MODE": "product"}):
