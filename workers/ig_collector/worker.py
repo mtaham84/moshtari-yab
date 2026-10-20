@@ -18,6 +18,7 @@ from shared.collector_kit.state_store import create_state_store
 from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.status import write_status
 from shared.records import RecordError, SourceRecord, to_json_line
+from shared.instagram import PageRefError, parse_page_ref
 from .policies import COMMENT_POLICIES, buyer_request
 
 from .backends.base import (
@@ -69,8 +70,10 @@ def is_persian_caption(text: str) -> bool:
 
 
 def _safe_handle(value: Any) -> str | None:
-    raw = str(value or "").strip().lstrip("@").split("/")[0]
-    return raw if _HANDLE.fullmatch(raw) else None
+    try:
+        return parse_page_ref(str(value or ""))
+    except PageRefError:
+        return None
 
 
 def normalize_post(post: InstagramPost, seed: str, backend: str, intent: PersianIntentLexicon) -> dict[str, Any] | None:
