@@ -13,6 +13,9 @@ db.sqlite3
 *.sqlite3
 *.db
 *.db-*
+.pytest-ig-tmp/
+data/ig_temp_test/
+output/*.sqlite3
 *.session
 data/
 media/

@@ -37,3 +37,5 @@ output/pytest-cache-files-*/
 
 groups.txt
 xray/config.json
+xray/*.txt
+!xray/*.example.txt
