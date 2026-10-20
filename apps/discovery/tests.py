@@ -129,8 +129,8 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         opportunity = Opportunity.objects.get(business=self.biz)
         self.assertEqual(opportunity.source_platform, "x")
         self.assertEqual(opportunity.customer.source_profile_url, "https://x.com/buyer")
-        self.assertIn("https://x.com/buyer/status/1990000000000001001",
-                      opportunity.evidence_items.get().source_reference)
+        customer_message = opportunity.evidence_items.get(evidence_type="customer_message")
+        self.assertIn("https://x.com/buyer/status/1990000000000001001", customer_message.source_reference)
 
     def test_reimport_is_idempotent_and_status_updates_respect_seller_choice(self):
         import_opportunity(engine_payload("need_000002_ab", [self.p1.id, self.q1.id]))
