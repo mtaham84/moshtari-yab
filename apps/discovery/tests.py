@@ -322,6 +322,32 @@ class PanelViewTests(TestCase):
         self.assertEqual(rows[1][4], "-")
         self.assertEqual(rows[1][5], "-")
 
+    def test_csv_strips_platform_prefix_for_id_and_profile_link(self):
+        self.mine.customer.source_username = ""
+        self.mine.customer.external_user_id = "telegram_12345"
+        self.mine.customer.source_profile_url = ""
+        self.mine.customer.save()
+
+        response = self.client.get(reverse("discovery:opportunity_export"))
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+
+        self.assertEqual(rows[1][0], "12345")
+        self.assertEqual(rows[1][2], "https://t.me/c/12345")
+
+    def test_csv_draft_failure_is_logged_and_keeps_fallback(self):
+        from unittest.mock import patch
+
+        self.mine.ai_analysis.suggested_reply = ""
+        self.mine.ai_analysis.save(update_fields=["suggested_reply"])
+        with patch("apps.discovery.views.drafts_for", side_effect=RuntimeError("offline")):
+            with self.assertLogs("apps.discovery.views", level="WARNING") as logs:
+                response = self.client.get(reverse("discovery:opportunity_export"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(str(self.mine.id), logs.output[0])
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+        self.assertIn("سلام وقت بخیر", rows[1][5])
+
     def test_status_update(self):
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "CONTACTED"})
         self.assertEqual(r.json()["new_status"], "CONTACTED")

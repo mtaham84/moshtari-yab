@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import logging
 import os
 import re
 from datetime import timedelta
@@ -26,6 +27,17 @@ from .models import (MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES
                     XNegativeTerm, XSearchQuery)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
+
+logger = logging.getLogger(__name__)
+_PLATFORM_ID_PREFIXES = ("telegram_", "x_", "instagram_", "divar_")
+
+
+def _strip_platform_prefix(value):
+    for prefix in _PLATFORM_ID_PREFIXES:
+        if value.startswith(prefix):
+            return value[len(prefix):]
+    return value
+
 
 def _safe_csv_cell(value):
     value = str(value)
@@ -283,11 +295,7 @@ def opportunity_export_view(request):
                 u_str = c.source_username.strip().lstrip("@")
                 customer_id = f"@{u_str}" if u_str else "-"
             elif c.external_user_id and c.external_user_id.strip():
-                raw_id = c.external_user_id.strip()
-                for pfx in ("telegram_", "x_", "instagram_", "divar_"):
-                    if raw_id.startswith(pfx):
-                        raw_id = raw_id[len(pfx):]
-                        break
+                raw_id = _strip_platform_prefix(c.external_user_id.strip())
                 customer_id = raw_id or "-"
             elif c.phone_number and c.phone_number.strip():
                 customer_id = c.phone_number.strip()
@@ -312,11 +320,7 @@ def opportunity_export_view(request):
                     elif opp.source_platform == "instagram":
                         profile_link = f"https://instagram.com/{clean_un}"
             elif c.external_user_id and c.external_user_id.strip():
-                raw_id = c.external_user_id.strip()
-                for pfx in ("telegram_", "x_", "instagram_", "divar_"):
-                    if raw_id.startswith(pfx):
-                        raw_id = raw_id[len(pfx):]
-                        break
+                raw_id = _strip_platform_prefix(c.external_user_id.strip())
                 if raw_id.isdigit():
                     if opp.source_platform == "telegram":
                         profile_link = f"https://t.me/c/{raw_id}"
@@ -361,7 +365,7 @@ def opportunity_export_view(request):
                 if drafts:
                     suggested_reply = next((v for v in drafts.values() if v), "").strip()
             except Exception:
-                pass
+                logger.warning("Could not load reply drafts for opportunity %s", opp.id)
 
         if not suggested_reply:
             first_prod = matches[0].product.name.strip() if (matches and matches[0].product) else ""
