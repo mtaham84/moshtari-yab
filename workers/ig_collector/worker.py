@@ -626,14 +626,8 @@ class InstagramCollector:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         target = self.output_dir / "status.json"
         payload = {**result, "daily_cap": self.daily_cap, "updated_at": datetime.now(timezone.utc).isoformat()}
-        allowed_root = self.output_dir.resolve()
-        for key in ("output",):
-            value = payload.get(key)
-            if value:
-                try:
-                    Path(value).resolve().relative_to(allowed_root)
-                except ValueError:
-                    payload[key] = str(Path(value).name)
+        if payload.get("output"):
+            payload["output"] = Path(payload["output"]).name
         write_status(target, payload)
 
 

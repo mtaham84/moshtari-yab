@@ -629,6 +629,7 @@ def test_status_output_path_is_relative_when_outside_project(tmp_path):
     status = (worker.output_dir / "status.json").read_text(encoding="utf-8")
     assert str(tmp_path) not in status
     assert Path(result["output"]).name in status
+    assert json.loads(status)["output"] == Path(result["output"]).name
 
 
 def test_persian_text_round_trips_jsonl(tmp_path):
