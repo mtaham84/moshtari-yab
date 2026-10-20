@@ -33,7 +33,7 @@ async def test_expired_live_message_is_skipped_and_progress_advances(monkeypatch
     assert archive.progress == [(42, 19)]
 
 
-def test_expired_reply_context_is_saved_as_anonymous_stub(monkeypatch):
+async def test_expired_reply_context_is_saved_as_anonymous_stub(monkeypatch):
     monkeypatch.setenv("DATA_RETENTION_DAYS", "30")
     archive = MemoryArchive()
     monitor = CrawlerMonitor(object(), archive=archive, parent_depth=0)
@@ -50,7 +50,7 @@ def test_expired_reply_context_is_saved_as_anonymous_stub(monkeypatch):
         entities=None,
     )
 
-    assert monitor._store(state, message, is_context=True) is True
+    assert await monitor._store(state, message, is_context=True) is True
 
     saved, = archive.messages
     assert saved["is_context"] is True
