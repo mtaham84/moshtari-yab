@@ -9,7 +9,9 @@ def send_verification_email(email: str, code: str, first_name: str = ""):
     Sends a styled, responsive Persian HTML verification email with the 6-digit OTP code.
     """
     subject = f"کد احراز هویت شما در مشتری‌یاب: {code}"
-    from_email = settings.DEFAULT_FROM_EMAIL or "sitebartar3@gmail.com"
+    from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
+    if not from_email:
+        raise RuntimeError("Configure DEFAULT_FROM_EMAIL or EMAIL_HOST_USER before sending verification emails.")
     recipient_list = [email]
 
     user_greeting = f"سلام {first_name} گرامی" if first_name else "سلام کاربر گرامی"

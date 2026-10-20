@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -8,21 +7,25 @@ import re
 import random
 import sqlite3
 import time
-from contextlib import closing
+from contextlib import closing, nullcontext
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from . import cli_mapping as mapping
 from .client import XCliClient, XCliError
-from need_engine.x_filters import PROMOTIONAL_PATTERNS, is_promotional_post
+from file_lock import exclusive_file_lock
+from shared.collector_kit.heartbeat import beat_error, beat_ok
+from shared.collector_kit.seen import SeenStore
+from shared.collector_kit.state_store import create_state_store
+from shared.records import SourceRecord, to_json_line
+from shared.x_filters import is_promotional_post
+from shared.collector_kit.jsonl import append_line
+from shared.collector_kit.limits import CircuitBreaker, Cooldown, DailyCap, retry_delay
+from shared.collector_kit.status import write_status
 
 log = logging.getLogger("x_collector")
 RATE_LIMIT_COOLDOWN_SECONDS = 15 * 60
-PROMOTIONAL_PATTERNS = (
-    r"(?:buy now|shop now|limited offer|order now|use code|discount|promo code|sponsored|giveaway)",
-    r"(?:تخفیف|فروش ویژه|ثبت سفارش|سفارش دهید|خرید کنید|همین حالا بخرید|ارسال رایگان|کد تخفیف|فروش فوری|موجود شد|برای خرید|دایرکت بدهید|دایرکت دهید|تماس بگیرید|قیمت ویژه)",
-)
 
 
 def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
@@ -64,7 +67,7 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         handle = str(handle).strip().lstrip("@").split("/")[0]
     tweet_url = f"https://x.com/{handle}/status/{clean_id}" if handle else None
     created_at = _normalize_created_at(_first(raw, mapping.OUTPUT_CREATED_KEYS))
-    return {
+    return SourceRecord.from_dict({
         "id": clean_id,
         "source": "x",
         "text": text.strip(),
@@ -76,7 +79,7 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         "created_at": str(created_at) if created_at else None,
         "url": tweet_url,
         "metadata": {"collector": "agent-reach-cli", "raw_cli": raw, "lang": _first(raw, mapping.OUTPUT_LANG_KEYS), "query": query},
-    }
+    }).as_dict()
 
 
 def _normalize_created_at(value: Any) -> str | None:
@@ -104,102 +107,17 @@ def _normalize_created_at(value: Any) -> str | None:
         return None
 
 
-class SeenStore:
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS seen_tweets (tweet_key TEXT PRIMARY KEY, first_seen TEXT NOT NULL)")
-            connection.execute("CREATE TABLE IF NOT EXISTS daily_counts (day TEXT PRIMARY KEY, collected INTEGER NOT NULL)")
-            connection.execute("CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            connection.execute("CREATE TABLE IF NOT EXISTS query_runs (query TEXT PRIMARY KEY, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT)")
-            if "last_ok_at" not in {row[1] for row in connection.execute("PRAGMA table_info(query_runs)")}:
-                connection.execute("ALTER TABLE query_runs ADD COLUMN last_ok_at TEXT")   # start of the last successful search
-            connection.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
-            connection.commit()
-
-    @staticmethod
-    def _key(record: dict[str, Any]) -> str:
-        if record.get("id"):
-            value = "id:" + str(record["id"]) + (f"|p:{record['product_id']}" if record.get("product_id") else "")
-        else:
-            value = "text:" + str(record.get("text", ""))
-        return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-    def has_seen(self, record: dict[str, Any]) -> bool:
-        with closing(sqlite3.connect(self.path)) as connection:
-            return connection.execute("SELECT 1 FROM seen_tweets WHERE tweet_key=?", (self._key(record),)).fetchone() is not None
-
-    def add(self, record: dict[str, Any], daily_cap: int) -> bool:
-        day_key = date.today().isoformat()
-        with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT collected FROM daily_counts WHERE day=?", (day_key,)).fetchone()
-            if row and row[0] >= daily_cap:
-                connection.rollback()
-                return False
-            cursor = connection.execute("INSERT OR IGNORE INTO seen_tweets(tweet_key,first_seen) VALUES(?,?)", (self._key(record), datetime.now(timezone.utc).isoformat()))
-            if cursor.rowcount:
-                connection.execute("INSERT INTO daily_counts(day,collected) VALUES(?,1) ON CONFLICT(day) DO UPDATE SET collected=collected+1", (day_key,))
-            connection.commit()
-            return bool(cursor.rowcount)
-
-    def count_today(self, day: date | None = None) -> int:
-        day_key = (day or date.today()).isoformat()
-        with closing(sqlite3.connect(self.path)) as connection:
-            row = connection.execute("SELECT collected FROM daily_counts WHERE day=?", (day_key,)).fetchone()
-        return int(row[0]) if row else 0
-
-    def increment_today(self, amount: int, day: date | None = None) -> None:
-        day_key = (day or date.today()).isoformat()
-        with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute("INSERT INTO daily_counts(day,collected) VALUES(?,?) ON CONFLICT(day) DO UPDATE SET collected=collected+excluded.collected", (day_key, amount))
-            connection.commit()
-
-    def get_setting(self, key: str) -> str | None:
-        with closing(sqlite3.connect(self.path)) as connection:
-            row = connection.execute("SELECT value FROM collector_settings WHERE key=?", (key,)).fetchone()
-        return row[0] if row else None
-
-    def set_setting(self, key: str, value: str) -> None:
-        with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute("INSERT INTO collector_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
-            connection.commit()
-
-    def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
-        now = datetime.now(timezone.utc)
-        with closing(sqlite3.connect(self.path)) as connection:
-            for item in queries:
-                connection.execute("INSERT INTO query_runs(query,kind,priority) VALUES(?,?,?) ON CONFLICT(query) DO UPDATE SET kind=excluded.kind,priority=excluded.priority",
-                                   (item["query"], item.get("kind", "product"), item.get("priority", 1.0)))
-            rows = connection.execute("SELECT query,kind,priority,last_run_at,runs FROM query_runs WHERE query IN (%s)" % ",".join("?" for _ in queries),
-                                      [item["query"] for item in queries]).fetchall() if queries else []
-            by_query = {row[0]: row for row in rows}
-            def score(item):
-                row = by_query[item["query"]]
-                last, kind = row[3], row[1]
-                stale = 1e12 if not last else max(1.0, (now - datetime.fromisoformat(last)).total_seconds())
-                return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(kind, 1.0)), item["query"]
-            selected = sorted(queries, key=score)[:max(0, budget)]
-            connection.commit()
-            return selected
-
-    def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
-                     started_at: datetime | None = None) -> None:
-        with closing(sqlite3.connect(self.path)) as connection:
-            connection.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=? WHERE query=?",
-                               (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, query))
-            if error is None and started_at is not None:
-                connection.execute("UPDATE query_runs SET last_ok_at=? WHERE query=?", (started_at.isoformat(), query))
-            connection.commit()
-
-    def last_ok(self, query: str) -> datetime | None:
-        with closing(sqlite3.connect(self.path)) as connection:
-            row = connection.execute("SELECT last_ok_at FROM query_runs WHERE query=?", (query,)).fetchone()
-        try:
-            return datetime.fromisoformat(row[0]) if row and row[0] else None
-        except ValueError:
-            return None
+def _within_output_root(path: Path, root: Path) -> Path:
+    resolved_root = root.resolve()
+    # Relative X_STATUS_FILE values historically resolve from the project working
+    # directory (for example ``data/x_collected/status.json``). Preserve that
+    # behavior, then enforce that the destination remains under the archive root.
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"X collector output path must stay inside {resolved_root}") from exc
+    return resolved_path
 
 
 _TIME_OPERATOR = re.compile(r"(?:^|\s)(?:since|until|since_time|until_time|within_time):", re.I)
@@ -226,9 +144,15 @@ def time_window(query: str, last_ok: datetime | None, now: datetime | None = Non
 class XCollector:
     def __init__(self, client: Any | None = None, output_dir: str | Path | None = None, state_path: str | Path | None = None, max_per_query: int | None = None, daily_cap: int | None = None, sleep_min: float | None = None, sleep_max: float | None = None, max_retries: int | None = None, circuit_breaker: int | None = None, sleeper: Callable[[float], None] = time.sleep, jitter: Callable[[float, float], float] = random.uniform):
         self.client = client or XCliClient()
-        self.output_dir = Path(output_dir or os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
-        self.state_path = Path(state_path or os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3"))
-        self.state: SeenStore | None = None
+        raw_output_dir = Path(output_dir or os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
+        project_root = Path(__file__).resolve().parents[2]
+        resolved_output = raw_output_dir if raw_output_dir.is_absolute() else project_root / raw_output_dir
+        self.output_dir = resolved_output.resolve()
+        raw_state_path = Path(state_path or os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3"))
+        resolved_state_path = raw_state_path if raw_state_path.is_absolute() else project_root / raw_state_path
+        self.state_path = resolved_state_path.resolve()
+        self.state_backend = os.getenv("COLLECTOR_STATE_BACKEND", "sqlite").strip().lower()
+        self.state: Any = None
         self.max_per_query = max_per_query if max_per_query is not None else int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))
         self.daily_cap = daily_cap if daily_cap is not None else int(os.getenv("X_COLLECT_DAILY_CAP", "500"))
         self.sleep_min = sleep_min if sleep_min is not None else float(os.getenv("X_COLLECT_SLEEP_MIN", "2"))
@@ -247,7 +171,7 @@ class XCollector:
         lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
         return list(dict.fromkeys(line for line in lines if line and not line.startswith("#")))
 
-    def run(self, queries: list[str | dict[str, Any]], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    def run(self, queries: list[str | dict[str, Any]], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None, *, _retention_locked: bool = False) -> dict[str, Any]:
         normalized_queries = [dict(item) if isinstance(item, dict) else {"query": item, "kind": "product", "priority": 1.0} for item in queries]
         original_queries = [item["query"] for item in normalized_queries]
         invalid_queries = [query for query in original_queries if query.lstrip().startswith("-")]
@@ -259,17 +183,35 @@ class XCollector:
         output_path = self.output_dir / f"{today}.jsonl"
         if dry_run:
             collected_today = 0
-            if self.state_path.is_file():
+            if self.state_backend == "sqlite" and self.state_path.is_file():
                 try:
-                    with closing(sqlite3.connect(f"file:{self.state_path.resolve().as_posix()}?mode=ro", uri=True)) as connection:
-                        row = connection.execute("SELECT collected FROM daily_counts WHERE day=?", (today,)).fetchone()
-                        collected_today = int(row[0]) if row else 0
-                except sqlite3.Error:
+                    dry_state = SeenStore(self.state_path, platform="x")
+                    collected_today = dry_state.count_today()
+                except (sqlite3.Error, OSError):
                     pass
             planned = sorted(normalized_queries, key=lambda item: (-(item.get("priority", 1) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(item.get("kind"), 1.0)), item["query"]))[:self.queries_per_cycle]
             return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "planned_queries": [{**item, "weight": item.get("priority", 1.0) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(item.get("kind"), 1.0), "reason": "priority; stale history is considered on live runs"} for item in planned], "output": str(output_path), "cli_called": False}
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.state = SeenStore(self.state_path)
+        guard = nullcontext() if _retention_locked else exclusive_file_lock(self.output_dir / ".retention_guard.lock")
+        try:
+            with guard:
+                state_lock = (self.state_path.with_suffix(self.state_path.suffix + ".lock")
+                              if self.state_backend == "sqlite" else self.output_dir / ".collector_state.lock")
+                with exclusive_file_lock(state_lock):
+                    self.state = create_state_store(self.state_path, platform="x", sqlite_factory=SeenStore)
+                    result = self._run_locked(normalized_queries, output_path, mock_records)
+            if result.get("status") in {"COMPLETED", "DAILY_CAP_REACHED"} and not result.get("failures"):
+                beat_ok("x", int(result.get("collected", 0)))
+            else:
+                beat_error("x", f"cycle status {result.get('status', 'unknown')}",
+                           result.get("cooldown_until"))
+            return result
+        except Exception as exc:
+            beat_error("x", type(exc).__name__)
+            raise
+
+    def _run_locked(self, normalized_queries: list[dict[str, Any]], output_path: Path,
+                    mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
             log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle)
@@ -277,31 +219,26 @@ class XCollector:
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
         query_products = {item["query"]: [str(x) for x in item.get("product_ids") or []] for item in scheduled}
         query_sellers = {item["query"]: [str(x) for x in item.get("business_ids") or []] for item in scheduled}
-        self.searches = []   # successful searches of this run → per-seller search fee (charge_searches)
-        collected, failures, failed_queries, consecutive_failures = [], 0, 0, 0
+        self.searches = []
+        collected, failures, failed_queries = [], 0, 0
+        breaker = CircuitBreaker(self.circuit_breaker)
         stop_reason = None
-        daily_remaining = max(0, self.daily_cap - self.state.count_today())
-        cooldown = self.state.get_setting("rate_limit_until")
-        if cooldown and datetime.now(timezone.utc) < datetime.fromisoformat(cooldown):
-            result = {"status": "RATE_LIMITED", "collected": 0, "failures": 0, "output": str(output_path), "cooldown_until": cooldown}
+        daily_remaining = DailyCap(self.daily_cap, self.state.count_today()).remaining
+        cooldown = Cooldown(self.state, RATE_LIMIT_COOLDOWN_SECONDS)
+        cooldown_until = cooldown.active_until()
+        if cooldown_until:
+            result = {"status": "RATE_LIMITED", "collected": 0, "failures": 0,
+                      "output": str(output_path), "cooldown_until": cooldown_until}
             self._write_status(result)
             return result
         if daily_remaining == 0:
             result = {"status": "DAILY_CAP_REACHED", "collected": 0, "output": str(output_path)}
             self._write_status(result)
             return result
+
         latest_path = self.output_dir / "latest.jsonl"
-        with output_path.open("a+", encoding="utf-8") as stream, latest_path.open("a", encoding="utf-8") as latest:
-            stream.seek(0)
-            already_written = set()
-            for line in stream:
-                try:
-                    existing = json.loads(line)
-                    if existing.get("id"):
-                        already_written.add(str(existing["id"]) + (f"|{existing['product_id']}" if existing.get("product_id") else ""))
-                except json.JSONDecodeError:
-                    continue
-            stream.seek(0, os.SEEK_END)
+        with exclusive_file_lock(latest_path.with_suffix(latest_path.suffix + ".lock")):
+            already_written = self._written_keys(output_path)
             for query_index, query in enumerate(queries):
                 if len(collected) >= daily_remaining:
                     break
@@ -310,63 +247,41 @@ class XCollector:
                 search_query = time_window(query, self.state.last_ok(query), started_at)
                 while retry <= self.max_retries:
                     try:
-                        if mock_records is not None:
-                            raw_items = mock_records
-                        else:
-                            raw_items = self.client.search(search_query, min(self.max_per_query, daily_remaining - len(collected)))
+                        raw_items = mock_records if mock_records is not None else self.client.search(
+                            search_query, min(self.max_per_query, daily_remaining - len(collected)))
                         fetched_count = len(raw_items)
                         new_before = len(collected)
-                        consecutive_failures = 0
-                        records = []
-                        for raw in raw_items[: self.max_per_query]:
-                            base = normalize_tweet(raw, query=query)
-                            if base is None:
+                        breaker.success()
+                        records = self._records_for_query(raw_items, query, query_products)
+                        for record in records:
+                            key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
+                            if key in already_written or self.state.has_seen(record):
                                 continue
-                            # per-product mode: one record per (post, product) — a post found for two sellers'
-                            # products is analysed (and paid) for each of them separately
-                            for pid in query_products.get(query) or [None]:
-                                records.append(base if pid is None else {**base, "product_id": pid,
-                                                                         "metadata": dict(base["metadata"])})
-                        for normalized in records:
-                            wkey = normalized["id"] + (f"|{normalized['product_id']}" if normalized.get("product_id") else "")
-                            if wkey in already_written or self.state.has_seen(normalized):
-                                continue
-                            normalized["metadata"]["query_kind"] = query_kinds.get(query, "product")
+                            record["metadata"]["query_kind"] = query_kinds.get(query, "product")
                             if len(collected) >= daily_remaining:
                                 break
-                            write_offset = stream.tell()
-                            line = json.dumps(normalized, ensure_ascii=False, default=str) + "\n"
-                            stream.write(line)
-                            stream.flush()
-                            os.fsync(stream.fileno())
-                            if not self.state.add(normalized, self.daily_cap):
-                                stream.seek(write_offset)
-                                stream.truncate()
+                            line = to_json_line(SourceRecord.from_dict(record))
+                            output_offset = append_line(output_path, line)
+                            latest_offset = append_line(latest_path, line, locked=True)
+                            if not self.state.add(record, self.daily_cap):
+                                self._truncate(output_path, output_offset)
+                                self._truncate(latest_path, latest_offset)
                                 continue
-                            latest.write(line)
-                            latest.flush()
-                            os.fsync(latest.fileno())
-                            already_written.add(wkey)
-                            collected.append(normalized)
-                        capped = len(collected) >= daily_remaining   # daily cap cut this search short: keep the old window
-                        if mock_records is None and (query_products.get(query) or query_sellers.get(query)):
-                            new_by_product: dict[str, int] = {}
-                            for rec in collected[new_before:]:
-                                if rec.get("product_id"):
-                                    new_by_product[rec["product_id"]] = new_by_product.get(rec["product_id"], 0) + 1
-                            self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
-                                                  "business_ids": query_sellers.get(query) or [], "fetched": fetched_count,
-                                                  "new_by_product": new_by_product, "ran_at": started_at.isoformat()})
-                        self.state.record_query(query, fetched_count, len(collected) - new_before, started_at=None if capped else started_at)
+                            already_written.add(key)
+                            collected.append(record)
+                        self._record_search(query, query_products, query_sellers, mock_records,
+                                            raw_items, collected, new_before, started_at)
+                        capped = len(collected) >= daily_remaining
+                        self.state.record_query(query, fetched_count, len(collected) - new_before,
+                                                started_at=None if capped else started_at)
                         break
                     except XCliError as exc:
                         self.state.record_query(query, 0, 0, str(exc)[:300])
                         failures += 1
-                        consecutive_failures += 1
+                        circuit_open = breaker.failure()
                         if exc.kind == "rate_limit":
-                            cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=RATE_LIMIT_COOLDOWN_SECONDS)
-                            self.state.set_setting("rate_limit_until", cooldown_until.isoformat())
-                            log.error("Rate limit received; collection paused until %s", cooldown_until.isoformat())
+                            cooldown_until = cooldown.start()
+                            log.error("Rate limit received; collection paused until %s", cooldown_until)
                             stop_reason = "RATE_LIMITED"
                             break
                         if exc.kind == "fatal":
@@ -374,26 +289,70 @@ class XCollector:
                             stop_reason = "AUTH_FAILED" if "authentication" in str(exc).casefold() else "FAILED"
                             failed_queries += 1
                             break
-                        if consecutive_failures >= self.circuit_breaker:
+                        if circuit_open:
                             log.error("Stopping collection after consecutive CLI failures: %s", exc)
                             break
                         if exc.kind != "transient" or retry >= self.max_retries:
                             failed_queries += 1
                             log.warning("Query failed after retries: %s", exc)
                             break
-                        delay = min(60.0, 2.0 ** retry) + self.jitter(0.0, 0.5)
-                        self.sleeper(delay)
+                        self.sleeper(retry_delay(retry, self.jitter))
                         retry += 1
-                if stop_reason or consecutive_failures >= self.circuit_breaker or query_index == len(queries) - 1:
+                if stop_reason or breaker.failures >= self.circuit_breaker or query_index == len(queries) - 1:
                     break
                 self.sleeper(self.jitter(self.sleep_min, self.sleep_max))
-        status = stop_reason or ("RATE_LIMITED" if self.state.get_setting("rate_limit_until") and datetime.now(timezone.utc) < datetime.fromisoformat(self.state.get_setting("rate_limit_until")) else "CIRCUIT_OPEN" if consecutive_failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
-        result = {"status": status, "collected": len(collected), "failures": failures, "failed_queries": failed_queries, "output": str(output_path)}
+        status = stop_reason or ("RATE_LIMITED" if cooldown.active_until() else "CIRCUIT_OPEN" if breaker.failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
+        result = {"status": status, "collected": len(collected), "failures": failures,
+                  "failed_queries": failed_queries, "output": str(output_path)}
         self._write_status(result)
         return result
 
+    @staticmethod
+    def _written_keys(path: Path) -> set[str]:
+        keys = set()
+        if path.exists():
+            with path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if row.get("id"):
+                        keys.add(str(row["id"]) + (f"|{row['product_id']}" if row.get("product_id") else ""))
+        return keys
+
+    def _records_for_query(self, raw_items, query: str, query_products: dict[str, list[str]]) -> list[dict[str, Any]]:
+        records = []
+        for raw in raw_items[:self.max_per_query]:
+            base = normalize_tweet(raw, query=query)
+            if base is None:
+                continue
+            for product_id in query_products.get(query) or [None]:
+                records.append(base if product_id is None else {
+                    **base, "product_id": product_id, "metadata": dict(base["metadata"]),
+                })
+        return records
+
+    @staticmethod
+    def _truncate(path: Path, offset: int) -> None:
+        with path.open("r+b") as stream:
+            stream.truncate(offset)
+
+    def _record_search(self, query, query_products, query_sellers, mock_records, raw_items,
+                       collected, new_before, started_at) -> None:
+        if mock_records is not None or not (query_products.get(query) or query_sellers.get(query)):
+            return
+        new_by_product: dict[str, int] = {}
+        for record in collected[new_before:]:
+            if record.get("product_id"):
+                product_id = record["product_id"]
+                new_by_product[product_id] = new_by_product.get(product_id, 0) + 1
+        self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
+                              "business_ids": query_sellers.get(query) or [], "fetched": len(raw_items),
+                              "new_by_product": new_by_product, "ran_at": started_at.isoformat()})
+
     def _write_status(self, result: dict[str, Any]) -> None:
-        target = Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json")))
+        target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(target.suffix + ".tmp")
         payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until")}
@@ -402,11 +361,8 @@ class XCollector:
         payload["daily_cap"] = self.daily_cap
         payload["last_cycle_at"] = payload["updated_at"]
         if self.state:
-            with closing(sqlite3.connect(self.state_path)) as connection:
-                payload["queries"] = [dict(zip(("query", "kind", "last_run_at", "fetched", "new_posts"), row))
-                                          for row in connection.execute("SELECT query,kind,last_run_at,fetched,new_posts FROM query_runs ORDER BY query").fetchall()]
-        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        os.replace(temporary, target)
+            payload["queries"] = self.state.query_status()
+        write_status(target, payload)
 
 
 def auto_ingest_enabled() -> bool:
@@ -418,27 +374,33 @@ def latest_offset(collector: XCollector) -> int:
     return path.stat().st_size if path.exists() else 0
 
 
-def ingest_new(collector: XCollector, offset: int, loader: Callable[[Path], int] | None = None) -> int:
+def ingest_new(collector: XCollector, offset: int, loader: Callable[[Path], int] | None = None,
+               *, _retention_locked: bool = False) -> int:
     """Load only what this cycle appended to latest.jsonl into crawler.x_posts (the engine picks it up from there).
     Never raises: a DB hiccup must not stop collection; the posts stay in the JSONL files for a manual x_ingest."""
     path = collector.output_dir / "latest.jsonl"
     try:
-        if not path.exists() or path.stat().st_size <= offset:
-            return 0
-        with path.open("rb") as stream:
-            stream.seek(offset)
-            chunk = stream.read()
-        chunk = chunk[:chunk.rfind(b"\n") + 1]   # whole lines only
-        if not chunk.strip():
-            return 0
-        part = path.with_name(f".ingest-{os.getpid()}.jsonl")
-        part.write_bytes(chunk)
-        try:
-            if loader is None:
-                from x_ingest.__main__ import load as loader
-            count = loader(part)
-        finally:
-            part.unlink(missing_ok=True)
+        # Share the retention lock and the latest-file lock. This prevents cleanup from
+        # scrubbing a segment after it was copied but before x_ingest reads it.
+        guard = nullcontext() if _retention_locked else exclusive_file_lock(collector.output_dir / ".retention_guard.lock")
+        with guard:
+            with exclusive_file_lock(path.with_suffix(path.suffix + ".lock")):
+                if not path.exists() or path.stat().st_size <= offset:
+                    return 0
+                with path.open("rb") as stream:
+                    stream.seek(offset)
+                    chunk = stream.read()
+                chunk = chunk[:chunk.rfind(b"\n") + 1]   # whole lines only
+                if not chunk.strip():
+                    return 0
+                part = path.with_name(f".ingest-{os.getpid()}.jsonl")
+                part.write_bytes(chunk)
+            try:
+                if loader is None:
+                    from x_ingest.__main__ import load as loader
+                count = loader(part)
+            finally:
+                part.unlink(missing_ok=True)
         log.info("Auto-ingest: upserted %s X posts into the database", count)
         return count
     except Exception as exc:
@@ -498,14 +460,16 @@ def record_searches(searches: list[dict[str, Any]], dsn: str | None = None) -> i
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
         current_queries = queries() if callable(queries) else queries
-        offset = latest_offset(collector)
-        result = collector.run(current_queries, mock_records=mock_records)
-        log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
-        if mock_records is None and auto_ingest_enabled():
-            ingest_new(collector, offset)
-        if mock_records is None:
-            charge_searches(getattr(collector, "searches", []))
-            record_searches(getattr(collector, "searches", []))
+        guard = collector.output_dir / ".retention_guard.lock"
+        with exclusive_file_lock(guard):
+            offset = latest_offset(collector)
+            result = collector.run(current_queries, mock_records=mock_records, _retention_locked=True)
+            log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
+            if mock_records is None and auto_ingest_enabled():
+                ingest_new(collector, offset, _retention_locked=True)
+            if mock_records is None:
+                charge_searches(getattr(collector, "searches", []))
+                record_searches(getattr(collector, "searches", []))
         if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
             raise XCliError(f"Collector stopped with status {result['status']}")
         time.sleep(interval)

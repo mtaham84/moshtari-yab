@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
+from django.core.paginator import Paginator
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -163,11 +164,15 @@ def opportunity_list_view(request):
     # Seller's products for catalog filter dropdown
     seller_products = Product.objects.filter(business=business).order_by("name")
 
+    paginator = Paginator(qs, 25)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    opportunities = page_obj.object_list
+
     # Global summary stats
     all_opps = Opportunity.objects.filter(business=business)
     stats = {
         "total": all_opps.count(),
-        "filtered_count": qs.count(),
+        "filtered_count": paginator.count,
         "high_intent": all_opps.filter(ai_analysis__product_fit_score__gte=0.8).count(),
         "qualified": all_opps.filter(status="NEW").count(),
         "converted": all_opps.filter(status="CONVERTED").count(),
@@ -177,7 +182,7 @@ def opportunity_list_view(request):
         "divar_count": all_opps.filter(source_platform="divar").count(),
     }
     now = timezone.now()
-    for opportunity in qs:
+    for opportunity in opportunities:
         opportunity.source_age_label = ""
         opportunity.source_age_title = ""
         if opportunity.source_platform == "x" and opportunity.source_posted_at:
@@ -187,11 +192,16 @@ def opportunity_list_view(request):
 
     # Query string without page or view for export link
     export_query = request.GET.copy()
-    if "view" in export_query:
-        del export_query["view"]
+    for key in ("view", "page"):
+        export_query.pop(key, None)
+    pagination_query = request.GET.copy()
+    pagination_query.pop("page", None)
+    pagination_query_string = pagination_query.urlencode()
+    pagination_base_url = f"?{pagination_query_string}&page=" if pagination_query_string else "?page="
 
     context = {
-        "opportunities": qs,
+        "opportunities": opportunities,
+        "page_obj": page_obj,
         "stats": stats,
         "seller_products": seller_products,
         "selected_platform": filter_meta["platform"],
@@ -205,6 +215,8 @@ def opportunity_list_view(request):
         "search_query": filter_meta["q"],
         "view_mode": view_mode,
         "export_query_string": export_query.urlencode(),
+        "pagination_base_url": pagination_base_url,
+        "pagination_range": paginator.get_elided_page_range(page_obj.number, on_each_side=2, on_ends=1),
         "latest_opportunity_id": all_opps.order_by("-id").values_list("id", flat=True).first() or 0,
     }
     return render(request, "discovery/opportunities_list.html", context)

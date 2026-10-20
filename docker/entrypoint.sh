@@ -62,6 +62,10 @@ case "$1" in
     [ "$#" -eq 0 ] && set -- --loop
     exec python -m workers.x_collector "$@"
     ;;
+  retention-report)
+    shift
+    exec python -m scripts.retention_report "$@"
+    ;;
   *)
     exec "$@"
     ;;

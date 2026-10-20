@@ -20,12 +20,14 @@ if env_file.exists():
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip())
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() in {"1", "true", "yes"}
+DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in {"1", "true", "yes"}
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
     if not DEBUG:
         raise ImproperlyConfigured("Set DJANGO_SECRET_KEY before running with DJANGO_DEBUG=False.")
     SECRET_KEY = "development-only-customer-yab-key"
+elif not DEBUG and SECRET_KEY.startswith(("replace-with-", "development-only")):
+    raise ImproperlyConfigured("Replace the example DJANGO_SECRET_KEY with a unique secret before production.")
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -37,17 +39,26 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "DJANGO_CSRF_TRUSTED_ORIGINS",
-        "https://ebi852.ir,https://www.ebi852.ir,http://ebi852.ir,http://www.ebi852.ir",
+        "",
     ).split(",")
     if origin.strip()
 ]
 
-# Behind nginx / a TLS proxy (X-Forwarded-Proto and X-Forwarded-Host are trusted).
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-USE_X_FORWARDED_HOST = True
-if os.environ.get("DJANGO_BEHIND_HTTPS_PROXY", "").lower() in {"1", "true", "yes"}:
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+# Trust forwarded headers only when explicitly deployed behind a trusted TLS proxy.
+BEHIND_HTTPS_PROXY = os.environ.get("DJANGO_BEHIND_HTTPS_PROXY", "").lower() in {"1", "true", "yes", "on"}
+if BEHIND_HTTPS_PROXY:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+
+SESSION_COOKIE_SECURE = BEHIND_HTTPS_PROXY or os.environ.get("DJANGO_FORCE_SECURE_COOKIES", "").lower() in {"1", "true", "yes", "on"}
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+SESSION_COOKIE_HTTPONLY = True
+SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "false").lower() in {"1", "true", "yes", "on"}
+SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0") or 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", "false").lower() in {"1", "true", "yes", "on"}
+SECURE_HSTS_PRELOAD = os.environ.get("DJANGO_SECURE_HSTS_PRELOAD", "false").lower() in {"1", "true", "yes", "on"}
+SECURE_REFERRER_POLICY = os.environ.get("DJANGO_SECURE_REFERRER_POLICY", "same-origin")
+SECURE_CONTENT_TYPE_NOSNIFF = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -142,12 +153,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Email Configuration (SMTP)
 EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
 EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 587))
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in {"1", "true", "yes"}
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "sitebartar3@gmail.com")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "sitebartar3@gmail.com")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 
 FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 
@@ -159,13 +170,15 @@ LOGOUT_REDIRECT_URL = "core:landing"
 # need_engine (analysis core) — same env names the engine itself uses
 # need_engine's schema in the same database (opportunities to import, cost ledger for the dashboard).
 NEED_ENGINE_SCHEMA = os.environ.get("NE_STATE_SCHEMA", "need_engine")
+TG_DB_SCHEMA = os.environ.get("TG_DB_SCHEMA", "crawler")
 # public address of this panel: reply drafts link to <base>/r/<product>/?ref=<opportunity> (click counter → seller's site)
 PUBLIC_BASE_URL = os.environ.get("NE_PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
 # NE_PANEL_MOCK_LLM=true: «نمونه بساز»، «دوباره بنویس» و «پر کردن از لینک» بدون API (تست/دمو)
 PANEL_MOCK_LLM = os.environ.get("NE_PANEL_MOCK_LLM", "").strip().lower() in ("1", "true", "yes", "on")
 
 # Show pre-seeded test seller accounts on login page
-SHOW_DEMO_ACCOUNTS = os.environ.get("SHOW_DEMO_ACCOUNTS", "True").strip().lower() in ("1", "true", "yes", "on")
+SHOW_DEMO_ACCOUNTS = os.environ.get("SHOW_DEMO_ACCOUNTS", "false").strip().lower() in ("1", "true", "yes", "on")
+DATA_RETENTION_DAYS = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
 
 LOGGING = {
     "version": 1,

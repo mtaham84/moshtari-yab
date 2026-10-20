@@ -22,6 +22,7 @@ from apps.products.models import Product
 
 from .models import (ENGINE_STATUS_MAP, AIAnalysis, Customer, Evidence, MonitoredCommunity, Opportunity,
                      OpportunityProductMatch, XCollectorState, XQueryDaily, XSearchQuery)
+from .retention import customer_ids_to_anonymize
 from .sources import GLOBAL
 
 log = logging.getLogger(__name__)
@@ -68,6 +69,12 @@ def sellers_allowed_for_chat(chat_id: Any) -> set[int] | None:
 @transaction.atomic
 def import_opportunity(payload: dict) -> list[Opportunity]:
     """Upsert one engine opportunity. Returns the panel opportunities (one per seller)."""
+    engine_id = str(payload["opportunity_id"])
+    if Opportunity.objects.filter(engine_opportunity_id=engine_id,
+                                  trace_metadata__retention_scrubbed=True).exists():
+        # A retention tombstone is permanent for this engine id. Ignore stale queue entries
+        # and full replays that may have been captured before the source data was scrubbed.
+        return []
     matches = payload.get("matched_products") or []
     ids = [int(m["product_id"]) for m in matches if str(m.get("product_id", "")).isdigit()]
     products = {p.id: p for p in Product.objects.filter(id__in=ids).select_related("business", "category")}
@@ -84,12 +91,18 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
             continue
         by_business[p.business_id].append((m, p))
 
-    engine_id = str(payload["opportunity_id"])
     source, need, cand = payload.get("source") or {}, payload.get("need") or {}, payload.get("candidate") or {}
     platform = source.get("platform") or "telegram"
     evidence = source.get("evidence") or []
+    incoming_scrubbed = bool(payload.get("retention_scrubbed"))
     engine_status = ENGINE_STATUS_MAP.get(payload.get("status", "open"), "NEW")
     out = []
+
+    if incoming_scrubbed:
+        existing = Opportunity.objects.filter(engine_opportunity_id=engine_id)
+        if existing.exists():
+            scrub_opportunity(payload)
+        return []
 
     # a status-only update may arrive for sellers that are no longer in the match list → close those too
     for opp in Opportunity.objects.filter(engine_opportunity_id=engine_id).exclude(business_id__in=by_business.keys()):
@@ -101,9 +114,9 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         items.sort(key=lambda x: -float(x[0].get("match_score") or 0))
         top_match, top_product = items[0]
         business = top_product.business
+        opp = Opportunity.objects.filter(business=business, engine_opportunity_id=engine_id).first()
         customer = _customer(business, platform, cand)
         category = top_product.category
-        opp = Opportunity.objects.filter(business=business, engine_opportunity_id=engine_id).first()
         is_new = opp is None
         if is_new:
             opp = Opportunity(business=business, engine_opportunity_id=engine_id, status=engine_status)
@@ -128,7 +141,8 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         opp.source_raw_message = "\n".join(e.get("text", "") for e in evidence)
         opp.expires_at = _dt(payload.get("expires_at"))
         kept = {k: v for k, v in (opp.trace_metadata or {}).items() if k in SELLER_KEYS}   # «دوباره بنویس» results
-        opp.trace_metadata = {"engine": {k: v for k, v in payload.items() if k != "matched_products"},
+        engine_trace = {k: v for k, v in payload.items() if k != "matched_products"}
+        opp.trace_metadata = {"engine": engine_trace,
                               "matched_products": [m for m, _ in items], **kept}
         opp.save()
         parent_id = thread.get("parent_opportunity_id")
@@ -173,6 +187,57 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         Evidence.objects.bulk_create(ev)
         out.append(opp)
     return out
+
+
+@transaction.atomic
+def scrub_opportunity(payload: dict) -> int:
+    """Apply an engine retention tombstone to imported panel rows without removing sales links."""
+    engine_id = str(payload.get("opportunity_id") or "")
+    qs = Opportunity.objects.filter(engine_opportunity_id=engine_id)
+    opportunity_ids = list(qs.values_list("pk", flat=True))
+    count = len(opportunity_ids)
+    if not opportunity_ids:
+        return 0
+    customer_business_rows = list(qs.values_list("customer_id", "business_id"))
+    customer_businesses: dict[int, set[int]] = {}
+    for customer_id, business_id in customer_business_rows:
+        customer_businesses.setdefault(customer_id, set()).add(business_id)
+    customers_to_anonymize = set(customer_ids_to_anonymize(
+        Opportunity.objects.filter(pk__in=opportunity_ids)
+    ).values_list("pk", flat=True))
+    for opp in qs:
+        if opp.status in {"NEW", "REVIEWED"}:
+            opp.status = "EXPIRED"
+        opp.source_raw_message = ""
+        opp.normalized_message = ""
+        opp.source_message_id = ""
+        opp.source_query = ""
+        opp.category_name_snapshot = ""
+        opp.category_path_snapshot = ""
+        opp.category = None
+        opp.source_message_timestamp = None
+        opp.source_posted_at = None
+        opp.source_posted_at_estimated = False
+        opp.expires_at = None
+        opp.thread_root_tweet_id = None
+        opp.demand_count = 0
+        opp.competitor_replies = []
+        opp.thread_fetched_at = None
+        opp.parent_opportunity = None
+        opp.trace_metadata = {"retention_scrubbed": True}
+        opp.save()
+        opp.evidence_items.all().delete()
+        AIAnalysis.objects.filter(opportunity=opp).update(need="", why_selected="", suggested_reply="", model_name="", model_version="")
+        opp.product_matches.update(recommendation_reason="", matching_attributes={}, reply_variants=None)
+    for customer_id, business_ids in customer_businesses.items():
+        if customer_id not in customers_to_anonymize:
+            continue
+        for business_id in business_ids:
+            Customer.objects.filter(pk=customer_id, business_id=business_id).update(
+                name="", phone_number=None, external_user_id="", source_username="", source_profile_url="",
+                metadata={}, contact_channels=[], linked_identities=[]
+            )
+    return count
 
 
 def _engine_table(name: str) -> str | None:

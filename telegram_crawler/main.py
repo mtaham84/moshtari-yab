@@ -17,6 +17,7 @@ from telegram_crawler.config import settings
 from telegram_crawler.monitor import CrawlerMonitor
 from telegram_crawler.panel import PanelCommunities
 from telegram_crawler.telegram_client import create_telegram_client
+from shared.collector_kit.heartbeat import beat_error, beat_ok
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +50,16 @@ async def _wait_and_exit(message: str) -> None:
     log.error(message)
     await asyncio.sleep(float(os.getenv("TG_SETUP_RETRY_SECONDS", "120")))
     sys.exit(1)
+
+
+async def _heartbeat_loop(monitor: CrawlerMonitor) -> None:
+    interval = max(10.0, float(os.getenv("TG_HEARTBEAT_INTERVAL_SECONDS", "60")))
+    previous_archived = 0
+    while True:
+        await asyncio.sleep(interval)
+        archived = monitor.stats.get("archived", 0)
+        beat_ok("telegram", archived - previous_archived)
+        previous_archived = archived
 
 
 async def async_main() -> None:
@@ -86,11 +97,21 @@ async def async_main() -> None:
                              backfill_limit=args.limit, resume=not args.no_resume,
                              fetch_profiles=False if args.no_profiles else None,
                              panel=PanelCommunities.connect() if use_panel else None)
+    heartbeat_task = asyncio.create_task(_heartbeat_loop(monitor)) if not args.no_live else None
     try:
         await monitor.run(live=not args.no_live)
     except KeyboardInterrupt:
         log.info("Monitoring stopped by user.")
+    except Exception as exc:
+        beat_error("telegram", type(exc).__name__)
+        raise
+    else:
+        if args.no_live:
+            beat_ok("telegram", monitor.stats.get("archived", 0))
     finally:
+        if heartbeat_task:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
         log.info("Crawler stats: %s", monitor.stats)
         await client.disconnect()
 

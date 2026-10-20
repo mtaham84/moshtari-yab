@@ -3,6 +3,7 @@ or JSONL files for tests and the offline demo. Connections are READ ONLY; nothin
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -84,12 +85,15 @@ class SQLMessageSource:
             LEFT JOIN {s}.tg_users u ON u.user_id = m.sender_user_id
             LEFT JOIN {s}.tg_chats sc ON sc.chat_id = m.sender_chat_id
             LEFT JOIN {s}.tg_messages p ON p.chat_id = m.chat_id AND p.message_id = m.reply_to_msg_id
+                                         AND p.date >= (now() - (%s * interval '1 day'))
             LEFT JOIN {s}.tg_users pu ON pu.user_id = p.sender_user_id
-            WHERE m.id > %s AND NOT m.is_context AND NOT m.is_service
+            WHERE m.id > %s AND m.date >= (now() - (%s * interval '1 day'))
+              AND NOT m.is_context AND NOT m.is_service
             ORDER BY m.id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
-        rows = self.db.all(self.sql, (cursor, limit))
+        retention_days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+        rows = self.db.all(self.sql, (retention_days, cursor, retention_days, limit))
         return [ChatMessage(
             chat_id=str(r["chat_id"]), message_id=int(r["message_id"]), row_id=int(r["row_id"]),
             author_id=str(r["author_id"] or ""), author_name=r.get("author_name"), author_username=r.get("author_username"),
@@ -111,11 +115,13 @@ class XMessageSource:
         self.sql = f"""SELECT x.row_id, x.tweet_id, x.author_id, x.author_handle, x.author_name, x.text, x.created_at, x.loaded_at, x.url, x.query, x.lang, x.author_verified, x.author_bio,
                                 x.kind, x.conversation_id, x.in_reply_to_tweet_id, x.in_reply_to_author_id, p.text AS parent_text, p.created_at AS parent_date, p.author_id AS parent_author_id
                          FROM {schema}.x_posts x LEFT JOIN {schema}.x_posts p ON p.tweet_id=x.in_reply_to_tweet_id
-                         WHERE x.row_id > %s AND x.author_id IS NOT NULL AND x.author_id <> ''
+                         WHERE x.row_id > %s AND COALESCE(x.created_at,x.loaded_at) >= now() - (%s * interval '1 day')
+                           AND x.author_id IS NOT NULL AND x.author_id <> ''
                          ORDER BY x.row_id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
-        return self._messages(self.db.all(self.sql, (cursor, limit)))
+        days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+        return self._messages(self.db.all(self.sql, (cursor, days, limit)))
 
     @staticmethod
     def _messages(rows: list[dict]) -> list[ChatMessage]:
@@ -151,7 +157,8 @@ class XProductHitSource(XMessageSource):
                                 p.text AS parent_text, p.created_at AS parent_date, p.author_id AS parent_author_id
                          FROM {schema}.x_post_products h JOIN {schema}.x_posts x ON x.tweet_id = h.tweet_id
                          LEFT JOIN {schema}.x_posts p ON p.tweet_id = x.in_reply_to_tweet_id
-                         WHERE h.hit_id > %s AND x.author_id IS NOT NULL AND x.author_id <> ''
+                         WHERE h.hit_id > %s AND COALESCE(x.created_at,x.loaded_at) >= now() - (%s * interval '1 day')
+                           AND x.author_id IS NOT NULL AND x.author_id <> ''
                          ORDER BY h.hit_id LIMIT %s"""
         self._exists = None
 
@@ -162,7 +169,8 @@ class XProductHitSource(XMessageSource):
             self._exists = bool(rows and rows[0]["t"])
         if not self._exists:   # nothing ingested in per-product mode yet
             return []
-        rows = self.db.all(self.sql, (cursor, limit))
+        days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+        rows = self.db.all(self.sql, (cursor, days, limit))
         by_row = {int(r["row_id"]): str(r["product_id"]) for r in rows}
         messages = self._messages(rows)
         for m in messages:

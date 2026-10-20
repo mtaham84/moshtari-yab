@@ -18,6 +18,10 @@
   <div class="card">
     <h2>وضعیت سرویس‌ها</h2>
     <table>{% for s in status %}<tr><td><span class="st {{ s.state }}">{{ s.name }}</span></td><td class="muted">{{ s.detail }}</td></tr>{% endfor %}</table>
+    <h2 style="margin-top:14px">گزارش نگهداری داده</h2>
+    {% if retention_report %}<div class="muted">آخرین گزارش {{ retention_report.updated }}</div>
+      <table>{% for name, count in retention_report.counts.items %}<tr><td>{{ name }}</td><td class="n">{{ count|num }}</td></tr>{% endfor %}</table>
+    {% else %}<div class="muted">هنوز گزارشی ثبت نشده است.</div>{% endif %}
   </div>
   <div class="card">
     <h2>هزینه‌ی روزانه (۱۴ روز اخیر)</h2>

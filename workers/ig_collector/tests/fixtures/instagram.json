@@ -1,0 +1,21 @@
+{
+  "accounts": {
+    "demo_demand": [
+      {"post_id":"post-ig-100","shortcode":"IGReq100","caption":"کسی آسیاب قهوه خوب می‌شناسه؟ قیمت مناسب باشه لطفا","username":"buyer_fa","full_name":"خریدار نمونه","author_id":"7001","created_at":"2026-10-10T08:00:00Z","like_count":3,"comment_count":2,"media_type":"image","hashtags":["قهوه"]},
+      {"post_id":"post-ig-101","shortcode":"IGGive101","caption":"قرعه‌کشی جایزه! این پست را لایک کنید، سه نفر را تگ کنید و برنده شوید","username":"promo_fa","full_name":"صفحه تبلیغ","author_id":"7002","created_at":"2026-10-11T08:00:00Z","like_count":100,"comment_count":50,"media_type":"image"},
+      {"post_id":"post-ig-102","shortcode":"IGAd102","caption":"کفش جدید موجود است، جهت سفارش دایرکت بزنید. ارسال به سراسر کشور","username":"shop_fa","full_name":"فروشگاه","author_id":"7003","created_at":"2026-10-12T08:00:00Z","like_count":40,"comment_count":10,"media_type":"carousel"},
+      {"post_id":"post-ig-103","shortcode":"IGEnglish103","caption":"I need a good coffee grinder, any suggestions?","username":"buyer_en","author_id":"7004","created_at":"2026-10-13T08:00:00Z"},
+      {"post_id":"post-ig-104","shortcode":"IGFinglish104","caption":"man donbale yek asiyab ghadve hastam","username":"buyer_finglish","author_id":"7005","created_at":"2026-10-14T08:00:00Z"}
+    ]
+  },
+  "hashtags": {},
+  "comments": {
+    "IGReq100": [
+      {"comment_id":"c-1","text":"1","username":"buyer_comment_1","full_name":"مشتری یک","author_id":"7101","created_at":"2026-10-10T09:00:00Z"},
+      {"comment_id":"c-2","text":"۱","username":"buyer_comment_2","full_name":"مشتری دو","author_id":"7102","created_at":"2026-10-10T09:02:00Z"},
+      {"comment_id":"c-3","text":"دنبال مدل ارزون‌ترم","username":"buyer_comment_3","created_at":"2026-10-10T09:03:00Z"}
+    ],
+    "IGGive101": [{"comment_id":"c-4","text":"1","username":"giveaway_user","author_id":"7104"}],
+    "IGAd102": [{"comment_id":"c-5","text":"قیمت؟","username":"ad_user","author_id":"7105"}]
+  }
+}

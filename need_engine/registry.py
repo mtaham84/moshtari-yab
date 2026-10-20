@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from need_engine.config import EngineConfig
+from need_engine.crypto import decrypt_secret
 
 log = logging.getLogger("need_engine.registry")
 
@@ -110,7 +111,7 @@ class ModelRegistry:
             for r in rows:
                 roles = frozenset(k for k, on in (("extract", r["use_extract"]), ("verify", r["use_verify"]),
                                                   ("reply", r["use_reply"])) if on)
-                e = ModelEntry(r["name"], r["base_url"] or "", r["api_key"] or "", float(r["input_price_usd"] or 0),
+                e = ModelEntry(r["name"], r["base_url"] or "", decrypt_secret(r["api_key"]), float(r["input_price_usd"] or 0),
                                float(r["output_price_usd"] or 0), roles, int(r["priority"] or 0), r["rpm"], r["tpm"], r["rpd"])
                 snap.models.setdefault(e.name, e)
                 for role in roles:

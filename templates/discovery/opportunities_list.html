@@ -500,9 +500,51 @@
 </div>
 {% endif %}
 
+{% if page_obj and page_obj.paginator.num_pages > 1 %}
+<nav aria-label="صفحه‌بندی فرصت‌ها" style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:18px 0 28px">
+  {% if page_obj.has_previous %}
+    <a class="p-btn p-btn-sm p-btn-secondary" href="{{ pagination_base_url }}{{ page_obj.previous_page_number }}">صفحه قبل</a>
+  {% else %}
+    <span class="p-btn p-btn-sm p-btn-ghost" aria-disabled="true" style="opacity:.5">صفحه قبل</span>
+  {% endif %}
+  {% for page_number in pagination_range %}
+    {% if page_number == page_obj.paginator.ELLIPSIS %}
+      <span aria-hidden="true" style="padding:0 6px;color:var(--stone-text-muted)">…</span>
+    {% elif page_number == page_obj.number %}
+      <span class="p-btn p-btn-sm p-btn-primary" aria-current="page">{{ page_number }}</span>
+    {% else %}
+      <a class="p-btn p-btn-sm p-btn-ghost" href="{{ pagination_base_url }}{{ page_number }}">{{ page_number }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page_obj.has_next %}
+    <a class="p-btn p-btn-sm p-btn-secondary" href="{{ pagination_base_url }}{{ page_obj.next_page_number }}">صفحه بعد</a>
+  {% else %}
+    <span class="p-btn p-btn-sm p-btn-ghost" aria-disabled="true" style="opacity:.5">صفحه بعد</span>
+  {% endif %}
+  <span style="font-size:.8rem;color:var(--stone-text-muted);margin-inline-start:8px">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+</nav>
+{% endif %}
+
 <!-- Client-side Interactive Helpers -->
 <script>
 (() => {
+  document.querySelectorAll('.list-feedback-button').forEach(button => {
+    button.addEventListener('click', () => {
+      const row = button.closest('article, .opportunity-card');
+      const reason = row?.querySelector('.feedback-reason')?.value || '';
+      row?.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = true; });
+      fetch(button.dataset.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': button.dataset.csrf },
+        body: 'feedback=' + encodeURIComponent(button.dataset.feedback) + '&reason=' + encodeURIComponent(reason)
+      }).then(response => response.json()).then(data => {
+        if (data.status !== 'success') throw new Error(data.message || 'ذخیره بازخورد ناموفق بود.');
+        row.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = item.dataset.feedback === button.dataset.feedback; });
+      }).catch(() => {
+        row?.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = false; });
+      });
+    });
+  });
   // Check for new opportunities every 20 seconds
   const bar = document.getElementById('new-opps-bar');
   const barText = document.getElementById('new-opps-text');

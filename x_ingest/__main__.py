@@ -6,8 +6,12 @@ import logging
 import os
 import re
 import sys
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+
+from file_lock import exclusive_file_lock
+from shared.records import RecordError, SourceRecord
 
 log = logging.getLogger("x_ingest")
 
@@ -27,16 +31,16 @@ def _dsn() -> str:
 def validate_record(record: object) -> dict:
     if not isinstance(record, dict):
         raise ValueError("record must be a JSON object")
-    tweet_id = str(record.get("id") or "")
+    schema_record = {**record, "kind": "post"} if record.get("kind") == "quote" else record
+    parsed = SourceRecord.from_dict(schema_record)
+    if parsed.source != "x":
+        raise ValueError("source must equal x")
+    tweet_id = parsed.id
     if not re.fullmatch(r"[0-9]+", tweet_id):
         raise ValueError("id must be a numeric X tweet id")
-    if record.get("source") != "x":
-        raise ValueError("source must equal x")
-    if not isinstance(record.get("text"), str) or not record["text"].strip():
-        raise ValueError("text must be a non-empty string")
     if not isinstance(record.get("author_id"), str) or not record["author_id"].strip():
         raise ValueError("author_id must be a non-empty string")
-    handle = str(record.get("author_handle") or "").lstrip("@")
+    handle = str(parsed.author_handle or "").lstrip("@")
     if not handle:
         raise ValueError("author_handle is required")
     created = record.get("created_at")
@@ -47,10 +51,10 @@ def validate_record(record: object) -> dict:
             datetime.fromisoformat(created.replace("Z", "+00:00"))
         except ValueError as exc:
             raise ValueError("created_at must be ISO-8601 or null") from exc
-    metadata = record.get("metadata")
-    if not isinstance(metadata, dict):
-        raise ValueError("metadata must be an object")
+    metadata = parsed.meta
     kind = str(record.get("kind") or "post")
+    if kind == "comment":
+        raise ValueError("kind must be post, reply, or quote for X records")
     if kind not in {"post", "reply", "quote"}:
         raise ValueError("kind must be post, reply, or quote")
     thread_ids = {}
@@ -68,7 +72,7 @@ def validate_record(record: object) -> dict:
             "product_id": str(record["product_id"]) if record.get("product_id") else None, "raw": record}
 
 
-def load(path: str | Path, dsn: str | None = None) -> int:
+def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
     import psycopg
     from psycopg.types.json import Jsonb
 
@@ -76,6 +80,7 @@ def load(path: str | Path, dsn: str | None = None) -> int:
     if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
         raise ValueError("NE_CRAWLER_SCHEMA must be a simple SQL schema name")
     count = 0
+    invalid_count = 0
     with psycopg.connect(dsn or _dsn()) as conn:
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {schema}.x_posts (
@@ -100,8 +105,10 @@ def load(path: str | Path, dsn: str | None = None) -> int:
                     continue
                 try:
                     record = validate_record(json.loads(line))
-                except (json.JSONDecodeError, ValueError) as exc:
-                    log.warning("Skipping %s line %d: %s", path, line_no, exc)
+                except (json.JSONDecodeError, RecordError, ValueError) as exc:
+                    invalid_count += 1
+                    reason = exc.reason if isinstance(exc, RecordError) else str(exc)
+                    log.warning("Skipping %s line %d: %s", path, line_no, reason)
                     continue
                 conn.execute(f"""INSERT INTO {schema}.x_posts
                     (tweet_id, author_id, author_handle, author_name, text, created_at, lang, url, query, author_verified, author_bio, raw, kind, conversation_id, in_reply_to_tweet_id, in_reply_to_author_id)
@@ -120,6 +127,14 @@ def load(path: str | Path, dsn: str | None = None) -> int:
                                      ON CONFLICT (tweet_id, product_id) DO NOTHING""",
                                  (record["tweet_id"], record["product_id"], record["query"]))
                 count += 1
+    if invalid_count:
+        log.info("Skipped %s invalid X record(s) from %s", invalid_count, path)
+    return count, invalid_count
+
+
+def load(path: str | Path, dsn: str | None = None) -> int:
+    """Upsert valid JSONL records and return the number processed."""
+    count, _ = _load(path, dsn)
     return count
 
 
@@ -157,11 +172,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
-        count = load(args.path)
+        source = Path(args.path).resolve()
+        output_value = os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected")
+        output_root = Path(output_value)
+        if not output_root.is_absolute():
+            output_root = Path(__file__).resolve().parents[1] / output_root
+        output_root = output_root.resolve()
+        try:
+            source.relative_to(output_root)
+            within_output = True
+        except ValueError:
+            within_output = False
+        lock = (exclusive_file_lock(output_root / ".retention_guard.lock")
+                if within_output else nullcontext())
+        with lock:
+            count, invalid_count = _load(source)
     except Exception:
         log.exception("X JSONL import failed")
         return 1
-    print(f"upserted {count} X posts from {args.path}")
+    print(f"upserted {count} X posts and skipped {invalid_count} invalid lines from {args.path}")
     return 0
 
 

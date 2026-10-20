@@ -250,6 +250,8 @@ class NeedEngine:
         self._finish_and_emit(n, [m for m in old if m.product_id not in ids] + found, report)
 
     def _finish_and_emit(self, n: NeedCard, matches: list[MatchedProduct], report: RunReport, extra_cost: float = 0.0) -> None:
+        if self.store.need_is_scrubbed(n.need_id):
+            return
         platform = for_chat_id(n.chat_id)
         if platform.key == X.key:
             matches = self._x_allowed(matches, own_search=is_product_chat(n.chat_id))
@@ -294,8 +296,9 @@ class NeedEngine:
         else:   # Telegram: the need's own author, as on main (evidence may also cite other people's messages)
             username, profile_url, author_id = n.author_username, None, n.author_id
         source_posted_at = max((m.date for m in ev), default=None)
-        if source_posted_at and source_posted_at > datetime.now(timezone.utc):
-            source_posted_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        if source_posted_at and source_posted_at > now:
+            source_posted_at = now
         expires_at = (source_posted_at or n.updated_at) + timedelta(hours=self.cfg.x_need_ttl_hours) if x_source else n.updated_at + timedelta(days=self.cfg.need_ttl_days)
         best = matches[0].match_score if matches else 0.0
         priority = STRENGTH_WEIGHT[n.strength] * best
@@ -347,6 +350,8 @@ class NeedEngine:
             source_query=next((m.search_query for m in ev if m.search_query), None))
 
     def _emit(self, opp: Opportunity, report: RunReport) -> None:
+        if self.store.need_is_scrubbed(opp.opportunity_id):
+            return
         body = opp.model_dump_json(exclude={"cost"})
         fp = hashlib.sha1(body.encode()).hexdigest()
         prev = self.store.emitted(opp.opportunity_id)
@@ -360,6 +365,8 @@ class NeedEngine:
 
     def _close(self, n: NeedCard, report: RunReport) -> None:
         """A previously emitted opportunity became resolved/expired → emit the status change."""
+        if self.store.need_is_scrubbed(n.need_id):
+            return
         prev = self.store.emitted(n.need_id)
         if not prev:
             return
@@ -603,6 +610,12 @@ class NeedEngine:
 
     def expire(self, report: RunReport, now: datetime | None = None) -> None:
         now = now or datetime.now(timezone.utc)
+        tombstones = self.store.emit_retention_tombstones()
+        for payload in tombstones:
+            if self.sink:
+                self.sink(payload)
+            self.store.publish(payload)
+            report.opportunities.append(payload)
         for need_id in self.store.expire_needs((now - timedelta(days=self.cfg.need_ttl_days)).timestamp()):
             n = self.store.need(need_id)
             if n:
