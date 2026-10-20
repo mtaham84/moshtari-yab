@@ -311,7 +311,7 @@
         <div class="opp-item-body">
           <div class="opp-col">
             <div class="opp-label">پیام خریدار</div>
-            <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message }}</div></blockquote>
+            <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
             {% if opp.ai_analysis.need %}
               <div class="opp-need"><span>نیاز:</span> {{ opp.ai_analysis.need }}</div>
             {% endif %}
@@ -453,7 +453,7 @@
       <!-- Raw message quote -->
       <div style="background: var(--stone-surface-sunken); border-right: 3px solid var(--brand-purple); padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 14px;">
         <p style="margin: 0; font-size: 0.86rem; color: var(--panel-text-main); line-height: 1.6;">
-          «{{ opp.source_raw_message }}»
+          «{{ opp.source_raw_message|default:opp.ai_analysis.need }}»
         </p>
       </div>
 
