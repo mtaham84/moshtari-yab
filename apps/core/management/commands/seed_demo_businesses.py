@@ -759,7 +759,12 @@ class Command(BaseCommand):
 
         # Wallet funding for stone business
         w_stone = ensure_wallet(biz_stone)
-        if w_stone.balance_toman < Decimal("500000"):
+        stone_gift_exists = WalletTransaction.objects.filter(
+            wallet=w_stone,
+            kind=WalletTransaction.GIFT,
+            description="اعتبار هدیه راه‌اندازی و پایش تخصصی سنگ ساختمانی و سنگ نما",
+        ).exists()
+        if w_stone.balance_toman < Decimal("500000") and not stone_gift_exists:
             apply_transaction(
                 biz_stone,
                 Decimal("3000000"),
