@@ -19,7 +19,7 @@ from apps.businesses.models import Business
 from apps.products.models import Category, Product
 
 from .engine_bridge import engine_totals, import_opportunity
-from .models import Customer, Opportunity, ProductOrder
+from .models import Customer, InstagramPage, Opportunity, ProductOrder
 from .views import _safe_csv_cell
 
 User = get_user_model()
@@ -379,6 +379,38 @@ class PanelViewTests(TestCase):
         theirs = Opportunity.objects.get(business=self.other)
         self.assertEqual(self.client.post(reverse("discovery:opportunity_feedback", args=[theirs.pk]),
                                           {"feedback": "irrelevant"}).status_code, 404)
+
+    def test_instagram_page_registration_is_validated_and_scoped(self):
+        from django.contrib.messages import get_messages
+
+        url = reverse("discovery:instagram_pages")
+        response = self.client.post(url, {"page_ref": "https://www.instagram.com/Shop_Page/?igsh=abc",
+                                          "kind": "watched", "default_product": self.p1.pk})
+        self.assertEqual(response.status_code, 302)
+        page = InstagramPage.objects.get(business=self.biz)
+        self.assertEqual((page.handle, page.kind, page.default_product), ("shop_page", "watched", self.p1))
+        self.assertEqual(self.client.post(url, {"page_ref": "@SHOP_PAGE"}).status_code, 200)
+        self.assertEqual(InstagramPage.objects.filter(business=self.biz).count(), 1)
+        response = self.client.post(url, {"page_ref": "javascript:alert(1)"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any("معتبر" in str(message) for message in get_messages(response.wsgi_request)))
+        theirs = InstagramPage.objects.create(business=self.other, handle="other_shop")
+        self.assertNotContains(self.client.get(url), "@other_shop")
+        self.assertEqual(self.client.post(url, {"action": "remove", "page_id": theirs.pk}).status_code, 404)
+        self.assertTrue(InstagramPage.objects.filter(pk=theirs.pk).exists())
+
+    def test_instagram_page_add_and_remove_are_throttled(self):
+        from django.core.cache import cache
+        from unittest.mock import patch
+
+        cache.clear()
+        with patch("apps.discovery.views.INSTAGRAM_PAGE_CHANGE_LIMIT", 1):
+            url = reverse("discovery:instagram_pages")
+            self.assertEqual(self.client.post(url, {"page_ref": "seller_page"}).status_code, 302)
+            response = self.client.post(url, {"action": "remove", "page_id": 999999})
+            self.assertEqual(response.status_code, 429)
+            self.assertContains(response, "یک ساعت", status_code=429)
+        cache.clear()
 
     def test_dashboard_shows_real_numbers_only(self):
         r = self.client.get(reverse("accounts:dashboard"))

@@ -13,6 +13,7 @@ urlpatterns = [
     path("opportunities/<int:pk>/status/", views.opportunity_status_update_view, name="opportunity_status_update"),
     path("opportunities/<int:pk>/feedback/", views.opportunity_feedback_view, name="opportunity_feedback"),
     path("communities/", views.communities_list_view, name="communities_list"),
+    path("instagram/pages/", views.instagram_pages_view, name="instagram_pages"),
     path("x-management/", views.x_management_view, name="x_management"),
     path("x/", views.x_search_view, name="x_search"),
     path("x/<int:pk>/", views.x_product_view, name="x_product"),

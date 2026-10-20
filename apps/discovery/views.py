@@ -12,6 +12,8 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.core.paginator import Paginator
+from django.core.cache import cache
+from django.db import IntegrityError
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -23,13 +25,15 @@ from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.products.models import Category, Product
 from need_engine.text import norm
 
-from .models import (MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
+from shared.instagram import PageRefError, parse_page_ref
+from .models import (InstagramPage, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
                     XNegativeTerm, XSearchQuery)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
 
 logger = logging.getLogger(__name__)
 _PLATFORM_ID_PREFIXES = ("telegram_", "x_", "instagram_", "divar_")
+INSTAGRAM_PAGE_CHANGE_LIMIT = max(1, int(os.getenv("IG_PAGE_CHANGES_PER_HOUR", "30")))
 
 
 def _strip_platform_prefix(value):
@@ -603,6 +607,83 @@ def communities_list_view(request):
             "total_leads": sum(c.leads_discovered_count for c in private_sources),
         },
     })
+
+
+def _instagram_change_allowed(request):
+    key = f"ig-page-change:{request.user.pk}"
+    try:
+        count = cache.get(key, 0)
+        if count >= INSTAGRAM_PAGE_CHANGE_LIMIT:
+            return False
+        if count == 0:
+            cache.add(key, 1, timeout=3600)
+        else:
+            cache.incr(key)
+        return True
+    except (ValueError, TypeError):
+        cache.set(key, 1, timeout=3600)
+        return True
+
+
+def _page_ref_error(reason):
+    messages_by_reason = {
+        "reserved_path": "لینک صفحه یا پست اینستاگرام پذیرفته نمی‌شود؛ آیدی خود صفحه را وارد کنید.",
+        "invalid_host": "فقط لینک پروفایل از دامنه‌های رسمی اینستاگرام پذیرفته می‌شود.",
+        "invalid_scheme": "لینک باید با http یا https باشد؛ می‌توانید فقط آیدی صفحه را هم وارد کنید.",
+        "too_long": "لینک یا آیدی بیش از حد طولانی است.",
+        "non_ascii": "آیدی صفحه باید با حروف انگلیسی، عدد، نقطه یا زیرخط نوشته شود.",
+    }
+    return messages_by_reason.get(reason, "لینک یا آیدی صفحه معتبر نیست.")
+
+
+@login_required
+def instagram_pages_view(request):
+    business = getattr(request.user, "business", None)
+    if business is None:
+        messages.error(request, "حساب کسب‌وکار مرتبط یافت نشد.")
+        return redirect("accounts:dashboard")
+
+    pages = InstagramPage.objects.filter(business=business).select_related("default_product")
+    products = Product.objects.filter(business=business, status="ACTIVE").order_by("name")
+    if request.method == "POST":
+        action = request.POST.get("action", "add")
+        if action in {"add", "remove"} and not _instagram_change_allowed(request):
+            return render(request, "discovery/instagram_pages.html", {
+                "pages": pages, "products": products, "throttled": True,
+            }, status=429)
+        if action == "add":
+            try:
+                handle = parse_page_ref(request.POST.get("page_ref", ""))
+            except PageRefError as exc:
+                messages.error(request, _page_ref_error(exc.reason))
+            else:
+                kind = request.POST.get("kind", "watched")
+                if kind not in {"own", "watched"}:
+                    kind = "watched"
+                product_id = request.POST.get("default_product", "")
+                default_product = Product.objects.filter(pk=product_id, business=business).first() if product_id.isdigit() else None
+                try:
+                    InstagramPage.objects.create(business=business, handle=handle, kind=kind, default_product=default_product)
+                except IntegrityError:
+                    messages.error(request, "این صفحه قبلاً به فهرست شما اضافه شده است.")
+                else:
+                    logger.info("Instagram page added: @%s", handle)
+                    messages.success(request, f"صفحهٔ @{handle} به فهرست پایش اضافه شد.")
+                    return redirect("discovery:instagram_pages")
+        elif action == "remove":
+            page = get_object_or_404(pages, pk=request.POST.get("page_id"))
+            handle = page.handle
+            page.delete()
+            logger.info("Instagram page removed: @%s", handle)
+            messages.success(request, f"صفحهٔ @{handle} حذف شد.")
+            return redirect("discovery:instagram_pages")
+        elif action == "toggle":
+            page = get_object_or_404(pages, pk=request.POST.get("page_id"))
+            page.is_active = not page.is_active
+            page.save(update_fields=["is_active"])
+            messages.success(request, "پایش صفحه فعال شد." if page.is_active else "پایش صفحه متوقف شد.")
+            return redirect("discovery:instagram_pages")
+    return render(request, "discovery/instagram_pages.html", {"pages": pages, "products": products})
 
 
 @login_required

@@ -1,0 +1,41 @@
+{% extends "panel/base_panel.html" %}
+
+{% block title %}صفحه‌های اینستاگرام | پیدا{% endblock %}
+{% block breadcrumb %}صفحه‌های اینستاگرام{% endblock %}
+{% block nav_instagram_pages %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header" style="margin-bottom: 24px;">
+  <div class="p-header-titles">
+    <h1 class="p-page-title">صفحه‌های اینستاگرام</h1>
+    <p class="p-page-subtitle">صفحهٔ خودتان یا صفحه‌های رقیب را برای خواندن پست‌ها و کامنت‌های عمومی اضافه کنید.</p>
+  </div>
+</div>
+{% if messages %}<div class="auth-messages" style="margin-bottom: 18px;">{% for message in messages %}<div class="alert alert-{{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+{% if throttled %}<div class="alert alert-error">تعداد تغییرات صفحه‌ها در یک ساعت از حد مجاز گذشته است. کمی بعد دوباره تلاش کنید.</div>{% endif %}
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <h2>افزودن صفحه</h2>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add">
+    <label class="form-label" for="page-ref">لینک یا آیدی صفحه</label>
+    <input id="page-ref" class="form-input" name="page_ref" maxlength="200" required dir="ltr" placeholder="instagram.com/example یا @example">
+    <label class="form-label" for="page-kind">نوع صفحه</label>
+    <select id="page-kind" class="form-input" name="kind"><option value="own">صفحهٔ خودم</option><option value="watched">صفحهٔ رقیب</option></select>
+    <label class="form-label" for="default-product">محصول پیش‌فرض (اختیاری)</label>
+    <select id="default-product" class="form-input" name="default_product"><option value="">بدون محصول پیش‌فرض</option>{% for product in products %}<option value="{{ product.pk }}">{{ product.name }}</option>{% endfor %}</select>
+    <button class="p-btn p-btn-primary" type="submit">افزودن صفحه</button>
+  </form>
+</div>
+<div class="p-card" style="padding: 24px;">
+  <h2>صفحه‌های ثبت‌شده ({{ pages|length }})</h2>
+  {% if pages %}<div style="overflow-x: auto;"><table style="width: 100%; text-align: right;"><thead><tr><th>صفحه</th><th>نوع</th><th>محصول پیش‌فرض</th><th>وضعیت</th><th>آخرین اجرا</th><th>عملیات</th></tr></thead><tbody>
+  {% for page in pages %}<tr>
+    <td><a href="https://www.instagram.com/{{ page.handle }}/" target="_blank" rel="noopener noreferrer nofollow">@{{ page.handle }}</a></td>
+    <td>{{ page.get_kind_display }}</td><td>{{ page.default_product.name|default:"—" }}</td>
+    <td>{% if page.is_active %}فعال{% else %}متوقف{% endif %}{% if page.last_status %} · {{ page.last_status }}{% endif %}</td>
+    <td>{{ page.last_run_at|default:"—" }}</td>
+    <td><form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm p-btn-secondary" name="action" value="toggle" type="submit">{% if page.is_active %}توقف پایش{% else %}فعال‌سازی{% endif %}</button></form>
+    <form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm" name="action" value="remove" type="submit">حذف</button></form></td>
+  </tr>{% endfor %}
+  </tbody></table></div>{% else %}<p>هنوز صفحه‌ای اضافه نشده است.</p>{% endif %}
+</div>
+{% endblock %}

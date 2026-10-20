@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Lower
 from apps.businesses.models import Business
 from .sources import GLOBAL, PRIVATE, SCOPE_CHOICES, display_link, normalize_link, sync_error_message
 from apps.products.models import Product, Category
@@ -712,6 +713,29 @@ class MonitoredCommunity(models.Model):
 
     def __str__(self):
         return f"{self.display_name} ({self.handle_or_link})"
+
+
+class InstagramPage(models.Model):
+    KIND_CHOICES = [("own", "صفحهٔ خودم"), ("watched", "صفحهٔ رقیب")]
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_pages")
+    handle = models.CharField(max_length=30)
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default="watched")
+    default_product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name="instagram_pages")
+    is_active = models.BooleanField(default=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_status = models.CharField(max_length=24, blank=True, default="")
+    consecutive_failures = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(Lower("handle"), "business",
+                                               name="uniq_instagram_page_business_handle")]
+        ordering = ["-is_active", "handle"]
+
+    def __str__(self):
+        return f"@{self.handle} ({self.business})"
 
 
 class EngineSyncCursor(models.Model):
