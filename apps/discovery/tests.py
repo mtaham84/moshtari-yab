@@ -453,6 +453,19 @@ class PanelViewTests(TestCase):
         import tempfile
         from pathlib import Path
         from django.core.management import call_command
+        from need_engine.text import tokens
+
+        caption = "کفش چرمی مردانه"
+        caption_tokens = set(tokens(caption))
+        products = Product.objects.filter(business__in=[self.biz, self.other], status="ACTIVE",
+                                           is_discovery_active=True)
+        product_tokens = {name: set(tokens(name)) for name in products.values_list("name", flat=True)}
+        print("caption_tokens:", sorted(caption_tokens))
+        print("product_tokens:", {name: sorted(value) for name, value in product_tokens.items()})
+        if not any(caption_tokens & item_tokens for item_tokens in product_tokens.values()):
+            for business in (self.biz, self.other):
+                Product.objects.create(business=business, name=caption, description="x",
+                                       status="ACTIVE", is_discovery_active=True)
 
         InstagramPage.objects.create(business=self.biz, handle="shop_page")
         InstagramPage.objects.create(business=self.other, handle="SHOP_PAGE")
@@ -463,7 +476,7 @@ class PanelViewTests(TestCase):
             "url": "https://www.instagram.com/p/IGAd102/",
             "metadata": {
                 "seed": "account:shop_page",
-                "parent_post": {"id": "ig:IGAd102", "caption": "کفش چرمی مردانه",
+                "parent_post": {"id": "ig:IGAd102", "caption": caption,
                                  "url": "javascript:alert(1)"},
                 "intent": {"label": "price_question", "cue": "قیمت؟"},
             },
