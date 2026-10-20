@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 from need_engine.config import EngineConfig
 from need_engine.schemas import ChatMessage
 from need_engine.x_filters import cheap_x_filter
@@ -44,7 +46,7 @@ def test_contacts_require_platform_context_and_never_turn_email_into_website():
 
 
 def test_query_score_prior_and_weight_clamp():
-    assert score_query(0) == 0.03
+    assert score_query(0) == pytest.approx(0.03)
     assert score_query(50, ordered=5) > 0.5
-    assert query_weight(0.01, 0.5) == 0.2
-    assert query_weight(1.0, 0.1) == 3.0
+    assert query_weight(0.01, 0.5) == pytest.approx(0.2)
+    assert query_weight(1.0, 0.1) == pytest.approx(3.0)
