@@ -19,7 +19,20 @@ def state_store(request, tmp_path):
     dsn = os.getenv("TEST_DATABASE_URL")
     if not dsn:
         pytest.skip("TEST_DATABASE_URL is not set")
+    yield from _postgres_state_store(dsn, platform)
+
+
+@pytest.fixture
+def postgres_state_store():
+    dsn = os.getenv("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL is not set")
+    yield from _postgres_state_store(dsn, "test_postgres")
+
+
+def _postgres_state_store(dsn, platform):
     import psycopg
+
     schema = "test_state_store_" + uuid4().hex
     try:
         with psycopg.connect(dsn):
@@ -78,9 +91,7 @@ def test_state_store_tracks_seed_progress_and_fetched_comments(state_store):
     assert state_store.comments_were_fetched("post-1")
 
 
-def test_postgres_state_import_does_not_inflate_daily_counts(state_store):
-    if not isinstance(state_store, PostgresStateStore):
-        pytest.skip("PostgreSQL-only migration assertion")
+def test_postgres_state_import_does_not_inflate_daily_counts(postgres_state_store):
     state = {
         "seen_tweets": [],
         "seen_items": [("comment", "comment-1", "2026-10-16T00:00:00+00:00")],
@@ -91,7 +102,7 @@ def test_postgres_state_import_does_not_inflate_daily_counts(state_store):
         "comments_fetched": [],
     }
 
-    state_store.import_missing_state(state)
-    state_store.import_missing_state(state)
+    postgres_state_store.import_missing_state(state)
+    postgres_state_store.import_missing_state(state)
 
-    assert state_store.count_today() == 1
+    assert postgres_state_store.count_today() == 1
