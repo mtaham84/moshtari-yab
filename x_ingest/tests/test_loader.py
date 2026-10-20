@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ def test_loading_same_jsonl_file_twice_keeps_row_count(tmp_path, pg_dsn, pg_sche
 
 
 def test_malformed_jsonl_line_is_skipped_and_valid_records_are_counted(tmp_path, pg_dsn, pg_schema, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
     schema = pg_schema("x_ingest")
     monkeypatch.setenv("NE_CRAWLER_SCHEMA", schema)
     path = tmp_path / "posts.jsonl"
