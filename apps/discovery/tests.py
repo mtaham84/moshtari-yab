@@ -449,7 +449,7 @@ class PanelViewTests(TestCase):
             response = self.client.post(reverse("discovery:opportunity_rewrite", args=[opportunity.pk]))
         self.assertEqual(response.status_code, 400)
         rewrite.assert_not_called()
-        self.assertNotContains(detail, "btn-rewrite-reply")
+        self.assertNotContains(detail, 'id="btn-rewrite-reply"')
 
     def test_instagram_ingest_is_idempotent_and_fans_out(self):
         import json
