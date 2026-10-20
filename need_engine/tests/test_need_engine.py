@@ -89,11 +89,13 @@ def test_triggers_are_count_only(cfg_for):
     assert ready_batch(p, T0 + timedelta(minutes=29), fallback)[0] == []
 
 
-def test_x_source_ordering_namespace_and_url(cfg_for):
+def test_x_source_ordering_namespace_and_url(cfg_for, monkeypatch):
+    monkeypatch.setenv("DATA_RETENTION_DAYS", "180")
+
     class FakeDB:
         def all(self, sql, params):
-            assert "ORDER BY row_id" in sql
-            assert params == (4, 10)
+            assert "ORDER BY x.row_id" in sql
+            assert params == (4, 180, 10)
             return [{"row_id": 5, "tweet_id": 1990000000000001001, "author_id": "81001",
                      "author_handle": "@buyer", "author_name": "خریدار", "text": "نیاز دارم",
                      "created_at": T0, "url": "https://x.com/buyer/status/1990000000000001001"}]
@@ -106,6 +108,21 @@ def test_x_source_ordering_namespace_and_url(cfg_for):
     assert rows[0].author_id == "x_81001"
     assert rows[0].url == "https://x.com/buyer/status/1990000000000001001"
     assert rows[0].profile_url == "https://x.com/buyer"
+
+
+def test_telegram_source_retention_parameter_order(monkeypatch):
+    monkeypatch.setenv("DATA_RETENTION_DAYS", "180")
+
+    class FakeDB:
+        def all(self, sql, params):
+            assert params == (180, 4, 180, 10)
+            return []
+
+    cfg = EngineConfig()
+    cfg.crawler_schema = "crawler"
+    source = SQLMessageSource(cfg, conn=FakeDB())
+
+    assert source.fetch_after(4, 10) == []
 
 
 def test_x_queries_come_from_products_and_category_keywords():
