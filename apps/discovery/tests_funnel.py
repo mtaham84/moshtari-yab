@@ -12,6 +12,29 @@ from .tests import EngineSchemaMixin, seller
 
 
 class UnsupportedFunnelStageTests(SimpleTestCase):
+    def test_shadow_prefilter_stage_is_unavailable(self):
+        class EmptyOpportunities:
+            def count(self):
+                return 0
+
+            def aggregate(self, **kwargs):
+                return {"total": None, "analyses": 0}
+
+            def filter(self, **kwargs):
+                return self
+
+        since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        until = since + timedelta(days=1)
+        with patch.dict(os.environ):
+            os.environ.pop("NE_X_PREFILTER", None)
+            os.environ["NE_X_ENABLED"] = "false"
+            with patch("apps.discovery.funnel.Opportunity.objects.filter", return_value=EmptyOpportunities()), patch(
+                "apps.discovery.funnel._schema_table_exists", return_value=False
+            ):
+                result = funnel("x", since, until)
+
+        self.assertIsNone(result["prefiltered_in"])
+
     def test_unsupported_sources_return_before_checking_engine_tables(self):
         since = datetime(2026, 10, 1, tzinfo=timezone.utc)
         until = since + timedelta(days=1)
