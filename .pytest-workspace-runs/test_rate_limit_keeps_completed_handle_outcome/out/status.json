@@ -1,0 +1,29 @@
+{
+  "status": "RATE_LIMITED",
+  "backend": "mock",
+  "collected": 0,
+  "filtered_out": 0,
+  "failures": 0,
+  "collected_today": 1,
+  "cooldown_until": "2026-10-22T07:59:06.273591+00:00",
+  "started_at": "2026-10-22T07:44:40.154473+00:00",
+  "updated_at": "2026-10-22T07:44:40.158488+00:00",
+  "handles": {
+    "demo_demand": {
+      "status": "rate_limited",
+      "posts": 0,
+      "comments": 0
+    },
+    "limited_shop": {
+      "status": "rate_limited",
+      "posts": 0,
+      "comments": 0
+    },
+    "later_shop": {
+      "status": "rate_limited",
+      "posts": 0,
+      "comments": 0
+    }
+  },
+  "daily_cap": 100
+}

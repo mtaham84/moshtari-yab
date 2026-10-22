@@ -1,0 +1,27 @@
+{
+  "status": "COMPLETED",
+  "backend": "mock",
+  "collected": 1,
+  "filtered_out": 0,
+  "failures": 0,
+  "collected_today": 1,
+  "output": "2026-10-22.jsonl",
+  "rejected": 0,
+  "started_at": "2026-10-22T07:55:44.384119+00:00",
+  "updated_at": "2026-10-22T07:55:44.430853+00:00",
+  "handles": {
+    "buyer_one": {
+      "status": "ok",
+      "posts": 1,
+      "comments": 0
+    },
+    "کفش": {
+      "status": "ok",
+      "posts": 1,
+      "comments": 0
+    }
+  },
+  "cooldown_until": null,
+  "seller_leads": 0,
+  "daily_cap": 100
+}

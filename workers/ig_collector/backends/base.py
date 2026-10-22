@@ -97,7 +97,7 @@ class InstagramBackend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def hashtag_posts(self, tag: str, limit: int) -> list[InstagramPost]:
+    def hashtag_posts(self, tag: str, limit: int, since: datetime | None = None) -> list[InstagramPost]:
         raise NotImplementedError
 
     @abstractmethod

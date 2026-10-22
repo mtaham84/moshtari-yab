@@ -1,0 +1,21 @@
+{
+  "status": "COMPLETED",
+  "collected": 0,
+  "failures": 0,
+  "failed_queries": 0,
+  "output": "C:\\Users\\ebi\\Desktop\\moshtari-yab\\.pytest-audit-runs\\9a746899f4594a7dbd58978075cfc2da\\test_collector_advances_window_only_after_success\\o\\2026-10-22.jsonl",
+  "cooldown_until": null,
+  "updated_at": "2026-10-22T08:01:59.169374+00:00",
+  "collected_today": 0,
+  "daily_cap": 500,
+  "last_cycle_at": "2026-10-22T08:01:59.169374+00:00",
+  "queries": [
+    {
+      "query": "coffee",
+      "kind": "product",
+      "last_run_at": "2026-10-22T08:01:59.153923+00:00",
+      "fetched": 0,
+      "new_posts": 0
+    }
+  ]
+}

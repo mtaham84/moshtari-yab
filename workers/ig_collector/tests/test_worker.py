@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -141,6 +141,108 @@ def test_disabled_hashtag_seed_does_not_call_backend(tmp_path):
 
     assert result["status"] == "COMPLETED"
     assert backend.calls == []
+
+
+def test_hashtag_collection_passes_window_and_stores_source_and_suggestion(tmp_path):
+    now = datetime.now(timezone.utc)
+    fixture = {
+        "hashtags": {"کفش": [
+            {"shortcode": "FreshOne", "caption": "دنبال کفش چرمی هستم",
+             "username": "buyer_one", "created_at": (now - timedelta(hours=1)).isoformat()},
+            {"shortcode": "FreshTwo", "caption": "کفش مناسب می‌خواهم",
+             "username": "buyer_two", "created_at": (now - timedelta(days=1)).isoformat()},
+            {"shortcode": "FreshThree", "caption": "برای خرید کفش راهنمایی می‌خواهم",
+             "username": "buyer_three", "created_at": (now - timedelta(days=1, hours=1)).isoformat()},
+        ]},
+    }
+
+    class TrackingBackend(MockInstagramBackend):
+        def __init__(self):
+            super().__init__(fixture)
+            self.calls = []
+
+        def hashtag_posts(self, tag, limit, since=None):
+            self.calls.append((tag, limit, since))
+            return super().hashtag_posts(tag, limit, since)
+
+    backend = TrackingBackend()
+    result = collector(tmp_path, backend, min_intent_score=0).run(
+        [{
+            "kind": "hashtag", "value": "کفش", "limit": 2, "window_days": 2,
+            "business_id": 7, "category_id": 11, "category": "کفش",
+            "category_path": "پوشاک > کفش", "product_ids": [19], "products": ["کفش چرمی"],
+        }],
+        {"mode": "off", "policy": "buyer_request", "max_posts_per_run": 0, "max_per_post": 0},
+    )
+
+    posts = rows(Path(result["output"]))
+    assert len(posts) == 2
+    assert [post["id"] for post in posts] == ["ig:FreshOne", "ig:FreshTwo"]
+    tag, limit, since = backend.calls[0]
+    assert (tag, limit) == ("کفش", 2)
+    assert since <= now - timedelta(days=2) + timedelta(seconds=1)
+    assert since > now - timedelta(days=2, seconds=5)
+    metadata = posts[0]["metadata"]
+    assert metadata["collection_sources"] == [{
+        "kind": "hashtag", "hashtag": "کفش", "business_id": 7,
+        "category_id": 11, "category": "کفش",
+    }]
+    assert metadata["suggested_target"] == {
+        "business_id": 7, "category_id": 11, "category": "کفش",
+        "category_path": "پوشاک > کفش",
+        "product_ids": [19], "products": ["کفش چرمی"],
+    }
+    assert posts[0]["url"] == "https://www.instagram.com/p/FreshOne/"
+
+
+def test_hashtag_collection_discards_posts_outside_window_and_without_timestamp(tmp_path):
+    now = datetime.now(timezone.utc)
+    fixture = {
+        "hashtags": {"کفش": [
+            {"shortcode": "FreshOne", "caption": "دنبال کفش هستم", "username": "buyer_one",
+             "created_at": (now - timedelta(hours=1)).isoformat()},
+            {"shortcode": "OldOne", "caption": "کفش می‌خواهم", "username": "buyer_old",
+             "created_at": (now - timedelta(days=8)).isoformat()},
+            {"shortcode": "UnknownTime", "caption": "برای کفش راهنمایی می‌خواهم",
+             "username": "buyer_unknown"},
+        ]},
+    }
+    class UnfilteredBackend(MockInstagramBackend):
+        def hashtag_posts(self, tag, limit, since=None):
+            normalized = tag.lstrip("#").casefold()
+            rows = (self.data.get("hashtags") or {}).get(normalized, [])
+            return self._posts(rows, len(rows))
+
+    result = collector(tmp_path, UnfilteredBackend(fixture), min_intent_score=0).run(
+        [{"kind": "hashtag", "value": "کفش", "limit": 10, "window_days": 7}],
+        {"mode": "off", "max_posts_per_run": 0, "max_per_post": 0},
+    )
+
+    assert [post["id"] for post in rows(Path(result["output"]))] == ["ig:FreshOne"]
+
+
+def test_duplicate_account_and_hashtag_post_is_stored_once_with_both_sources(tmp_path):
+    post = {
+        "shortcode": "SharedPost", "caption": "دنبال کفش هستم", "username": "buyer_one",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    fixture = {"accounts": {"buyer_one": [post]}, "hashtags": {"کفش": [post]}}
+    result = collector(tmp_path, MockInstagramBackend(fixture), min_intent_score=0).run(
+        [
+            {"kind": "account", "value": "buyer_one", "limit": 5},
+            {"kind": "hashtag", "value": "کفش", "limit": 5, "window_days": 7,
+             "business_id": 7, "category_id": 11, "category": "کفش"},
+        ],
+        {"mode": "off", "max_posts_per_run": 0, "max_per_post": 0},
+    )
+
+    posts = rows(Path(result["output"]))
+    assert [post["id"] for post in posts] == ["ig:SharedPost"]
+    assert posts[0]["metadata"]["collection_sources"] == [
+        {"kind": "account", "username": "buyer_one"},
+        {"kind": "hashtag", "hashtag": "کفش", "business_id": 7,
+         "category_id": 11, "category": "کفش"},
+    ]
 
 
 def test_seller_post_policy_uses_all_comment_mode():

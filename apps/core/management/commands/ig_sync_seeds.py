@@ -51,7 +51,7 @@ class Command(BaseCommand):
             "accounts": [{"username": handle, "limit": max(1, int(os.getenv("IG_MAX_POSTS_PER_RUN", "5")))} for handle in handles],
             "hashtags": hashtag_seeds,
             "comments": {"mode": "all", "policy": "seller_post",
-                           "read_hashtag_posts": False,
+                           "read_hashtag_posts": bool(hashtag_seeds),
                            "max_posts_per_run": max(1, int(os.getenv("IG_MAX_POSTS_PER_RUN", "5"))),
                            "max_per_post": max(1, int(os.getenv("IG_MAX_COMMENTS_PER_POST", "30"))),
                            "window_days": max(1, int(os.getenv("IG_COMMENT_WINDOW_DAYS", "7")))},

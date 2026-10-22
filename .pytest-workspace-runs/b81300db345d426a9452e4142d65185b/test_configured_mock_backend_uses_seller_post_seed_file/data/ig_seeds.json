@@ -1,0 +1,1 @@
+{"accounts": [{"username": "demo_demand", "limit": 5}], "comments": {"mode": "all", "policy": "seller_post", "max_posts_per_run": 5, "max_per_post": 30}}

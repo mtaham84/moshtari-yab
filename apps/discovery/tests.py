@@ -663,7 +663,7 @@ class PanelViewTests(TestCase):
                 "terms": ["کفش چرمی", "سایز", "مردانه"],
             },
         ])
-        self.assertFalse(payload["comments"]["read_hashtag_posts"])
+        self.assertTrue(payload["comments"]["read_hashtag_posts"])
         page.refresh_from_db()
         self.assertIsNotNone(page.queued_at)
 

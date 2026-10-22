@@ -1,0 +1,19 @@
+{
+  "status": "RATE_LIMITED",
+  "backend": "mock",
+  "collected": 0,
+  "filtered_out": 0,
+  "failures": 0,
+  "collected_today": 0,
+  "cooldown_until": "2026-10-22T08:05:45.416067+00:00",
+  "started_at": "2026-10-22T07:55:45.452222+00:00",
+  "updated_at": "2026-10-22T07:55:45.456833+00:00",
+  "handles": {
+    "demo_demand": {
+      "status": "rate_limited",
+      "posts": 0,
+      "comments": 0
+    }
+  },
+  "daily_cap": 100
+}

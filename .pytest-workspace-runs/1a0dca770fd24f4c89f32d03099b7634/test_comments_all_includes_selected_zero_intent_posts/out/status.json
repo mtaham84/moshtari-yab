@@ -1,0 +1,22 @@
+{
+  "status": "COMPLETED",
+  "backend": "mock",
+  "collected": 4,
+  "filtered_out": 6,
+  "failures": 0,
+  "collected_today": 4,
+  "output": "2026-10-22.jsonl",
+  "rejected": 0,
+  "started_at": "2026-10-22T07:55:45.956208+00:00",
+  "updated_at": "2026-10-22T07:55:46.047240+00:00",
+  "handles": {
+    "demo_demand": {
+      "status": "ok",
+      "posts": 5,
+      "comments": 5
+    }
+  },
+  "cooldown_until": null,
+  "seller_leads": 0,
+  "daily_cap": 100
+}

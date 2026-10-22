@@ -1,0 +1,34 @@
+{
+  "status": "RATE_LIMITED",
+  "backend": "mock",
+  "collected": 1,
+  "filtered_out": 0,
+  "failures": 0,
+  "collected_today": 1,
+  "output": "2026-10-22.jsonl",
+  "rejected": 0,
+  "started_at": "2026-10-22T07:56:16.169357+00:00",
+  "updated_at": "2026-10-22T07:56:16.241095+00:00",
+  "handles": {
+    "demo_demand": {
+      "status": "ok",
+      "posts": 1,
+      "comments": 0
+    },
+    "later_shop": {
+      "status": "rate_limited",
+      "posts": 0,
+      "comments": 0
+    },
+    "limited_shop": {
+      "status": "rate_limited",
+      "posts": 0,
+      "comments": 0,
+      "reason": "rate_limited",
+      "cooldown_until": "2026-10-22T08:11:16.170428+00:00"
+    }
+  },
+  "cooldown_until": "2026-10-22T08:11:16.170428+00:00",
+  "seller_leads": 0,
+  "daily_cap": 100
+}

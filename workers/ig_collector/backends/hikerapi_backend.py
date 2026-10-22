@@ -86,27 +86,43 @@ class HikerAPIBackend(InstagramBackend):
         rows = [_path(edge, mapping.USER_MEDIA_NODE_PATH, default={}) for edge in edges if isinstance(edge, dict)]
         return [post for row in rows if (post := _post(row)) and (not since or not _is_before(post.created_at, since))][:limit]
 
-    def hashtag_posts(self, tag: str, limit: int) -> list[InstagramPost]:
+    def hashtag_posts(self, tag: str, limit: int, since: datetime | None = None) -> list[InstagramPost]:
+        if limit <= 0:
+            return []
         tag = tag.lstrip("#")
         output = []
         cursor = None
         visited = set()
-        while len(output) < limit:
+        inspected = 0
+        while len(output) < limit and inspected < limit:
             payload = self._request(mapping.HASHTAG_POSTS_ENDPOINT, {
                 mapping.HASHTAG_PARAMS["tag"]: tag,
                 mapping.HASHTAG_PARAMS["cursor"]: cursor,
             })
+            older_than_window = False
             for section in _path(payload, mapping.HASHTAG_MEDIA_PATH, default=[]):
                 medias = _path(section, mapping.HASHTAG_MEDIA_CONTAINER_PATH, default=[])
                 for row in medias:
+                    if inspected >= limit:
+                        break
+                    inspected += 1
                     media = _path(row, mapping.HASHTAG_MEDIA_NODE_PATH, default={})
                     post = _post(media)
-                    if post:
-                        output.append(post)
-                        if len(output) >= limit:
-                            break
-                if len(output) >= limit:
+                    if not post:
+                        continue
+                    timestamp = _timestamp(post.created_at)
+                    if since and timestamp is None:
+                        continue
+                    if since and datetime.fromisoformat(timestamp) <= since:
+                        older_than_window = True
+                        break
+                    output.append(post)
+                    if len(output) >= limit:
+                        break
+                if len(output) >= limit or older_than_window:
                     break
+            if older_than_window:
+                break
             cursor = _path(payload, mapping.NEXT_PAGE_PATH)
             if not cursor or cursor in visited:
                 break
@@ -216,8 +232,12 @@ def _as_int(value: Any) -> int:
 
 
 def _is_before(value: Any, since: datetime) -> bool:
+    parsed = _timestamp(value)
+    return parsed is not None and parsed <= since
+
+
+def _timestamp(value: Any) -> datetime | None:
     from ..worker import normalize_timestamp
+
     parsed = normalize_timestamp(value, warn=False)
-    if parsed is None:
-        return False
-    return datetime.fromisoformat(parsed) <= since
+    return datetime.fromisoformat(parsed) if parsed else None

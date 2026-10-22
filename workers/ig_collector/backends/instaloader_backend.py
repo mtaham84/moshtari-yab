@@ -119,7 +119,7 @@ class InstaloaderBackend(InstagramBackend):
                 break
         return output
 
-    def hashtag_posts(self, tag: str, limit: int) -> list[InstagramPost]:
+    def hashtag_posts(self, tag: str, limit: int, since: datetime | None = None) -> list[InstagramPost]:
         if limit <= 0:
             return []
         module, loader = self._ensure()
@@ -127,6 +127,9 @@ class InstaloaderBackend(InstagramBackend):
         iterator = self._call(hashtag.get_posts)
         output = []
         for item in self._iterate(iterator):
+            created_at = getattr(item, "date_utc", None)
+            if since and (created_at is None or _aware(created_at) <= since):
+                break
             if output:
                 self._pause()
             output.append(_post(item))

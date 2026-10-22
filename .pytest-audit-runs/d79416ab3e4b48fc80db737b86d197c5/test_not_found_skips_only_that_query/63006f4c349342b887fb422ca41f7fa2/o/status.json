@@ -1,0 +1,28 @@
+{
+  "status": "PARTIAL",
+  "collected": 0,
+  "failures": 1,
+  "failed_queries": 1,
+  "output": "C:\\Users\\ebi\\Desktop\\moshtari-yab\\.pytest-audit-runs\\d79416ab3e4b48fc80db737b86d197c5\\test_not_found_skips_only_that_query\\63006f4c349342b887fb422ca41f7fa2\\o\\2026-10-22.jsonl",
+  "cooldown_until": null,
+  "updated_at": "2026-10-22T08:15:14.939734+00:00",
+  "collected_today": 0,
+  "daily_cap": 500,
+  "last_cycle_at": "2026-10-22T08:15:14.939734+00:00",
+  "queries": [
+    {
+      "query": "bad one",
+      "kind": "product",
+      "last_run_at": "2026-10-22T08:15:14.920142+00:00",
+      "fetched": 0,
+      "new_posts": 0
+    },
+    {
+      "query": "good one",
+      "kind": "product",
+      "last_run_at": "2026-10-22T08:15:14.929638+00:00",
+      "fetched": 0,
+      "new_posts": 0
+    }
+  ]
+}

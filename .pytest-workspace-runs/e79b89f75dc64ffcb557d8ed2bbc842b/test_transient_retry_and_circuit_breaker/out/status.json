@@ -1,0 +1,29 @@
+{
+  "status": "CIRCUIT_OPEN",
+  "backend": "mock",
+  "collected": 0,
+  "filtered_out": 0,
+  "failures": 2,
+  "collected_today": 0,
+  "output": "2026-10-22.jsonl",
+  "rejected": 0,
+  "started_at": "2026-10-22T07:50:26.599510+00:00",
+  "updated_at": "2026-10-22T07:50:26.636165+00:00",
+  "handles": {
+    "demo_demand": {
+      "status": "error",
+      "posts": 0,
+      "comments": 0,
+      "reason": "Transient"
+    },
+    "another_shop": {
+      "status": "error",
+      "posts": 0,
+      "comments": 0,
+      "reason": "Transient"
+    }
+  },
+  "cooldown_until": null,
+  "seller_leads": 0,
+  "daily_cap": 100
+}

@@ -51,10 +51,13 @@ class MockInstagramBackend(InstagramBackend):
         posts = self._posts(rows, len(rows) if isinstance(rows, list) else 0)
         return [post for post in posts if not since or not _date(post.created_at) or _date(post.created_at) > since][:limit]
 
-    def hashtag_posts(self, tag: str, limit: int) -> list[InstagramPost]:
+    def hashtag_posts(self, tag: str, limit: int, since: datetime | None = None) -> list[InstagramPost]:
         normalized = tag.lstrip("#").casefold()
         rows = (self.data.get("hashtags") or {}).get(normalized, [])
-        return self._posts(rows, limit)
+        posts = self._posts(rows, len(rows) if isinstance(rows, list) else 0)
+        if since:
+            posts = [post for post in posts if _date(post.created_at) and _date(post.created_at) > since]
+        return posts[:max(0, limit)]
 
     def post_comments(self, post_ref: InstagramPost | str, limit: int) -> list[InstagramComment]:
         shortcode = post_ref.shortcode if isinstance(post_ref, InstagramPost) else _shortcode(post_ref)

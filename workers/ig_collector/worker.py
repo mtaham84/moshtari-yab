@@ -104,6 +104,33 @@ def normalize_post(post: InstagramPost, seed: str, backend: str, intent: Persian
     }).as_dict()
 
 
+def _collection_source(seed: dict[str, Any]) -> dict[str, Any]:
+    if seed.get("kind") == "hashtag":
+        return {
+            "kind": "hashtag", "hashtag": seed["value"],
+            "business_id": seed.get("business_id"),
+            "category_id": seed.get("category_id"),
+            "category": seed.get("category"),
+        }
+    return {"kind": "account", "username": seed["value"]}
+
+
+def _suggested_target(seed: dict[str, Any]) -> dict[str, Any] | None:
+    if seed.get("kind") != "hashtag" or not seed.get("category_id"):
+        return None
+    return {
+        "business_id": seed.get("business_id"),
+        "category_id": seed["category_id"], "category": seed.get("category"),
+        "category_path": seed.get("category_path"),
+        "product_ids": seed.get("product_ids", []), "products": seed.get("products", []),
+    }
+
+
+def _within_window(value: Any, since: datetime) -> bool:
+    timestamp = normalize_timestamp(value, warn=False)
+    return timestamp is not None and datetime.fromisoformat(timestamp) > since
+
+
 def normalize_comment(comment: InstagramComment, post: InstagramPost, seed: str, backend: str,
                       intent: PersianIntentLexicon) -> dict[str, Any] | None:
     comment_id = str(comment.comment_id or "").strip()
@@ -172,6 +199,8 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
                 if not 1 <= window_days <= 90:
                     log.warning("Skipping hashtag seed with invalid time window at index %d", index)
                     continue
+                if "window_days" in row:
+                    seed["window_days"] = window_days
                 if "business_id" in row or "category_id" in row:
                     try:
                         business_id = int(row["business_id"])
@@ -343,9 +372,15 @@ class InstagramCollector:
                 self.backend.require(capability)
                 progress_key = f"seller_post:{seed_key}" if policy_name == "seller_post" else seed_key
                 since = self.store.get_seed_progress(progress_key) if kind == "account" else None
-                posts = self._with_retry(lambda: self.backend.user_posts(value, limit, since) if kind == "account" else self.backend.hashtag_posts(value, limit))
+                if kind == "hashtag":
+                    window_days = int(seed.get("window_days", 7))
+                    since = datetime.now(timezone.utc) - timedelta(days=window_days)
+                    posts = self._with_retry(lambda: self.backend.hashtag_posts(value, limit, since))
+                    posts = [post for post in posts if _within_window(post.created_at, since)][:limit]
+                else:
+                    posts = self._with_retry(lambda: self.backend.user_posts(value, limit, since))
                 outcome["posts"] = len(posts)
-                if policy_name == "seller_post":
+                if kind == "account" and policy_name == "seller_post":
                     posts = [post for post in posts if post.shortcode not in comment_candidate_ids
                              and not self.store.comments_were_fetched(f"seller_post:{post.shortcode}")]
                 breaker.success()
@@ -366,7 +401,15 @@ class InstagramCollector:
                         if keep_rejected:
                             rejected.append(_rejected("post", "invalid_or_non_persian_or_missing_fields"))
                         continue
+                    if kind == "hashtag":
+                        record["metadata"]["collection_sources"] = [_collection_source(seed)]
+                        suggested = _suggested_target(seed)
+                        if suggested:
+                            record["metadata"]["suggested_target"] = suggested
                     score = int(record["metadata"]["intent"]["score"])
+                    if kind == "hashtag":
+                        self._collect_record(record, collected)
+                        continue
                     if (policy_name == "seller_post"
                             and "advertisement" not in record["metadata"]["intent"]["labels"]):
                         filtered += 1
@@ -594,8 +637,22 @@ class InstagramCollector:
             log.warning("Skipping malformed Instagram record")
             return False
         store_id = f"seller_lead:{record['id']}" if record["kind"] == "seller_lead" else record["id"]
-        if (self.store.contains(record["kind"], store_id)
-                or any(row["id"] == record["id"] for row in collected)):
+        existing = next((row for row in collected if row["id"] == record["id"]), None)
+        if existing:
+            seed_kind, _, seed_value = existing["metadata"].get("seed", "").partition(":")
+            original_source = (_collection_source({"kind": seed_kind, "value": seed_value})
+                               if seed_kind in {"account", "hashtag"} else None)
+            sources = existing["metadata"].setdefault(
+                "collection_sources", [original_source] if original_source else []
+            )
+            for source in record["metadata"].get("collection_sources", []):
+                if source not in sources:
+                    sources.append(source)
+            suggested = record["metadata"].get("suggested_target")
+            if suggested and not existing["metadata"].get("suggested_target"):
+                existing["metadata"]["suggested_target"] = suggested
+            return False
+        if self.store.contains(record["kind"], store_id):
             return False
         collected.append(record)
         return True
