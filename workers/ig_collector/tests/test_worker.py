@@ -15,6 +15,7 @@ from workers.ig_collector.backends.mock import MockInstagramBackend
 from workers.ig_collector.cli import main
 from workers.ig_collector.lexicon import PersianIntentLexicon, normalize_fa
 from workers.ig_collector.post_selection import select_comment_candidates, seller_post_priority
+from instagram_discovery.comment_evaluation import KnowledgeSnapshot
 from workers.ig_collector.worker import (
     InstagramCollector, SeenStore, is_persian_caption, normalize_timestamp,
     validate_record, validate_seeds,
@@ -411,6 +412,65 @@ def test_run_selects_request_only_and_only_fetches_its_comments(tmp_path):
     assert [row["id"] for row in output] == ["ig:IGReq100", "ig:IGReq100:cc-1", "ig:IGReq100:cc-2"]
     assert all(row["source"] == "instagram" and "آسیاب" in output[0]["text"] for row in output[:1])
     assert result["filtered_out"] >= 4  # giveaway, ad, English, Finglish
+
+
+def test_comment_prefilter_and_jev_results_are_persisted_with_mocked_knowledge(tmp_path):
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    fixture["comments"]["IGReq100"] = [
+        {"comment_id": "clean1", "text": "قیمت کفش چنده؟", "username": "buyer_one"},
+        {"comment_id": "maybe1", "text": "شاید بعدا بررسی کنم", "username": "maybe_user"},
+        {"comment_id": "spam1", "text": "لینک را ببین https://spam.example", "username": "spam_user"},
+    ]
+
+    class KnowledgeReader:
+        def __init__(self):
+            self.calls = []
+
+        def retrieve_for_comment(self, **kwargs):
+            self.calls.append(kwargs)
+            return KnowledgeSnapshot(
+                related_category={"id": 3, "name": "کفش"},
+                related_product={"id": 4, "name": "کفش چرمی"},
+                answers=["ارسال سراسری"],
+                indexed_information=[{"document_id": "d1", "text": "کفش چرمی"}],
+                source={"kind": "mock_index", "document_id": "d1"},
+            )
+
+    class Jev:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate_comment(self, **kwargs):
+            self.calls.append(kwargs)
+            status = "probably a buyer" if "قیمت" in kwargs["comment_text"] else "uncertain"
+            return {
+                "status": status,
+                "related": {"category": "کفش", "product": "کفش چرمی"},
+                "score": 0.8 if status == "probably a buyer" else 0.4,
+                "reason": "Jev result based on the comment text.",
+                "evidence": [kwargs["comment_text"]],
+            }
+
+    reader, jev = KnowledgeReader(), Jev()
+    backend = MockInstagramBackend(fixture)
+    result = collector(tmp_path, backend, knowledge_reader=reader, jev=jev).run(
+        SEEDS, {"mode": "signals", "max_posts_per_run": 1, "max_per_post": 10},
+    )
+
+    evaluation_rows = rows(tmp_path / "out" / "comment-evaluations.jsonl")
+    by_id = {row["id"]: row for row in evaluation_rows}
+    assert len(reader.calls) == len(jev.calls) == 2
+    assert by_id["ig:IGReq100:cclean1"]["jev"]["status"] == "probably a buyer"
+    assert by_id["ig:IGReq100:cclean1"]["jev"]["indexed_information_used"]["source"]["document_id"] == "d1"
+    assert by_id["ig:IGReq100:cmaybe1"]["jev"]["status"] == "uncertain"
+    assert by_id["ig:IGReq100:cspam1"]["prefilter"]["status"] == "set_aside"
+    assert by_id["ig:IGReq100:cspam1"]["prefilter"]["reason"] == "link_spam"
+    assert by_id["ig:IGReq100:cspam1"]["jev"] is None
+    review_rows = rows(tmp_path / "out" / "needs-review.jsonl")
+    assert "ig:IGReq100:cmaybe1" in [row["id"] for row in review_rows]
+    collected_rows = rows(Path(result["output"]))
+    assert "ig:IGReq100:cmaybe1" not in [row["id"] for row in collected_rows]
+    assert result["status"] == "COMPLETED"
 
 
 def test_mock_rerun_deduplicates_every_record(tmp_path):

@@ -21,6 +21,9 @@ from shared.records import RecordError, SourceRecord, to_json_line
 from shared.instagram import PageRefError, parse_page_ref
 from .policies import COMMENT_POLICIES, buyer_request
 from instagram_discovery.analyzer import analyze_post, knowledge_from_seeds
+from instagram_discovery.comment_evaluation import (
+    JevCommentEvaluator, InstagramKnowledgeReader, evaluate_with_jev, prefilter_comment,
+)
 from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
 
 from .backends.base import (
@@ -143,8 +146,11 @@ def normalize_comment(comment: InstagramComment, post: InstagramPost, seed: str,
             or not handle or not text):
         log.warning("Skipping comment missing a stable id, valid author handle, or text")
         return None
+    prefilter = prefilter_comment(
+        text, commenter_handle=comment.username, post_author_handle=post.username,
+    )
     numeric_opt_in = bool(re.fullmatch(r"[0-9۰-۹٠-٩]+", text))
-    if not is_persian_caption(text) and not numeric_opt_in:
+    if not is_persian_caption(text) and not numeric_opt_in and prefilter.status != "set_aside":
         return None
     classification = intent.classify(text)
     if numeric_opt_in:
@@ -261,7 +267,9 @@ class InstagramCollector:
                  sleep_max: float | None = None, max_retries: int | None = None,
                  circuit_breaker: int | None = None, cooldown_seconds: int = RATE_LIMIT_COOLDOWN_SECONDS,
                  sleeper: Callable[[float], None] = time.sleep, jitter: Callable[[float, float], float] = random.uniform,
-                 lexicon: PersianIntentLexicon | None = None):
+                 lexicon: PersianIntentLexicon | None = None,
+                 knowledge_reader: InstagramKnowledgeReader | None = None,
+                 jev: JevCommentEvaluator | None = None):
         root = Path(__file__).resolve().parents[2]
         self.backend = backend
         self.output_dir = _resolve(root, output_dir or os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
@@ -277,6 +285,8 @@ class InstagramCollector:
         self.sleeper, self.jitter = sleeper, jitter
         lexicon_path = Path(__file__).resolve().parents[2] / "data" / "ig_lexicon_fa.json"
         self.lexicon = lexicon or PersianIntentLexicon.load(lexicon_path)
+        self.knowledge_reader = knowledge_reader
+        self.jev = jev
         self.store: Any = None
 
     @staticmethod
@@ -327,6 +337,7 @@ class InstagramCollector:
             return result
         collected: list[dict[str, Any]] = []
         review_queue: list[dict[str, Any]] = []
+        comment_evaluations: list[dict[str, Any]] = []
         post_reviews: dict[str, dict[str, Any]] = {}
         rejected: list[dict[str, Any]] = []
         filtered = failures = 0
@@ -603,6 +614,48 @@ class InstagramCollector:
                         if parent_post.get("category_decision"):
                             record["metadata"]["parent_post"] = parent_post
                             record["metadata"]["category_decision"] = parent_post["category_decision"]
+                        else:
+                            record["metadata"]["parent_post"] = parent_post
+                        prefilter = prefilter_comment(
+                            record["text"],
+                            commenter_handle=record.get("author_handle"),
+                            post_author_handle=post_record.get("author_handle"),
+                        )
+                        prefilter_data = {
+                            "status": prefilter.status,
+                            "reason": prefilter.reason,
+                            "evidence": list(prefilter.evidence),
+                        }
+                        record["metadata"]["jev_prefilter"] = prefilter_data
+                        if prefilter.status == "set_aside":
+                            comment_evaluations.append({
+                                "id": record["id"], "prefilter": prefilter_data, "jev": None,
+                            })
+                            filtered += 1
+                            continue
+
+                        category_context = record["metadata"].get("parent_post", {})
+                        decision = evaluate_with_jev(
+                            record["text"], post_context=category_context,
+                            knowledge_reader=self.knowledge_reader, jev=self.jev,
+                        )
+                        record["metadata"]["jev_evaluation"] = decision
+                        comment_evaluations.append({
+                            "id": record["id"], "prefilter": prefilter_data, "jev": decision,
+                        })
+                        if decision["status"] == "uncertain":
+                            record["metadata"]["review_queue_status"] = "queued"
+                            record["metadata"]["human_review_required"] = True
+                            review_queue.append(record)
+                        else:
+                            record["metadata"]["review_queue_status"] = "not_queued"
+                        # If Jev is configured, its result gates the legacy lead policy.
+                        # With no Jev adapter configured, keep the existing account-seed
+                        # flow operational while recording the unavailable evaluation
+                        # as uncertain and queued for review.
+                        if self.jev is not None and decision["status"] != "probably a buyer":
+                            continue
+
                         policy = COMMENT_POLICIES.get(policy_name, buyer_request)
                         accepted = policy(record, post_record, self.min_intent_score)
                         if accepted is None:
@@ -679,6 +732,12 @@ class InstagramCollector:
                 self._persist_review_queue(review_queue)
             except Exception:
                 log.exception("Could not persist Instagram post review queue")
+                status = "FAILED"
+        if comment_evaluations:
+            try:
+                self._persist_comment_evaluations(comment_evaluations)
+            except Exception:
+                log.exception("Could not persist Instagram comment evaluations")
                 status = "FAILED"
         if seller_leads:
             try:
@@ -811,6 +870,24 @@ class InstagramCollector:
         new_rows = [row for row in rows if row["id"] not in existing]
         if new_rows:
             content = "".join(to_json_line(SourceRecord.from_dict(row)) + "\n" for row in new_rows)
+            write_latest(target, content, append=True)
+        return len(new_rows)
+
+    def _persist_comment_evaluations(self, rows: list[dict[str, Any]]) -> int:
+        target = self.output_dir / "comment-evaluations.jsonl"
+        existing: set[str] = set()
+        if target.exists():
+            for line in target.read_text(encoding="utf-8").splitlines():
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if item.get("id"):
+                    existing.add(str(item["id"]))
+        new_rows = [row for row in rows if row["id"] not in existing]
+        if new_rows:
+            content = "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                              for row in new_rows)
             write_latest(target, content, append=True)
         return len(new_rows)
 
