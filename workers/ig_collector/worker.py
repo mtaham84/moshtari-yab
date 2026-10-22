@@ -454,6 +454,9 @@ class InstagramCollector:
                         )
                         record["metadata"]["match_score"] = decision["score"]
                         record["metadata"]["match_reason"] = decision["reason"]
+                        record["metadata"]["review_queue_status"] = (
+                            "queued" if decision["result"] == "human_review" else "not_queued"
+                        )
                         if decision["result"] == "human_review":
                             record["metadata"]["human_review_required"] = True
                             review_queue.append(record)

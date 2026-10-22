@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 CONFIDENT_CATEGORY_SCORE = 0.75
 MIN_CAPTION_LENGTH = 40
+AMBIGUOUS_CATEGORY_MARGIN = 0.10
 
 
 class CategoryKnowledge(Protocol):
@@ -260,13 +261,15 @@ def _category_decision(caption: str, hashtags: Sequence[str], source: Mapping[st
         return base
 
     best_score, best, evidence = ranked[0]
-    if len(ranked) > 1 and ranked[1][0] == best_score:
+    if len(ranked) > 1 and best_score - ranked[1][0] <= AMBIGUOUS_CATEGORY_MARGIN:
+        alternatives = [row[1].get("name") for row in ranked
+                        if best_score - row[0] <= AMBIGUOUS_CATEGORY_MARGIN]
         base.update(result="human_review", category_candidate_id=best.get("id"),
                     category_candidate=best.get("name"), category_path=best.get("full_path"),
                     product_candidate=next(iter(evidence["product_terms"]), None),
                     score=round(best_score, 2),
                     reason={"code": "ambiguous_category", "evidence": evidence,
-                            "alternatives": [row[1].get("name") for row in ranked if row[0] == best_score]},
+                            "alternatives": alternatives},
                     knowledge_source={"kind": source_name, "business_id": best.get("business_id"),
                                       "category_id": best.get("id")})
         return base

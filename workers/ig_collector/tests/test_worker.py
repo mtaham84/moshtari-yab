@@ -283,7 +283,9 @@ def test_hashtag_post_analysis_routes_confident_posts_and_queues_uncertain_posts
     assert stored["ig:ShortPost"]["metadata"]["decision_status"] == "human_review"
     assert stored["ig:ShortPost"]["metadata"]["suggested_category"] == "کفش"
     assert stored["ig:ShortPost"]["metadata"]["match_reason"]["code"] == "caption_too_short"
+    assert stored["ig:ShortPost"]["metadata"]["review_queue_status"] == "queued"
     assert stored["ig:OtherPost"]["metadata"]["decision_status"] == "rejected"
+    assert stored["ig:OtherPost"]["metadata"]["review_queue_status"] == "not_queued"
     assert [row["id"] for row in review] == ["ig:ShortPost"]
     assert backend.comment_posts == ["ConfidentPost"]
 

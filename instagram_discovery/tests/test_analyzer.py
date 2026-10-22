@@ -67,6 +67,23 @@ def test_equally_scored_categories_are_ambiguous_and_go_to_review():
     assert result["category_id"] is None
 
 
+def test_near_tied_categories_are_ambiguous_and_go_to_review():
+    target = knowledge(
+        {"id": 12, "name": "کفش", "keywords": ["کفش چرمی", "مردانه"], "hashtags": ["چرم"]},
+        {"id": 13, "name": "کیف", "keywords": ["کفش"], "hashtags": ["چرم"]},
+    )
+
+    result = analyze_post(
+        post("برای خرید کفش چرمی مردانه این مدل با کیفیت بالا را ببینید و سفارش دهید.", ["چرم"]),
+        {"kind": "hashtag", "value": "چرم"}, target,
+    )["category_decision"]
+
+    assert result["result"] == "human_review"
+    assert result["category_id"] is None
+    assert result["reason"]["code"] == "ambiguous_category"
+    assert result["reason"]["alternatives"] == ["کفش", "کیف"]
+
+
 def test_unmatched_post_is_rejected_without_using_source_hashtag_as_evidence():
     target = knowledge({
         "id": 12, "business_id": 7, "name": "کفش", "keywords": ["کفش چرمی"],
