@@ -542,6 +542,51 @@ class PanelViewTests(TestCase):
         self.assertEqual(opportunity.trace_metadata["instagram"]["product_match"], "default_product")
         self.assertEqual(opportunity.product_matches.get().product, self.p1)
 
+    def test_hashtag_comment_with_confident_category_creates_scoped_opportunity(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        category = Category.objects.create(business=self.biz, name="کفش اینستاگرام", keywords=["کفش چرمی"])
+        product = Product.objects.create(
+            business=self.biz, category=category, name="کفش چرمی مردانه", description="x",
+            status="ACTIVE", is_discovery_active=True, instagram_discovery_enabled=True,
+        )
+        InstagramCategoryTarget.objects.create(
+            business=self.biz, category=category, terms=["کفش چرمی"], hashtags=["کفش_چرمی"],
+            is_active=True,
+        )
+        decision = {
+            "result": "confident_match", "category_id": category.pk,
+            "category": category.name, "category_path": category.full_path, "score": 0.9,
+            "product_id": product.pk, "product": product.name,
+            "reason": {"code": "matched", "evidence": {"caption_terms": ["کفش چرمی"],
+                                                  "post_hashtags": ["کفش_چرمی"]}},
+            "knowledge_source": {"kind": "seller_category_seed", "business_id": self.biz.pk,
+                                    "category_id": category.pk},
+        }
+        record = {
+            "id": "ig:HashtagPost:c9", "source": "instagram", "kind": "comment",
+            "text": "قیمت این کفش چنده؟", "author_handle": "@buyer", "author_id": "9901",
+            "created_at": None, "url": "https://www.instagram.com/p/HashtagPost/",
+            "metadata": {"seed": "hashtag:کفش_چرمی",
+                "parent_post": {"id": "ig:HashtagPost", "caption": "برای خرید کفش چرمی مردانه لطفاً سایز را بفرمایید.",
+                                "category_decision": decision},
+                "intent": {"label": "price_question", "cue": "قیمت"}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        opportunity = Opportunity.objects.get(source_platform="instagram", source_message_id=record["id"])
+        self.assertEqual(opportunity.business, self.biz)
+        self.assertEqual(opportunity.category, category)
+        self.assertEqual(opportunity.category_confidence, 0.9)
+        self.assertEqual(opportunity.trace_metadata["instagram"]["category_decision"]["result"], "confident_match")
+        self.assertEqual(opportunity.product_matches.get().product, product)
+
     def test_instagram_owner_comment_and_invalid_intent_are_skipped(self):
         import json
         import tempfile

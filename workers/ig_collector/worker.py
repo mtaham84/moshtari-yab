@@ -20,6 +20,7 @@ from shared.collector_kit.status import write_status
 from shared.records import RecordError, SourceRecord, to_json_line
 from shared.instagram import PageRefError, parse_page_ref
 from .policies import COMMENT_POLICIES, buyer_request
+from instagram_discovery.analyzer import analyze_post, knowledge_from_seeds
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -89,6 +90,7 @@ def normalize_post(post: InstagramPost, seed: str, backend: str, intent: Persian
     classification = intent.classify(text)
     if numeric_opt_in:
         classification = type(classification)(score=0, labels=["other"], matched=classification.matched)
+    hashtags = [str(tag).strip().lstrip("#") for tag in post.hashtags]
     return SourceRecord.from_dict({
         "id": f"ig:{shortcode}", "source": "instagram", "kind": "post", "text": text,
         "author_handle": f"@{handle}", "author_name": str(post.full_name or "") or None,
@@ -96,7 +98,7 @@ def normalize_post(post: InstagramPost, seed: str, backend: str, intent: Persian
         "created_at": normalize_timestamp(post.created_at), "url": f"https://www.instagram.com/p/{shortcode}/",
         "metadata": {
             "backend": backend, "seed": seed, "post_id": str(post.post_id or shortcode),
-            "hashtags": [str(tag).lstrip("#") for tag in post.hashtags],
+            "hashtags": hashtags,
             "like_count": max(0, _int(post.like_count)), "comment_count": max(0, _int(post.comment_count)),
             "media_type": str(post.media_type or ""),
             "intent": {"score": classification.score, "labels": classification.labels},
@@ -156,6 +158,7 @@ def normalize_comment(comment: InstagramComment, post: InstagramPost, seed: str,
             "backend": backend, "seed": seed, "post_id": str(post.post_id or post.shortcode),
             "hashtags": [], "like_count": 0, "comment_count": 0, "media_type": "comment",
             "intent": {"score": classification.score, "labels": classification.labels},
+            **({"parent_post": post.raw["parent_post"]} if isinstance(post.raw.get("parent_post"), dict) else {}),
         },
     }).as_dict()
 
@@ -323,6 +326,8 @@ class InstagramCollector:
             self._write_status(result)
             return result
         collected: list[dict[str, Any]] = []
+        review_queue: list[dict[str, Any]] = []
+        post_reviews: dict[str, dict[str, Any]] = {}
         rejected: list[dict[str, Any]] = []
         filtered = failures = 0
         breaker = CircuitBreaker(self.circuit_breaker)
@@ -406,9 +411,62 @@ class InstagramCollector:
                         suggested = _suggested_target(seed)
                         if suggested:
                             record["metadata"]["suggested_target"] = suggested
+                        source = {
+                            "kind": "hashtag", "value": value,
+                            "business_id": seed.get("business_id"),
+                            "category_id": seed.get("category_id"),
+                        }
+                        category_knowledge = knowledge_from_seeds(seeds, seed.get("business_id"))
+                        target_category = next((category for category in category_knowledge.categories_for(source)
+                                                if category.get("id") == seed.get("category_id")), None)
+                        analysis = analyze_post({
+                            "id": record["id"], "shortcode": post.shortcode,
+                            "caption": record["text"], "username": post.username,
+                            "url": record["url"], "hashtags": record["metadata"]["hashtags"],
+                        }, source, category_knowledge)
+                        decision = analysis["category_decision"]
+                        if decision["result"] == "rejected":
+                            rejected.append(_rejected("post", decision["reason"]["code"]))
+                            if keep_rejected:
+                                rejected[-1]["source_hashtag"] = value
+                        if seed.get("category_id"):
+                            decision["source_category_id"] = seed["category_id"]
+                            decision["source_category"] = seed.get("category")
+                            decision["source_hashtag"] = value
+                        post_reviews[post.shortcode] = {
+                            "id": record["id"], "post_url": record["url"],
+                            "caption": record["text"][:160],
+                            "source_hashtag": value,
+                            "source_category_id": seed.get("category_id"),
+                            "source_category": seed.get("category"),
+                            "category_decision": decision,
+                            "category": target_category.get("name") if target_category else None,
+                            "category_path": target_category.get("full_path") if target_category else None,
+                        }
+                        record["metadata"]["parent_post"] = post_reviews[post.shortcode]
+                        record["metadata"]["category_decision"] = decision
+                        record["metadata"]["decision_status"] = decision["result"]
+                        record["metadata"]["suggested_category"] = (
+                            decision["category"] or decision["category_candidate"]
+                        )
+                        record["metadata"]["suggested_product"] = (
+                            decision["product"] or decision["product_candidate"]
+                        )
+                        record["metadata"]["match_score"] = decision["score"]
+                        record["metadata"]["match_reason"] = decision["reason"]
+                        if decision["result"] == "human_review":
+                            record["metadata"]["human_review_required"] = True
+                            review_queue.append(record)
                     score = int(record["metadata"]["intent"]["score"])
                     if kind == "hashtag":
                         self._collect_record(record, collected)
+                        if (record["metadata"]["category_decision"]["result"] == "confident_match"
+                                and policy_name == "seller_post"):
+                            comment_fetch_key = post.shortcode
+                            if (post.shortcode not in comment_candidate_ids
+                                    and not self.store.comments_were_fetched(comment_fetch_key)):
+                                comment_candidates.append((post, seed_key, record))
+                                comment_candidate_ids.add(post.shortcode)
                         continue
                     if (policy_name == "seller_post"
                             and "advertisement" not in record["metadata"]["intent"]["labels"]):
@@ -502,6 +560,11 @@ class InstagramCollector:
                 try:
                     self.backend.require("post_comments")
                     comments_rows = self._with_retry(lambda: self.backend.post_comments(post, max_comments))
+                    parent_post = {
+                        "id": f"ig:{post.shortcode}", "caption": post.caption[:160],
+                        "url": post.url,
+                        **(post_reviews.get(post.shortcode) or {}),
+                    }
                     outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
                     if outcome:
                         outcome["comments"] += len(comments_rows)
@@ -522,6 +585,9 @@ class InstagramCollector:
                             if keep_rejected:
                                 rejected.append(_rejected("comment", "invalid_or_non_persian_or_missing_fields"))
                             continue
+                        if parent_post.get("category_decision"):
+                            record["metadata"]["parent_post"] = parent_post
+                            record["metadata"]["category_decision"] = parent_post["category_decision"]
                         policy = COMMENT_POLICIES.get(policy_name, buyer_request)
                         accepted = policy(record, post_record, self.min_intent_score)
                         if accepted is None:
@@ -593,6 +659,12 @@ class InstagramCollector:
                 log.exception("Could not persist Instagram JSONL/state; rolling back appended lines")
                 status = "FAILED"
                 collected.clear()
+        if review_queue:
+            try:
+                self._persist_review_queue(review_queue)
+            except Exception:
+                log.exception("Could not persist Instagram post review queue")
+                status = "FAILED"
         if seller_leads:
             try:
                 seller_lead_count = self._persist_seller_leads(seller_leads)
@@ -612,6 +684,7 @@ class InstagramCollector:
             self._write_rejected(rejected, self.output_dir / f"{date.today().isoformat()}.rejected.jsonl")
         result = self._result(status, collected, filtered, failures,
                               output=str(output), rejected=len(rejected),
+                              human_review=len(review_queue),
                               started_at=now.isoformat(),
                               updated_at=datetime.now(timezone.utc).isoformat(),
                               handles=handle_outcomes,
@@ -708,6 +781,23 @@ class InstagramCollector:
                         stream.truncate(offset)
                     raise
             return len(new_rows)
+
+    def _persist_review_queue(self, rows: list[dict[str, Any]]) -> int:
+        target = self.output_dir / "needs-review.jsonl"
+        existing: set[str] = set()
+        if target.exists():
+            for line in target.read_text(encoding="utf-8").splitlines():
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if item.get("id"):
+                    existing.add(str(item["id"]))
+        new_rows = [row for row in rows if row["id"] not in existing]
+        if new_rows:
+            content = "".join(to_json_line(SourceRecord.from_dict(row)) + "\n" for row in new_rows)
+            write_latest(target, content, append=True)
+        return len(new_rows)
 
     def _write_rejected(self, rows: list[dict[str, Any]], target: Path) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)

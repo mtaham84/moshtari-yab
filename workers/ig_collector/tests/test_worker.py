@@ -245,6 +245,49 @@ def test_duplicate_account_and_hashtag_post_is_stored_once_with_both_sources(tmp
     ]
 
 
+def test_hashtag_post_analysis_routes_confident_posts_and_queues_uncertain_posts(tmp_path):
+    now = datetime.now(timezone.utc).isoformat()
+    fixture = {"hashtags": {"کفش": [
+        {"shortcode": "ConfidentPost", "caption": "برای خرید کفش چرمی مردانه این مدل موجود است و برای انتخاب سایز پیام بدهید.",
+         "username": "shop_one", "created_at": now, "hashtags": ["کفش_چرمی"]},
+        {"shortcode": "ShortPost", "caption": "کفش چرمی", "username": "shop_one",
+         "created_at": now, "hashtags": ["کفش_چرمی"]},
+        {"shortcode": "OtherPost", "caption": "این هفته چند عکس از مسیرهای زیبای شمال گذاشتم و سفر خیلی خوبی بود.",
+         "username": "shop_one", "created_at": now},
+    ]}}
+    seed = {"kind": "hashtag", "value": "کفش", "limit": 10, "window_days": 7,
+            "business_id": 7, "category_id": 11, "category": "کفش",
+            "category_path": "پوشاک > کفش", "product_ids": [19],
+            "products": ["کفش چرمی مردانه"], "terms": ["کفش چرمی", "سایز"]}
+    related_seed = {**seed, "value": "کفش_چرمی"}
+    class CountingBackend(MockInstagramBackend):
+        def __init__(self, data):
+            super().__init__(data)
+            self.comment_posts = []
+
+        def post_comments(self, post_ref, limit):
+            self.comment_posts.append(post_ref.shortcode)
+            return super().post_comments(post_ref, limit)
+
+    backend = CountingBackend(fixture)
+    result = collector(tmp_path, backend, min_intent_score=0).run(
+        [seed, related_seed], {"mode": "all", "policy": "seller_post", "max_posts_per_run": 10,
+                 "max_per_post": 10, "read_hashtag_posts": True},
+    )
+
+    stored = {row["id"]: row for row in rows(Path(result["output"]))}
+    review = rows(Path(result["output"]).with_name("needs-review.jsonl"))
+    assert stored["ig:ConfidentPost"]["metadata"]["category_decision"]["result"] == "confident_match"
+    assert stored["ig:ConfidentPost"]["metadata"]["category_decision"]["category_id"] == 11
+    assert stored["ig:ConfidentPost"]["metadata"]["category_decision"]["reason"]["evidence"]["post_hashtags"] == ["کفش_چرمی"]
+    assert stored["ig:ShortPost"]["metadata"]["decision_status"] == "human_review"
+    assert stored["ig:ShortPost"]["metadata"]["suggested_category"] == "کفش"
+    assert stored["ig:ShortPost"]["metadata"]["match_reason"]["code"] == "caption_too_short"
+    assert stored["ig:OtherPost"]["metadata"]["decision_status"] == "rejected"
+    assert [row["id"] for row in review] == ["ig:ShortPost"]
+    assert backend.comment_posts == ["ConfidentPost"]
+
+
 def test_seller_post_policy_uses_all_comment_mode():
     _, comments = validate_seeds({"comments": {"mode": "signals", "policy": "seller_post"}})
 

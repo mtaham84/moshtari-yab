@@ -27,12 +27,16 @@ def seller_post(record: dict[str, Any], parent_record: dict[str, Any],
         return None
     accepted = dict(record)
     accepted["metadata"] = dict(record["metadata"])
-    accepted["metadata"].update({
-        "parent_post": {
+    parent_post = {
             "id": parent_record.get("metadata", {}).get("parent_source_id", parent_record["id"]),
             "caption": parent_record["text"][:160],
             "url": parent_record.get("url"),
-        },
+        }
+    post_metadata = parent_record.get("metadata", {})
+    if post_metadata.get("category_decision"):
+        parent_post.update(post_metadata.get("parent_post", {}))
+    accepted["metadata"].update({
+        "parent_post": parent_post,
         "intent": {"label": intent.label, "cue": intent.cue},
     })
     return accepted
