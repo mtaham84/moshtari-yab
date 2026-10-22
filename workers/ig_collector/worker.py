@@ -598,15 +598,41 @@ class InstagramCollector:
                                          else post.shortcode)
                     pending_comment_fetches.add(comment_fetch_key)
                     fetched_posts += 1
-                    for comment in comments_rows:
+                    for comment_index, comment in enumerate(comments_rows):
                         if DailyCap(
                                 self.daily_cap, self.store.count_today() + len(collected)
                                 + len(pending_seller_lead_ids)
                         ).reached():
                             status = "DAILY_CAP_REACHED"
-                            break
+                            raw_comment_id = str(comment.comment_id or f"unknown-{comment_index}").strip()
+                            suggested = post_record.get("metadata", {}).get("suggested_target", {})
+                            business_id = suggested.get("business_id") if isinstance(suggested, dict) else None
+                            comment_evaluations.append({
+                                "id": f"ig:{post.shortcode}:c{raw_comment_id}",
+                                "business_id": str(business_id) if business_id not in (None, "") else None,
+                                "post_id": f"ig:{post.shortcode}",
+                                "commenter_id": str(comment.author_id) if comment.author_id not in (None, "") else None,
+                                "commenter_username": str(comment.username or "").strip().lstrip("@") or None,
+                                "comment_text": str(comment.text or "").strip()[:2000],
+                                "prefilter": {"status": "not_evaluable", "reason": "daily_cap_reached", "evidence": []},
+                                "jev": None,
+                            })
+                            continue
                         record = normalize_comment(comment, post, seed_key, self.backend.name, self.lexicon)
                         if record is None:
+                            raw_comment_id = str(comment.comment_id or f"unknown-{comment_index}").strip()
+                            suggested = post_record.get("metadata", {}).get("suggested_target", {})
+                            business_id = suggested.get("business_id") if isinstance(suggested, dict) else None
+                            comment_evaluations.append({
+                                "id": f"ig:{post.shortcode}:c{raw_comment_id}",
+                                "business_id": str(business_id) if business_id not in (None, "") else None,
+                                "post_id": f"ig:{post.shortcode}",
+                                "commenter_id": str(comment.author_id) if comment.author_id not in (None, "") else None,
+                                "commenter_username": str(comment.username or "").strip().lstrip("@") or None,
+                                "comment_text": str(comment.text or "").strip()[:2000],
+                                "prefilter": {"status": "not_evaluable", "reason": "invalid_or_non_persian_or_missing_fields", "evidence": []},
+                                "jev": None,
+                            })
                             filtered += 1
                             if keep_rejected:
                                 rejected.append(_rejected("comment", "invalid_or_non_persian_or_missing_fields"))
@@ -626,11 +652,21 @@ class InstagramCollector:
                             "reason": prefilter.reason,
                             "evidence": list(prefilter.evidence),
                         }
+                        suggested = post_record.get("metadata", {}).get("suggested_target", {})
+                        business_id = suggested.get("business_id") if isinstance(suggested, dict) else None
+                        evaluation_row = {
+                            "id": record["id"],
+                            "business_id": str(business_id) if business_id not in (None, "") else None,
+                            "post_id": parent_post["id"],
+                            "commenter_id": record.get("author_id"),
+                            "commenter_username": str(record.get("author_handle") or "").lstrip("@") or None,
+                            "comment_text": record["text"][:2000],
+                            "prefilter": prefilter_data,
+                            "jev": None,
+                        }
                         record["metadata"]["jev_prefilter"] = prefilter_data
                         if prefilter.status == "set_aside":
-                            comment_evaluations.append({
-                                "id": record["id"], "prefilter": prefilter_data, "jev": None,
-                            })
+                            comment_evaluations.append(evaluation_row)
                             filtered += 1
                             continue
 
@@ -640,9 +676,8 @@ class InstagramCollector:
                             knowledge_reader=self.knowledge_reader, jev=self.jev,
                         )
                         record["metadata"]["jev_evaluation"] = decision
-                        comment_evaluations.append({
-                            "id": record["id"], "prefilter": prefilter_data, "jev": decision,
-                        })
+                        evaluation_row["jev"] = decision
+                        comment_evaluations.append(evaluation_row)
                         if decision["status"] == "uncertain":
                             record["metadata"]["review_queue_status"] = "queued"
                             record["metadata"]["human_review_required"] = True

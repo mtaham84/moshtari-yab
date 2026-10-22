@@ -25,6 +25,10 @@ from apps.businesses.models import Business
 from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.products.models import Category, Product
 from need_engine.text import norm
+from instagram_discovery.comment_metrics import (
+    build_comment_report, load_labels, pending_human_labels, read_jsonl,
+    reporting_paths, save_human_label,
+)
 
 from shared.instagram import PageRefError, parse_page_ref
 from .models import (InstagramCategoryTarget, InstagramPage, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
@@ -721,8 +725,32 @@ def instagram_pages_view(request):
         "pages": pages, "products": products, "categories": categories,
         "category_configs": category_configs,
     }
+    evaluation_path, labels_path = reporting_paths()
+    evaluation_rows = read_jsonl(evaluation_path)
+    human_labels = load_labels(labels_path, business_id=business.pk)
+    page_context["comment_report"] = build_comment_report(
+        evaluation_rows, labels=human_labels, business_id=business.pk,
+    )
+    page_context["pending_comment_labels"] = pending_human_labels(
+        evaluation_rows, human_labels, business_id=business.pk, limit=25,
+    )
     if request.method == "POST":
         action = request.POST.get("action", "add")
+        if action == "label_comment":
+            comment_id = request.POST.get("comment_id", "").strip()
+            label = request.POST.get("label", "")
+            comment = next((row for row in pending_human_labels(
+                evaluation_rows, human_labels, business_id=business.pk, limit=100,
+            ) if str(row.get("id") or "") == comment_id), None)
+            if comment is None:
+                messages.error(request, "این کامنت در صف ارزیابی کسب‌وکار شما نیست.")
+            elif label not in {"approve", "reject"}:
+                messages.error(request, "برچسب باید تأیید یا رد باشد.")
+            else:
+                save_human_label(labels_path, comment_id=comment_id, business_id=business.pk,
+                                 label=label, operator_id=request.user.pk)
+                messages.success(request, "برچسب انسانی ذخیره شد.")
+            return redirect("discovery:instagram_pages")
         if action in {"add", "remove", "save_category_target"} and not _instagram_change_allowed(request):
             return render(request, "discovery/instagram_pages.html", {
                 **page_context, "throttled": True,
@@ -791,6 +819,19 @@ def instagram_pages_view(request):
             messages.success(request, "پایش صفحه فعال شد." if page.is_active else "پایش صفحه متوقف شد.")
             return redirect("discovery:instagram_pages")
     return render(request, "discovery/instagram_pages.html", page_context)
+
+
+@login_required
+def instagram_comment_report_api_view(request):
+    business = getattr(request.user, "business", None)
+    if business is None:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار مرتبط یافت نشد."}, status=404)
+    evaluation_path, labels_path = reporting_paths()
+    report = build_comment_report(
+        read_jsonl(evaluation_path), labels=load_labels(labels_path, business_id=business.pk),
+        business_id=business.pk,
+    )
+    return JsonResponse({"status": "success", "data": report}, json_dumps_params={"ensure_ascii": False})
 
 
 @login_required

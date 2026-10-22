@@ -461,11 +461,17 @@ def test_comment_prefilter_and_jev_results_are_persisted_with_mocked_knowledge(t
     by_id = {row["id"]: row for row in evaluation_rows}
     assert len(reader.calls) == len(jev.calls) == 2
     assert by_id["ig:IGReq100:cclean1"]["jev"]["status"] == "probably a buyer"
+    assert by_id["ig:IGReq100:cclean1"]["commenter_id"] is None
+    assert by_id["ig:IGReq100:cclean1"]["commenter_username"] == "buyer_one"
+    assert by_id["ig:IGReq100:cclean1"]["comment_text"] == "قیمت کفش چنده؟"
+    assert by_id["ig:IGReq100:cclean1"]["business_id"] is None
     assert by_id["ig:IGReq100:cclean1"]["jev"]["indexed_information_used"]["source"]["document_id"] == "d1"
     assert by_id["ig:IGReq100:cmaybe1"]["jev"]["status"] == "uncertain"
     assert by_id["ig:IGReq100:cspam1"]["prefilter"]["status"] == "set_aside"
     assert by_id["ig:IGReq100:cspam1"]["prefilter"]["reason"] == "link_spam"
     assert by_id["ig:IGReq100:cspam1"]["jev"] is None
+    assert by_id["ig:IGReq100:cspam1"]["prefilter"]["status"] == "set_aside"
+    assert by_id["ig:IGReq100:cspam1"]["commenter_username"] == "spam_user"
     review_rows = rows(tmp_path / "out" / "needs-review.jsonl")
     assert "ig:IGReq100:cmaybe1" in [row["id"] for row in review_rows]
     collected_rows = rows(Path(result["output"]))
