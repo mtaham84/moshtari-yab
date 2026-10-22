@@ -217,8 +217,20 @@ def test_cli_accepts_manual_post_arguments_and_runs_core(tmp_path, capsys):
 
 def test_manual_post_does_not_introduce_need_engine_or_apps_worker_edge():
     root = Path(__file__).resolve().parents[3]
-    worker_source = (root / "workers" / "ig_collector" / "worker.py").read_text(encoding="utf-8")
-    assert "need_engine" not in worker_source
+    for package in ("workers/ig_collector", "instagram_discovery", "shared"):
+        package_root = root / package
+        for source_path in package_root.rglob("*.py"):
+            if any(part in {"tests", "migrations", "__pycache__"} for part in source_path.parts):
+                continue
+            tree = ast.parse(source_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                else:
+                    continue
+                assert not any(name == "need_engine" or name.startswith("need_engine.") for name in names), source_path
     for source_path in (root / "apps").rglob("*.py"):
         if any(part in {"tests", "migrations"} for part in source_path.parts):
             continue

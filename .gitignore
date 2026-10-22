@@ -13,6 +13,10 @@ data/ig_collected/
 data/ig_collected_mock/
 data/ig_label/
 data/ig_seeds.json
+**/needs-review.jsonl
+**/needs-review.jsonl.lock
+**/human-post-labels.jsonl
+**/human-post-labels.jsonl.lock
 output/ig_collector*.sqlite3*
 instagram_discovery/output/
 data/x_queries.txt

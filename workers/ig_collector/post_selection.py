@@ -1,6 +1,7 @@
 """Select and prioritize Instagram posts before the bounded comment-read stage."""
 from __future__ import annotations
 
+import copy
 import re
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence, TypeAlias
@@ -85,19 +86,30 @@ def select_comment_candidates(
     candidates: Sequence[CommentCandidate],
     *,
     since: datetime,
+    post_labels: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
 ) -> list[CommentCandidate]:
-    """Keep recent accepted posts and sort high-signal seller posts first.
+    """Keep recent confident or operator-approved posts and prioritize seller posts.
 
     Hashtag posts require a confident match to the exact seeded category. Account
-    page candidates retain their existing seller-post eligibility rules.
+    page candidates retain their existing seller-post eligibility rules. A
+    business-scoped operator rejection blocks the post; approval may admit an
+    uncertain hashtag post without altering its analyzer decision.
     """
+    labels = post_labels or {}
     selected: list[CommentCandidate] = []
     for post, seed_key, record in candidates:
         if not _is_recent(post.created_at, since):
             continue
-        if seed_key.startswith("hashtag:") and not _has_confident_target_match(record):
+        business_id = _record_business_id(record)
+        label = labels.get((business_id, f"ig:{post.shortcode}")) if business_id else None
+        if label and label.get("decision") == "reject":
             continue
-        selected.append((post, seed_key, record))
+        candidate_record = record
+        if label and label.get("decision") == "approve":
+            candidate_record = _with_operator_target(record, label, business_id)
+        elif seed_key.startswith("hashtag:") and not _has_confident_target_match(record):
+            continue
+        selected.append((post, seed_key, candidate_record))
 
     return sorted(
         selected,
@@ -106,6 +118,47 @@ def select_comment_candidates(
             -_timestamp(candidate[0].created_at).timestamp(),
         ),
     )
+
+
+def _record_business_id(record: Mapping[str, Any]) -> str:
+    metadata = record.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return ""
+    for field in ("suggested_target", "collection_source"):
+        target = metadata.get(field)
+        if isinstance(target, Mapping) and target.get("business_id") not in (None, ""):
+            value = str(target["business_id"]).strip()
+            if value.isascii() and value.isdigit() and int(value) > 0:
+                return str(int(value))
+    return ""
+
+
+def _with_operator_target(
+    record: dict[str, Any], label: Mapping[str, Any], business_id: str,
+) -> dict[str, Any]:
+    """Carry operator provenance to comment evaluation without rewriting analysis."""
+    selected = copy.deepcopy(record)
+    category_id = str(label.get("category_id") or "")
+    product_id = str(label.get("product_id") or "") or None
+    target = {
+        "source": "operator",
+        "business_id": business_id,
+        "category_id": category_id,
+        "product_id": product_id,
+        "score": None,
+    }
+    metadata = selected.setdefault("metadata", {})
+    metadata["operator_post_label"] = {
+        "decision": "approve",
+        "category_id": category_id,
+        "product_id": product_id,
+        "audit": bool(label.get("audit")),
+    }
+    metadata["suggested_target"] = target
+    parent = metadata.get("parent_post")
+    if isinstance(parent, dict):
+        parent["suggested_target"] = target
+    return selected
 
 
 def _has_confident_target_match(record: Mapping[str, Any]) -> bool:

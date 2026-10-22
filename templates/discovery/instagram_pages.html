@@ -27,6 +27,7 @@
 </div>
 <div class="p-card" style="padding: 24px; margin-bottom: 24px;">
   <h2>پایش هشتگی بر اساس دسته‌بندی</h2>
+  <p><a class="p-btn p-btn-secondary" href="{% url 'discovery:instagram_post_review' %}">صف بازبینی پست‌ها و گزارش دقت دسته‌بندی</a></p>
   <p>برای هر دسته، واژه‌های مرتبط و هشتگ‌های مجاز را تنظیم کنید. seedها کنار صفحه‌های حساب نوشته می‌شوند و دسته‌بندی پست در این مرحله قطعی نیست.</p>
   {% for config in category_configs %}{% with category=config.category target=config.target %}
     <form method="post" style="border-top:1px solid var(--panel-border); padding:16px 0;">{% csrf_token %}<input type="hidden" name="action" value="save_category_target"><input type="hidden" name="category_id" value="{{ category.pk }}">

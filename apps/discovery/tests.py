@@ -947,3 +947,199 @@ class XSellerPagesTests(EngineSchemaMixin, TestCase):
             prod.refresh_from_db()
             self.assertFalse(prod.x_search_enabled)
         self.assertIn("جستجوی مشتری در X: خاموش", self.client.get(reverse("products:detail", args=[idle.pk])).content.decode())
+
+
+class InstagramPostReviewViewTests(TestCase):
+    def setUp(self):
+        import shutil
+        import uuid
+        from django.conf import settings
+        from django.core.cache import cache
+
+        self.user, self.biz = seller("review-a@example.com", "فروشگاه بازبینی الف")
+        self.other_user, self.other_biz = seller("review-b@example.com", "فروشگاه بازبینی ب")
+        self.category = Category.objects.create(business=self.biz, name="دستهٔ خودم")
+        self.product = Product.objects.create(
+            business=self.biz, category=self.category, name="محصول خودم", description="محصول آزمایشی",
+        )
+        self.other_category = Category.objects.create(business=self.other_biz, name="دستهٔ دیگری")
+        self.other_product = Product.objects.create(
+            business=self.other_biz, category=self.other_category,
+            name="محصول دیگری", description="محصول آزمایشی دیگر",
+        )
+        self.output_root = Path(settings.BASE_DIR) / f".instagram-post-review-tests-{uuid.uuid4().hex}"
+        self.output_root.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, self.output_root, True)
+        self.client = Client()
+        self.client.force_login(self.user)
+        cache.delete(f"ig-page-change:{self.user.pk}")
+
+    def queue_post(self, *, code="PostAbc1", business_id=None, result="human_review",
+                   reason="caption_too_short", audit=False, caption="کپشن آزمایشی",
+                   candidate_category_id=None):
+        business_id = business_id or self.biz.pk
+        decision = {
+            "result": result, "score": 0.42 if result == "human_review" else 0.93,
+            "category_candidate_id": candidate_category_id or self.category.pk,
+            "category_candidate": "دستهٔ خصوصی پیشنهادی", "product_candidate_id": None,
+            "product_candidate": "محصول خصوصی پیشنهادی",
+            "reason": {"code": reason, "evidence": {"caption_excerpt": caption}},
+            "knowledge_source": {"kind": "seller_category_seed", "category_id": self.category.pk},
+        }
+        row = {
+            "id": f"ig:{code}", "source": "instagram", "kind": "post", "text": caption,
+            "author_handle": "@shop", "author_id": None, "created_at": "2026-10-23T10:00:00+00:00",
+            "url": f"https://www.instagram.com/p/{code}/",
+            "metadata": {
+                "hashtags": ["کفش"], "collection_source": {"kind": "hashtag", "business_id": business_id},
+                "suggested_target": {"business_id": business_id},
+                "audit": audit, "category_decision": decision,
+            },
+        }
+        queue = self.output_root / "needs-review.jsonl"
+        with queue.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return row
+
+    def output_env(self):
+        import os
+        from unittest.mock import patch
+
+        return patch.dict(os.environ, {"IG_COLLECT_OUTPUT_DIR": str(self.output_root)})
+
+    def test_post_review_requires_login_and_csrf(self):
+        from django.urls import reverse
+
+        url = reverse("discovery:instagram_post_review")
+        self.assertEqual(Client().get(url).status_code, 302)
+        self.queue_post()
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        with self.output_env():
+            self.assertEqual(csrf_client.get(url).status_code, 200)
+            response = csrf_client.post(url, {
+                "action": "label_post", "post_id": "ig:PostAbc1", "decision": "reject",
+            })
+        self.assertEqual(response.status_code, 403)
+
+    def test_review_queue_is_scoped_paginated_and_xss_escaped(self):
+        from django.urls import reverse
+
+        malicious = self.queue_post(caption='<script>alert("caption-xss")</script>')
+        self.queue_post(code="PostAbc2", business_id=self.other_biz.pk)
+        with self.output_env():
+            response = self.client.get(reverse("discovery:instagram_post_review"))
+
+        html = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["pending_total"], 1)
+        self.assertContains(response, "&lt;script&gt;")
+        self.assertNotIn('<script>alert("caption-xss")</script>', html)
+        self.assertNotContains(response, "ig:PostAbc2")
+        self.assertContains(response, "rel=\"noopener noreferrer\"")
+        self.assertEqual(response.context["pending_posts"][0]["post_id"], malicious["id"])
+
+        for index in range(21):
+            self.queue_post(code=f"Page{index:04d}")
+        with self.output_env():
+            page_two = self.client.get(reverse("discovery:instagram_post_review"), {"page": 2})
+        self.assertEqual(page_two.status_code, 200)
+        self.assertEqual(page_two.context["page"], 2)
+        self.assertEqual(len(page_two.context["pending_posts"]), 2)
+
+    def test_audit_verdict_is_hidden_until_operator_submits(self):
+        from django.urls import reverse
+
+        self.queue_post(code="AuditAbc", result="confident_match", reason="matched", audit=True,
+                        caption="متن ممیزی بدون برچسب افشاگر")
+        with self.output_env():
+            response = self.client.get(reverse("discovery:instagram_post_review"))
+
+        html = response.content.decode()
+        self.assertContains(response, "نمونهٔ ممیزی کور")
+        self.assertNotIn("confident_match", html)
+        self.assertNotIn("دستهٔ خصوصی پیشنهادی", html)
+
+    def test_approval_validates_business_targets_and_displays_analyzer_result_after_submit(self):
+        from django.urls import reverse
+
+        row = self.queue_post(code="Approve1")
+        queue_path = self.output_root / "needs-review.jsonl"
+        queue_before = queue_path.read_bytes()
+        with self.output_env():
+            invalid_category = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": row["id"], "decision": "approve",
+                "category_id": self.other_category.pk,
+            })
+            invalid_product = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": row["id"], "decision": "approve",
+                "category_id": self.category.pk, "product_id": self.other_product.pk,
+            })
+            saved = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": row["id"], "decision": "approve",
+                "category_id": self.category.pk, "product_id": self.product.pk,
+            })
+            after_submit = self.client.get(saved.url)
+
+        self.assertEqual(invalid_category.status_code, 400)
+        self.assertEqual(invalid_product.status_code, 400)
+        self.assertEqual(saved.status_code, 302)
+        self.assertContains(after_submit, "human_review")
+        self.assertContains(after_submit, "uncertain_score")
+        self.assertEqual(queue_path.read_bytes(), queue_before)
+        label_row = json.loads((self.output_root / "human-post-labels.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(label_row["decision"], "approve")
+        self.assertEqual(label_row["business_id"], str(self.biz.pk))
+        self.assertEqual(label_row["category_id"], str(self.category.pk))
+        self.assertEqual(label_row["product_id"], str(self.product.pk))
+        self.assertEqual(label_row["operator_id"], str(self.user.pk))
+        self.assertEqual(label_row["analyzer_snapshot"]["result"], "human_review")
+
+    def test_foreign_business_post_cannot_be_seen_or_labeled_and_skip_stays_pending(self):
+        from django.urls import reverse
+
+        row = self.queue_post(code="OtherB12", business_id=self.other_biz.pk)
+        url = reverse("discovery:instagram_post_review")
+        with self.output_env():
+            invalid_id = self.client.post(url, {
+                "action": "label_post", "post_id": "not-a-post-id", "decision": "reject",
+            })
+            page = self.client.get(url)
+            denied = self.client.post(url, {
+                "action": "label_post", "post_id": row["id"], "decision": "reject",
+            })
+            skipped = self.client.post(url, {
+                "action": "skip_post", "post_id": row["id"], "page": "1",
+            })
+            again = self.client.get(url)
+
+        self.assertEqual(invalid_id.status_code, 400)
+        self.assertEqual(page.context["pending_total"], 0)
+        self.assertEqual(denied.status_code, 404)
+        self.assertEqual(skipped.status_code, 302)
+        self.assertEqual(again.context["pending_total"], 0)
+        self.assertFalse((self.output_root / "human-post-labels.jsonl").exists())
+
+    def test_post_label_actions_use_the_existing_hourly_limit(self):
+        from django.urls import reverse
+        from unittest.mock import patch
+
+        self.queue_post()
+        with self.output_env(), patch("apps.discovery.views._instagram_change_allowed", return_value=False):
+            response = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": "ig:PostAbc1", "decision": "reject",
+            })
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse((self.output_root / "human-post-labels.jsonl").exists())
+
+    def test_post_report_api_is_business_scoped_and_zero_denominators_are_explicit(self):
+        from django.urls import reverse
+
+        with self.output_env():
+            response = self.client.get(reverse("discovery:instagram_post_report_api"))
+
+        self.assertEqual(response.status_code, 200)
+        report = response.json()["data"]
+        self.assertEqual(report["denominators"]["N_posts_analyzed"], 0)
+        self.assertIsNone(report["confident_match_agreement"]["percent"])
+        self.assertEqual(report["confident_match_agreement"]["denominator"], 0)

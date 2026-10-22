@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -25,6 +26,7 @@ from instagram_discovery.analyzer import analyze_post, knowledge_from_seeds
 from instagram_discovery.comment_evaluation import (
     JevCommentEvaluator, InstagramKnowledgeReader, evaluate_with_jev, prefilter_comment,
 )
+from instagram_discovery.post_metrics import load_post_labels, sample_confident_audit_posts
 from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
 
 from .backends.base import (
@@ -288,6 +290,21 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
               "max_per_post": max(0, min(500, _int(comments.get("max_per_post", 0)))),
               "read_hashtag_posts": comments.get("read_hashtag_posts", True) is True,
               "window_days": max(1, min(90, _int(comments.get("window_days", 30))))}
+    audit_rate = _float(comments.get(
+        "post_audit_sample_rate", os.getenv("IG_POST_AUDIT_SAMPLE_RATE", "0.05"),
+    ))
+    if not math.isfinite(audit_rate) or not 0 <= audit_rate <= 1:
+        log.warning("Invalid Instagram post audit sample rate; using 0")
+        audit_rate = 0.0
+    config.update({
+        "post_audit_sample_rate": audit_rate,
+        "post_audit_max_items": max(0, min(100, _int(comments.get(
+            "post_audit_max_items", os.getenv("IG_POST_AUDIT_MAX_ITEMS", "25"),
+        )))),
+        "post_audit_seed": _int(comments.get(
+            "post_audit_seed", os.getenv("IG_POST_AUDIT_SEED", "0"),
+        )),
+    })
     return output, config
 
 
@@ -392,6 +409,8 @@ class InstagramCollector:
 
     def _run_locked(self, seeds: list[dict[str, Any]], comments: dict[str, Any], keep_rejected: bool) -> dict[str, Any]:
         assert self.store is not None
+        post_labels_path = self.output_dir / "human-post-labels.jsonl"
+        operator_post_labels = load_post_labels(post_labels_path)
         manual_seeds = [seed for seed in seeds if seed.get("kind") == "post"]
         if manual_seeds:
             comments = {
@@ -419,6 +438,7 @@ class InstagramCollector:
             return result
         collected: list[dict[str, Any]] = []
         review_queue: list[dict[str, Any]] = []
+        audit_candidates: list[dict[str, Any]] = []
         comment_evaluations: list[dict[str, Any]] = []
         post_reviews: dict[str, dict[str, Any]] = {}
         rejected: list[dict[str, Any]] = []
@@ -608,13 +628,19 @@ class InstagramCollector:
                         if decision["result"] == "human_review":
                             record["metadata"]["human_review_required"] = True
                             review_queue.append(record)
+                        elif decision["result"] == "confident_match":
+                            audit_candidates.append(record)
                     score = int(record["metadata"]["intent"]["score"])
                     if kind == "hashtag":
                         self._collect_record(record, collected)
-                        if (record["metadata"]["category_decision"]["result"] == "confident_match"
-                                and policy_name == "seller_post"):
+                        if policy_name == "seller_post":
                             comment_fetch_key = post.shortcode
-                            if (post.shortcode not in comment_candidate_ids
+                            label = operator_post_labels.get((
+                                str(seed.get("business_id") or ""), record["id"],
+                            ))
+                            operator_approved = bool(label and label.get("decision") == "approve")
+                            if ((decision["result"] == "confident_match" or operator_approved)
+                                    and post.shortcode not in comment_candidate_ids
                                     and not self.store.comments_were_fetched(comment_fetch_key)):
                                 comment_candidates.append((post, seed_key, record))
                                 comment_candidate_ids.add(post.shortcode)
@@ -724,7 +750,7 @@ class InstagramCollector:
             comment_window_days = max(comment_window_days, max(manual_windows.values()))
         comment_window_start = datetime.now(timezone.utc) - timedelta(days=comment_window_days)
         comment_candidates = select_comment_candidates(
-            comment_candidates, since=comment_window_start,
+            comment_candidates, since=comment_window_start, post_labels=operator_post_labels,
         )
         if status in {"COMPLETED", "PARTIAL"} and mode != "off" and max_posts and max_comments:
             fetched_posts = 0
@@ -777,6 +803,9 @@ class InstagramCollector:
                         "value": post.shortcode if is_manual else seed_key.split(":", 1)[-1],
                     })
                     parent_post["collection_source"] = collection_source
+                    suggested_target = post_record["metadata"].get("suggested_target")
+                    if isinstance(suggested_target, dict) and suggested_target.get("source") == "operator":
+                        parent_post["suggested_target"] = suggested_target
                     if is_manual:
                         parent_post["suggested_target"] = post_record["metadata"]["suggested_target"]
                     outcome = handle_outcomes.get("manual_post" if is_manual else seed_key.split(":", 1)[-1])
@@ -960,6 +989,16 @@ class InstagramCollector:
         if DailyCap(self.daily_cap, self.store.count_today() + len(collected)
                     + len(pending_seller_lead_ids)).reached() and status in {"COMPLETED", "PARTIAL"}:
             status = "DAILY_CAP_REACHED"
+        audit_rate = _float(comments.get(
+            "post_audit_sample_rate", os.getenv("IG_POST_AUDIT_SAMPLE_RATE", "0.05"),
+        ))
+        audit_limit = max(0, min(100, _int(comments.get(
+            "post_audit_max_items", os.getenv("IG_POST_AUDIT_MAX_ITEMS", "25"),
+        ))))
+        audit_seed = _int(comments.get("post_audit_seed", os.getenv("IG_POST_AUDIT_SEED", "0")))
+        review_queue.extend(sample_confident_audit_posts(
+            audit_candidates, sample_rate=audit_rate, max_items=audit_limit, seed=audit_seed,
+        ))
         output = self.output_dir / f"{date.today().isoformat()}.jsonl"
         if collected:
             try:
@@ -1106,7 +1145,7 @@ class InstagramCollector:
 
     def _persist_review_queue(self, rows: list[dict[str, Any]]) -> int:
         target = self.output_dir / "needs-review.jsonl"
-        existing: set[str] = set()
+        existing: set[tuple[str, bool]] = set()
         if target.exists():
             for line in target.read_text(encoding="utf-8").splitlines():
                 try:
@@ -1114,10 +1153,25 @@ class InstagramCollector:
                 except json.JSONDecodeError:
                     continue
                 if item.get("id"):
-                    existing.add(str(item["id"]))
-        new_rows = [row for row in rows if row["id"] not in existing]
+                    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                    existing.add((str(item["id"]), bool(metadata.get("audit"))))
+        new_rows = []
+        for row in rows:
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            key = (str(row.get("id") or ""), bool(metadata.get("audit")))
+            if key[0] and key not in existing:
+                new_rows.append(row)
+                existing.add(key)
         if new_rows:
-            content = "".join(to_json_line(SourceRecord.from_dict(row)) + "\n" for row in new_rows)
+            queued_at = datetime.now(timezone.utc).isoformat()
+            queued_rows = []
+            for row in new_rows:
+                queued = dict(row)
+                metadata = dict(queued.get("metadata") or {})
+                metadata.setdefault("review_queued_at", queued.pop("review_queued_at", queued_at))
+                queued["metadata"] = metadata
+                queued_rows.append(queued)
+            content = "".join(to_json_line(SourceRecord.from_dict(row)) + "\n" for row in queued_rows)
             write_latest(target, content, append=True)
         return len(new_rows)
 
@@ -1174,3 +1228,10 @@ def _int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

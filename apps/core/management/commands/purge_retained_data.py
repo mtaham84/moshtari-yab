@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from psycopg.conninfo import make_conninfo
 from file_lock import exclusive_file_lock
+from instagram_discovery.post_metrics import purge_post_review_data
 
 from need_engine.retention import (purge_retained_data, purge_panel_x_posts, purge_x_collector_state,
                                    scrub_panel_opportunities)
@@ -47,6 +48,10 @@ class Command(BaseCommand):
                 state_path = configured_state_path if configured_state_path.is_absolute() else settings.BASE_DIR / configured_state_path
                 report.update(purge_x_collector_state(state_path, cutoff,
                                                       delete=options["delete"], _retention_locked=True))
+                configured_ig_output = Path(os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
+                ig_output_path = (configured_ig_output if configured_ig_output.is_absolute()
+                                  else settings.BASE_DIR / configured_ig_output)
+                report.update(purge_post_review_data(ig_output_path, cutoff, delete=options["delete"]))
         except (ValueError, RuntimeError, OSError) as exc:
             raise CommandError(str(exc)) from exc
         mode = "حذف شد" if options["delete"] else "فقط شمارش شد؛ برای حذف --delete بدهید"

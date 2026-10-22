@@ -7,13 +7,13 @@ This proposal treats imports in application code as dependencies. Test modules a
 | Package | May import | Why |
 |---|---|---|
 | `config` | `apps` | Django URL configuration loads app routes (`config/urls.py:8`). |
-| `apps` | `need_engine`, `shared` | The panel calls engine utilities and shared operational helpers (`apps/discovery/views.py:22`, `apps/billing/services.py:260`). |
+| `apps` | `need_engine`, `shared`, `instagram_discovery` | The panel calls engine utilities and shared operational helpers; Instagram review and comment report views use read-only JSONL/reporting services (`apps/discovery/views.py`). |
 | `need_engine` | `shared` | The engine uses shared X filtering (`need_engine/x_filters.py:9`). |
 | `telegram_crawler` | `shared` | The crawler records shared collector heartbeats (`telegram_crawler/main.py:20`). |
 | `workers.x_collector` | `need_engine`, `shared`, `x_ingest` | X uses engine query/filter utilities, shared collector tools, and optional ingestion (`workers/x_collector/worker.py:18-25, 400, 418-423`). |
 | `workers.ig_collector` | `shared`, `instagram_discovery` | Instagram uses shared persistence/status tools and its comment policy (`workers/ig_collector/worker.py:14-20`, `workers/ig_collector/policies.py:6`). |
 | `x_ingest` | `shared` | Ingest validates shared source records (`x_ingest/__main__.py:14`). |
-| `instagram_discovery` | `apps`, `workers.ig_collector` | Optional Django category loading and the existing label tools (`instagram_discovery/cli.py:113`, `instagram_discovery/labeling.py:9-10`). |
+| `instagram_discovery` | `apps`, `workers.ig_collector`, `shared` | Optional Django category loading, collector policies, label/report tools, and the shared post-link parser (`instagram_discovery/cli.py:113`, `instagram_discovery/labeling.py:9-10`, `instagram_discovery/post_metrics.py`). |
 | `shared` | none of these packages | Shared code must remain usable by collectors, engine, and panel without importing them. `shared.instagram_manual_post` owns the post-link parser and the request/result `Protocol` contract used by future panel code. |
 | `xray` | none of these packages | Xray is a separate utility. |
 
@@ -31,7 +31,7 @@ These are forbidden for application code. The AST test should report `file:line`
 | `need_engine` → `telegram_crawler` | `need_engine/retention.py:2` | Retention reuses crawler cleanup code. This crosses process/package ownership and remains an exception pending a shared retention seam. |
 | `telegram_crawler` → `apps` | `telegram_crawler/retention.py:84,86` | Telegram retention scrubs panel opportunities. `telegram_crawler/retention.py` has uncommitted work and must not be changed as part of boundary enforcement. |
 
-The observed production import graph has no `workers.x_collector` → `apps`, `workers.ig_collector` → `apps`, `x_ingest` → `apps`, or `shared` → another listed package edge. The generated graph also reports `apps` → `telegram_crawler` from `apps/discovery/test_sources.py:8`, and `apps` → `x_ingest` from `apps/discovery/tests.py`; these are tests, not runtime dependencies.
+The observed production import graph has no `workers.x_collector` → `apps`, `workers.ig_collector` → `apps`, `x_ingest` → `apps`, or `shared` → another listed package edge. `apps` → `instagram_discovery` is an intentional panel-to-read-only-review/reporting dependency. The generated graph also reports `apps` → `telegram_crawler` from `apps/discovery/test_sources.py:8`, and `apps` → `x_ingest` from `apps/discovery/tests.py`; these are tests, not runtime dependencies.
 
 ## Test scope
 

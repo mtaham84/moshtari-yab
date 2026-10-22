@@ -16,6 +16,7 @@ from workers.ig_collector.cli import main
 from workers.ig_collector.lexicon import PersianIntentLexicon, normalize_fa
 from workers.ig_collector.post_selection import select_comment_candidates, seller_post_priority
 from instagram_discovery.comment_evaluation import KnowledgeSnapshot
+from instagram_discovery.post_metrics import analyzer_snapshot, save_post_label
 from workers.ig_collector.worker import (
     InstagramCollector, SeenStore, is_persian_caption, normalize_timestamp,
     validate_record, validate_seeds,
@@ -116,6 +117,25 @@ def test_seed_validation_keeps_hashtag_category_contract_and_account_shape():
         },
     ]
     assert comments["window_days"] == 14
+
+
+def test_seed_validation_keeps_bounded_audit_sampling_run_options():
+    _, comments = validate_seeds({"comments": {
+        "post_audit_sample_rate": 0.4,
+        "post_audit_max_items": 17,
+        "post_audit_seed": 91,
+    }})
+
+    assert comments["post_audit_sample_rate"] == 0.4
+    assert comments["post_audit_max_items"] == 17
+    assert comments["post_audit_seed"] == 91
+
+    _, bounded = validate_seeds({"comments": {
+        "post_audit_sample_rate": 4,
+        "post_audit_max_items": 101,
+    }})
+    assert bounded["post_audit_sample_rate"] == 0
+    assert bounded["post_audit_max_items"] == 100
 
 
 def test_seed_validation_keeps_existing_hashtag_reads_enabled_by_default():
@@ -291,6 +311,105 @@ def test_hashtag_post_analysis_routes_confident_posts_and_queues_uncertain_posts
     assert stored["ig:OtherPost"]["metadata"]["review_queue_status"] == "not_queued"
     assert [row["id"] for row in review] == ["ig:ShortPost"]
     assert backend.comment_posts == ["ConfidentPost"]
+
+
+def test_operator_label_admits_uncertain_hashtag_post_without_changing_analyzer_result(tmp_path):
+    from instagram_discovery.comment_evaluation import KnowledgeSnapshot
+
+    shortcode = "PostX123"
+    fixture = {
+        "hashtags": {"کفش": [{
+            "shortcode": shortcode,
+            "caption": "این پست توضیح مفصلی درباره لباس‌های تابستانی دارد و برای آشنایی بیشتر با جنس و رنگ این مدل نوشته شده است.",
+            "username": "shop_one", "created_at": datetime.now(timezone.utc).isoformat(),
+            "hashtags": ["تابستان"],
+        }]},
+        "comments": {shortcode: [{
+            "comment_id": "Comment1", "text": "برای خرید این مدل قیمتش چقدر است؟",
+            "username": "buyer_one", "author_id": "buyer-1",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }]},
+    }
+
+    class CountingBackend(MockInstagramBackend):
+        def __init__(self, data):
+            super().__init__(data)
+            self.comment_posts = []
+
+        def post_comments(self, post_ref, limit):
+            self.comment_posts.append(post_ref.shortcode)
+            return super().post_comments(post_ref, limit)
+
+    class Reader:
+        def retrieve_for_comment(self, **kwargs):
+            return KnowledgeSnapshot(None, None, [], [], {"kind": "test"})
+
+    class Jev:
+        def evaluate_comment(self, **kwargs):
+            return {"status": "uncertain", "score": 0.4, "reason": "Not enough evidence.",
+                    "evidence": ["برای خرید"]}
+
+    seed = {
+        "kind": "hashtag", "value": "کفش", "limit": 5, "window_days": 7,
+        "business_id": 7, "category_id": 11, "category": "کفش",
+        "category_path": "پوشاک > کفش", "terms": ["لباس"], "products": [],
+        "product_ids": [],
+    }
+    backend = CountingBackend(fixture)
+    worker = collector(tmp_path, backend, min_intent_score=0)
+    worker.run([seed], {"mode": "off"})
+    analyzed = rows(tmp_path / "out" / "latest.jsonl")[0]
+    decision = analyzed["metadata"]["category_decision"]
+    assert decision["result"] == "human_review"
+
+    save_post_label(
+        tmp_path / "out" / "human-post-labels.jsonl", post_id=f"ig:{shortcode}",
+        business_id=7, decision="approve", category_id=23, product_id=None,
+        operator_id=5, snapshot=analyzer_snapshot(analyzed),
+    )
+    result = worker.run([seed], {
+        "mode": "all", "policy": "seller_post", "max_posts_per_run": 3,
+        "max_per_post": 4, "window_days": 7, "post_audit_sample_rate": 0,
+    })
+    evaluations = rows(tmp_path / "out" / "comment-evaluations.jsonl")
+
+    assert backend.comment_posts == [shortcode]
+    assert result["human_review"] >= 1
+    assert evaluations[-1]["jev"]["status"] == "uncertain"
+    assert evaluations[-1]["collection_source"]["kind"] == "hashtag"
+    review_comments = [row for row in rows(tmp_path / "out" / "needs-review.jsonl")
+                       if row["id"].startswith(f"ig:{shortcode}:c")]
+    assert review_comments[0]["metadata"]["parent_post"]["suggested_target"] == {
+        "source": "operator", "business_id": "7", "category_id": "23", "product_id": None,
+        "score": None,
+    }
+    assert review_comments[0]["metadata"]["parent_post"]["category_decision"]["result"] == "human_review"
+
+
+def test_worker_audit_sample_is_persisted_as_blind_queue_copy(tmp_path):
+    now = datetime.now(timezone.utc).isoformat()
+    fixture = {"hashtags": {"کفش": [{
+        "shortcode": "ConfidentPost", "caption": "برای خرید کفش چرمی مردانه این مدل موجود است و برای انتخاب سایز پیام بدهید.",
+        "username": "shop_one", "created_at": now, "hashtags": ["کفش_چرمی"],
+    }]}}
+    seed = {
+        "kind": "hashtag", "value": "کفش", "limit": 4, "window_days": 7,
+        "business_id": 7, "category_id": 11, "category": "کفش",
+        "terms": ["کفش چرمی", "سایز"], "products": ["کفش چرمی مردانه"], "product_ids": [19],
+    }
+    result = collector(tmp_path, MockInstagramBackend(fixture), min_intent_score=0).run([seed], {
+        "mode": "off", "post_audit_sample_rate": 1, "post_audit_max_items": 1, "post_audit_seed": 17,
+    })
+
+    saved = rows(Path(result["output"]))
+    queued = rows(Path(result["output"]).with_name("needs-review.jsonl"))
+
+    assert saved[0]["metadata"]["category_decision"]["result"] == "confident_match"
+    assert saved[0]["metadata"]["category_decision"]["result"] == "confident_match"
+    assert len(queued) == 1
+    assert queued[0]["id"] == saved[0]["id"]
+    assert queued[0]["metadata"]["audit"] is True
+    assert queued[0]["metadata"]["category_decision"]["result"] == "confident_match"
 
 
 def test_comment_selector_rejects_uncertain_and_wrong_category_candidates():
