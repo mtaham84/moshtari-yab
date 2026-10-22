@@ -12,6 +12,7 @@ from instagram_discovery.post_metrics import (
     sample_confident_audit_posts,
     save_post_label,
 )
+from instagram_discovery.post_label_store import FilePostLabelStore, PostLabelStore
 
 
 def post(post_id, business_id=7, result="human_review", score=0.55, reason="uncertain_score",
@@ -138,7 +139,7 @@ def test_audit_sample_is_deterministic_capped_and_does_not_mutate_analyzer_rows(
     assert json.dumps(posts, sort_keys=True) == original
 
 
-def test_post_report_denominators_accuracy_category_disagreement_and_zero_edges():
+def test_post_report_denominators_accuracy_category_disagreement_and_zero_edges(tmp_path):
     analyzed = [
         post("Abcde12", result="confident_match", score=0.9, reason="matched", category_id=2),
         post("Fghij34", result="human_review", score=0.6, reason="ambiguous_category", category_id=2),
@@ -152,8 +153,17 @@ def test_post_report_denominators_accuracy_category_disagreement_and_zero_edges(
     for item in (audit, review_approve, review_reject):
         labels_path_labels[("7", item["post_id"])] = item
 
-    report = build_post_report(analyzed, labels_path_labels, business_id=7)
-    empty = build_post_report([], {}, business_id=7)
+    store = FilePostLabelStore(tmp_path / "with-labels")
+    store.labels_path.parent.mkdir(parents=True, exist_ok=True)
+    store.labels_path.write_text(
+        "".join(json.dumps(label) + "\n" for label in labels_path_labels.values()),
+        encoding="utf-8",
+    )
+    empty_store = FilePostLabelStore(tmp_path / "without-labels")
+    assert isinstance(store, PostLabelStore)
+
+    report = build_post_report(analyzed, store, business_id=7)
+    empty = build_post_report([], empty_store, business_id=7)
 
     assert report["denominators"] == {
         "N_posts_analyzed": 4, "N_confident": 1, "N_review": 2,

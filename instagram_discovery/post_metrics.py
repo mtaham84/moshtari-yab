@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping
 
 from file_lock import exclusive_file_lock
 from shared.instagram import PageRefError, parse_post_ref
+from .post_label_store import PostLabelStore
 
 POST_DECISIONS = frozenset({"approve", "reject"})
 ANALYZER_RESULTS = frozenset({"confident_match", "human_review", "rejected"})
@@ -392,7 +393,7 @@ def _ratio(numerator: int, denominator: int, label: str) -> dict[str, Any]:
 
 def build_post_report(
     analyzed_posts: Iterable[Mapping[str, Any]],
-    labels: Mapping[tuple[str, str], Mapping[str, Any]],
+    label_store: PostLabelStore,
     *,
     business_id: str | int,
 ) -> dict[str, Any]:
@@ -407,6 +408,7 @@ def build_post_report(
                  if post_decision(post).get("result") == "confident_match"}
     review = {key: post for key, post in posts.items()
               if post_decision(post).get("result") == "human_review"}
+    labels = label_store.load(business_id=business)
     selected_labels = {
         post_id: label for (label_business, post_id), label in labels.items()
         if label_business == business and post_id in posts and _valid_label(label)

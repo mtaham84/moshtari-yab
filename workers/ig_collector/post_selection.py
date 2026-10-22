@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence, TypeAlias
 
 from instagram_discovery.analyzer import normalize_text
+from instagram_discovery.post_label_store import PostLabelStore
 from .backends.base import InstagramPost
 
 
@@ -86,7 +87,7 @@ def select_comment_candidates(
     candidates: Sequence[CommentCandidate],
     *,
     since: datetime,
-    post_labels: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
+    post_label_store: PostLabelStore | None = None,
 ) -> list[CommentCandidate]:
     """Keep recent confident or operator-approved posts and prioritize seller posts.
 
@@ -95,7 +96,7 @@ def select_comment_candidates(
     business-scoped operator rejection blocks the post; approval may admit an
     uncertain hashtag post without altering its analyzer decision.
     """
-    labels = post_labels or {}
+    labels = post_label_store.load() if post_label_store is not None else {}
     selected: list[CommentCandidate] = []
     for post, seed_key, record in candidates:
         if not _is_recent(post.created_at, since):

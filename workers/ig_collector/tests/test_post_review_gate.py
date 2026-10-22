@@ -10,6 +10,25 @@ from workers.ig_collector.post_selection import select_comment_candidates
 NOW = datetime.now(timezone.utc)
 
 
+class InMemoryPostLabelStore:
+    def __init__(self, labels):
+        self.labels = labels
+
+    def load(self, *, business_id=None):
+        if business_id is None:
+            return dict(self.labels)
+        normalized = str(int(business_id))
+        return {key: value for key, value in self.labels.items() if key[0] == normalized}
+
+    def save(self, **label):
+        key = (str(int(label["business_id"])), label["post_id"])
+        self.labels[key] = label
+        return label
+
+    def pending(self, **filters):
+        return [], 0
+
+
 def candidate(shortcode, result="human_review", business_id=7):
     post = InstagramPost(
         post_id=shortcode, shortcode=shortcode, caption="کفش چرمی برای سفارش",
@@ -40,9 +59,9 @@ def test_operator_approval_admits_uncertain_post_and_preserves_classifier_output
     original_decision = deepcopy(row[2]["metadata"]["category_decision"])
     selected = select_comment_candidates(
         [row], since=NOW - timedelta(days=1),
-        post_labels={("7", "ig:Abcde12"): {
+        post_label_store=InMemoryPostLabelStore({("7", "ig:Abcde12"): {
             "decision": "approve", "category_id": "9", "product_id": "12", "audit": False,
-        }},
+        }}),
     )
 
     assert len(selected) == 1
@@ -60,7 +79,7 @@ def test_rejected_confident_and_pending_uncertain_posts_do_not_enter_gate():
     uncertain = candidate("Wait12")
     selected = select_comment_candidates(
         [confident, uncertain], since=NOW - timedelta(days=1),
-        post_labels={("7", "ig:Conf12"): {"decision": "reject", "category_id": None}},
+        post_label_store=InMemoryPostLabelStore({("7", "ig:Conf12"): {"decision": "reject", "category_id": None}}),
     )
 
     assert selected == []
@@ -71,9 +90,9 @@ def test_labels_from_another_business_are_ignored_and_confident_posts_keep_exist
     confident = candidate("Sure12", result="confident_match", business_id=7)
     selected = select_comment_candidates(
         [uncertain, confident], since=NOW - timedelta(days=1),
-        post_labels={("8", "ig:Other12"): {
+        post_label_store=InMemoryPostLabelStore({("8", "ig:Other12"): {
             "decision": "approve", "category_id": "99", "product_id": None,
-        }},
+        }}),
     )
 
     assert [row[0].shortcode for row in selected] == ["Sure12"]

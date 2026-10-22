@@ -26,7 +26,10 @@ from instagram_discovery.analyzer import analyze_post, knowledge_from_seeds
 from instagram_discovery.comment_evaluation import (
     JevCommentEvaluator, InstagramKnowledgeReader, evaluate_with_jev, prefilter_comment,
 )
-from instagram_discovery.post_metrics import load_post_labels, sample_confident_audit_posts
+from instagram_discovery.post_label_store import (
+    PostLabelStore, create_post_label_store,
+)
+from instagram_discovery.post_metrics import sample_confident_audit_posts
 from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
 
 from .backends.base import (
@@ -317,10 +320,15 @@ class InstagramCollector:
                  sleeper: Callable[[float], None] = time.sleep, jitter: Callable[[float, float], float] = random.uniform,
                  lexicon: PersianIntentLexicon | None = None,
                  knowledge_reader: InstagramKnowledgeReader | None = None,
-                 jev: JevCommentEvaluator | None = None):
+                 jev: JevCommentEvaluator | None = None,
+                 post_label_store: PostLabelStore | None = None):
         root = Path(__file__).resolve().parents[2]
         self.backend = backend
         self.output_dir = _resolve(root, output_dir or os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
+        self.post_label_store = (
+            post_label_store if post_label_store is not None
+            else create_post_label_store(self.output_dir)
+        )
         self.state_path = _resolve(root, state_path or os.getenv("IG_COLLECT_STATE_FILE", "output/ig_collector_state.sqlite3"))
         self.state_backend = os.getenv("COLLECTOR_STATE_BACKEND", "sqlite").strip().lower()
         self.daily_cap = max(1, daily_cap if daily_cap is not None else int(os.getenv("IG_COLLECT_DAILY_CAP", "100")))
@@ -409,8 +417,7 @@ class InstagramCollector:
 
     def _run_locked(self, seeds: list[dict[str, Any]], comments: dict[str, Any], keep_rejected: bool) -> dict[str, Any]:
         assert self.store is not None
-        post_labels_path = self.output_dir / "human-post-labels.jsonl"
-        operator_post_labels = load_post_labels(post_labels_path)
+        operator_post_labels = self.post_label_store.load()
         manual_seeds = [seed for seed in seeds if seed.get("kind") == "post"]
         if manual_seeds:
             comments = {
@@ -750,7 +757,8 @@ class InstagramCollector:
             comment_window_days = max(comment_window_days, max(manual_windows.values()))
         comment_window_start = datetime.now(timezone.utc) - timedelta(days=comment_window_days)
         comment_candidates = select_comment_candidates(
-            comment_candidates, since=comment_window_start, post_labels=operator_post_labels,
+            comment_candidates, since=comment_window_start,
+            post_label_store=self.post_label_store,
         )
         if status in {"COMPLETED", "PARTIAL"} and mode != "off" and max_posts and max_comments:
             fetched_posts = 0
