@@ -14,6 +14,7 @@ from workers.ig_collector.backends.base import (
 from workers.ig_collector.backends.mock import MockInstagramBackend
 from workers.ig_collector.cli import main
 from workers.ig_collector.lexicon import PersianIntentLexicon, normalize_fa
+from workers.ig_collector.post_selection import select_comment_candidates, seller_post_priority
 from workers.ig_collector.worker import (
     InstagramCollector, SeenStore, is_persian_caption, normalize_timestamp,
     validate_record, validate_seeds,
@@ -88,6 +89,7 @@ def test_seed_validation_skips_invalid_and_defaults_comments_off(caplog):
     assert seeds == [{"kind": "account", "value": "buyer", "limit": 2},
                      {"kind": "hashtag", "value": "درخواست", "limit": 20}]
     assert comments["mode"] == "off"
+    assert comments["window_days"] == 30
     assert "Skipping invalid" in caplog.text
 
 
@@ -288,6 +290,110 @@ def test_hashtag_post_analysis_routes_confident_posts_and_queues_uncertain_posts
     assert stored["ig:OtherPost"]["metadata"]["review_queue_status"] == "not_queued"
     assert [row["id"] for row in review] == ["ig:ShortPost"]
     assert backend.comment_posts == ["ConfidentPost"]
+
+
+def test_comment_selector_rejects_uncertain_and_wrong_category_candidates():
+    now = datetime.now(timezone.utc)
+
+    def candidate(shortcode, result, target_category_id, matched_category_id, created_at=now):
+        post = InstagramPost(
+            post_id=shortcode, shortcode=shortcode, caption="کفش چرمی",
+            username="shop_one", created_at=created_at,
+        )
+        record = {"metadata": {"category_decision": {
+            "result": result, "source_category_id": target_category_id,
+            "category_id": matched_category_id,
+        }}}
+        return post, "hashtag:کفش", record
+
+    candidates = [
+        candidate("Accepted", "confident_match", 11, 11),
+        candidate("Uncertain", "human_review", 11, None),
+        candidate("OtherCategory", "confident_match", 11, 12),
+        candidate("OutsideWindow", "confident_match", 11, 11, now - timedelta(days=2)),
+    ]
+
+    selected = select_comment_candidates(candidates, since=now - timedelta(days=1))
+
+    assert [candidate[0].shortcode for candidate in selected] == ["Accepted"]
+
+
+def test_seller_post_priority_scores_explainable_signals():
+    priority = seller_post_priority(
+        "معرفی محصول جدید؛ قیمت در دایرکت. برای اطلاعات بیشتر پیام دهید.",
+    )
+
+    assert priority["result"] == "prioritized"
+    assert priority["score"] == 6
+    assert [signal["name"] for signal in priority["reason"]["signals"]] == [
+        "product_introduction", "hidden_price", "invitation_to_inquire",
+    ]
+    assert priority["knowledge_source"] == {"kind": "caption_heuristics"}
+
+
+def test_comment_prioritizer_reads_high_signal_category_posts_first(tmp_path):
+    now = datetime.now(timezone.utc).isoformat()
+    fixture = {"hashtags": {"کفش": [
+        {"shortcode": "StandardPost", "caption": "این کفش چرمی مردانه برای استفاده روزمره طراحی شده و کیفیت و راحتی خوبی دارد.",
+         "username": "shop_one", "created_at": now},
+        {"shortcode": "PriorityPost", "caption": "معرفی محصول جدید کفش چرمی مردانه؛ قیمت در دایرکت. برای اطلاعات بیشتر پیام دهید، کیفیت عالی برای استفاده روزانه.",
+         "username": "shop_one", "created_at": now},
+    ]}}
+
+    class CountingBackend(MockInstagramBackend):
+        def __init__(self):
+            super().__init__(fixture)
+            self.comment_calls = []
+
+        def post_comments(self, post_ref, limit):
+            self.comment_calls.append((post_ref.shortcode, limit))
+            return super().post_comments(post_ref, limit)
+
+    backend = CountingBackend()
+    result = collector(tmp_path, backend, min_intent_score=0).run(
+        [{"kind": "hashtag", "value": "کفش", "limit": 10, "window_days": 7,
+          "business_id": 7, "category_id": 11, "category": "کفش",
+          "product_ids": [19], "products": ["کفش چرمی مردانه"],
+          "terms": ["کفش چرمی", "سایز"]}],
+        {"mode": "all", "policy": "seller_post", "max_posts_per_run": 1,
+         "max_per_post": 3, "window_days": 7},
+    )
+
+    assert backend.comment_calls == [("PriorityPost", 3)]
+    stored = {row["id"]: row for row in rows(Path(result["output"]))}
+    assert stored["ig:PriorityPost"]["metadata"]["comment_priority"]["score"] == 6
+
+
+def test_per_post_comment_cap_is_enforced_if_backend_overreturns(tmp_path):
+    now = datetime.now(timezone.utc)
+    fixture = {"accounts": {"demo_demand": [{
+        "shortcode": "FreshRequest", "caption": "دنبال کفش چرمی مناسب هستم و لطفا مدل خوب معرفی کنید.",
+        "username": "buyer_one", "created_at": now.isoformat(),
+    }]}}
+
+    class OverreturningBackend(MockInstagramBackend):
+        def __init__(self):
+            super().__init__(fixture)
+            self.requested_limit = None
+
+        def post_comments(self, post_ref, limit):
+            self.requested_limit = limit
+            return [InstagramComment(
+                comment_id=f"c-{index}", text="دنبال مدل مناسب هستم", username=f"buyer_{index}",
+                created_at=now.isoformat(),
+            ) for index in range(5)]
+
+    backend = OverreturningBackend()
+    result = collector(tmp_path, backend, min_intent_score=0).run(
+        [{"kind": "account", "value": "demo_demand", "limit": 1}],
+        {"mode": "all", "policy": "buyer_request", "max_posts_per_run": 1,
+         "max_per_post": 2, "window_days": 7},
+    )
+
+    output = rows(Path(result["output"]))
+    comments = [row for row in output if row["kind"] == "comment"]
+    assert backend.requested_limit == 2
+    assert len(comments) == 2
 
 
 def test_seller_post_policy_uses_all_comment_mode():
@@ -502,7 +608,7 @@ def test_comments_all_fetches_low_signal_posts_but_does_not_write_them(tmp_path)
     backend = Counting()
     result = collector(tmp_path, backend).run(SEEDS, {"mode": "all", "max_posts_per_run": 10, "max_per_post": 10})
     output = rows(Path(result["output"]))
-    assert backend.comment_shortcodes == ["IGReq100", "IGGive101", "IGAd102"]
+    assert set(backend.comment_shortcodes) == {"IGReq100", "IGGive101", "IGAd102"}
     assert "ig:IGGive101" not in [row["id"] for row in output]
     assert "ig:IGAd102" not in [row["id"] for row in output]
     assert "ig:IGAd102:cc-5" in [row["id"] for row in output]

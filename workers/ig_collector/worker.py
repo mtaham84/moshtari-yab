@@ -21,6 +21,7 @@ from shared.records import RecordError, SourceRecord, to_json_line
 from shared.instagram import PageRefError, parse_page_ref
 from .policies import COMMENT_POLICIES, buyer_request
 from instagram_discovery.analyzer import analyze_post, knowledge_from_seeds
+from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -248,9 +249,8 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     config = {"mode": mode, "policy": policy,
               "max_posts_per_run": max(0, min(100, _int(comments.get("max_posts_per_run", 0)))),
               "max_per_post": max(0, min(500, _int(comments.get("max_per_post", 0)))),
-              "read_hashtag_posts": comments.get("read_hashtag_posts", True) is True}
-    if "window_days" in comments:
-        config["window_days"] = max(0, min(90, _int(comments.get("window_days", 0))))
+              "read_hashtag_posts": comments.get("read_hashtag_posts", True) is True,
+              "window_days": max(1, min(90, _int(comments.get("window_days", 30))))}
     return output, config
 
 
@@ -332,7 +332,7 @@ class InstagramCollector:
         filtered = failures = 0
         breaker = CircuitBreaker(self.circuit_breaker)
         status = "COMPLETED"
-        comment_candidates: list[tuple[InstagramPost, str, dict[str, Any]]] = []
+        comment_candidates: list[CommentCandidate] = []
         comment_candidate_ids: set[str] = set()
         pending_comment_fetches: set[str] = set()
         pending_seed_progress: dict[str, str | None] = {}
@@ -352,7 +352,10 @@ class InstagramCollector:
                         + len(pending_seller_lead_ids)).reached():
                 status = "DAILY_CAP_REACHED"
                 break
-            kind, value, limit = seed.get("kind"), str(seed.get("value", "")), int(seed.get("limit", 0))
+            kind, value = seed.get("kind"), str(seed.get("value", ""))
+            limit = max(0, min(500, _int(seed.get("limit", 0))))
+            if not limit:
+                continue
             if kind == "hashtag" and not comments.get("read_hashtag_posts", True):
                 continue
             seed_key = f"{kind}:{value}"
@@ -383,7 +386,7 @@ class InstagramCollector:
                     posts = self._with_retry(lambda: self.backend.hashtag_posts(value, limit, since))
                     posts = [post for post in posts if _within_window(post.created_at, since)][:limit]
                 else:
-                    posts = self._with_retry(lambda: self.backend.user_posts(value, limit, since))
+                    posts = self._with_retry(lambda: self.backend.user_posts(value, limit, since))[:limit]
                 outcome["posts"] = len(posts)
                 if kind == "account" and policy_name == "seller_post":
                     posts = [post for post in posts if post.shortcode not in comment_candidate_ids
@@ -425,6 +428,9 @@ class InstagramCollector:
                             "url": record["url"], "hashtags": record["metadata"]["hashtags"],
                         }, source, category_knowledge)
                         decision = analysis["category_decision"]
+                        record["metadata"]["comment_priority"] = seller_post_priority(
+                            record["text"], analysis=analysis, category_decision=decision,
+                        )
                         if decision["result"] == "rejected":
                             rejected.append(_rejected("post", decision["reason"]["code"]))
                             if keep_rejected:
@@ -478,6 +484,7 @@ class InstagramCollector:
                             rejected.append(_rejected("post", "not_seller_post"))
                         continue
                     if policy_name == "seller_post":
+                        record["metadata"]["comment_priority"] = seller_post_priority(record["text"])
                         self._collect_record(record, collected)
                     comment_fetch_key = (f"seller_post:{post.shortcode}" if policy_name == "seller_post"
                                          else post.shortcode)
@@ -547,8 +554,13 @@ class InstagramCollector:
         if status == "COMPLETED" and failures:
             status = "PARTIAL"
         mode = comments.get("mode", "off")
-        max_posts = int(comments.get("max_posts_per_run", 0))
-        max_comments = int(comments.get("max_per_post", 0))
+        max_posts = max(0, min(100, _int(comments.get("max_posts_per_run", 0))))
+        max_comments = max(0, min(500, _int(comments.get("max_per_post", 0))))
+        comment_window_days = max(1, min(90, _int(comments.get("window_days", 30))))
+        comment_window_start = datetime.now(timezone.utc) - timedelta(days=comment_window_days)
+        comment_candidates = select_comment_candidates(
+            comment_candidates, since=comment_window_start,
+        )
         if status in {"COMPLETED", "PARTIAL"} and mode != "off" and max_posts and max_comments:
             fetched_posts = 0
             for post, seed_key, post_record in comment_candidates:
@@ -562,7 +574,7 @@ class InstagramCollector:
                     continue
                 try:
                     self.backend.require("post_comments")
-                    comments_rows = self._with_retry(lambda: self.backend.post_comments(post, max_comments))
+                    comments_rows = self._with_retry(lambda: self.backend.post_comments(post, max_comments))[:max_comments]
                     parent_post = {
                         "id": f"ig:{post.shortcode}", "caption": post.caption[:160],
                         "url": post.url,
