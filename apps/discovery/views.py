@@ -27,7 +27,7 @@ from apps.products.models import Category, Product
 from need_engine.text import norm
 
 from shared.instagram import PageRefError, parse_page_ref
-from .models import (InstagramPage, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
+from .models import (InstagramCategoryTarget, InstagramPage, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
                     XNegativeTerm, XSearchQuery)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
@@ -42,6 +42,33 @@ def _strip_platform_prefix(value):
         if value.startswith(prefix):
             return value[len(prefix):]
     return value
+
+
+def _instagram_list(value: str, *, hashtags: bool = False) -> list[str]:
+    parts = value.replace("،", ",").replace(";", ",").splitlines()
+    if len(parts) == 1:
+        parts = parts[0].split(",")
+    output = []
+    seen = set()
+    for part in parts:
+        item = part.strip()
+        if hashtags:
+            item = item.lstrip("#").strip()
+        key = item.casefold()
+        if item and key not in seen:
+            output.append(item[:80])
+            seen.add(key)
+        if len(output) == 50:
+            break
+    return output
+
+
+def _bounded_post_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, number))
 
 
 def _safe_csv_cell(value):
@@ -686,12 +713,41 @@ def instagram_pages_view(request):
     for page in pages:
         page.status_label = status_labels.get(page.last_status, page.last_status)
     products = Product.objects.filter(business=business, status="ACTIVE").order_by("name")
+    categories = Category.objects.filter(Q(business__isnull=True) | Q(business=business), is_active=True).order_by("full_path")
+    category_targets = InstagramCategoryTarget.objects.filter(business=business).select_related("category")
+    targets_by_category = {target.category_id: target for target in category_targets}
+    category_configs = [{"category": category, "target": targets_by_category.get(category.pk)} for category in categories]
+    page_context = {
+        "pages": pages, "products": products, "categories": categories,
+        "category_configs": category_configs,
+    }
     if request.method == "POST":
         action = request.POST.get("action", "add")
-        if action in {"add", "remove"} and not _instagram_change_allowed(request):
+        if action in {"add", "remove", "save_category_target"} and not _instagram_change_allowed(request):
             return render(request, "discovery/instagram_pages.html", {
-                "pages": pages, "products": products, "throttled": True,
+                **page_context, "throttled": True,
             }, status=429)
+        if action == "save_category_target":
+            category_id = request.POST.get("category_id", "")
+            category = Category.objects.filter(
+                Q(business__isnull=True) | Q(business=business), is_active=True, pk=category_id
+            ).first() if category_id.isdigit() else None
+            if category is None:
+                messages.error(request, "دسته‌بندی معتبر نیست.")
+            else:
+                max_posts = _bounded_post_int(request.POST.get("max_posts"), 5, 1, 100)
+                window_days = _bounded_post_int(request.POST.get("window_days"), 7, 1, 90)
+                InstagramCategoryTarget.objects.update_or_create(
+                    business=business, category=category,
+                    defaults={
+                        "terms": _instagram_list(request.POST.get("terms", "")),
+                        "hashtags": _instagram_list(request.POST.get("hashtags", ""), hashtags=True),
+                        "max_posts": max_posts, "window_days": window_days,
+                        "is_active": request.POST.get("is_active") == "on",
+                    },
+                )
+                messages.success(request, "تنظیم دسته‌بندی اینستاگرام ذخیره شد.")
+            return redirect("discovery:instagram_pages")
         if action == "add":
             try:
                 handle = parse_page_ref(request.POST.get("page_ref", ""))
@@ -704,20 +760,14 @@ def instagram_pages_view(request):
                 product_id = request.POST.get("default_product", "")
                 if product_id and not product_id.isdigit():
                     messages.error(request, "محصول پیش‌فرض معتبر نیست.")
-                    return render(request, "discovery/instagram_pages.html", {
-                        "pages": pages, "products": products,
-                    })
+                    return render(request, "discovery/instagram_pages.html", page_context)
                 default_product = Product.objects.filter(pk=product_id, business=business).first() if product_id else None
                 if product_id and default_product is None:
                     messages.error(request, "این محصول به کسب‌وکار شما تعلق ندارد.")
-                    return render(request, "discovery/instagram_pages.html", {
-                        "pages": pages, "products": products,
-                    })
+                    return render(request, "discovery/instagram_pages.html", page_context)
                 if InstagramPage.objects.filter(business=business, handle__iexact=handle).exists():
                     messages.error(request, "این صفحه قبلاً به فهرست شما اضافه شده است.")
-                    return render(request, "discovery/instagram_pages.html", {
-                        "pages": pages, "products": products,
-                    })
+                    return render(request, "discovery/instagram_pages.html", page_context)
                 try:
                     with transaction.atomic():
                         InstagramPage.objects.create(business=business, handle=handle, kind=kind, default_product=default_product)
@@ -740,7 +790,7 @@ def instagram_pages_view(request):
             page.save(update_fields=["is_active"])
             messages.success(request, "پایش صفحه فعال شد." if page.is_active else "پایش صفحه متوقف شد.")
             return redirect("discovery:instagram_pages")
-    return render(request, "discovery/instagram_pages.html", {"pages": pages, "products": products})
+    return render(request, "discovery/instagram_pages.html", page_context)
 
 
 @login_required

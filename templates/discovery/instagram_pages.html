@@ -25,6 +25,25 @@
     <button class="p-btn p-btn-primary" type="submit">افزودن صفحه</button>
   </form>
 </div>
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <h2>پایش هشتگی بر اساس دسته‌بندی</h2>
+  <p>برای هر دسته، واژه‌های مرتبط و هشتگ‌های مجاز را تنظیم کنید. seedها کنار صفحه‌های حساب نوشته می‌شوند و دسته‌بندی پست در این مرحله قطعی نیست.</p>
+  {% for config in category_configs %}{% with category=config.category target=config.target %}
+    <form method="post" style="border-top:1px solid var(--panel-border); padding:16px 0;">{% csrf_token %}<input type="hidden" name="action" value="save_category_target"><input type="hidden" name="category_id" value="{{ category.pk }}">
+      <strong>{{ category.full_path }}</strong>
+      <label class="form-label" for="terms-{{ category.pk }}">واژه‌ها</label>
+      <textarea id="terms-{{ category.pk }}" class="form-input" name="terms" rows="2" placeholder="{% for term in category.keywords %}{{ term }}{% if not forloop.last %}، {% endif %}{% endfor %}">{% if target %}{{ target.terms|join:", " }}{% else %}{{ category.keywords|join:", " }}{% endif %}</textarea>
+      <label class="form-label" for="hashtags-{{ category.pk }}">هشتگ‌های هدف (هر کدام یک خط)</label>
+      <textarea id="hashtags-{{ category.pk }}" class="form-input" name="hashtags" rows="2" dir="ltr" placeholder="#کفش، #کفش_چرمی">{% if target %}{{ target.hashtags|join:", " }}{% endif %}</textarea>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+        <label>حداکثر پست <input class="form-input" type="number" name="max_posts" min="1" max="100" value="{{ target.max_posts|default:5 }}" placeholder="5" style="width:100px;"></label>
+        <label>پنجرهٔ زمانی (روز) <input class="form-input" type="number" name="window_days" min="1" max="90" value="{{ target.window_days|default:7 }}" placeholder="7" style="width:100px;"></label>
+        <label><input type="checkbox" name="is_active" {% if target.is_active %}checked{% endif %}> فعال‌سازی seed این دسته</label>
+        <button class="p-btn p-btn-sm p-btn-primary" type="submit">ذخیره تنظیم دسته</button>
+      </div>
+    </form>{% endwith %}
+  {% empty %}<p>برای تنظیم هشتگ، ابتدا یک دسته‌بندی فعال بسازید.</p>{% endfor %}
+</div>
 <div class="p-card" style="padding: 24px;">
   <h2>صفحه‌های ثبت‌شده ({{ pages|length }})</h2>
 {% if pages %}<div style="overflow-x: auto;"><table style="width: 100%; text-align: right;"><thead><tr><th>صفحه</th><th>نوع</th><th>محصول پیش‌فرض</th><th>وضعیت</th><th>آخرین اجرا</th><th>عملیات</th></tr></thead><tbody>

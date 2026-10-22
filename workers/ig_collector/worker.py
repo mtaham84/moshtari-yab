@@ -162,7 +162,43 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             if not valid_value or limit < 1:
                 log.warning("Skipping invalid %s seed at index %d", group, index)
                 continue
-            output.append({"kind": "account" if group == "accounts" else "hashtag", "value": value, "limit": min(limit, 500)})
+            seed = {"kind": "account" if group == "accounts" else "hashtag", "value": value, "limit": min(limit, 500)}
+            if group == "hashtags":
+                try:
+                    window_days = int(row.get("window_days", 7))
+                except (TypeError, ValueError):
+                    log.warning("Skipping hashtag seed with invalid time window at index %d", index)
+                    continue
+                if not 1 <= window_days <= 90:
+                    log.warning("Skipping hashtag seed with invalid time window at index %d", index)
+                    continue
+                if "business_id" in row or "category_id" in row:
+                    try:
+                        business_id = int(row["business_id"])
+                        category_id = int(row["category_id"])
+                    except (KeyError, TypeError, ValueError):
+                        log.warning("Skipping hashtag seed without category ownership at index %d", index)
+                        continue
+                    if business_id < 1 or category_id < 1:
+                        log.warning("Skipping hashtag seed without category ownership at index %d", index)
+                        continue
+                    product_ids = row.get("product_ids", [])
+                    terms = row.get("terms", [])
+                    products = row.get("products", [])
+                    if not isinstance(product_ids, list) or not isinstance(terms, list) or not isinstance(products, list):
+                        log.warning("Skipping hashtag seed with invalid category metadata at index %d", index)
+                        continue
+                    seed.update({
+                        "window_days": window_days,
+                        "business_id": business_id,
+                        "category_id": category_id,
+                        "category": str(row.get("category") or ""),
+                        "category_path": str(row.get("category_path") or ""),
+                        "product_ids": [_int(item) for item in product_ids if _int(item) > 0],
+                        "products": [str(item) for item in products],
+                        "terms": [str(item) for item in terms],
+                    })
+            output.append(seed)
     comments = payload.get("comments", {})
     if not isinstance(comments, dict):
         comments = {}
@@ -179,7 +215,10 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         mode = "all"
     config = {"mode": mode, "policy": policy,
               "max_posts_per_run": max(0, min(100, _int(comments.get("max_posts_per_run", 0)))),
-              "max_per_post": max(0, min(500, _int(comments.get("max_per_post", 0))))}
+              "max_per_post": max(0, min(500, _int(comments.get("max_per_post", 0)))),
+              "read_hashtag_posts": comments.get("read_hashtag_posts", True) is True}
+    if "window_days" in comments:
+        config["window_days"] = max(0, min(90, _int(comments.get("window_days", 0))))
     return output, config
 
 
@@ -280,6 +319,8 @@ class InstagramCollector:
                 status = "DAILY_CAP_REACHED"
                 break
             kind, value, limit = seed.get("kind"), str(seed.get("value", "")), int(seed.get("limit", 0))
+            if kind == "hashtag" and not comments.get("read_hashtag_posts", True):
+                continue
             seed_key = f"{kind}:{value}"
             if kind == "account" and value in processed_handles:
                 continue

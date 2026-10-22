@@ -5,15 +5,17 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db.models import F
+from django.db.models import F, Q
 
 from django.utils import timezone
 
-from apps.discovery.models import InstagramPage
+from apps.discovery.models import InstagramCategoryTarget, InstagramPage
+from apps.products.models import Product
+from instagram_discovery.targets import HashtagTarget, build_hashtag_seeds
 from shared.instagram import parse_page_ref
 
 class Command(BaseCommand):
-    help = "Write active seller Instagram pages to the collector seed file."
+    help = "Write account and category hashtag targets to the Instagram collector seed file."
 
     def add_arguments(self, parser):
         parser.add_argument("--apply-status", action="store_true")
@@ -44,11 +46,15 @@ class Command(BaseCommand):
                 seen.add(handle)
         selected = [page for page in pages if _canonical(page.handle) in seen]
         selected_ids = {page.pk for page in selected}
+        hashtag_seeds = _hashtag_seeds()
         payload = {
             "accounts": [{"username": handle, "limit": max(1, int(os.getenv("IG_MAX_POSTS_PER_RUN", "5")))} for handle in handles],
+            "hashtags": hashtag_seeds,
             "comments": {"mode": "all", "policy": "seller_post",
+                           "read_hashtag_posts": False,
                            "max_posts_per_run": max(1, int(os.getenv("IG_MAX_POSTS_PER_RUN", "5"))),
-                           "max_per_post": max(1, int(os.getenv("IG_MAX_COMMENTS_PER_POST", "30")))},
+                           "max_per_post": max(1, int(os.getenv("IG_MAX_COMMENTS_PER_POST", "30"))),
+                           "window_days": max(1, int(os.getenv("IG_COMMENT_WINDOW_DAYS", "7")))},
         }
         target = settings.BASE_DIR / "data" / "ig_seeds.json"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +65,10 @@ class Command(BaseCommand):
             if page.pk in selected_ids:
                 page.queued_at = timezone.now()
                 page.save(update_fields=["queued_at"])
-        self.stdout.write(f"Instagram seeds: {len(handles)} handles, {len(selected)} pages scheduled")
+        self.stdout.write(
+            f"Instagram seeds: {len(handles)} handles, {len(selected)} pages scheduled, "
+            f"{len(hashtag_seeds)} hashtags"
+        )
 
 
 def _canonical(value):
@@ -67,6 +76,52 @@ def _canonical(value):
         return parse_page_ref(value)
     except ValueError:
         return None
+
+
+def _hashtag_seeds() -> list[dict]:
+    targets: list[HashtagTarget] = []
+    category_rows = InstagramCategoryTarget.objects.filter(
+        is_active=True, category__is_active=True,
+    ).filter(
+        Q(category__business__isnull=True) | Q(category__business_id=F("business_id")),
+    ).select_related("category").order_by("category__full_path", "business_id")
+    for target in category_rows:
+        if not target.hashtags:
+            continue
+        products = list(Product.objects.filter(
+            business=target.business, category_id=target.category_id,
+            status="ACTIVE", is_discovery_active=True, instagram_discovery_enabled=True,
+        ).order_by("name"))
+        product_terms = [term for product in products for term in product.instagram_terms]
+        terms = tuple(dict.fromkeys([*target.category.keywords, *target.terms, *product_terms]))
+        targets.append(HashtagTarget(
+            business_id=target.business_id,
+            category_id=target.category_id, category_name=target.category.name,
+            category_path=target.category.full_path, product_ids=tuple(product.pk for product in products),
+            product_names=tuple(product.name for product in products), terms=terms,
+            hashtags=tuple(target.hashtags),
+            max_posts=max(1, min(100, target.max_posts)),
+            window_days=max(1, min(90, target.window_days)),
+        ))
+    product_rows = Product.objects.filter(
+        instagram_discovery_enabled=True, instagram_hashtags__isnull=False,
+        status="ACTIVE", is_discovery_active=True, category__isnull=False, category__is_active=True,
+    ).filter(
+        Q(category__business__isnull=True) | Q(category__business_id=F("business_id")),
+    ).select_related("business", "category").order_by("category__full_path", "business_id", "name")
+    for product in product_rows:
+        if not product.instagram_hashtags:
+            continue
+        terms = tuple(dict.fromkeys([*product.category.keywords, *product.instagram_terms]))
+        targets.append(HashtagTarget(
+            business_id=product.business_id, category_id=product.category_id,
+            category_name=product.category.name, category_path=product.category.full_path,
+            product_ids=(product.pk,), product_names=(product.name,), terms=terms,
+            hashtags=tuple(product.instagram_hashtags),
+            max_posts=max(1, min(100, product.instagram_max_posts)),
+            window_days=max(1, min(90, product.instagram_window_days)),
+        ))
+    return build_hashtag_seeds(targets)
 
 
 def _ready(page):

@@ -91,6 +91,58 @@ def test_seed_validation_skips_invalid_and_defaults_comments_off(caplog):
     assert "Skipping invalid" in caplog.text
 
 
+def test_seed_validation_keeps_hashtag_category_contract_and_account_shape():
+    seeds, comments = validate_seeds({
+        "accounts": [{"username": "seller", "limit": 3}],
+        "hashtags": [{
+            "tag": "کفش", "limit": 8, "window_days": 14,
+            "business_id": 2, "category_id": 7, "category": "کفش",
+            "category_path": "پوشاک > کفش", "product_ids": [10],
+            "products": ["کفش چرمی"], "terms": ["سایز"],
+        }],
+        "comments": {"mode": "all", "policy": "seller_post", "window_days": 14},
+    })
+
+    assert seeds == [
+        {"kind": "account", "value": "seller", "limit": 3},
+        {
+            "kind": "hashtag", "value": "کفش", "limit": 8, "window_days": 14,
+            "business_id": 2, "category_id": 7, "category": "کفش",
+            "category_path": "پوشاک > کفش", "product_ids": [10],
+            "products": ["کفش چرمی"], "terms": ["سایز"],
+        },
+    ]
+    assert comments["window_days"] == 14
+
+
+def test_seed_validation_keeps_existing_hashtag_reads_enabled_by_default():
+    seeds, comments = validate_seeds({"hashtags": [{"tag": "کفش", "limit": 4}]})
+
+    assert seeds == [{"kind": "hashtag", "value": "کفش", "limit": 4}]
+    assert comments["read_hashtag_posts"] is True
+
+
+def test_disabled_hashtag_seed_does_not_call_backend(tmp_path):
+    class Counting(MockInstagramBackend):
+        def __init__(self):
+            super().__init__(FIXTURE)
+            self.calls = []
+
+        def hashtag_posts(self, tag, limit):
+            self.calls.append((tag, limit))
+            return super().hashtag_posts(tag, limit)
+
+    backend = Counting()
+    result = collector(tmp_path, backend).run(
+        [{"kind": "hashtag", "value": "کفش", "limit": 4}],
+        {"mode": "all", "max_posts_per_run": 2, "max_per_post": 5,
+         "read_hashtag_posts": False},
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert backend.calls == []
+
+
 def test_seller_post_policy_uses_all_comment_mode():
     _, comments = validate_seeds({"comments": {"mode": "signals", "policy": "seller_post"}})
 

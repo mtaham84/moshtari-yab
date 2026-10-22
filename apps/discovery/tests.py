@@ -19,7 +19,7 @@ from apps.businesses.models import Business
 from apps.products.models import Category, Product
 
 from .engine_bridge import engine_totals, import_opportunity
-from .models import Customer, InstagramPage, Opportunity, ProductOrder
+from .models import Customer, InstagramCategoryTarget, InstagramPage, Opportunity, ProductOrder
 from .views import _safe_csv_cell
 
 User = get_user_model()
@@ -405,6 +405,28 @@ class PanelViewTests(TestCase):
         self.assertEqual(self.client.post(url, {"action": "remove", "page_id": theirs.pk}).status_code, 404)
         self.assertTrue(InstagramPage.objects.filter(pk=theirs.pk).exists())
 
+    def test_instagram_category_target_is_scoped_and_saves_seed_limits(self):
+        category = Category.objects.create(business=self.biz, name="کفش پایش")
+        url = reverse("discovery:instagram_pages")
+        response = self.client.post(url, {
+            "action": "save_category_target", "category_id": str(category.pk),
+            "terms": "کفش چرمی\nسایز", "hashtags": "#کفش، #کفش_چرمی",
+            "max_posts": "12", "window_days": "21", "is_active": "on",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        target = InstagramCategoryTarget.objects.get(business=self.biz, category=category)
+        self.assertEqual(target.terms, ["کفش چرمی", "سایز"])
+        self.assertEqual(target.hashtags, ["کفش", "کفش_چرمی"])
+        self.assertEqual((target.max_posts, target.window_days, target.is_active), (12, 21, True))
+        other_category = Category.objects.create(business=self.other, name="کفش متعلق به کسب‌وکار دیگر")
+        response = self.client.post(url, {
+            "action": "save_category_target", "category_id": str(other_category.pk),
+            "terms": "ignored", "hashtags": "#other", "is_active": "on",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(InstagramCategoryTarget.objects.filter(business=self.biz, category=other_category).exists())
+
     def test_instagram_page_add_and_remove_are_throttled(self):
         from django.core.cache import cache
         from unittest.mock import patch
@@ -597,6 +619,53 @@ class PanelViewTests(TestCase):
         second.refresh_from_db()
         self.assertIsNotNone(first.queued_at)
         self.assertIsNone(second.queued_at)
+
+    def test_instagram_seed_file_keeps_account_seeds_and_maps_hashtags_to_categories(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.test import override_settings
+        from unittest.mock import patch
+
+        page = InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        category = Category.objects.create(business=self.biz, name="کفش چرمی", keywords=["کفش چرمی", "سایز"])
+        product = Product.objects.create(
+            business=self.biz, category=category, name="کفش مردانه", description="کفش چرمی",
+            instagram_terms=["مردانه"], instagram_hashtags=["#کفش_مردانه"],
+            instagram_discovery_enabled=True,
+        )
+        InstagramCategoryTarget.objects.create(
+            business=self.biz, category=category, terms=["چرم طبیعی"], hashtags=["#کفش_چرمی"],
+            max_posts=9, window_days=14, is_active=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root / "collector")}):
+                with override_settings(BASE_DIR=root):
+                    call_command("ig_sync_seeds", stdout=StringIO())
+                    payload = json.loads((root / "data" / "ig_seeds.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["accounts"], [{"username": "shop_page", "limit": 5}])
+        self.assertEqual(payload["hashtags"], [
+            {
+                "tag": "کفش_چرمی", "limit": 9, "window_days": 14,
+                "business_id": self.biz.pk, "category_id": category.pk,
+                "category": "کفش چرمی", "category_path": "کفش چرمی",
+                "product_ids": [product.pk], "products": ["کفش مردانه"],
+                "terms": ["کفش چرمی", "سایز", "چرم طبیعی", "مردانه"],
+            },
+            {
+                "tag": "کفش_مردانه", "limit": 5, "window_days": 7,
+                "business_id": self.biz.pk, "category_id": category.pk,
+                "category": "کفش چرمی", "category_path": "کفش چرمی",
+                "product_ids": [product.pk], "products": ["کفش مردانه"],
+                "terms": ["کفش چرمی", "سایز", "مردانه"],
+            },
+        ])
+        self.assertFalse(payload["comments"]["read_hashtag_posts"])
+        page.refresh_from_db()
+        self.assertIsNotNone(page.queued_at)
 
     def test_instagram_private_page_is_not_seeded_again_for_24_hours(self):
         import json

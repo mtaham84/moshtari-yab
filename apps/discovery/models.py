@@ -745,6 +745,24 @@ class InstagramPage(models.Model):
         return f"@{self.handle} ({self.business})"
 
 
+class InstagramCategoryTarget(models.Model):
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_category_targets")
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="instagram_targets")
+    terms = models.JSONField(default=list, blank=True)
+    hashtags = models.JSONField(default=list, blank=True)
+    max_posts = models.PositiveSmallIntegerField(default=5)
+    window_days = models.PositiveSmallIntegerField(default=7)
+    is_active = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "category"], name="uniq_ig_category_target")]
+        ordering = ["category__full_path"]
+
+    def __str__(self):
+        return f"{self.business}: {self.category}"
+
+
 class EngineSyncCursor(models.Model):
     """Last ``need_engine.opportunities.seq`` imported by ``manage.py sync_opportunities``."""
 
