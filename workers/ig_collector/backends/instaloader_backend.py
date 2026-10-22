@@ -14,7 +14,7 @@ from .base import AuthFailed, BackendCapabilities, Fatal, InstagramBackend, Inst
 
 class InstaloaderBackend(InstagramBackend):
     name = "instaloader"
-    capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True)
+    capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True, post_by_ref=True)
 
     def request_cooldown_seconds(self) -> int:
         return 24 * 60 * 60
@@ -75,6 +75,8 @@ class InstaloaderBackend(InstagramBackend):
             return AuthFailed("Instaloader authentication failed")
         if matches("ProfileNotExistsException"):
             return NotFound("Instagram profile does not exist")
+        if matches("PostNotExistsException"):
+            return NotFound("Instagram post does not exist")
         if matches("PrivateProfileNotFollowedException") or matches("PrivateProfileException"):
             return PrivateProfile("Instagram profile is private")
         if matches("InvalidArgumentException"):
@@ -158,6 +160,16 @@ class InstaloaderBackend(InstagramBackend):
             if len(output) >= limit:
                 break
         return output
+
+    def post_by_shortcode(self, shortcode: str) -> InstagramPost:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{5,32}", shortcode):
+            raise Fatal("Instagram post shortcode is invalid")
+        module, loader = self._ensure()
+        item = self._call(lambda: module.Post.from_shortcode(loader.context, shortcode))
+        post = _post(item)
+        if post.shortcode != shortcode:
+            raise NotFound("Instagram post shortcode did not resolve")
+        return post
 
 
 def _post(item: Any) -> InstagramPost:

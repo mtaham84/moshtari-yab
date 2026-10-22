@@ -5,6 +5,8 @@ parameter, and response-path assumption in this mapping module.
 """
 
 BASE_URL = "https://api.hikerapi.com"
+# Standard Instagram shortcode alphabet; decoding is local and makes no request.
+SHORTCODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 USER_STREAM_ENDPOINT = "/a2/user"
 USER_STREAM_PARAMS = {"username": "username"}
 USER_MEDIA_PATH = ("graphql", "user", "edge_owner_to_timeline_media", "edges")
@@ -20,6 +22,12 @@ COMMENTS_ENDPOINT = "/v2/media/comments"
 COMMENTS_PARAMS = {"post_id": "id", "cursor": "page_id"}
 COMMENTS_PATH = ("response", "comments")
 NEXT_PAGE_PATH = ("next_page_id",)
+
+# UNVERIFIED provider contract: media metadata lookup is needed to enforce the
+# operator-selected post's time window before reading its comments.
+MEDIA_BY_ID_ENDPOINT = "/v2/media/by/id"
+MEDIA_BY_ID_PARAMS = {"media_id": "id"}
+MEDIA_BY_ID_PATH = ("response",)
 
 MEDIA_ID_KEYS = ("id", "pk", "media_id")
 SHORTCODE_KEYS = ("shortcode", "code")
@@ -39,3 +47,17 @@ COMMENT_AUTHOR_PATHS = (("user", "username"), ("owner", "username"))
 COMMENT_AUTHOR_ID_PATHS = (("user", "pk"), ("user", "id"), ("owner", "pk"), ("owner", "id"))
 COMMENT_AUTHOR_NAME_PATHS = (("user", "full_name"), ("owner", "full_name"))
 COMMENT_CREATED_AT_KEYS = ("created_at_utc", "created_at")
+
+
+def shortcode_to_media_id(shortcode: str) -> str:
+    """Decode an Instagram shortcode to its numeric media id without network I/O."""
+    if not isinstance(shortcode, str) or not 5 <= len(shortcode) <= 32:
+        raise ValueError("invalid_shortcode")
+    media_id = 0
+    for character in shortcode:
+        try:
+            value = SHORTCODE_ALPHABET.index(character)
+        except ValueError as exc:
+            raise ValueError("invalid_shortcode") from exc
+        media_id = media_id * 64 + value
+    return str(media_id)

@@ -6,12 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .base import BackendCapabilities, Fatal, InstagramBackend, InstagramComment, InstagramPost
+from .base import BackendCapabilities, Fatal, InstagramBackend, InstagramComment, InstagramPost, NotFound
 
 
 class MockInstagramBackend(InstagramBackend):
     name = "mock"
-    capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True)
+    capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True, post_by_ref=True)
 
     def __init__(self, fixture: str | Path | dict[str, Any] | None = None):
         if fixture is None:
@@ -58,6 +58,18 @@ class MockInstagramBackend(InstagramBackend):
         if since:
             posts = [post for post in posts if _date(post.created_at) and _date(post.created_at) > since]
         return posts[:max(0, limit)]
+
+    def post_by_shortcode(self, shortcode: str) -> InstagramPost:
+        direct = (self.data.get("posts") or {}).get(shortcode)
+        candidates = [direct] if isinstance(direct, dict) else []
+        for group in (self.data.get("accounts") or {}, self.data.get("hashtags") or {}):
+            if isinstance(group, dict):
+                for rows in group.values():
+                    candidates.extend(row for row in rows if isinstance(row, dict))
+        for row in candidates:
+            if str(row.get("shortcode") or "") == shortcode:
+                return self._posts([row], 1)[0]
+        raise NotFound("mock post was not found")
 
     def post_comments(self, post_ref: InstagramPost | str, limit: int) -> list[InstagramComment]:
         shortcode = post_ref.shortcode if isinstance(post_ref, InstagramPost) else _shortcode(post_ref)

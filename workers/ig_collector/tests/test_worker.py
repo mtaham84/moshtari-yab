@@ -417,7 +417,7 @@ def test_run_selects_request_only_and_only_fetches_its_comments(tmp_path):
 def test_comment_prefilter_and_jev_results_are_persisted_with_mocked_knowledge(tmp_path):
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     fixture["comments"]["IGReq100"] = [
-        {"comment_id": "clean1", "text": "قیمت کفش چنده؟", "username": "buyer_one"},
+        {"comment_id": "clean1", "text": "قیمت کفش چنده؟ برای خرید این مدل هم راهنمایی می‌خواهم", "username": "buyer_one"},
         {"comment_id": "maybe1", "text": "شاید بعدا بررسی کنم", "username": "maybe_user"},
         {"comment_id": "spam1", "text": "لینک را ببین https://spam.example", "username": "spam_user"},
     ]
@@ -463,7 +463,7 @@ def test_comment_prefilter_and_jev_results_are_persisted_with_mocked_knowledge(t
     assert by_id["ig:IGReq100:cclean1"]["jev"]["status"] == "probably a buyer"
     assert by_id["ig:IGReq100:cclean1"]["commenter_id"] is None
     assert by_id["ig:IGReq100:cclean1"]["commenter_username"] == "buyer_one"
-    assert by_id["ig:IGReq100:cclean1"]["comment_text"] == "قیمت کفش چنده؟"
+    assert by_id["ig:IGReq100:cclean1"]["comment_text"] == "قیمت کفش چنده؟ برای خرید این مدل هم راهنمایی می‌خواهم"
     assert by_id["ig:IGReq100:cclean1"]["business_id"] is None
     assert by_id["ig:IGReq100:cclean1"]["jev"]["indexed_information_used"]["source"]["document_id"] == "d1"
     assert by_id["ig:IGReq100:cmaybe1"]["jev"]["status"] == "uncertain"

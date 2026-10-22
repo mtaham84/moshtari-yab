@@ -7,19 +7,12 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from file_lock import exclusive_file_lock
+from .comment_threshold import jev_selection_threshold
 
 PASSING_LABEL = "share of comments that passed the selection threshold"
 
 
-def _configured_threshold() -> float:
-    try:
-        value = float(os.getenv("IG_JEV_SELECTION_THRESHOLD", "0.7"))
-    except ValueError:
-        return 0.7
-    return value if 0.0 <= value <= 1.0 else 0.7
-
-
-DEFAULT_JEV_THRESHOLD = _configured_threshold()
+DEFAULT_JEV_THRESHOLD = jev_selection_threshold()
 
 
 def _ratio(numerator: int, denominator: int, *, label: str) -> dict[str, Any]:

@@ -17,6 +17,8 @@ class PageRefError(ValueError):
 
 _HANDLE = re.compile(r"^[a-z0-9._]{1,30}$")
 _HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com", "instagr.am"}
+_POST_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com", "instagr.am"}
+_POST_CODE = re.compile(r"^[A-Za-z0-9_-]{5,32}$")
 _RESERVED = {
     "p", "reel", "reels", "tv", "stories", "explore", "accounts",
     "direct", "about", "legal", "developer", "web", "oauth", "challenge",
@@ -80,3 +82,42 @@ def parse_page_ref(text: str) -> str:
     if handle.startswith(".") or handle.endswith(".") or ".." in handle:
         raise PageRefError("invalid_handle")
     return handle
+
+
+def parse_post_ref(text: str) -> str:
+    """Return a validated Instagram post shortcode without making a request."""
+    if not isinstance(text, str):
+        raise PageRefError("invalid_type")
+    if any(unicodedata.category(char) == "Cc" for char in text):
+        raise PageRefError("control_character")
+    value = text.strip()
+    if not value:
+        raise PageRefError("empty")
+    if len(value) > 500:
+        raise PageRefError("too_long")
+    if any(char.isspace() for char in value):
+        raise PageRefError("internal_whitespace")
+    if "\\" in value:
+        raise PageRefError("backslash")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise PageRefError("invalid_url") from exc
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise PageRefError("invalid_scheme")
+    if parsed.username is not None or parsed.password is not None:
+        raise PageRefError("userinfo")
+    if port is not None:
+        raise PageRefError("port")
+    if parsed.hostname is None or parsed.hostname.lower() not in _POST_HOSTS:
+        raise PageRefError("invalid_host")
+    segments = parsed.path.split("/")[1:]
+    if segments and segments[-1] == "":
+        segments.pop()
+    if len(segments) != 2 or segments[0].lower() not in {"p", "reel", "tv"}:
+        raise PageRefError("invalid_path")
+    shortcode = segments[1]
+    if not _POST_CODE.fullmatch(shortcode):
+        raise PageRefError("invalid_shortcode")
+    return shortcode

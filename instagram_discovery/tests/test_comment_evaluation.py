@@ -47,7 +47,7 @@ def test_evaluation_retrieves_knowledge_and_stores_explainable_jev_decision():
     }}
 
     result = evaluate_with_jev(
-        "قیمت کفش چنده؟", post_context=context,
+        "قیمت کفش چنده؟ برای خرید این مدل هم راهنمایی می‌خواهم", post_context=context,
         knowledge_reader=reader, jev=jev,
     )
 
@@ -63,7 +63,7 @@ def test_evaluation_retrieves_knowledge_and_stores_explainable_jev_decision():
     assert result["indexed_information_used"]["indexed_information"] == reader.snapshot.indexed_information
     assert reader.calls[0]["category_id"] == "7"
     assert reader.calls[0]["product_id"] == "9"
-    assert jev.calls[0]["comment_text"] == "قیمت کفش چنده؟"
+    assert jev.calls[0]["comment_text"] == "قیمت کفش چنده؟ برای خرید این مدل هم راهنمایی می‌خواهم"
     assert jev.calls[0]["knowledge"] == reader.snapshot
 
 
@@ -81,6 +81,26 @@ def test_unsupported_or_unverifiable_jev_decision_is_uncertain():
     assert result["status"] == "uncertain"
     assert result["score"] == 0.0
     assert result["reason"]["evidence"] == ["قیمت چند است؟"]
+
+
+def test_long_ambiguous_comment_with_confident_jev_score_goes_to_review():
+    reader = StubKnowledgeReader()
+    jev = StubJev({
+        "status": "probably a buyer",
+        "score": 0.99,
+        "reason": "The comment seems positive.",
+        "evidence": ["این مدل را دیدم"],
+    })
+    text = "این مدل را دیدم، شاید بعداً درباره‌اش فکر کنم."
+
+    result = evaluate_with_jev(
+        text, post_context={}, knowledge_reader=reader, jev=jev,
+    )
+
+    assert result["status"] == "uncertain"
+    assert result["score"] == 0.99
+    assert "human review" in result["reason"]["text"]
+    assert result["reason"]["evidence"] == ["این مدل را دیدم"]
 
 
 def test_missing_knowledge_or_jev_fails_closed_to_uncertain():

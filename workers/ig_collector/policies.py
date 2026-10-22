@@ -33,6 +33,9 @@ def seller_post(record: dict[str, Any], parent_record: dict[str, Any],
             "url": parent_record.get("url"),
         }
     post_metadata = parent_record.get("metadata", {})
+    for provenance_key in ("suggested_target", "collection_source"):
+        if provenance_key in post_metadata:
+            parent_post[provenance_key] = post_metadata[provenance_key]
     if post_metadata.get("category_decision"):
         parent_post.update(post_metadata.get("parent_post", {}))
     accepted["metadata"].update({

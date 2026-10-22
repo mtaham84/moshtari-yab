@@ -18,7 +18,8 @@ from shared.collector_kit.state_store import create_state_store
 from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.status import write_status
 from shared.records import RecordError, SourceRecord, to_json_line
-from shared.instagram import PageRefError, parse_page_ref
+from shared.instagram import PageRefError, parse_page_ref, parse_post_ref
+from shared.instagram_manual_post import ManualPostRequest, ManualPostResult
 from .policies import COMMENT_POLICIES, buyer_request
 from instagram_discovery.analyzer import analyze_post, knowledge_from_seeds
 from instagram_discovery.comment_evaluation import (
@@ -28,6 +29,7 @@ from .post_selection import CommentCandidate, select_comment_candidates, seller_
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
+    NotFound, PrivateProfile,
     RateLimited, Transient, UnsupportedCapability,
 )
 from .lexicon import PersianIntentLexicon, normalize_fa
@@ -111,6 +113,8 @@ def normalize_post(post: InstagramPost, seed: str, backend: str, intent: Persian
 
 
 def _collection_source(seed: dict[str, Any]) -> dict[str, Any]:
+    if seed.get("kind") == "post":
+        return {"kind": "manual_post", "shortcode": seed["value"]}
     if seed.get("kind") == "hashtag":
         return {
             "kind": "hashtag", "hashtag": seed["value"],
@@ -184,7 +188,7 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not isinstance(payload, dict):
         raise ValueError("seed file root must be a JSON object")
     output: list[dict[str, Any]] = []
-    for group in ("accounts", "hashtags"):
+    for group in ("accounts", "hashtags", "posts"):
         rows = payload.get(group, [])
         if not isinstance(rows, list):
             log.warning("Skipping invalid %s seed list", group)
@@ -192,6 +196,33 @@ def validate_seeds(payload: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         for index, row in enumerate(rows):
             if not isinstance(row, dict):
                 log.warning("Skipping invalid %s seed at index %d", group, index)
+                continue
+            if group == "posts":
+                try:
+                    shortcode = parse_post_ref(str(row.get("url") or row.get("post_url") or ""))
+                    business_id = int(row.get("business_id"))
+                    category_id = int(row["category_id"]) if row.get("category_id") not in (None, "") else None
+                    product_id = int(row["product_id"]) if row.get("product_id") not in (None, "") else None
+                    window_days = int(row.get("window_days", 7))
+                    max_comments = int(row.get("max_comments", 50))
+                    daily_comment_cap = int(row.get("daily_comment_cap", 100))
+                except (PageRefError, KeyError, TypeError, ValueError):
+                    log.warning("Skipping invalid manual Instagram post seed at index %d", index)
+                    continue
+                if (business_id < 1 or (category_id is None and product_id is None)
+                        or (category_id is not None and category_id < 1)
+                        or (product_id is not None and product_id < 1)
+                        or not 1 <= window_days <= 90 or not 1 <= max_comments <= 500
+                        or not 1 <= daily_comment_cap <= 5000):
+                    log.warning("Skipping invalid manual Instagram post seed at index %d", index)
+                    continue
+                output.append({
+                    "kind": "post", "value": shortcode,
+                    "business_id": business_id, "category_id": category_id,
+                    "product_id": product_id, "window_days": window_days,
+                    "max_comments": max_comments, "daily_comment_cap": daily_comment_cap,
+                    "refresh": row.get("refresh") is True,
+                })
                 continue
             value = str(row.get("username" if group == "accounts" else "tag") or "").strip().lstrip("#@")
             limit = _int(row.get("limit", 12 if group == "accounts" else 20))
@@ -297,6 +328,42 @@ class InstagramCollector:
             raise ValueError(f"could not load Instagram seed file: {path}") from exc
         return validate_seeds(payload)
 
+    def run_manual_post(self, request: ManualPostRequest) -> ManualPostResult:
+        """Run one operator-selected post through the bounded shared comment path."""
+        try:
+            shortcode = parse_post_ref(request.post_url)
+        except PageRefError as exc:
+            return ManualPostResult(status="invalid_link", reason=exc.reason)
+        if (request.business_id < 1 or (request.category_id is None and request.product_id is None)
+                or (request.category_id is not None and request.category_id < 1)
+                or (request.product_id is not None and request.product_id < 1)
+                or not 1 <= request.max_comments <= 500
+                or not 1 <= request.daily_comment_cap <= 5000
+                or not 1 <= request.window_days <= 90):
+            return ManualPostResult(status="invalid_request", reason="invalid_target_or_limits")
+        seeds, _ = validate_seeds({"posts": [{
+            "url": request.post_url, "business_id": request.business_id,
+            "category_id": request.category_id, "product_id": request.product_id,
+            "max_comments": request.max_comments, "window_days": request.window_days,
+            "daily_comment_cap": request.daily_comment_cap,
+            "refresh": request.refresh,
+        }]})
+        if not seeds:
+            return ManualPostResult(status="invalid_request", reason="invalid_target_or_limits")
+        result = self.run(seeds, {
+            "mode": "all", "policy": "seller_post", "max_posts_per_run": 1,
+            "max_per_post": request.max_comments, "window_days": request.window_days,
+            "daily_comment_cap": request.daily_comment_cap,
+        })
+        detail = result.get("manual_post") or {}
+        return ManualPostResult(
+            status=str(detail.get("status") or result.get("status") or "failed"),
+            comments_fetched=int(detail.get("comments_fetched", 0)),
+            comments_evaluated=int(detail.get("comments_evaluated", 0)),
+            human_review_comments=int(detail.get("human_review_comments", 0)),
+            reason=detail.get("reason"),
+        )
+
     def run(self, seeds: list[dict[str, Any]], comments: dict[str, Any] | None = None, *,
             dry_run: bool = False, keep_rejected: bool = False) -> dict[str, Any]:
         comments = comments or {"mode": "off", "max_posts_per_run": 0, "max_per_post": 0}
@@ -325,6 +392,21 @@ class InstagramCollector:
 
     def _run_locked(self, seeds: list[dict[str, Any]], comments: dict[str, Any], keep_rejected: bool) -> dict[str, Any]:
         assert self.store is not None
+        manual_seeds = [seed for seed in seeds if seed.get("kind") == "post"]
+        if manual_seeds:
+            comments = {
+                **comments,
+                "mode": "all",
+                "max_posts_per_run": min(100, max(1, _int(comments.get("max_posts_per_run", 0)))),
+                "max_per_post": min(500, max(
+                    _int(comments.get("max_per_post", 0)),
+                    max(_int(seed.get("max_comments", 0)) for seed in manual_seeds),
+                )),
+                "window_days": max(
+                    _int(comments.get("window_days", 1)),
+                    max(_int(seed.get("window_days", 1)) for seed in manual_seeds),
+                ),
+            }
         now = datetime.now(timezone.utc)
         cooldown = Cooldown(self.store, self.cooldown_seconds).active_until(now)
         if cooldown:
@@ -347,6 +429,8 @@ class InstagramCollector:
         comment_candidate_ids: set[str] = set()
         pending_comment_fetches: set[str] = set()
         pending_seed_progress: dict[str, str | None] = {}
+        manual_comment_limits: dict[str, int] = {}
+        manual_windows: dict[str, int] = {}
         seller_leads: list[dict[str, Any]] = []
         seller_lead_ids: set[str] = set()
         pending_seller_lead_ids: set[str] = set()
@@ -356,6 +440,7 @@ class InstagramCollector:
             policy_name = "buyer_request"
 
         handle_outcomes: dict[str, dict[str, Any]] = {}
+        manual_post_result: dict[str, Any] | None = None
         processed_handles: set[str] = set()
         stopped = False
         for seed_index, seed in enumerate(seeds):
@@ -364,7 +449,8 @@ class InstagramCollector:
                 status = "DAILY_CAP_REACHED"
                 break
             kind, value = seed.get("kind"), str(seed.get("value", ""))
-            limit = max(0, min(500, _int(seed.get("limit", 0))))
+            outcome_key = "manual_post" if kind == "post" else value
+            limit = 1 if kind == "post" else max(0, min(500, _int(seed.get("limit", 0))))
             if not limit:
                 continue
             if kind == "hashtag" and not comments.get("read_hashtag_posts", True):
@@ -380,15 +466,60 @@ class InstagramCollector:
             now = datetime.now(timezone.utc)
             if private_until and private_until > now:
                 outcome.update(status="private", reason="private_cooldown")
-                handle_outcomes[value] = outcome
+                handle_outcomes[outcome_key] = outcome
                 continue
             if cooldown_until and cooldown_until > now:
                 outcome.update(status="error", reason="not_found_cooldown")
-                handle_outcomes[value] = outcome
+                handle_outcomes[outcome_key] = outcome
                 continue
-            capability = "user_posts" if kind == "account" else "hashtag_posts"
+            capability = "post_by_ref" if kind == "post" else "user_posts" if kind == "account" else "hashtag_posts"
             try:
                 self.backend.require(capability)
+                if kind == "post":
+                    manual_key = f"manual_post:{value}"
+                    if self.store.comments_were_fetched(manual_key) and not seed.get("refresh"):
+                        manual_post_result = {"status": "already_fetched", "comments_fetched": 0,
+                                              "comments_evaluated": 0, "human_review_comments": 0}
+                        handle_outcomes["manual_post"] = {"status": "already_fetched", "posts": 0, "comments": 0}
+                        continue
+                    post = self._with_retry(lambda: self.backend.post_by_shortcode(value))
+                    if post.shortcode != value:
+                        raise NotFound("post reference did not resolve")
+                    target = {
+                        "source": "operator", "business_id": seed["business_id"],
+                        "category_id": seed.get("category_id"), "product_id": seed.get("product_id"),
+                    }
+                    source = _collection_source(seed)
+                    parent = {
+                        "id": f"ig:{value}", "caption": str(post.caption or "")[:160],
+                        "url": post.url, "collection_source": source,
+                        "suggested_target": target,
+                    }
+                    # Explicit operator selection bypasses Step 4's accepted-post gate.
+                    # The operator's target is provenance, not a classifier decision.
+                    post_record = {
+                        "id": f"ig:{value}", "kind": "post", "text": str(post.caption or ""),
+                        "author_handle": f"@{post.username}" if post.username else None,
+                        "created_at": normalize_timestamp(post.created_at, warn=False),
+                        "url": post.url,
+                        "metadata": {
+                            "seed": f"post:{value}", "collection_sources": [source],
+                            "collection_source": source, "suggested_target": target,
+                            "intent": {"score": 0, "labels": ["other"]},
+                        },
+                    }
+                    post_reviews[value] = parent
+                    fetch_limit = min(int(seed["max_comments"]), max(0, _int(comments.get("max_per_post", 0))))
+                    comment_candidates.append((post, f"post:{value}", post_record))
+                    comment_candidate_ids.add(value)
+                    manual_post_result = {"status": "selected", "comments_fetched": 0,
+                                          "comments_evaluated": 0, "human_review_comments": 0,
+                                          "reason": None}
+                    manual_comment_limits[value] = fetch_limit
+                    manual_windows[value] = int(seed["window_days"])
+                    handle_outcomes["manual_post"] = {"status": "selected", "posts": 1, "comments": 0}
+                    breaker.success()
+                    continue
                 progress_key = f"seller_post:{seed_key}" if policy_name == "seller_post" else seed_key
                 since = self.store.get_seed_progress(progress_key) if kind == "account" else None
                 if kind == "hashtag":
@@ -516,14 +647,22 @@ class InstagramCollector:
             except UnsupportedCapability as exc:
                 outcome.update(status="error", reason="unsupported")
                 log.warning("Skipping %s: %s", seed_key, exc)
+                if kind == "post":
+                    manual_post_result = {"status": "unsupported", "comments_fetched": 0,
+                                          "comments_evaluated": 0, "human_review_comments": 0,
+                                          "reason": "unsupported"}
             except RateLimited as exc:
                 cooldown_until = Cooldown(self.store, self.cooldown_seconds).start()
                 outcome.update(status=self.backend.outcome_for_error(exc), reason="rate_limited",
                                cooldown_until=cooldown_until)
                 status = "RATE_LIMITED"
+                if kind == "post":
+                    manual_post_result = {"status": "rate_limited", "comments_fetched": 0,
+                                          "comments_evaluated": 0, "human_review_comments": 0,
+                                          "reason": "rate_limited"}
                 for later in seeds[seed_index + 1:]:
                     handle_outcomes[str(later.get("value", ""))] = {"status": "rate_limited", "posts": 0, "comments": 0}
-                handle_outcomes[value] = outcome
+                handle_outcomes[outcome_key] = outcome
                 stopped = True
                 break
             except AuthFailed as exc:
@@ -531,8 +670,16 @@ class InstagramCollector:
                 log.error("Instagram backend authentication failed: %s", exc)
                 failures += 1
                 status = "PARTIAL"
+                if kind == "post":
+                    manual_post_result = {"status": "auth_failed", "comments_fetched": 0,
+                                          "comments_evaluated": 0, "human_review_comments": 0,
+                                          "reason": "auth_failed"}
             except Transient as exc:
                 outcome.update(status=self.backend.outcome_for_error(exc), reason=type(exc).__name__)
+                if kind == "post":
+                    manual_post_result = {"status": "transient", "comments_fetched": 0,
+                                          "comments_evaluated": 0, "human_review_comments": 0,
+                                          "reason": "transient"}
                 failures += 1
                 circuit_open = breaker.failure()
                 log.warning("Temporary Instagram backend failure for %s (%s)", seed_key, type(exc).__name__)
@@ -553,12 +700,17 @@ class InstagramCollector:
                 failures += 1
                 log.error("Instagram backend rejected %s (%s)", seed_key, type(exc).__name__)
                 status = "PARTIAL"
+                if kind == "post":
+                    safe_status = self.backend.outcome_for_error(exc)
+                    manual_post_result = {"status": safe_status, "comments_fetched": 0,
+                                          "comments_evaluated": 0, "human_review_comments": 0,
+                                          "reason": safe_status}
             except Exception as exc:
                 outcome.update(status="error", reason=type(exc).__name__)
                 failures += 1
                 log.error("Unexpected Instagram collection failure for %s (%s)", seed_key, type(exc).__name__)
                 status = "PARTIAL"
-            handle_outcomes[value] = outcome
+            handle_outcomes[outcome_key] = outcome
             if seed_index < len(seeds) - 1:
                 self.sleeper(max(0.0, self.jitter(self.sleep_min, self.sleep_max)))
 
@@ -568,6 +720,8 @@ class InstagramCollector:
         max_posts = max(0, min(100, _int(comments.get("max_posts_per_run", 0))))
         max_comments = max(0, min(500, _int(comments.get("max_per_post", 0))))
         comment_window_days = max(1, min(90, _int(comments.get("window_days", 30))))
+        if manual_windows:
+            comment_window_days = max(comment_window_days, max(manual_windows.values()))
         comment_window_start = datetime.now(timezone.utc) - timedelta(days=comment_window_days)
         comment_candidates = select_comment_candidates(
             comment_candidates, since=comment_window_start,
@@ -583,18 +737,55 @@ class InstagramCollector:
                 if (policy_name == "buyer_request" and mode == "signals"
                         and post_record["metadata"]["intent"]["score"] < self.min_intent_score):
                     continue
+                shortcode = post.shortcode
+                is_manual = seed_key.startswith("post:")
+                if is_manual:
+                    manual_since = datetime.now(timezone.utc) - timedelta(
+                        days=manual_windows.get(shortcode, comment_window_days)
+                    )
+                    if not _within_window(post.created_at, manual_since):
+                        if manual_post_result is not None:
+                            manual_post_result.update(status="outside_time_window", reason="outside_time_window")
+                        continue
                 try:
                     self.backend.require("post_comments")
-                    comments_rows = self._with_retry(lambda: self.backend.post_comments(post, max_comments))[:max_comments]
+                    post_comment_cap = manual_comment_limits.get(shortcode, max_comments) if is_manual else max_comments
+                    if is_manual:
+                        daily_key = f"manual_post_comments:{date.today().isoformat()}"
+                        daily_used = max(0, _int(self.store.get_setting(daily_key)))
+                        daily_limit = max(1, min(5000, _int(comments.get("daily_comment_cap", self.daily_cap))))
+                        remaining_daily = daily_limit - daily_used
+                        if remaining_daily <= 0:
+                            status = "DAILY_CAP_REACHED"
+                            if manual_post_result is not None:
+                                manual_post_result.update(status="daily_comment_cap_reached",
+                                                          reason="daily_comment_cap_reached")
+                            break
+                        post_comment_cap = min(post_comment_cap, remaining_daily)
+                    comments_rows = self._with_retry(
+                        lambda: self.backend.post_comments(post, post_comment_cap)
+                    )[:post_comment_cap]
+                    if is_manual:
+                        self.store.set_setting(daily_key, str(daily_used + len(comments_rows)))
                     parent_post = {
                         "id": f"ig:{post.shortcode}", "caption": post.caption[:160],
                         "url": post.url,
                         **(post_reviews.get(post.shortcode) or {}),
                     }
-                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    collection_source = post_record["metadata"].get("collection_source") or _collection_source({
+                        "kind": "post" if is_manual else "account" if seed_key.startswith("account:") else "hashtag",
+                        "value": post.shortcode if is_manual else seed_key.split(":", 1)[-1],
+                    })
+                    parent_post["collection_source"] = collection_source
+                    if is_manual:
+                        parent_post["suggested_target"] = post_record["metadata"]["suggested_target"]
+                    outcome = handle_outcomes.get("manual_post" if is_manual else seed_key.split(":", 1)[-1])
                     if outcome:
                         outcome["comments"] += len(comments_rows)
-                    comment_fetch_key = (f"seller_post:{post.shortcode}" if policy_name == "seller_post"
+                    if is_manual and manual_post_result is not None:
+                        manual_post_result["comments_fetched"] = len(comments_rows)
+                    comment_fetch_key = (f"manual_post:{post.shortcode}" if is_manual else
+                                         f"seller_post:{post.shortcode}" if policy_name == "seller_post"
                                          else post.shortcode)
                     pending_comment_fetches.add(comment_fetch_key)
                     fetched_posts += 1
@@ -614,6 +805,7 @@ class InstagramCollector:
                                 "commenter_id": str(comment.author_id) if comment.author_id not in (None, "") else None,
                                 "commenter_username": str(comment.username or "").strip().lstrip("@") or None,
                                 "comment_text": str(comment.text or "").strip()[:2000],
+                                "collection_source": collection_source,
                                 "prefilter": {"status": "not_evaluable", "reason": "daily_cap_reached", "evidence": []},
                                 "jev": None,
                             })
@@ -630,6 +822,7 @@ class InstagramCollector:
                                 "commenter_id": str(comment.author_id) if comment.author_id not in (None, "") else None,
                                 "commenter_username": str(comment.username or "").strip().lstrip("@") or None,
                                 "comment_text": str(comment.text or "").strip()[:2000],
+                                "collection_source": collection_source,
                                 "prefilter": {"status": "not_evaluable", "reason": "invalid_or_non_persian_or_missing_fields", "evidence": []},
                                 "jev": None,
                             })
@@ -642,6 +835,7 @@ class InstagramCollector:
                             record["metadata"]["category_decision"] = parent_post["category_decision"]
                         else:
                             record["metadata"]["parent_post"] = parent_post
+                        record["metadata"]["collection_source"] = collection_source
                         prefilter = prefilter_comment(
                             record["text"],
                             commenter_handle=record.get("author_handle"),
@@ -661,6 +855,7 @@ class InstagramCollector:
                             "commenter_id": record.get("author_id"),
                             "commenter_username": str(record.get("author_handle") or "").lstrip("@") or None,
                             "comment_text": record["text"][:2000],
+                            "collection_source": collection_source,
                             "prefilter": prefilter_data,
                             "jev": None,
                         }
@@ -682,8 +877,12 @@ class InstagramCollector:
                             record["metadata"]["review_queue_status"] = "queued"
                             record["metadata"]["human_review_required"] = True
                             review_queue.append(record)
+                            if is_manual and manual_post_result is not None:
+                                manual_post_result["human_review_comments"] += 1
                         else:
                             record["metadata"]["review_queue_status"] = "not_queued"
+                        if is_manual and manual_post_result is not None:
+                            manual_post_result["comments_evaluated"] += 1
                         # If Jev is configured, its result gates the legacy lead policy.
                         # With no Jev adapter configured, keep the existing account-seed
                         # flow operational while recording the unavailable evaluation
@@ -712,20 +911,26 @@ class InstagramCollector:
                             continue
                 except UnsupportedCapability as exc:
                     log.warning("Skipping comments for %s: %s", post.shortcode, exc)
+                    if seed_key.startswith("post:") and manual_post_result is not None:
+                        manual_post_result.update(status="unsupported", reason="unsupported")
                     continue
                 except RateLimited as exc:
                     cooldown_until = Cooldown(self.store, self.cooldown_seconds).start()
                     status = "RATE_LIMITED"
-                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    outcome = handle_outcomes.get("manual_post" if seed_key.startswith("post:") else seed_key.split(":", 1)[-1])
                     if outcome:
                         outcome.update(status=self.backend.outcome_for_error(exc), reason="rate_limited",
                                        cooldown_until=cooldown_until)
+                    if seed_key.startswith("post:") and manual_post_result is not None:
+                        manual_post_result.update(status="rate_limited", reason="rate_limited")
                     break
                 except AuthFailed as exc:
                     log.error("Instagram backend authentication failed: %s", exc)
-                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    outcome = handle_outcomes.get("manual_post" if seed_key.startswith("post:") else seed_key.split(":", 1)[-1])
                     if outcome:
                         outcome.update(status="error", reason="auth_failed")
+                    if seed_key.startswith("post:") and manual_post_result is not None:
+                        manual_post_result.update(status="auth_failed", reason="auth_failed")
                     failures += 1
                     status = "PARTIAL"
                     continue
@@ -733,14 +938,14 @@ class InstagramCollector:
                     failures += 1
                     log.warning("Temporary Instagram comment read failure")
                     status = "CIRCUIT_OPEN" if failures >= self.circuit_breaker else "PARTIAL"
-                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    outcome = handle_outcomes.get("manual_post" if seed_key.startswith("post:") else seed_key.split(":", 1)[-1])
                     if outcome:
                         outcome.update(status="error", reason="transient")
                     continue
                 except Fatal:
                     failures += 1
                     log.warning("Instagram comment request was rejected")
-                    outcome = handle_outcomes.get(seed_key.split(":", 1)[-1])
+                    outcome = handle_outcomes.get("manual_post" if seed_key.startswith("post:") else seed_key.split(":", 1)[-1])
                     if outcome:
                         outcome.update(status="error", reason="fatal")
                     status = "PARTIAL"
@@ -748,8 +953,9 @@ class InstagramCollector:
         if stopped or status == "RATE_LIMITED":
             for seed in seeds:
                 value = str(seed.get("value", ""))
-                if value not in handle_outcomes:
-                    handle_outcomes[value] = {"status": "rate_limited", "posts": 0, "comments": 0}
+                outcome_key = "manual_post" if seed.get("kind") == "post" else value
+                if outcome_key not in handle_outcomes:
+                    handle_outcomes[outcome_key] = {"status": "rate_limited", "posts": 0, "comments": 0}
 
         if DailyCap(self.daily_cap, self.store.count_today() + len(collected)
                     + len(pending_seller_lead_ids)).reached() and status in {"COMPLETED", "PARTIAL"}:
@@ -791,6 +997,11 @@ class InstagramCollector:
             status = "PARTIAL"
         if rejected and keep_rejected:
             self._write_rejected(rejected, self.output_dir / f"{date.today().isoformat()}.rejected.jsonl")
+        if manual_post_result is not None and manual_post_result.get("status") == "selected":
+            manual_post_result["status"] = (
+                "completed_with_review" if manual_post_result.get("human_review_comments")
+                else "completed"
+            )
         result = self._result(status, collected, filtered, failures,
                               output=str(output), rejected=len(rejected),
                               human_review=len(review_queue),
@@ -799,6 +1010,8 @@ class InstagramCollector:
                               handles=handle_outcomes,
                               cooldown_until=self.store.get_setting("rate_limit_until"),
                               seller_leads=seller_lead_count)
+        if manual_post_result is not None:
+            result["manual_post"] = dict(manual_post_result)
         self._write_status(result)
         return result
 

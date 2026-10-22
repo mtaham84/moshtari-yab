@@ -43,6 +43,7 @@ class BackendCapabilities:
     user_posts: bool = False
     hashtag_posts: bool = False
     post_comments: bool = False
+    post_by_ref: bool = False
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,10 @@ class InstagramBackend(ABC):
     @abstractmethod
     def post_comments(self, post_ref: InstagramPost | str, limit: int) -> list[InstagramComment]:
         raise NotImplementedError
+
+    def post_by_shortcode(self, shortcode: str) -> InstagramPost:
+        """Resolve a shortcode where supported; older backends remain constructible."""
+        raise UnsupportedCapability(f"backend {self.name} does not support post_by_ref")
 
     def require(self, capability: str) -> None:
         if not getattr(self.capabilities, capability, False):

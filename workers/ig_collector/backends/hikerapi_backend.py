@@ -17,7 +17,7 @@ from .base import AuthFailed, BackendCapabilities, Fatal, InstagramBackend, Inst
 
 class HikerAPIBackend(InstagramBackend):
     name = "hikerapi"
-    capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True)
+    capabilities = BackendCapabilities(user_posts=True, hashtag_posts=True, post_comments=True, post_by_ref=True)
 
     def request_cooldown_seconds(self) -> int:
         return 24 * 60 * 60
@@ -155,6 +155,22 @@ class HikerAPIBackend(InstagramBackend):
                 break
             visited.add(cursor)
         return output[:limit]
+
+    def post_by_shortcode(self, shortcode: str) -> InstagramPost:
+        try:
+            media_id = mapping.shortcode_to_media_id(shortcode)
+        except ValueError as exc:
+            raise Fatal("Instagram post shortcode is invalid") from exc
+        payload = self._request(mapping.MEDIA_BY_ID_ENDPOINT, {
+            mapping.MEDIA_BY_ID_PARAMS["media_id"]: media_id,
+        })
+        raw = _path(payload, mapping.MEDIA_BY_ID_PATH, default={})
+        post = _post(raw)
+        if post is None:
+            raise NotFound("HikerAPI post metadata was not found")
+        if post.shortcode != shortcode:
+            raise NotFound("HikerAPI post reference did not match")
+        return post
 
 
 def _path(value: Any, path: tuple, default=None):

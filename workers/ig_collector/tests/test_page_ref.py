@@ -1,6 +1,6 @@
 import pytest
 
-from shared.instagram import PageRefError, parse_page_ref
+from shared.instagram import PageRefError, parse_page_ref, parse_post_ref
 
 
 @pytest.mark.parametrize("value, expected", [
@@ -53,3 +53,32 @@ def test_parse_page_ref_allowlist(value, expected):
         with pytest.raises(PageRefError) as error:
             parse_page_ref(value)
         assert error.value.reason == expected
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("https://instagram.com/p/AbCde_12/", "AbCde_12"),
+    ("http://www.instagram.com/reel/AbCde-12?igsh=x#caption", "AbCde-12"),
+    ("https://m.instagram.com/tv/AbCde12", "AbCde12"),
+    ("https://instagr.am/p/AbCde12/?x=1", "AbCde12"),
+])
+def test_parse_post_ref_valid_urls(value, expected):
+    assert parse_post_ref(value) == expected
+
+
+@pytest.mark.parametrize("value, reason", [
+    ("https://instagram.com/shop", "invalid_path"),
+    ("https://instagram.com/p/abc", "invalid_shortcode"),
+    ("https://instagram.com/p/abcde/extra", "invalid_path"),
+    ("https://evil.test/p/AbCde12", "invalid_host"),
+    ("ftp://instagram.com/p/AbCde12", "invalid_scheme"),
+    ("https://u:p@instagram.com/p/AbCde12", "userinfo"),
+    ("https://instagram.com:443/p/AbCde12", "port"),
+    ("https://instagram.com/p/AbCde%2F12", "invalid_shortcode"),
+    ("https://instagram.com/p/AbCde12\n", "control_character"),
+    ("https://instagram.com/p/AbCde 12", "internal_whitespace"),
+    ("javascript:alert(1)", "invalid_scheme"),
+])
+def test_parse_post_ref_rejects_invalid_and_hostile_inputs(value, reason):
+    with pytest.raises(PageRefError) as error:
+        parse_post_ref(value)
+    assert error.value.reason == reason

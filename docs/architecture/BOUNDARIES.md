@@ -14,10 +14,12 @@ This proposal treats imports in application code as dependencies. Test modules a
 | `workers.ig_collector` | `shared`, `instagram_discovery` | Instagram uses shared persistence/status tools and its comment policy (`workers/ig_collector/worker.py:14-20`, `workers/ig_collector/policies.py:6`). |
 | `x_ingest` | `shared` | Ingest validates shared source records (`x_ingest/__main__.py:14`). |
 | `instagram_discovery` | `apps`, `workers.ig_collector` | Optional Django category loading and the existing label tools (`instagram_discovery/cli.py:113`, `instagram_discovery/labeling.py:9-10`). |
-| `shared` | none of these packages | Shared code must remain usable by collectors, engine, and panel without importing them. |
+| `shared` | none of these packages | Shared code must remain usable by collectors, engine, and panel without importing them. `shared.instagram_manual_post` owns the post-link parser and the request/result `Protocol` contract used by future panel code. |
 | `xray` | none of these packages | Xray is a separate utility. |
 
 The `instagram_discovery` ↔ `workers.ig_collector` dependency is currently bidirectional: the collector imports discovery policy code, while discovery labeling imports collector policies. This is an existing package cycle. The proposal allows it temporarily; a later boundary change should pick one owner for the policy functions and remove one direction.
+
+Future Django panel code may import `ManualPostRequest`, `ManualPostResult`, and `ManualPostRunner` from `shared.instagram_manual_post`. It must invoke an application/task adapter implementing that contract; `apps` must not import `workers.ig_collector` directly.
 
 ## Forbidden directions and current exceptions
 

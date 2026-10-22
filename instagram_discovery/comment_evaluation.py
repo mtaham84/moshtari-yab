@@ -8,6 +8,10 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from .analyzer import normalize_text
 from .comment_intent import classify_comment
+from .comment_threshold import jev_selection_threshold
+
+
+MIN_COMMENT_DECISION_LENGTH = 20
 
 
 @dataclass(frozen=True)
@@ -180,6 +184,41 @@ def evaluate_with_jev(
     if not evidence:
         evidence = _fallback_evidence(comment_text)
 
+    normalized_length = len(normalize_text(comment_text))
+    threshold = jev_selection_threshold()
+    if status != "uncertain" and normalized_length < MIN_COMMENT_DECISION_LENGTH:
+        return _uncertain(
+            post_context,
+            reason=(f"Comment is too short for a definitive automated decision "
+                    f"({normalized_length} normalized characters); human review is required."),
+            evidence=evidence or _fallback_evidence(comment_text),
+            knowledge_used=knowledge_used,
+            knowledge=knowledge,
+            score=score,
+        )
+    if status != "uncertain" and score < threshold:
+        return _uncertain(
+            post_context,
+            reason=(f"Jev score {score:.2f} is below the selection threshold "
+                    f"{threshold:.2f}; human review is required."),
+            evidence=evidence or _fallback_evidence(comment_text),
+            knowledge_used=knowledge_used,
+            knowledge=knowledge,
+            score=score,
+        )
+
+    intent = classify_comment(comment_text)
+    if status != "uncertain" and intent.label == "other":
+        return _uncertain(
+            post_context,
+            reason=("No clear purchase, price, or contact signal was found; "
+                    "human review is required."),
+            evidence=evidence or _fallback_evidence(comment_text),
+            knowledge_used=knowledge_used,
+            knowledge=knowledge,
+            score=score,
+        )
+
     related = response.get("related")
     if not isinstance(related, Mapping):
         related = _related_from_knowledge(knowledge)
@@ -205,12 +244,13 @@ def _uncertain(
     evidence: Sequence[str],
     knowledge_used: Mapping[str, Any],
     knowledge: KnowledgeSnapshot | None = None,
+    score: float = 0.0,
 ) -> dict[str, Any]:
     related = _related_from_knowledge(knowledge) if knowledge else _related_from_context(post_context)
     return {
         "status": "uncertain",
         "related": related,
-        "score": 0.0,
+        "score": score,
         "reason": {"text": reason, "evidence": list(evidence)},
         "indexed_information_used": dict(knowledge_used),
     }
@@ -218,10 +258,15 @@ def _uncertain(
 
 def _related_ids(context: Mapping[str, Any]) -> tuple[str | None, str | None]:
     decision = context.get("category_decision")
+    target = context.get("suggested_target")
     if not isinstance(decision, Mapping):
-        return None, None
-    category_id = decision.get("category_id") or decision.get("category_candidate_id")
-    product_id = decision.get("product_id") or decision.get("product_candidate_id")
+        decision = {}
+    if not isinstance(target, Mapping):
+        target = {}
+    category_id = (decision.get("category_id") or decision.get("category_candidate_id")
+                   or target.get("category_id"))
+    product_id = (decision.get("product_id") or decision.get("product_candidate_id")
+                  or target.get("product_id"))
     return _optional_id(category_id), _optional_id(product_id)
 
 
@@ -236,10 +281,13 @@ def _related_from_context(context: Mapping[str, Any]) -> dict[str, Any]:
     decision = context.get("category_decision")
     if not isinstance(decision, Mapping):
         decision = {}
+    target = context.get("suggested_target")
+    if not isinstance(target, Mapping):
+        target = {}
     return {
-        "category": {"id": decision.get("category_id") or decision.get("category_candidate_id"),
+        "category": {"id": decision.get("category_id") or decision.get("category_candidate_id") or target.get("category_id"),
                      "name": decision.get("category") or decision.get("category_candidate")},
-        "product": {"id": decision.get("product_id") or decision.get("product_candidate_id"),
+        "product": {"id": decision.get("product_id") or decision.get("product_candidate_id") or target.get("product_id"),
                     "name": decision.get("product") or decision.get("product_candidate")},
     }
 
