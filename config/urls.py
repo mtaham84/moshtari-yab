@@ -6,12 +6,14 @@ from django.views.static import serve
 
 
 from apps.products.views import product_click_view, public_product_card_view
+from apps.accounts.views import login_view
  
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("ops/", include("apps.billing.urls")),
     path("p/<int:pk>/", public_product_card_view, name="short_public_card"),
     path("r/<int:pk>/", product_click_view, name="product_click"),
+    path("login/", login_view, name="login_alias"),
     path("accounts/", include("apps.accounts.urls")),
     path("products/", include("apps.products.urls")),
     path("discovery/", include("apps.discovery.urls")),
