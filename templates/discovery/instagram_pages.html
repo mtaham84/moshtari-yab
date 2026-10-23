@@ -1,0 +1,80 @@
+{% extends "panel/base_panel.html" %}
+
+{% block title %}صفحه‌های اینستاگرام | پیدا{% endblock %}
+{% block breadcrumb %}صفحه‌های اینستاگرام{% endblock %}
+{% block nav_instagram_pages %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header" style="margin-bottom: 24px;">
+  <div class="p-header-titles">
+    <h1 class="p-page-title">صفحه‌های اینستاگرام</h1>
+    <p class="p-page-subtitle">صفحهٔ خودتان یا صفحه‌های رقیب را برای خواندن پست‌ها و کامنت‌های عمومی اضافه کنید.</p>
+  </div>
+</div>
+{% if messages %}<div class="auth-messages" style="margin-bottom: 18px;">{% for message in messages %}<div class="alert alert-{{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+{% if throttled %}<div class="alert alert-error">تعداد تغییرات صفحه‌ها در یک ساعت از حد مجاز گذشته است. کمی بعد دوباره تلاش کنید.</div>{% endif %}
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <h2>افزودن صفحه</h2>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add">
+    <label class="form-label" for="page-ref">لینک یا آیدی صفحه</label>
+    <input id="page-ref" class="form-input" name="page_ref" maxlength="200" required dir="ltr" placeholder="instagram.com/example یا @example">
+    <label class="form-label" for="page-kind">نوع صفحه</label>
+    <select id="page-kind" class="form-input" name="kind"><option value="own">صفحهٔ خودم</option><option value="watched">صفحهٔ رقیب</option></select>
+    <label class="form-label" for="default-product">محصول پیش‌فرض (اختیاری)</label>
+    <select id="default-product" class="form-input" name="default_product"><option value="">بدون محصول پیش‌فرض</option>{% for product in products %}<option value="{{ product.pk }}">{{ product.name }}</option>{% endfor %}</select>
+    <button class="p-btn p-btn-primary" type="submit">افزودن صفحه</button>
+  </form>
+</div>
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <h2>پایش هشتگی بر اساس دسته‌بندی</h2>
+  <p><a class="p-btn p-btn-secondary" href="{% url 'discovery:instagram_post_review' %}">صف بازبینی پست‌ها و گزارش دقت دسته‌بندی</a></p>
+  <p>برای هر دسته، واژه‌های مرتبط و هشتگ‌های مجاز را تنظیم کنید. seedها کنار صفحه‌های حساب نوشته می‌شوند و دسته‌بندی پست در این مرحله قطعی نیست.</p>
+  {% for config in category_configs %}{% with category=config.category target=config.target %}
+    <form method="post" style="border-top:1px solid var(--panel-border); padding:16px 0;">{% csrf_token %}<input type="hidden" name="action" value="save_category_target"><input type="hidden" name="category_id" value="{{ category.pk }}">
+      <strong>{{ category.full_path }}</strong>
+      <label class="form-label" for="terms-{{ category.pk }}">واژه‌ها</label>
+      <textarea id="terms-{{ category.pk }}" class="form-input" name="terms" rows="2" placeholder="{% for term in category.keywords %}{{ term }}{% if not forloop.last %}، {% endif %}{% endfor %}">{% if target %}{{ target.terms|join:", " }}{% else %}{{ category.keywords|join:", " }}{% endif %}</textarea>
+      <label class="form-label" for="hashtags-{{ category.pk }}">هشتگ‌های هدف (هر کدام یک خط)</label>
+      <textarea id="hashtags-{{ category.pk }}" class="form-input" name="hashtags" rows="2" dir="ltr" placeholder="#کفش، #کفش_چرمی">{% if target %}{{ target.hashtags|join:", " }}{% endif %}</textarea>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+        <label>حداکثر پست <input class="form-input" type="number" name="max_posts" min="1" max="100" value="{{ target.max_posts|default:5 }}" placeholder="5" style="width:100px;"></label>
+        <label>پنجرهٔ زمانی (روز) <input class="form-input" type="number" name="window_days" min="1" max="90" value="{{ target.window_days|default:7 }}" placeholder="7" style="width:100px;"></label>
+        <label><input type="checkbox" name="is_active" {% if target.is_active %}checked{% endif %}> فعال‌سازی seed این دسته</label>
+        <button class="p-btn p-btn-sm p-btn-primary" type="submit">ذخیره تنظیم دسته</button>
+      </div>
+    </form>{% endwith %}
+  {% empty %}<p>برای تنظیم هشتگ، ابتدا یک دسته‌بندی فعال بسازید.</p>{% endfor %}
+</div>
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <h2>گزارش ارزیابی کامنت‌ها</h2>
+  <p>این گزارش مربوط به کامنت‌های seed دسته‌بندی/هشتگ ثبت‌شده برای کسب‌وکار شماست. سهم کامنت‌هایی که از آستانهٔ انتخاب عبور کرده‌اند، احتمال خرید نیست. آستانهٔ فعلی Jev: {{ comment_report.threshold }}.</p>
+  <ul>
+    <li>کامنت‌های دریافت‌شده N_total: {{ comment_report.denominators.N_total }}؛ کاربران یکتا: {{ comment_report.comments.total_received.unique_users.unique_users }}</li>
+    <li>کامنت‌های قابل ارزیابی N_eval: {{ comment_report.denominators.N_eval }}؛ کاربران یکتا: {{ comment_report.comments.evaluable_after_prefilter.unique_users.unique_users }}</li>
+    <li>کامنت‌های عبورکرده از آستانه N_pass: {{ comment_report.denominators.N_pass }}؛ کاربران یکتا: {{ comment_report.comments.passed_threshold.unique_users.unique_users }}</li>
+    <li>سهم از کامنت‌های ارزیابی‌شده: {{ comment_report.shares.evaluated_comments.numerator }} از {{ comment_report.shares.evaluated_comments.denominator }}{% if comment_report.shares.evaluated_comments.percent != None %} ({{ comment_report.shares.evaluated_comments.percent|floatformat:1 }}٪){% else %} (نامشخص؛ مخرج صفر است){% endif %}</li>
+    <li>سهم از کل کامنت‌های دریافت‌شده: {{ comment_report.shares.all_received_comments.numerator }} از {{ comment_report.shares.all_received_comments.denominator }}{% if comment_report.shares.all_received_comments.percent != None %} ({{ comment_report.shares.all_received_comments.percent|floatformat:1 }}٪){% else %} (نامشخص؛ مخرج صفر است){% endif %}</li>
+    <li>پوشش ارزیابی: {{ comment_report.shares.evaluation_coverage.numerator }} از {{ comment_report.shares.evaluation_coverage.denominator }}{% if comment_report.shares.evaluation_coverage.percent != None %} ({{ comment_report.shares.evaluation_coverage.percent|floatformat:1 }}٪){% else %} (نامشخص؛ مخرج صفر است){% endif %}</li>
+  </ul>
+  <p>دقت Jev روی {{ comment_report.human_label_calibration.labeled_comments }} کامنت دارای برچسب انسانی: {{ comment_report.human_label_calibration.accuracy.numerator }} از {{ comment_report.human_label_calibration.accuracy.denominator }}{% if comment_report.human_label_calibration.accuracy.percent != None %} ({{ comment_report.human_label_calibration.accuracy.percent|floatformat:1 }}٪){% else %} (هنوز دادهٔ برچسب‌خورده‌ای نیست){% endif %}. آستانهٔ پیشنهادی بر اساس همین برچسب‌ها: {{ comment_report.human_label_calibration.recommended_threshold|default:"—" }}.</p>
+  <p><a href="{% url 'discovery:instagram_comment_report_api' %}">دریافت گزارش JSON</a></p>
+  {% if pending_comment_labels %}
+    <h3>برچسب‌گذاری انسانی پس از ارزیابی Jev</h3>
+    {% for row in pending_comment_labels %}<form method="post" style="border-top:1px solid var(--panel-border); padding:12px 0;">{% csrf_token %}<input type="hidden" name="action" value="label_comment"><input type="hidden" name="comment_id" value="{{ row.id }}"><p>{{ row.comment_text }}</p><span>Jev: {{ row.jev.status }} ({{ row.jev.score }})</span> <button class="p-btn p-btn-sm p-btn-primary" name="label" value="approve" type="submit">تأیید</button> <button class="p-btn p-btn-sm" name="label" value="reject" type="submit">رد</button></form>{% endfor %}
+  {% else %}<p>کامنت ارزیابی‌نشده‌ای برای برچسب‌گذاری وجود ندارد.</p>{% endif %}
+</div>
+<div class="p-card" style="padding: 24px;">
+  <h2>صفحه‌های ثبت‌شده ({{ pages|length }})</h2>
+{% if pages %}<div style="overflow-x: auto;"><table style="width: 100%; text-align: right;"><thead><tr><th>صفحه</th><th>نوع</th><th>محصول پیش‌فرض</th><th>وضعیت</th><th>آخرین اجرا</th><th>عملیات</th></tr></thead><tbody>
+  {% for page in pages %}<tr>
+    <td><a href="{{ page.profile_url }}" target="_blank" rel="noopener noreferrer nofollow">@{{ page.handle }}</a></td>
+    <td>{{ page.get_kind_display }}</td><td>{{ page.default_product.name|default:"—" }}</td>
+    <td>{% if page.is_active %}فعال{% else %}متوقف{% endif %}{% if page.status_label %} · {{ page.status_label }}{% endif %}</td>
+    <td>{{ page.last_run_at|default:"—" }}</td>
+    <td><form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm p-btn-secondary" name="action" value="toggle" type="submit">{% if page.is_active %}توقف پایش{% else %}فعال‌سازی{% endif %}</button></form>
+    <form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm" name="action" value="remove" type="submit">حذف</button></form></td>
+  </tr>{% endfor %}
+  </tbody></table></div>{% else %}<p>هنوز صفحه‌ای اضافه نشده است.</p>{% endif %}
+</div>
+<p style="margin-top: 18px;">توجه: روش‌های جمع‌آوری از وب ممکن است با شرایط اینستاگرام ناسازگار باشند. مسیر پیشنهادی برای استفادهٔ تولیدی Graph API است که در این نسخه پیاده‌سازی نشده.</p>
+{% endblock %}

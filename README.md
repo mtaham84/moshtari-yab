@@ -13,6 +13,7 @@ telegram_crawler ──(write)──► crawler.tg_users / tg_chats / tg_message
 Django products ──(read-only)──► need_engine ──► need_engine.* (state، بردارها با pgvector، هزینه‌ها)
                                         ▲
 workers/x_collector → JSONL → x_ingest → crawler.x_posts ─┘ (NE_X_ENABLED=true)
+workers/ig_collector → JSONL (experimental; separate Flow A leads and Flow B requests)
                                         │
                                         └──► need_engine.opportunities
                                                    │
@@ -28,6 +29,19 @@ workers/x_collector → JSONL → x_ingest → crawler.x_posts ─┘ (NE_X_ENAB
 | پل به پنل | `apps/discovery/engine_bridge.py` + `sync_opportunities` | فرصت‌های منتشرشده را idempotent در مدل‌های Django می‌نویسد (به تفکیک کسب‌وکار) |
 | پنل | `apps/` + `templates/` | ثبت‌نام/ورود، محصولات، فرصت‌ها، داشبورد با اعداد واقعی |
 | جمع‌آوری X | `workers/x_collector/` + `x_ingest/` | worker فقط‌خواندنی، JSONL و upsert idempotent در `crawler.x_posts` |
+| جمع‌آوری Instagram | `workers/ig_collector/` + `instagram_discovery/` | فروشنده صفحه ثبت می‌کند؛ کامنت‌های دارای intent به فرصت پنل تبدیل می‌شوند، هنوز به موتور نیاز وصل نیست |
+
+## امنیت، کلیدها و نگهداری داده
+
+در Docker، `FIELD_ENCRYPTION_KEY` را پیش از بالا آمدن web در `.env` تنظیم کنید؛ web migrationها را هنگام شروع خودکار اجرا می‌کند.
+
+- در اجرای توسعه، `DJANGO_DEBUG=true` و `DJANGO_SECRET_KEY` محلی بگذارید. در سرور `DJANGO_DEBUG=false`، کلید تصادفی امن، دامنه‌های مجاز و originهای CSRF را صریح تنظیم کنید. حساب‌های دمو با `SHOW_DEMO_ACCOUNTS=true` فقط برای محیط نمایشی فعال می‌شوند.
+- فقط اگر برنامه پشت پراکسی TLS مورد اعتماد است، `DJANGO_BEHIND_HTTPS_PROXY=true` را بگذارید. برای redirect اجباری HTTPS، HSTS و کوکی secure تنظیم‌های `DJANGO_SECURE_*` را پس از آماده‌شدن HTTPS فعال کنید.
+- برای نگهداری رمز‌شده‌ی کلیدهای سرویس‌دهنده، پیش از اولین migration جدید یک کلید Fernet بسازید و همان `FIELD_ENCRYPTION_KEY` را به سرویس‌های web و engine بدهید: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. کلید را در مخزن یا لاگ قرار ندهید و نسخه‌ی پشتیبان امن داشته باشید.
+- برای چرخش کلید، کلید تازه را در `FIELD_ENCRYPTION_KEY` و کلید قبلی را موقتاً در `FIELD_ENCRYPTION_OLD_KEYS` (فهرست جداشده با ویرگول) قرار دهید؛ سپس `python manage.py rotate_provider_keys` را اجرا کنید. پس از موفقیت، کلید قبلی را حذف کنید.
+- نگهداری پیش‌فرض داده `DATA_RETENTION_DAYS=180` است. فرمان `python manage.py purge_retained_data` فقط شمارش می‌کند؛ پس از مرور گزارش، `python manage.py purge_retained_data --delete` حذف و ناشناس‌سازی را انجام می‌دهد. این فرمان پیام‌های قدیمی تلگرام/X، state موقت و متن/هویت فرصت‌های قدیمی را پاک می‌کند، اما خود فرصت، وضعیت‌های تماس/فروش، اتصال محصول/سفارش، تراکنش‌های مالی و آمار سقف روزانه‌ی X را نگه می‌دارد. فرصت با تاریخ ایجاد در پنل یا تاریخ منبع سنجیده می‌شود؛ فرصت‌های باز و بررسی‌شده منقضی می‌شوند.
+- گزارش شمارش هفتگی را در Docker با `docker compose --profile maintenance up -d retention-report` فعال کنید؛ خروجی و سن گزارش در داشبورد و فایل `output/retention_report.json` دیده می‌شوند و فاصله با `RETENTION_REPORT_INTERVAL_HOURS` تنظیم می‌شود.
+- حذف خودکار فعال نیست: برای پاک‌سازی واقعی، فرمان `docker compose --profile maintenance run --rm retention purge_retained_data --delete` را دستی و فقط پس از توقف `crawler`، `engine` و `sync` اجرا کنید.
 
 ## راه‌اندازی
 
@@ -52,6 +66,7 @@ python -m workers.x_collector --once                             # ۱) جمع‌
 python -m x_ingest --path data/x_collected/latest.jsonl         # ۲) ورود به crawler.x_posts
 python -m need_engine run --once --flush                         # ۳) تحلیل (پس از فعال‌کردن NE_X_ENABLED=true)
 python manage.py sync_opportunities                            # ۴) نمایش فرصت‌ها در پنل
+
 python manage.py runserver                                    # ۴) پنل
 ```
 
@@ -113,8 +128,19 @@ docker compose logs -f crawler engine sync
 - need_engine پیام‌ها و محصولات را با اتصال read-only می‌خواند؛ تا کراولر داده‌ای ننوشته باشد کاری انجام نمی‌دهد.
 - اتصال X به‌صورت پیش‌فرض خاموش است (`NE_X_ENABLED=false`). رعایت شرایط استفادهٔ X الزامی است؛ از حساب اختصاصی کم‌ریسک استفاده کنید. این pipeline فقط می‌خواند و هرگز پست، پاسخ، لایک، فالو یا DM نمی‌فرستد.
 - فیلتر X برای کم‌کردن مشتری/دادهٔ ساختگی محافظه‌کار است: پست باید شناسهٔ پایدار نویسنده داشته باشد، متن خودش قصد خرید صریح را نشان دهد، شواهد از همان نویسنده باشد و محصول از مرحلهٔ تطبیق مستقل با حداقل امتیاز (`NE_X_MIN_MATCH_SCORE=65`) عبور کند. این کار خطای مثبت را کم می‌کند اما تضمین مشتری قطعی نمی‌دهد؛ نتیجه را پیش از تماس انسانی بررسی کنید.
-- X collector آزمایشی است: `docker compose --profile x up -d x`.
+- X collector آزمایشی است: `docker compose --profile x up -d x`. آرشیو و فایل SQLite آن در volume مشترک `/app/output` است؛ اجرای محلی باید `X_COLLECT_STATE_FILE` را در همین volume/مسیر خروجی تنظیم کند.
+- **Instagram** در وضعیت آزمایشی است، هنوز به `need_engine` وصل نیست و صحت نتایجش در میدان بررسی نشده است. ماژول `instagram_discovery/` ابزار تشخیص کامنت و برچسب‌گذاری برای سنجش را دارد؛ `workers/ig_collector/` جمع‌آوری read-only را انجام می‌دهد. هیچ پیام، لایک، فالو یا DM خودکاری ارسال نمی‌شود.
+  - **جریان A — پست فروشنده ← کامنت‌گذارها:** با `comments.policy=seller_post` کامنت‌های دارای نشانه‌ی علاقه، پرسش قیمت یا درخواست تماس به فایل جداگانه‌ی `data/ig_collected/seller_leads.jsonl` می‌روند. این خروجی صرفاً لیدِ نیازمند بازبینی انسانی است.
+  - **جریان B — پست درخواست خرید:** سیاست پیش‌فرض `comments.policy=buyer_request` رفتار قبلی را نگه می‌دارد: کامنت باید امتیاز intent را بگذراند، به‌جز عدد تنها زیر پست درخواست که به‌عنوان درخواست نگه داشته می‌شود. پست‌ها و کامنت‌های B در JSONL معمولی collector ذخیره می‌شوند.
+  - کامنت‌ها پیش‌فرض خاموش‌اند. پس از تنظیم seed و سقف‌های محدود، برای A از `comments.mode=all` استفاده کنید. `data/ig_lexicon_fa.json` cueهای طبقه‌بند A و `workers/ig_collector/policies.py` دو سیاست را نگه می‌دارند. برای ساخت batch برچسب‌گذاری و گزارش precision: `python -m instagram_discovery label-export --in data/ig_collected/seller_leads.jsonl --out data/ig_label/batch.csv --sample 200` و سپس `python -m instagram_discovery label-report --in data/ig_label/batch.csv`. فایل برچسب‌ها نادیده گرفته می‌شود چون ممکن است handle واقعی داشته باشد.
+  - اجرای backendهای واقعی هنوز نیازمند بازبینی مجوز داده و قرارداد provider است؛ در این تغییر هیچ جمع‌آوری زنده یا بررسی میدانی انجام نشده است.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
+
+## Instagram pages
+- از «صفحه‌های اینستاگرام» در پنل، لینک یا آیدی صفحهٔ خودتان یا رقیب را ثبت کنید؛ برای هر صفحه می‌توان محصول پیش‌فرض گذاشت و پایش را متوقف یا حذف کرد.
+- سرویس اختیاری با `docker compose --profile ig up ig` هر چرخه seedها را می‌سازد، collector را اجرا و کامنت‌های دارای intent را به فرصت‌های پنل وارد می‌کند؛ backend را صریحاً در `IG_BACKEND` تنظیم کنید.
+- داده‌های خوانده‌شده شامل کپشن، متن کامنت و شناسه/نام کاربری عمومی است و در JSONL و فرصت پنل می‌ماند؛ درخواست‌ها فقط در worker انجام می‌شوند.
+- روش‌های scraping ممکن است شرایط Instagram را نقض کنند؛ مسیر پشتیبانی‌شدهٔ تولیدی Graph API است و در این کد پیاده‌سازی نشده است.
 
 Query generation supports X_QUERY_MODE=product|intent|both (default both), a per-cycle budget, query length/count caps, and an optional suffix. Use --print-queries to review generated queries and --dry-run to inspect the next cycle without invoking the CLI. LLM-generated problem phrases are not implemented yet (X_QUERY_LLM=false).
 

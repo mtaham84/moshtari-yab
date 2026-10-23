@@ -7,10 +7,18 @@ from __future__ import annotations
 
 import os
 import uuid
+from pathlib import Path
 
 import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
+
+
+def pytest_configure(config):
+    basetemp = config.option.basetemp
+    if basetemp:
+        # Pytest creates basetemp itself but not its missing parents.
+        Path(basetemp).parent.mkdir(parents=True, exist_ok=True)
 
 
 def _dsn() -> str:

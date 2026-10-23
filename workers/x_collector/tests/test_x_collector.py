@@ -62,19 +62,24 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(record["metadata"]["raw_cli"], self.fixture[0])
 
     def test_normalization_preserves_author_verified_as_boolean(self):
-        verified = normalize_tweet({**self.fixture[0], "author": {**self.fixture[0]["author"], "verified": True}})
-        unverified = normalize_tweet({**self.fixture[0], "author": {**self.fixture[0]["author"], "verified": False}})
+        author = {"id": "81001", "screenName": "cafe_buyer_demo"}
+        verified = normalize_tweet({**self.fixture[0], "author": {**author, "verified": True}})
+        unverified = normalize_tweet({**self.fixture[0], "author": {**author, "verified": False}})
         self.assertIs(verified["author_verified"], True)
         self.assertIs(unverified["author_verified"], False)
 
     def test_jsonl_records_are_x_messages(self):
-        result = self.collector().run(["اسپرسوساز"])
+        client = FakeClient(self.fixture[:1])
+        result = self.collector(client).run(["اسپرسوساز"])
         records = load_file(result["output"])
-        self.assertEqual(len(records), 2)
+        latest = load_file(self.root / "collected" / "latest.jsonl")
+        self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["id"], "1990000000000001001")
         self.assertEqual(records[0]["author_id"], "81001")
         self.assertEqual(records[0]["metadata"]["query"], "اسپرسوساز")
         self.assertEqual(records[0]["source"], "x")
+        self.assertEqual(latest, records)
+        self.assertEqual(len(client.calls), 1)
 
     def test_supported_timestamps_are_normalised_to_utc(self):
         timestamp_values = ["2026-10-01T10:00:00Z", 1790848800, 1790848800000, "Thu Oct 01 10:00:00 +0000 2026"]
@@ -110,7 +115,7 @@ class XCollectorTests(unittest.TestCase):
     def test_missing_handle_or_created_at_is_handled(self):
         record = normalize_tweet({"id": "1", "text": "متن فارسی"})
         self.assertIsNone(record)
-        record = normalize_tweet({"id": "2", "username": "user", "text": "متن فارسی"})
+        record = normalize_tweet({"id": "2", "username": "user", "author_id": "22", "text": "متن فارسی"})
         self.assertIsNone(record["created_at"])
 
     def test_failed_state_insert_does_not_leave_partial_jsonl_record(self):
@@ -127,8 +132,13 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(resumed["collected"], 1)
 
     def test_mock_mode_does_not_need_cli(self):
-        result = self.collector(client=FakeClient()).run(["query"], mock_records=self.fixture)
+        client = FakeClient()
+        result = self.collector(client=client).run(["query"], mock_records=self.fixture)
         self.assertEqual(result["collected"], 2)
+        self.assertEqual(client.calls, [])
+        records = load_file(result["output"])
+        self.assertEqual(len(records), 2)
+        self.assertEqual(load_file(self.root / "collected" / "latest.jsonl"), records)
 
     def test_retry_uses_exponential_backoff_then_succeeds(self):
         sleeps = []
@@ -189,13 +199,15 @@ class XCollectorTests(unittest.TestCase):
 
     def test_dry_run_prints_exact_cli_command_without_secrets(self):
         query_file = self.root / "queries.txt"
-        query_file.write_text("-query فارسی\n", encoding="utf-8")
+        query_file.write_text("-query فارسی\ncoffee\n", encoding="utf-8")
         output = io.StringIO()
-        with patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "private", "TWITTER_CT0": "private-cookie"}), contextlib.redirect_stderr(output), contextlib.redirect_stdout(io.StringIO()):
+        with patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "private", "TWITTER_CT0": "private-cookie"}), \
+                patch("workers.x_collector.__main__.XCollector.load_queries", return_value=["--bad", "coffee"]), \
+                contextlib.redirect_stderr(output), contextlib.redirect_stdout(io.StringIO()):
             result = main(["--dry-run", "--queries", str(query_file)])
         self.assertEqual(result, 0)
-        self.assertNotIn("twitter search", output.getvalue())
-        self.assertIn("Skipping query starting with '-'", output.getvalue())
+        self.assertIn("twitter search coffee", output.getvalue())
+        self.assertNotIn("--bad", output.getvalue())
         self.assertNotIn("private", output.getvalue())
 
     def test_loop_stops_on_failure(self):
@@ -268,7 +280,8 @@ class XCollectorTests(unittest.TestCase):
         searches = [{"query": "q", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}]
         with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "0"}):
             self.assertEqual(charge_searches(searches, Store()), 0)
-        with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "50", "NE_USD_TO_TOMAN": "100000"}):
+        with patch.dict("os.environ", {"X_SEARCH_FEE_TOMAN": "50", "NE_USD_TO_TOMAN": "100000"}), \
+                patch("need_engine.config.EngineConfig", return_value=type("Config", (), {"usd_to_toman": 100000.0})()):
             self.assertEqual(charge_searches(searches, Store()), 2)
         (args, kwargs), = rows
         self.assertEqual(args[0], "x_search")
@@ -332,6 +345,25 @@ class XCollectorTests(unittest.TestCase):
                  "text": "برای خانه‌ام دنبال قهوه‌ساز می‌گردم"}
         self.assertIsNone(normalize_tweet(ad))
         self.assertIsNotNone(normalize_tweet(buyer))
+
+    def test_promotional_filter_table_keeps_current_outcomes(self):
+        from need_engine.x_filters import is_promotional_post as engine_filter
+        from shared.x_filters import is_promotional_post as shared_filter
+
+        self.assertIs(engine_filter, shared_filter)
+        samples = [
+            ("فروش ویژه، همین حالا سفارش دهید", False),
+            ("برای خانه‌ام دنبال قهوه‌ساز می‌گردم", True),
+            ("خرید از سایت ما: https://example.com", False),
+            ("قهوه‌ساز صنعتی باکیفیت", True),
+            ("limited offer today", False),
+        ]
+        for index, (text, expected_to_keep) in enumerate(samples, start=1):
+            with self.subTest(text=text):
+                self.assertEqual(shared_filter(text), not expected_to_keep)
+                row = {"id": str(index), "author_id": str(100 + index),
+                       "username": f"user{index}", "text": text}
+                self.assertEqual(normalize_tweet(row) is not None, expected_to_keep)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 from apps.businesses.models import Business
+from .fields import EncryptedTextField
 
 
 class Provider(models.Model):
@@ -14,7 +15,8 @@ class Provider(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="نام سرویس‌دهنده")
     base_url = models.URLField(max_length=300, verbose_name="Base URL",
                                help_text="مثال: https://generativelanguage.googleapis.com/v1beta/openai")
-    api_key = models.CharField(max_length=500, blank=True, verbose_name="API Key")
+    # Fernet adds roughly one third of the plaintext size plus its token metadata.
+    api_key = EncryptedTextField(max_length=12000, blank=True, verbose_name="API Key")
     is_active = models.BooleanField(default=True, verbose_name="فعال")
     notes = models.CharField(max_length=255, blank=True, verbose_name="یادداشت")
     created_at = models.DateTimeField(auto_now_add=True)

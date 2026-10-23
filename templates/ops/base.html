@@ -13,6 +13,7 @@
     <div class="ops-brand">مشتری‌یاب<small>پنل مدیریت</small></div>
     <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}">داشبورد و وضعیت سرویس‌ها</a>
     <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}">هزینه‌ها</a>
+    <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}">قیف و کیفیت سرنخ</a>
     <a href="{% url 'ops:providers' %}" class="{% if nav == 'providers' %}on{% endif %}">سرویس‌دهنده‌ها و مدل‌ها</a>
     <a href="{% url 'ops:wallets' %}" class="{% if nav == 'wallets' %}on{% endif %}">کیف پول فروشنده‌ها</a>
     <a href="{% url 'ops:communities' %}" class="{% if nav == 'communities' %}on{% endif %}">گروه‌های تلگرام</a>

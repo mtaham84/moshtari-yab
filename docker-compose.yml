@@ -17,6 +17,9 @@ x-app: &app
     TG_SESSION: data/telegram_crawler_session
     NE_MESSAGES_SOURCE: db
     NE_PRODUCTS_SOURCE: db
+    X_COLLECT_STATE_FILE: /app/output/x_collector_state.sqlite3
+    X_COLLECT_OUTPUT_DIR: /app/output/x_collected
+    X_STATUS_FILE: /app/output/x_collected/status.json
   volumes:
     - appdata:/app/data
     - media:/app/media
@@ -41,6 +44,10 @@ services:
   web:
     <<: *app
     command: ["web"]
+    volumes:
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
@@ -56,6 +63,10 @@ services:
   sync:
     <<: *app
     command: ["sync"]
+    volumes:
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
     depends_on:
       web:
         condition: service_healthy
@@ -82,6 +93,41 @@ services:
     profiles: ["x"]
     volumes:
       - appdata:/app/data
+      - xdata:/app/output
+
+  ig:
+    <<: *app
+    entrypoint: ["sh", "-c"]
+    command: ["if [ -z \"$${IG_BACKEND:-}\" ]; then echo 'IG_BACKEND must be set to hikerapi or instaloader' >&2; exit 2; fi; while true; do python manage.py ig_sync_seeds && (python -m workers.ig_collector --once || true) && python manage.py ig_sync_seeds --apply-status && python manage.py ig_ingest; sleep $${IG_CYCLE_MINUTES:-60}m; done"]
+    profiles: ["ig"]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
+
+  retention:
+    <<: *app
+    profiles: ["maintenance"]
+    entrypoint: ["python", "manage.py"]
+    command: ["purge_retained_data"]
+    volumes:
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
+
+  retention-report:
+    <<: *app
+    profiles: ["maintenance"]
+    command: ["retention-report"]
+    environment:
+      <<: *app-env
+      RETENTION_REPORT_INTERVAL_HOURS: ${RETENTION_REPORT_INTERVAL_HOURS:-168}
+    volumes:
+      - appdata:/app/data
+      - media:/app/media
       - xdata:/app/output
 
   xray:

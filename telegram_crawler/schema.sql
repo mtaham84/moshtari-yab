@@ -6,6 +6,16 @@
 
 CREATE SCHEMA IF NOT EXISTS {schema};
 
+CREATE TABLE IF NOT EXISTS {schema}.collector_heartbeats (
+    source              TEXT PRIMARY KEY,
+    last_ok_at          TIMESTAMPTZ,
+    last_error_at       TIMESTAMPTZ,
+    last_error          TEXT,
+    consecutive_errors  INTEGER NOT NULL DEFAULT 0,
+    cooldown_until      TIMESTAMPTZ,
+    items_last_run      BIGINT NOT NULL DEFAULT 0
+);
+
 -- One row per Telegram user, stored the first time we see them (snapshot, no history).
 CREATE TABLE IF NOT EXISTS {schema}.tg_users (
     user_id             BIGINT PRIMARY KEY,

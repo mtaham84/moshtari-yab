@@ -284,6 +284,8 @@
             <strong class="opp-name">{{ opp.customer.display_identifier }}</strong>
             {% if opp.customer.source_username and opp.source_platform == 'x' %}
               <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+            {% elif opp.customer.source_username and opp.source_platform == 'instagram' %}
+              {% if opp.instagram_profile_url %}<a class="opp-handle" href="{{ opp.instagram_profile_url }}" target="_blank" rel="noopener noreferrer nofollow">@{{ opp.customer.source_username|cut:'@' }}</a>{% endif %}
             {% elif opp.customer.source_username %}
               <a class="opp-handle" href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
             {% endif %}
@@ -311,7 +313,8 @@
         <div class="opp-item-body">
           <div class="opp-col">
             <div class="opp-label">پیام خریدار</div>
-            <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
+          <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
+          {% if opp.instagram_comment_detail_url %}<a href="{{ opp.instagram_comment_detail_url }}">جزئیات کامنت</a>{% endif %}
             {% if opp.ai_analysis.need %}
               <div class="opp-need"><span>نیاز:</span> {{ opp.ai_analysis.need }}</div>
             {% endif %}
@@ -354,6 +357,11 @@
               <span>جزئیات</span>
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </a>
+            <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+              <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+            </select>
+            <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مشتری واقعی</button>
+            <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
             <span class="opp-cost" title="هزینه‌ی هوش مصنوعی برای این فرصت">هزینه‌ی هوش مصنوعی: {{ opp.cost_toman_display }} تومان</span>
           </div>
         </div>
@@ -449,6 +457,7 @@
       <div style="background: var(--stone-surface-sunken); border-right: 3px solid var(--brand-purple); padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 14px;">
         <p style="margin: 0; font-size: 0.86rem; color: var(--panel-text-main); line-height: 1.6;">
           «{{ opp.source_raw_message|default:opp.ai_analysis.need }}»
+          {% if opp.instagram_comment_detail_url %}<a href="{{ opp.instagram_comment_detail_url }}">جزئیات کامنت</a>{% endif %}
         </p>
       </div>
 
@@ -468,7 +477,12 @@
           <span style="font-size: 0.76rem; color: var(--stone-text-muted);">• تاریخ ثبت: {{ opp.created_at_jalali }}</span>
         </div>
 
-        <div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+            <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+          </select>
+          <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مشتری واقعی</button>
+          <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
           <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary" style="padding: 6px 14px; font-size: 0.82rem;">
             <span>مشاهده تحلیل کامل و پیش‌نویس پاسخ</span>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
@@ -490,9 +504,51 @@
 </div>
 {% endif %}
 
+{% if page_obj and page_obj.paginator.num_pages > 1 %}
+<nav aria-label="صفحه‌بندی فرصت‌ها" style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:18px 0 28px">
+  {% if page_obj.has_previous %}
+    <a class="p-btn p-btn-sm p-btn-secondary" href="{{ pagination_base_url }}{{ page_obj.previous_page_number }}">صفحه قبل</a>
+  {% else %}
+    <span class="p-btn p-btn-sm p-btn-ghost" aria-disabled="true" style="opacity:.5">صفحه قبل</span>
+  {% endif %}
+  {% for page_number in pagination_range %}
+    {% if page_number == page_obj.paginator.ELLIPSIS %}
+      <span aria-hidden="true" style="padding:0 6px;color:var(--stone-text-muted)">…</span>
+    {% elif page_number == page_obj.number %}
+      <span class="p-btn p-btn-sm p-btn-primary" aria-current="page">{{ page_number }}</span>
+    {% else %}
+      <a class="p-btn p-btn-sm p-btn-ghost" href="{{ pagination_base_url }}{{ page_number }}">{{ page_number }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page_obj.has_next %}
+    <a class="p-btn p-btn-sm p-btn-secondary" href="{{ pagination_base_url }}{{ page_obj.next_page_number }}">صفحه بعد</a>
+  {% else %}
+    <span class="p-btn p-btn-sm p-btn-ghost" aria-disabled="true" style="opacity:.5">صفحه بعد</span>
+  {% endif %}
+  <span style="font-size:.8rem;color:var(--stone-text-muted);margin-inline-start:8px">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+</nav>
+{% endif %}
+
 <!-- Client-side Interactive Helpers -->
 <script>
 (() => {
+  document.querySelectorAll('.list-feedback-button').forEach(button => {
+    button.addEventListener('click', () => {
+      const row = button.closest('article, .opportunity-card');
+      const reason = row?.querySelector('.feedback-reason')?.value || '';
+      row?.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = true; });
+      fetch(button.dataset.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': button.dataset.csrf },
+        body: 'feedback=' + encodeURIComponent(button.dataset.feedback) + '&reason=' + encodeURIComponent(reason)
+      }).then(response => response.json()).then(data => {
+        if (data.status !== 'success') throw new Error(data.message || 'ذخیره بازخورد ناموفق بود.');
+        row.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = item.dataset.feedback === button.dataset.feedback; });
+      }).catch(() => {
+        row?.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = false; });
+      });
+    });
+  });
   // Check for new opportunities every 20 seconds
   const bar = document.getElementById('new-opps-bar');
   const barText = document.getElementById('new-opps-text');

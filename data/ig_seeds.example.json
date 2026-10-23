@@ -1,0 +1,5 @@
+{
+  "accounts": [{"username": "demo_demand", "limit": 12}],
+  "hashtags": [{"tag": "درخواست_خرید", "limit": 20}],
+  "comments": {"mode": "off", "policy": "buyer_request", "max_posts_per_run": 5, "max_per_post": 50}
+}

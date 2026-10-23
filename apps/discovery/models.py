@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Lower
 from apps.businesses.models import Business
 from .sources import GLOBAL, PRIVATE, SCOPE_CHOICES, display_link, normalize_link, sync_error_message
 from apps.products.models import Product, Category
@@ -151,6 +152,18 @@ EVIDENCE_TYPE_CHOICES = [
     ("product_match", "تطابق ویژگی‌های محصول"),
     ("category_match", "تطابق دسته‌بندی"),
     ("other", "سایر شواهد"),
+]
+
+SELLER_FEEDBACK_CHOICES = [
+    ("", "ثبت نشده"),
+    ("relevant", "مشتری واقعی"),
+    ("irrelevant", "نامرتبط"),
+]
+SELLER_FEEDBACK_REASON_CHOICES = [
+    ("not_a_buyer", "قصد خرید نداشت"),
+    ("wrong_product", "محصول اشتباه بود"),
+    ("already_bought", "قبلاً خریده بود"),
+    ("spam", "هرزنامه یا تبلیغ"),
 ]
 
 
@@ -318,6 +331,9 @@ class Opportunity(models.Model):
     source_query = models.CharField(max_length=255, blank=True, db_index=True)
     lead_feedback = models.CharField(max_length=32, null=True, blank=True, choices=[("good", "مشتری مناسب"), ("bad_not_buyer", "قصد خرید ندارد"), ("bad_seller_or_ad", "فروشنده/تبلیغ"), ("bad_wrong_product", "محصول نامرتبط"), ("bad_too_old", "قدیمی")])
     lead_feedback_at = models.DateTimeField(null=True, blank=True)
+    feedback = models.CharField(max_length=16, blank=True, choices=SELLER_FEEDBACK_CHOICES, default="", db_index=True)
+    feedback_at = models.DateTimeField(null=True, blank=True)
+    feedback_reason = models.CharField(max_length=32, blank=True, choices=SELLER_FEEDBACK_REASON_CHOICES, default="")
     thread_root_tweet_id = models.BigIntegerField(null=True, blank=True)
     parent_opportunity = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="thread_opportunities")
     demand_count = models.PositiveIntegerField(default=0)
@@ -348,6 +364,11 @@ class Opportunity(models.Model):
         verbose_name = "فرصت فروش"
         verbose_name_plural = "فرصت‌های فروش"
         ordering = ["-created_at"]
+        constraints = [models.UniqueConstraint(
+            fields=["business", "source_platform", "source_message_id"],
+            condition=models.Q(source_platform="instagram") & ~models.Q(source_message_id=""),
+            name="uniq_ig_opportunity_business_message",
+        )]
 
     def __str__(self):
         return f"فرصت #{self.id} - {self.customer} - {self.get_status_display()}"
@@ -697,6 +718,49 @@ class MonitoredCommunity(models.Model):
 
     def __str__(self):
         return f"{self.display_name} ({self.handle_or_link})"
+
+
+class InstagramPage(models.Model):
+    KIND_CHOICES = [("own", "صفحهٔ خودم"), ("watched", "صفحهٔ رقیب")]
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_pages")
+    handle = models.CharField(max_length=30)
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default="watched")
+    default_product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name="instagram_pages")
+    is_active = models.BooleanField(default=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    last_status = models.CharField(max_length=24, blank=True, default="")
+    consecutive_failures = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(Lower("handle"), "business",
+                                               name="uniq_instagram_page_business_handle")]
+        ordering = ["-is_active", "handle"]
+        indexes = [models.Index(fields=["business", "is_active", "last_run_at"], name="igpage_active_fair_idx")]
+
+    def __str__(self):
+        return f"@{self.handle} ({self.business})"
+
+
+class InstagramCategoryTarget(models.Model):
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_category_targets")
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="instagram_targets")
+    terms = models.JSONField(default=list, blank=True)
+    hashtags = models.JSONField(default=list, blank=True)
+    max_posts = models.PositiveSmallIntegerField(default=5)
+    window_days = models.PositiveSmallIntegerField(default=7)
+    is_active = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "category"], name="uniq_ig_category_target")]
+        ordering = ["category__full_path"]
+
+    def __str__(self):
+        return f"{self.business}: {self.category}"
 
 
 class EngineSyncCursor(models.Model):

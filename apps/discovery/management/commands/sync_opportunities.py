@@ -11,7 +11,7 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from apps.discovery.engine_bridge import import_opportunity, published_after
+from apps.discovery.engine_bridge import import_opportunity, published_after, scrub_opportunity
 from apps.billing.services import charge_pending_usage, heartbeat
 from apps.discovery.models import EngineSyncCursor
 
@@ -36,7 +36,10 @@ class Command(BaseCommand):
             while True:
                 batch = published_after(cursor.position)
                 for seq, payload in batch:
-                    import_opportunity(payload)
+                    if payload.get("retention_scrubbed"):
+                        scrub_opportunity(payload)
+                    else:
+                        import_opportunity(payload)
                     cursor.position = seq
                     n += 1
                 if batch:

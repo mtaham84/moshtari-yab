@@ -133,6 +133,43 @@ class ProductsAndTaxonomyTestCase(TestCase):
         self.assertEqual(new_prod.attributes.get("جنس"), "کتان پنبه")
         self.assertEqual(new_prod.attributes.get("گارانتی"), "۱۸ ماه شرکتی")
 
+    def test_product_add_saves_instagram_discovery_settings(self):
+        response = self.client.post(reverse("products:add"), {
+            "name": "کفش چرمی", "product_type": "PHYSICAL",
+            "category_id": self.jeans.pk, "description": "کفش چرمی مردانه",
+            "instagram_discovery_enabled": "on",
+            "instagram_terms": "کفش چرمی\nسایز مردانه",
+            "instagram_hashtags": "#کفش_چرمی، #کفش",
+            "instagram_max_posts": "16", "instagram_window_days": "28",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        product = Product.objects.get(name="کفش چرمی", business=self.business)
+        self.assertTrue(product.instagram_discovery_enabled)
+        self.assertEqual(product.instagram_terms, ["کفش چرمی", "سایز مردانه"])
+        self.assertEqual(product.instagram_hashtags, ["کفش_چرمی", "کفش"])
+        self.assertEqual((product.instagram_max_posts, product.instagram_window_days), (16, 28))
+
+    def test_product_edit_saves_instagram_discovery_settings(self):
+        product = Product.objects.create(
+            business=self.business, name="کفش چرمی", category=self.jeans,
+            description="کفش چرمی مردانه",
+        )
+
+        response = self.client.post(reverse("products:edit", kwargs={"pk": product.pk}), {
+            "name": "کفش چرمی", "product_type": "PHYSICAL", "category_id": self.jeans.pk,
+            "description": "کفش چرمی مردانه", "instagram_discovery_enabled": "on",
+            "instagram_terms": "چرم\nسایز", "instagram_hashtags": "#کفش_چرمی",
+            "instagram_max_posts": "20", "instagram_window_days": "30",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        product.refresh_from_db()
+        self.assertTrue(product.instagram_discovery_enabled)
+        self.assertEqual(product.instagram_terms, ["چرم", "سایز"])
+        self.assertEqual(product.instagram_hashtags, ["کفش_چرمی"])
+        self.assertEqual((product.instagram_max_posts, product.instagram_window_days), (20, 30))
+
     def test_ai_category_suggestion_service(self):
         suggestion = suggest_category_for_product(
             name="شلوار جین مردانه زاپ دار",

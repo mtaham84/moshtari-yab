@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .client import XCliError
 from .worker import XCollector, auto_ingest_enabled, charge_searches, collect_forever, record_searches, ingest_new, latest_offset
+from file_lock import exclusive_file_lock
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,13 +87,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.dry_run:
             _print_commands(queries)
-        offset = latest_offset(collector)
-        result = collector.run(queries, dry_run=args.dry_run, mock_records=mock_records)
-        if not (args.dry_run or args.mock or args.no_ingest) and auto_ingest_enabled():
-            result["ingested"] = ingest_new(collector, offset)
-        if not (args.dry_run or args.mock):
-            charge_searches(getattr(collector, "searches", []))
-            record_searches(getattr(collector, "searches", []))
+        if args.dry_run:
+            result = collector.run(queries, dry_run=True, mock_records=mock_records)
+        else:
+            with exclusive_file_lock(collector.output_dir / ".retention_guard.lock"):
+                offset = latest_offset(collector)
+                result = collector.run(queries, mock_records=mock_records, _retention_locked=True)
+                if not (args.mock or args.no_ingest) and auto_ingest_enabled():
+                    result["ingested"] = ingest_new(collector, offset, _retention_locked=True)
+                if not args.mock:
+                    charge_searches(getattr(collector, "searches", []))
+                    record_searches(getattr(collector, "searches", []))
     except XCliError as exc:
         logging.error("%s", exc)
         return 2

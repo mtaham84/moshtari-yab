@@ -1,0 +1,28 @@
+{"text":"۱","label":"interest","cue":"bare_number"}
+{"text":"1","label":"interest","cue":"bare_number"}
+{"text":"۱۱۱","label":"interest","cue":"bare_number"}
+{"text":"111","label":"interest","cue":"bare_number"}
+{"text":"١","label":"interest","cue":"bare_number"}
+{"text":"١١١","label":"interest","cue":"bare_number"}
+{"text":"قیمت؟","label":"price_question","cue":"قیمت"}
+{"text":"قيمت؟","label":"price_question","cue":"قیمت"}
+{"text":"پیوی","label":"contact_request","cue":"پیوی"}
+{"text":"پی وي","label":"contact_request","cue":"پی وی"}
+{"text":"دایرکت لطفا","label":"contact_request","cue":"دایرکت"}
+{"text":"دیرکت کن","label":"contact_request","cue":"دیرکت"}
+{"text":"موجوده؟","label":"interest","cue":"موجوده"}
+{"text":"ارسال به تهران؟","label":"contact_request","cue":"ارسال به <city>"}
+{"text":"ارسال به شيراز?","label":"contact_request","cue":"ارسال به <city>"}
+{"text":"میخوامش","label":"interest","cue":"میخوامش"}
+{"text":"میخوام بخرم","label":"interest","cue":"میخوام"}
+{"text":"یکی میخوام","label":"interest","cue":"میخوام"}
+{"text":"رزرو برای من","label":"interest","cue":"رزرو"}
+{"text":"قیمت چنده","label":"price_question","cue":"قیمت"}
+{"text":"چند میشه؟","label":"price_question","cue":"چند میشه"}
+{"text":"هزینه ارسال؟","label":"price_question","cue":"هزینه"}
+{"text":"پیام خصوصی لطفا","label":"contact_request","cue":"پیام خصوصی"}
+{"text":"پیج منم سر بزنید","label":"other","cue":"پیج منم"}
+{"text":"منم میفروشم","label":"other","cue":"منم میفروشم"}
+{"text":"فالو بک میدم","label":"other","cue":"فالو بک"}
+{"text":"فالو کنید فالو میکنم","label":"other","cue":"فالو کنید فالو میکنم"}
+{"text":"عالیه ممنون","label":"other","cue":null}

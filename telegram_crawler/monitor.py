@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -299,8 +300,26 @@ class CrawlerMonitor:
             await pace()
 
     async def _store(self, state: GroupState, msg: Any, *, is_context: bool = False, depth: int = 0) -> bool:
+        msg_date = getattr(msg, "date", None)
+        expired_by_retention = False
+        if msg_date is not None:
+            if msg_date.tzinfo is None:
+                msg_date = msg_date.replace(tzinfo=timezone.utc)
+            retention_days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+            expired_by_retention = msg_date < datetime.now(timezone.utc) - timedelta(days=retention_days)
+            if expired_by_retention and not is_context:
+                state.max_seen = max(state.max_seen, int(getattr(msg, "id", 0) or 0))
+                return False
         rec = message_record(msg, state.chat_id, is_context=is_context, store_raw=self.store_raw)
-        await self._store_sender(state, msg, rec)
+        if expired_by_retention:
+            # Context text is only fetched to interpret a retained reply; keep the reply
+            # but store a source-free stub for its expired parent.
+            for key in ("text", "quote_text", "entities", "fwd_from_id", "fwd_from_name",
+                        "post_author", "media_type", "media", "raw", "views", "forwards",
+                        "sender_user_id", "sender_chat_id"):
+                rec[key] = None if key not in {"text", "raw"} else ("" if key == "text" else None)
+        if not expired_by_retention:
+            await self._store_sender(state, msg, rec)
         parent = self._parent_id(msg)
         if parent and self.parent_depth > depth:
             await self._fetch_parents(state, {parent}, depth + 1)

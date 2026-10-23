@@ -13,12 +13,17 @@ db.sqlite3
 *.sqlite3
 *.db
 *.db-*
+.pytest-ig-tmp/
+data/ig_temp_test/
+output/*.sqlite3
 *.session
 data/
 media/
 output/
 staticfiles/
 telegram_crawler/data/
+data/ig_temp_test/
+.pytest-ig-tmp/
 **/twitter_cookies*
 **/cookies.*
 .DS_Store

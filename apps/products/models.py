@@ -173,6 +173,11 @@ class Product(models.Model):
         blank=True,
         verbose_name="خریداران ایده‌آل (ICP)"
     )
+    instagram_terms = models.JSONField(default=list, blank=True, verbose_name="واژه‌های مرتبط اینستاگرام")
+    instagram_hashtags = models.JSONField(default=list, blank=True, verbose_name="هشتگ‌های هدف اینستاگرام")
+    instagram_discovery_enabled = models.BooleanField(default=False, verbose_name="پایش هشتگی اینستاگرام")
+    instagram_max_posts = models.PositiveSmallIntegerField(default=5, verbose_name="سقف پست هشتگی اینستاگرام")
+    instagram_window_days = models.PositiveSmallIntegerField(default=7, verbose_name="بازهٔ پست هشتگی اینستاگرام (روز)")
     agent_card_override = models.JSONField(
         null=True,
         blank=True,

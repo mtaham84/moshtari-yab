@@ -65,7 +65,7 @@ class OpsPanelTests(EngineSchemaMixin, TestCase):
         p = Provider.objects.create(name="Gemini", base_url="https://g.example/v1", api_key="secret-key-1234")
         AIModel.objects.create(provider=p, name="gem", use_extract=True)
         MonitoredCommunity.objects.create(handle_or_link="@global_group")
-        for name, kw in [("dashboard", {}), ("costs", {}), ("providers", {}), ("wallets", {}), ("communities", {}),
+        for name, kw in [("dashboard", {}), ("costs", {}), ("funnel", {}), ("providers", {}), ("wallets", {}), ("communities", {}),
                          ("settings", {}), ("model_new", {}), ("provider_new", {}),
                          ("wallet_detail", {"business_id": self.biz.pk})]:
             resp = self.client.get(reverse(f"ops:{name}", kwargs=kw))
@@ -74,6 +74,16 @@ class OpsPanelTests(EngineSchemaMixin, TestCase):
         self.assertIn("1234", page)
         self.assertNotIn("secret-key-1234", page)            # key is masked
         self.assertIn("موتور تحلیل", self.client.get(reverse("ops:dashboard")).content.decode())
+
+    def test_funnel_page_is_staff_only_and_renders_unknown_stages(self):
+        url = reverse("ops:funnel")
+        self.assertEqual(self.client.get(url).status_code, 302)
+        self.client.force_login(self.seller_user)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_login(self.staff)
+        response = self.client.get(url, {"source": "instagram"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "—")
 
     def test_provider_and_model_crud(self):
         self.client.force_login(self.staff)

@@ -13,6 +13,33 @@ from .models import Category, Product, ProductImage
 from . import agent_card
 from .services import suggest_category_for_product
 
+
+def _form_list(value: str, *, hashtags: bool = False) -> list[str]:
+    parts = value.replace("،", ",").replace(";", ",").splitlines()
+    if len(parts) == 1:
+        parts = parts[0].split(",")
+    output = []
+    seen = set()
+    for part in parts:
+        item = part.strip()
+        if hashtags:
+            item = item.lstrip("#").strip()
+        key = item.casefold()
+        if item and key not in seen:
+            output.append(item[:80])
+            seen.add(key)
+        if len(output) == 50:
+            break
+    return output
+
+
+def _form_list_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, number))
+
 @login_required
 def product_list_view(request):
     business = getattr(request.user, "business", None)
@@ -70,6 +97,11 @@ def product_add_view(request):
         product_type = request.POST.get("product_type", "PHYSICAL").strip()
         category_id = request.POST.get("category_id")
         description = request.POST.get("description", "").strip()
+        instagram_terms = _form_list(request.POST.get("instagram_terms", ""))
+        instagram_hashtags = _form_list(request.POST.get("instagram_hashtags", ""), hashtags=True)
+        instagram_discovery_enabled = request.POST.get("instagram_discovery_enabled") in ["on", "true", "1"]
+        instagram_max_posts = _form_list_int(request.POST.get("instagram_max_posts"), 5, 1, 100)
+        instagram_window_days = _form_list_int(request.POST.get("instagram_window_days"), 7, 1, 90)
         price_val = request.POST.get("price", "").strip().replace(",", "").replace("،", "")
         url = request.POST.get("url", "").strip()[:2048]
         target_customer = request.POST.get("target_customer", "").strip()
@@ -137,6 +169,11 @@ def product_add_view(request):
                 product_type=product_type,
                 category=category,
                 description=description,
+                instagram_terms=instagram_terms,
+                instagram_hashtags=instagram_hashtags,
+                instagram_discovery_enabled=instagram_discovery_enabled,
+                instagram_max_posts=instagram_max_posts,
+                instagram_window_days=instagram_window_days,
                 price=price,
                 url=url,
                 attributes=attributes,
@@ -209,6 +246,16 @@ def product_edit_view(request, pk):
         product.product_type = request.POST.get("product_type", "PHYSICAL").strip()
         category_id = request.POST.get("category_id")
         product.description = request.POST.get("description", "").strip()
+        if "instagram_terms" in request.POST:
+            product.instagram_terms = _form_list(request.POST.get("instagram_terms", ""))
+        if "instagram_hashtags" in request.POST:
+            product.instagram_hashtags = _form_list(request.POST.get("instagram_hashtags", ""), hashtags=True)
+        if "instagram_discovery_enabled" in request.POST:
+            product.instagram_discovery_enabled = request.POST.get("instagram_discovery_enabled") in ["on", "true", "1"]
+        if "instagram_max_posts" in request.POST:
+            product.instagram_max_posts = _form_list_int(request.POST.get("instagram_max_posts"), 5, 1, 100)
+        if "instagram_window_days" in request.POST:
+            product.instagram_window_days = _form_list_int(request.POST.get("instagram_window_days"), 7, 1, 90)
         price_val = request.POST.get("price", "").strip().replace(",", "").replace("،", "")
         product.url = request.POST.get("url", "").strip()[:2048]
         product.target_customer = request.POST.get("target_customer", "").strip()

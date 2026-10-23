@@ -1,5 +1,6 @@
 import os
 import random
+import secrets
 from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
@@ -18,7 +19,22 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Seed 3 realistic Iranian demo businesses (Konkur Institute, Paytakht Stock Laptops & Negin Building Stone) with rich products, taxonomies, and wallets."
 
+    def _set_demo_password(self, user, created):
+        if not created:
+            return
+        password = getattr(self, "_demo_password", None)
+        if password is None:
+            password = os.environ.get("DEMO_ACCOUNTS_PASSWORD", "").strip()
+            if not password:
+                password = secrets.token_urlsafe(24)
+                self._generated_demo_password = True
+            self._demo_password = password
+        user.set_password(password)
+        user.save(update_fields=["password"])
+
     def handle(self, *args, **options):
+        self._demo_password = None
+        self._generated_demo_password = False
         self.stdout.write(self.style.NOTICE("Starting demo businesses seeding..."))
 
         # -------------------------------------------------------------
@@ -40,7 +56,7 @@ class Command(BaseCommand):
         # =============================================================
         # BUSINESS 1: Konkur Educational & Consulting Institute (ماز / قلم‌چی)
         # =============================================================
-        user_konkur, _ = User.objects.get_or_create(
+        user_konkur, konkur_created = User.objects.get_or_create(
             username="konkur@peyda.ir",
             defaults={
                 "email": "konkur@peyda.ir",
@@ -49,8 +65,7 @@ class Command(BaseCommand):
                 "is_active": True,
             }
         )
-        user_konkur.set_password("Konkur_2026_Demo!")
-        user_konkur.save()
+        self._set_demo_password(user_konkur, konkur_created)
 
         biz_konkur, _ = Business.objects.update_or_create(
             user=user_konkur,
@@ -351,7 +366,7 @@ class Command(BaseCommand):
         # =============================================================
         # BUSINESS 2: Paytakht Stock Laptops (دیجیتال استوک پایتخت)
         # =============================================================
-        user_digi, _ = User.objects.get_or_create(
+        user_digi, digi_created = User.objects.get_or_create(
             username="digital@peyda.ir",
             defaults={
                 "email": "digital@peyda.ir",
@@ -360,8 +375,7 @@ class Command(BaseCommand):
                 "is_active": True,
             }
         )
-        user_digi.set_password("Digital_2026_Demo!")
-        user_digi.save()
+        self._set_demo_password(user_digi, digi_created)
 
         biz_digi, _ = Business.objects.update_or_create(
             user=user_digi,
@@ -563,7 +577,7 @@ class Command(BaseCommand):
         # =============================================================
         # BUSINESS 3: Building Stone & Facade (صنایع سنگ و سنگ‌بری نگین نقش‌جهان)
         # =============================================================
-        user_stone, _ = User.objects.get_or_create(
+        user_stone, stone_created = User.objects.get_or_create(
             username="sang@peyda.ir",
             defaults={
                 "email": "sang@peyda.ir",
@@ -572,8 +586,7 @@ class Command(BaseCommand):
                 "is_active": True,
             }
         )
-        user_stone.set_password("Sang_2026_Demo!")
-        user_stone.save()
+        self._set_demo_password(user_stone, stone_created)
 
         biz_stone, _ = Business.objects.update_or_create(
             user=user_stone,
@@ -759,7 +772,12 @@ class Command(BaseCommand):
 
         # Wallet funding for stone business
         w_stone = ensure_wallet(biz_stone)
-        if w_stone.balance_toman < Decimal("500000"):
+        stone_gift_exists = WalletTransaction.objects.filter(
+            wallet=w_stone,
+            kind=WalletTransaction.GIFT,
+            description="اعتبار هدیه راه‌اندازی و پایش تخصصی سنگ ساختمانی و سنگ نما",
+        ).exists()
+        if w_stone.balance_toman < Decimal("500000") and not stone_gift_exists:
             apply_transaction(
                 biz_stone,
                 Decimal("3000000"),
@@ -776,10 +794,13 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             "\n" + "="*70 + "\n"
             "SUCCESS: All 3 demo seller accounts seeded with rich real products/services!\n"
-            "1. Konkur Institute: konkur@peyda.ir / Konkur_2026_Demo! (31 pure educational services: exams, mentoring, konkur classes, reinforcement classes)\n"
-            "2. Digital Laptops:   digital@peyda.ir / Digital_2026_Demo! (26 products)\n"
-            "3. Building Stone:    sang@peyda.ir / Sang_2026_Demo! (20 products: travertine, marble, slabs, granite, stairs)\n"
+            "1. Konkur Institute: konkur@peyda.ir (31 pure educational services: exams, mentoring, konkur classes, reinforcement classes)\n"
+            "2. Digital Laptops:   digital@peyda.ir (26 products)\n"
+            "3. Building Stone:    sang@peyda.ir (20 products: travertine, marble, slabs, granite, stairs)\n"
             "Zero synthetic leads, zero fake messages, zero dummy communities — ready for real crawler/need_engine discovery.\n"
             + "="*70
         ))
+
+        if self._generated_demo_password:
+            self.stdout.write(f"Generated demo account password: {self._demo_password}")
 

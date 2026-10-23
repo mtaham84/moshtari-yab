@@ -11,6 +11,8 @@ from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
+from need_engine.platforms import for_chat_id, for_message
+from need_engine.platforms.x import X, batch_limits
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
 from need_engine.store import Store
 from need_engine.text import norm
@@ -69,11 +71,12 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
     ``payers``: owners of a private chat share the cost; empty = global chat (platform cost)."""
     if not w.new:
         return [], 0.0
-    system = NEED_SYSTEM if w.new[0].platform != "x" else NEED_SYSTEM_X
+    platform = for_message(w.new[0])
+    system = NEED_SYSTEM_X if platform.key == X.key else NEED_SYSTEM
     data, usage = llm.complete_json("need_extraction", cfg.extract_model, system, render(w, cfg), max_tokens=6000,
                                     ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}", businesses=payers)
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
-    x_messages = {m.message_id: m for m in w.new} if w.new[0].platform == "x" else {}
+    x_messages = {m.message_id: m for m in w.new} if platform.key == X.key else {}
     cards, dropped, reasons = [], 0, {}
     for n in (data or {}).get("needs", []) or []:
         if not isinstance(n, dict):
@@ -119,15 +122,16 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
 
 def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: datetime) -> tuple[list[NeedCard], float, int]:
     """Extract independent posts together, then validate every result through the existing single-post gate."""
-    if cfg.x_batch_size <= 1 and len(messages) > 1:
+    batch_size, _ = batch_limits(cfg)
+    if batch_size <= 1 and len(messages) > 1:
         cards, total = [], 0.0
         for message in messages:
-            result, cost = extract_window(Window("x:public", "X", [message]), llm, cfg, now)
+            result, cost = extract_window(Window(X.chat_id(), "X", [message]), llm, cfg, now)
             cards.extend(result)
             total += cost
         return cards, total, len(messages)
     if len(messages) <= 1:
-        result, cost = extract_window(Window("x:public", "X", messages), llm, cfg, now)
+        result, cost = extract_window(Window(X.chat_id(), "X", messages), llm, cfg, now)
         return result, cost, 1 if messages else 0
     # short local ids: LLMs mis-copy 19-digit tweet/author ids, and a wrong digit silently loses the need
     author_alias = {}
@@ -140,7 +144,7 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
     try:
         data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
                                         json.dumps(payload, ensure_ascii=False), max_tokens=6000,
-                                        ref=f"x:{messages[0].message_id}-{messages[-1].message_id}")
+                                        ref=f"{X.key}:{messages[0].message_id}-{messages[-1].message_id}")
     except QuotaExhausted:
         raise
     except Exception:
@@ -151,7 +155,7 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
     if not isinstance(needs, list):
         cards, total = [], 0.0
         for message in messages:
-            result, cost = extract_window(Window("x:public", "X", [message]), llm, cfg, now)
+            result, cost = extract_window(Window(X.chat_id(), "X", [message]), llm, cfg, now)
             cards.extend(result)
             total += cost
         return cards, total, len(messages)
@@ -163,7 +167,7 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
         class BatchLLM:
             def complete_json(self, *args, **kwargs):
                 return {"needs": relevant}, {"toman": cost_share, "pt": 0, "ct": 0}
-        result, _ = extract_window(Window("x:public", "X", [message]), BatchLLM(), cfg, now)
+        result, _ = extract_window(Window(X.chat_id(), "X", [message]), BatchLLM(), cfg, now)
         for card in result:
             card.cost_toman = cost_share / max(1, len(result))
             cards.append(card)
@@ -257,7 +261,7 @@ def _merge(old: NeedCard, new: NeedCard) -> NeedCard:
         m.evidence_time_estimated = new.evidence_time_estimated
     m.author_bio = new.author_bio or old.author_bio
     # the latest state matters: resolved closes it; a later joke/curiosity does not cancel a real need
-    if old.status == "expired" and old.chat_id.startswith("x:"):
+    if old.status == "expired" and for_chat_id(old.chat_id).key == X.key:
         m.status, m.is_opportunity = "expired", False
     elif new.is_opportunity:
         m.label, m.is_opportunity, m.status = new.label, True, "open"

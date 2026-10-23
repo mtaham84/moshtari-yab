@@ -11,6 +11,8 @@ from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.llm import LLMClient
 from need_engine.prompts import NEW_PRODUCT_SYSTEM, REPLY_SYSTEM_X, VERIFY_SYSTEM
+from need_engine.platforms import for_chat_id
+from need_engine.platforms.x import X
 from need_engine.reply import MessageStyle, write_reply
 from need_engine.retrieve import Retrieval
 from need_engine.schemas import ChatMessage, MatchedProduct, NeedCard
@@ -100,7 +102,7 @@ def draft_reply(n: NeedCard, mp: MatchedProduct, cat: Catalog, store: Store, llm
     j = cat.pid_index[mp.product_id]
     p = cat.products[j]
     link = cfg.click_url(mp.product_id, n.need_id) if p.url else None   # no product page → draft without a link
-    if n.chat_id.startswith("x:"):
+    if for_chat_id(n.chat_id).key == X.key:
         user = json.dumps({"person_messages": evidence_text(n, store), "situation": n.situation, "product": cat.line(j),
                            "mismatches_to_mention_honestly": mp.verdict.conflicts}, ensure_ascii=False)
         angles = ("یک پرسش روشن‌کننده", "یک نکتهٔ کاربردی و سپس اشارهٔ کوتاه به گزینه", "پیشنهاد کوتاه و بدون فشار")

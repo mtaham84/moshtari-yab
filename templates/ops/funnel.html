@@ -1,0 +1,30 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}قیف و کیفیت سرنخ{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>قیف و کیفیت سرنخ</h1></div>
+<div class="card" style="margin-bottom:14px">
+  <form class="toolbar" method="get">
+  <select name="source" class="ops-input">{% for key, label in sources %}<option value="{{ key }}" {% if source == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <label>از <input type="date" name="since" class="ops-input" value="{{ since }}"></label>
+    <label>تا <input type="date" name="until" class="ops-input" value="{{ until }}"></label>
+    <select name="business" class="ops-input"><option value="">همه فروشنده‌ها</option>{% for item in businesses %}<option value="{{ item.pk }}" {% if business.pk == item.pk %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+    <button class="btn">نمایش</button>
+  </form>
+</div>
+<div class="card">
+  <table><tr><th>مرحله</th><th class="n">تعداد</th></tr>
+  <tr><td>جمع‌آوری‌شده</td><td class="n">{% if metrics.collected is None %}—{% else %}{{ metrics.collected|num }}{% endif %}</td></tr>
+  <tr><td>عبور از پیش‌فیلتر</td><td class="n">{% if metrics.prefiltered_in is None %}—{% else %}{{ metrics.prefiltered_in|num }}{% endif %}</td></tr>
+  <tr><td>استخراج‌شده</td><td class="n">{% if metrics.extracted is None %}—{% else %}{{ metrics.extracted|num }}{% endif %}</td></tr>
+  <tr><td>تطبیق‌یافته</td><td class="n">{% if metrics.matched is None %}—{% else %}{{ metrics.matched|num }}{% endif %}</td></tr>
+  <tr><td>نمایش‌داده‌شده به فروشنده</td><td class="n">{{ metrics.shown|num }}</td></tr>
+  <tr><td>تماس‌گرفته‌شده</td><td class="n">{{ metrics.contacted|num }}</td></tr>
+  <tr><td>فروخته‌شده</td><td class="n">{{ metrics.sold|num }}</td></tr></table>
+</div>
+<div class="grid g3" style="margin-top:14px">
+  <div class="card stat"><div class="label">هزینه کل (تومان)</div><div class="value">{% if metrics.cost_total is None %}—{% else %}{{ metrics.cost_total|toman }}{% endif %}</div><div class="sub">هزینه‌های مشترک یا بدون برچسب منبع جدا نشده‌اند.</div></div>
+  <div class="card stat"><div class="label">هزینه هر پیام</div><div class="value">{% if metrics.cost_per_message is None %}—{% else %}{{ metrics.cost_per_message|toman }}{% endif %}</div></div>
+  <div class="card stat"><div class="label">هزینه هر فرصت نمایش‌داده‌شده</div><div class="value">{% if metrics.cost_per_shown_opportunity is None %}—{% else %}{{ metrics.cost_per_shown_opportunity|toman }}{% endif %}</div></div>
+</div>
+<div class="card" style="margin-top:14px"><h2>دقت بازخورد فروشنده</h2><p>{% if metrics.precision_percent is None %}— <span class="muted">(حداقل ۲۰ برچسب لازم است)</span>{% else %}{{ metrics.precision_percent|floatformat:1 }}٪{% endif %}</p></div>
+{% endblock %}

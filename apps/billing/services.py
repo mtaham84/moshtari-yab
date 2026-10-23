@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
+from datetime import datetime, timedelta
 import urllib.error
 import urllib.request
 from datetime import timedelta
@@ -243,7 +245,7 @@ def _state(age: float | None, ok: float, warn: float) -> str:
 
 
 def service_status() -> list[dict]:
-    from apps.discovery.models import EngineSyncCursor, MonitoredCommunity
+    from apps.discovery.models import EngineSyncCursor
 
     now = time.time()
     out = []
@@ -254,6 +256,32 @@ def service_status() -> list[dict]:
     except Exception as e:  # pragma: no cover
         out.append({"name": "پایگاه داده (PostgreSQL)", "state": "down", "detail": str(e)[:120]})
         return out
+
+    from shared.collector_kit.heartbeat import read_heartbeats
+
+    intervals = {
+        "telegram": (float(os.getenv("TG_HEARTBEAT_INTERVAL_SECONDS", "60")), "TG_HEARTBEAT_INTERVAL_SECONDS"),
+        "x": (float(os.getenv("X_COLLECT_INTERVAL_SECONDS", "300")), "X_COLLECT_INTERVAL_SECONDS"),
+        "instagram": (float(os.getenv("IG_COLLECT_INTERVAL_SECONDS", "900")), "IG_COLLECT_INTERVAL_SECONDS"),
+    }
+    labels = {"telegram": "کراولر تلگرام", "x": "جمع‌آور X", "instagram": "جمع‌آور Instagram"}
+    heartbeats = {row["source"]: row for row in read_heartbeats()}
+    for source, label in labels.items():
+        heartbeat = heartbeats.get(source)
+        if not heartbeat:
+            out.append({"name": label, "state": "down", "detail": "هنوز heartbeat ثبت نشده است"})
+            continue
+        interval, interval_name = intervals[source]
+        last_ok = heartbeat.get("last_ok_at")
+        age = (timezone.now() - last_ok).total_seconds() if last_ok else None
+        state = "down" if age is None or age >= interval * 3 else "ok"
+        if heartbeat.get("consecutive_errors") and state == "ok":
+            state = "warn"
+        detail = (f"آخرین اجرا {_ago(age)} · {heartbeat.get('items_last_run', 0)} مورد · "
+                  f"بازه {interval_name}={interval:g} ثانیه")
+        if heartbeat.get("last_error"):
+            detail += f" · خطا: {heartbeat['last_error'][:100]}"
+        out.append({"name": label, "state": state, "detail": detail})
 
     # need_engine: heartbeat written at the end of every run (need_engine/engine.py)
     hb = _rows("SELECT v FROM {s}.kv WHERE k = 'heartbeat'") if _table_exists("kv") else []
@@ -269,26 +297,6 @@ def service_status() -> list[dict]:
         out.append({"name": "موتور تحلیل (need_engine)", "state": state, "detail": detail})
     else:
         out.append({"name": "موتور تحلیل (need_engine)", "state": "down", "detail": "هنوز اجرا نشده است"})
-
-    # Telegram crawler: newest archived message + community states
-    crawler_schema = re.sub(r"[^a-z0-9_]", "", (getattr(settings, "TG_DB_SCHEMA", "") or "crawler"))
-    age = None
-    with connection.cursor() as c:
-        c.execute("SELECT to_regclass(%s)", [f"{crawler_schema}.tg_messages"])
-        if c.fetchone()[0]:
-            c.execute(f"SELECT EXTRACT(EPOCH FROM now() - MAX(date)) FROM {crawler_schema}.tg_messages")
-            r = c.fetchone()[0]
-            age = float(r) if r is not None else None
-    counts = {s: MonitoredCommunity.objects.filter(sync_status=s).count() for s in ("ACTIVE", "PENDING", "ERROR", "PAUSED")}
-    detail = (f"آخرین پیام {_ago(age)} · در حال پایش {counts['ACTIVE']} · در صف {counts['PENDING']} · "
-              f"خطا {counts['ERROR']} · متوقف {counts['PAUSED']}")
-    state = _state(age, 3600, 6 * 3600) if counts["ACTIVE"] else ("warn" if counts["PENDING"] else "unknown")
-    if counts["ERROR"] and state == "ok":
-        state = "warn"
-    out.append({"name": "کراولر تلگرام", "state": state, "detail": detail})
-    x = x_collector_service()
-    if x:
-        out.append(x)
 
     # sync_opportunities + billing (same process)
     beat = EngineSyncCursor.objects.filter(name="heartbeat:sync").first()
@@ -525,6 +533,19 @@ def x_collector_service() -> dict | None:
     if st.get("failed_queries"):
         detail += f" · {st['failed_queries']} کوئری ناموفق"
     return {"name": "جمع‌آور X", "state": state, "detail": detail}
+
+
+def retention_report() -> dict | None:
+    path = settings.BASE_DIR / os.getenv("RETENTION_REPORT_FILE", "output/retention_report.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        timestamp = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        return None
+    if timezone.is_naive(timestamp):
+        timestamp = timezone.make_aware(timestamp)
+    age = max(0.0, (timezone.now() - timestamp).total_seconds())
+    return {"timestamp": timestamp, "age": age, "updated": _ago(age), "counts": data.get("counts", {})}
 
 
 def x_settings() -> list[tuple[str, str, str]]:

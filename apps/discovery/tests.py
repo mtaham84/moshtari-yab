@@ -1,4 +1,6 @@
 """Panel side of the pipeline: need_engine.opportunities → panel records → views, dashboard and product-card tracking."""
+import io
+import csv
 import json
 import tempfile
 import uuid
@@ -17,7 +19,8 @@ from apps.businesses.models import Business
 from apps.products.models import Category, Product
 
 from .engine_bridge import engine_totals, import_opportunity
-from .models import Customer, Opportunity, ProductOrder
+from .models import Customer, InstagramCategoryTarget, InstagramPage, Opportunity, ProductOrder
+from .views import _safe_csv_cell
 
 User = get_user_model()
 T0 = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
@@ -126,8 +129,8 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         opportunity = Opportunity.objects.get(business=self.biz)
         self.assertEqual(opportunity.source_platform, "x")
         self.assertEqual(opportunity.customer.source_profile_url, "https://x.com/buyer")
-        self.assertIn("https://x.com/buyer/status/1990000000000001001",
-                      opportunity.evidence_items.get().source_reference)
+        customer_message = opportunity.evidence_items.get(evidence_type="customer_message")
+        self.assertIn("https://x.com/buyer/status/1990000000000001001", customer_message.source_reference)
 
     def test_reimport_is_idempotent_and_status_updates_respect_seller_choice(self):
         import_opportunity(engine_payload("need_000002_ab", [self.p1.id, self.q1.id]))
@@ -249,6 +252,8 @@ class PanelViewTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(list(r.context["opportunities"]), [self.mine])
         self.assertEqual(self.client.get(reverse("discovery:opportunity_detail", args=[self.mine.pk])).status_code, 200)
+        self.assertContains(self.client.get(reverse("discovery:opportunity_list")), "مشتری واقعی")
+        self.assertContains(self.client.get(reverse("discovery:opportunity_list")), "نامرتبط")
         theirs = Opportunity.objects.get(business=self.other)
         self.assertEqual(self.client.get(reverse("discovery:opportunity_detail", args=[theirs.pk])).status_code, 404)
 
@@ -264,6 +269,90 @@ class PanelViewTests(TestCase):
         self.assertIn("دستکش گرم", body)
         self.assertNotIn("دستکش موتور", body)            # only the seller's own opportunities
 
+    def test_csv_export_escapes_formulas_and_keeps_persian_and_empty_marker(self):
+        self.mine.customer.source_username = ""
+        self.mine.customer.external_user_id = "telegram_=HYPERLINK(\"https://bad.invalid\")"
+        self.mine.customer.source_profile_url = "https://t.me/ali"
+        self.mine.customer.save()
+        self.mine.source_raw_message = "=HYPERLINK(\"https://bad.invalid\")"
+        self.mine.save()
+        match = self.mine.product_matches.first()
+        match.product.name = "+1+1"
+        match.product.save(update_fields=["name"])
+        self.mine.ai_analysis.suggested_reply = "@SUM(1,1)"
+        self.mine.ai_analysis.save(update_fields=["suggested_reply"])
+
+        response = self.client.get(reverse("discovery:opportunity_export"))
+
+        self.assertEqual(response.content[:3], b"\xef\xbb\xbf")
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+        self.assertEqual(rows[1][0], "'=HYPERLINK(\"https://bad.invalid\")")
+        self.assertEqual(rows[1][2], "https://t.me/ali")
+        self.assertEqual(rows[1][3], "'=HYPERLINK(\"https://bad.invalid\")")
+        self.assertEqual(rows[1][4], "'+1+1")
+        self.assertEqual(rows[1][5], "'@SUM(1,1)")
+        self.assertEqual(rows[1][1], "تلگرام")
+
+    def test_csv_cell_helper_escapes_formula_prefixes(self):
+        for prefix in ("=", "+", "-", "@", "\t", "\r"):
+            with self.subTest(prefix=repr(prefix)):
+                self.assertEqual(_safe_csv_cell(prefix + "1"), "'" + prefix + "1")
+        self.assertEqual(_safe_csv_cell("-"), "-")
+        self.assertEqual(_safe_csv_cell("متن فارسی"), "متن فارسی")
+
+    def test_csv_export_keeps_dash_placeholder(self):
+        from unittest.mock import patch
+
+        self.mine.customer.source_username = ""
+        self.mine.customer.external_user_id = ""
+        self.mine.customer.phone_number = None
+        self.mine.customer.name = ""
+        self.mine.customer.source_profile_url = ""
+        self.mine.customer.save()
+        self.mine.source_raw_message = ""
+        self.mine.save()
+        self.mine.product_matches.all().delete()
+        self.mine.evidence_items.all().delete()
+        self.mine.ai_analysis.need = ""
+        self.mine.ai_analysis.suggested_reply = ""
+        self.mine.ai_analysis.save(update_fields=["need", "suggested_reply"])
+
+        with patch("apps.discovery.views.drafts_for", return_value={}):
+            response = self.client.get(reverse("discovery:opportunity_export"))
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+
+        self.assertEqual(rows[1][0], "-")
+        self.assertEqual(rows[1][2], "-")
+        self.assertEqual(rows[1][3], "-")
+        self.assertEqual(rows[1][4], "-")
+        self.assertEqual(rows[1][5], "-")
+
+    def test_csv_strips_platform_prefix_for_id_and_profile_link(self):
+        self.mine.customer.source_username = ""
+        self.mine.customer.external_user_id = "telegram_12345"
+        self.mine.customer.source_profile_url = ""
+        self.mine.customer.save()
+
+        response = self.client.get(reverse("discovery:opportunity_export"))
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+
+        self.assertEqual(rows[1][0], "12345")
+        self.assertEqual(rows[1][2], "https://t.me/c/12345")
+
+    def test_csv_draft_failure_is_logged_and_keeps_fallback(self):
+        from unittest.mock import patch
+
+        self.mine.ai_analysis.suggested_reply = ""
+        self.mine.ai_analysis.save(update_fields=["suggested_reply"])
+        with patch("apps.discovery.views.drafts_for", side_effect=RuntimeError("offline")):
+            with self.assertLogs("apps.discovery.views", level="WARNING") as logs:
+                response = self.client.get(reverse("discovery:opportunity_export"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(str(self.mine.id), logs.output[0])
+        rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+        self.assertIn("سلام وقت بخیر", rows[1][5])
+
     def test_status_update(self):
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "CONTACTED"})
         self.assertEqual(r.json()["new_status"], "CONTACTED")
@@ -275,11 +364,489 @@ class PanelViewTests(TestCase):
         response = self.client.post(url, {"feedback": "relevant"})
         self.assertEqual(response.status_code, 200)
         self.mine.refresh_from_db()
+        self.assertEqual(self.mine.feedback, "relevant")
+        self.assertIsNotNone(self.mine.feedback_at)
         self.assertEqual(self.mine.trace_metadata["seller_feedback"], "relevant")
+        timestamp = self.mine.feedback_at
+        self.assertEqual(self.client.post(url, {"feedback": "relevant"}).status_code, 200)
+        self.mine.refresh_from_db()
+        self.assertGreaterEqual(self.mine.feedback_at, timestamp)
+        response = self.client.post(url, {"feedback": "irrelevant", "reason": "spam"})
+        self.assertEqual(response.status_code, 200)
+        self.mine.refresh_from_db()
+        self.assertEqual((self.mine.feedback, self.mine.feedback_reason), ("irrelevant", "spam"))
+        payload = engine_payload("need_000010_ab", [self.p1.id])
+        import_opportunity(payload)
+        self.mine.refresh_from_db()
+        self.assertEqual((self.mine.feedback, self.mine.feedback_reason), ("irrelevant", "spam"))
         self.assertEqual(self.client.post(url, {"feedback": "invalid"}).status_code, 400)
+        self.assertEqual(self.client.post(url, {"feedback": "relevant", "reason": "other"}).status_code, 400)
         theirs = Opportunity.objects.get(business=self.other)
         self.assertEqual(self.client.post(reverse("discovery:opportunity_feedback", args=[theirs.pk]),
                                           {"feedback": "irrelevant"}).status_code, 404)
+
+    def test_instagram_page_registration_is_validated_and_scoped(self):
+        from django.contrib.messages import get_messages
+
+        url = reverse("discovery:instagram_pages")
+        response = self.client.post(url, {"page_ref": "https://www.instagram.com/Shop_Page/?igsh=abc",
+                                          "kind": "watched", "default_product": self.p1.pk})
+        self.assertEqual(response.status_code, 302)
+        page = InstagramPage.objects.get(business=self.biz)
+        self.assertEqual((page.handle, page.kind, page.default_product), ("shop_page", "watched", self.p1))
+        self.assertEqual(self.client.post(url, {"page_ref": "@SHOP_PAGE"}).status_code, 200)
+        self.assertEqual(InstagramPage.objects.filter(business=self.biz).count(), 1)
+        response = self.client.post(url, {"page_ref": "javascript:alert(1)"})
+        self.assertEqual(response.status_code, 200)
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertIn("لینک باید با http یا https باشد؛ می‌توانید فقط آیدی صفحه را هم وارد کنید.", messages)
+        theirs = InstagramPage.objects.create(business=self.other, handle="other_shop")
+        self.assertNotContains(self.client.get(url), "@other_shop")
+        self.assertEqual(self.client.post(url, {"action": "remove", "page_id": theirs.pk}).status_code, 404)
+        self.assertTrue(InstagramPage.objects.filter(pk=theirs.pk).exists())
+
+    def test_instagram_category_target_is_scoped_and_saves_seed_limits(self):
+        category = Category.objects.create(business=self.biz, name="کفش پایش")
+        url = reverse("discovery:instagram_pages")
+        response = self.client.post(url, {
+            "action": "save_category_target", "category_id": str(category.pk),
+            "terms": "کفش چرمی\nسایز", "hashtags": "#کفش، #کفش_چرمی",
+            "max_posts": "12", "window_days": "21", "is_active": "on",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        target = InstagramCategoryTarget.objects.get(business=self.biz, category=category)
+        self.assertEqual(target.terms, ["کفش چرمی", "سایز"])
+        self.assertEqual(target.hashtags, ["کفش", "کفش_چرمی"])
+        self.assertEqual((target.max_posts, target.window_days, target.is_active), (12, 21, True))
+        other_category = Category.objects.create(business=self.other, name="کفش متعلق به کسب‌وکار دیگر")
+        response = self.client.post(url, {
+            "action": "save_category_target", "category_id": str(other_category.pk),
+            "terms": "ignored", "hashtags": "#other", "is_active": "on",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(InstagramCategoryTarget.objects.filter(business=self.biz, category=other_category).exists())
+
+    def test_instagram_page_add_and_remove_are_throttled(self):
+        from django.core.cache import cache
+        from unittest.mock import patch
+
+        cache.clear()
+        with patch("apps.discovery.views.INSTAGRAM_PAGE_CHANGE_LIMIT", 1):
+            url = reverse("discovery:instagram_pages")
+            self.assertEqual(self.client.post(url, {"page_ref": "seller_page"}).status_code, 302)
+            response = self.client.post(url, {"action": "remove", "page_id": 999999})
+            self.assertEqual(response.status_code, 429)
+            self.assertContains(response, "یک ساعت", status_code=429)
+        cache.clear()
+
+    def test_instagram_comment_detail_escapes_comment_and_scopes_opportunity(self):
+        customer = Customer.objects.create(business=self.biz, source_platform="instagram",
+                                           external_user_id="7105", source_username="buyer",
+                                           source_profile_url="https://www.instagram.com/buyer/")
+        opportunity = Opportunity.objects.create(
+            business=self.biz, customer=customer, source_platform="instagram",
+            source_message_id="ig:IGAd102:cc-5", source_query="shop_page",
+            source_raw_message="<script>alert(1)</script>",
+            trace_metadata={"instagram": {"post_url": "https://www.instagram.com/p/IGAd102/"}},
+        )
+        response = self.client.get(reverse("discovery:instagram_comment_detail", args=[opportunity.pk]))
+
+        self.assertContains(response, "&lt;script&gt;alert(1)&lt;/script&gt;")
+        self.assertNotContains(response, "<script>alert(1)</script>")
+        self.assertContains(self.client.get(reverse("discovery:opportunity_list")),
+                            "&lt;script&gt;alert(1)&lt;/script&gt;")
+        detail = self.client.get(reverse("discovery:opportunity_detail", args=[opportunity.pk]))
+        self.assertContains(detail, "https://www.instagram.com/buyer/")
+        self.assertNotContains(detail, "javascript:")
+        self.assertContains(self.client.get(reverse("discovery:opportunity_list")),
+                            reverse("discovery:instagram_comment_detail", args=[opportunity.pk]))
+        export = self.client.get(reverse("discovery:opportunity_export"))
+        exported = list(csv.reader(io.StringIO(export.content.decode("utf-8-sig"))))
+        self.assertTrue(any(row[3] == "<script>alert(1)</script>" for row in exported[1:]))
+        self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[999999])).status_code, 404)
+        theirs = Opportunity.objects.get(business=self.other)
+        self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[theirs.pk])).status_code, 404)
+        from unittest.mock import patch
+        with patch("apps.discovery.views.rewrite_reply", side_effect=AssertionError("must not call the LLM")) as rewrite:
+            response = self.client.post(reverse("discovery:opportunity_rewrite", args=[opportunity.pk]))
+        self.assertEqual(response.status_code, 400)
+        rewrite.assert_not_called()
+        self.assertNotContains(detail, 'id="btn-rewrite-reply"')
+
+    def test_instagram_comment_report_api_is_business_scoped_and_denominator_explicit(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = [
+                {"id": "ig:p:c1", "business_id": str(self.biz.pk), "commenter_id": "u1",
+                 "prefilter": {"status": "eligible"}, "jev": {"status": "probably a buyer", "score": 0.9}},
+                {"id": "ig:p:c2", "business_id": str(self.biz.pk), "commenter_id": "u1", "commenter_username": "u1",
+                 "prefilter": {"status": "set_aside"}, "jev": None},
+                {"id": "ig:q:c1", "business_id": str(self.other.pk), "commenter_id": "other",
+                 "prefilter": {"status": "eligible"}, "jev": {"status": "probably a buyer", "score": 0.99}},
+            ]
+            (root / "comment-evaluations.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8",
+            )
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                response = self.client.get(reverse("discovery:instagram_comment_report_api"))
+
+        self.assertEqual(response.status_code, 200)
+        report = response.json()["data"]
+        self.assertEqual(report["denominators"], {"N_total": 2, "N_eval": 1, "N_pass": 1})
+        self.assertEqual(report["shares"]["evaluated_comments"]["denominator"], 1)
+        self.assertEqual(report["shares"]["evaluated_comments"]["percent"], 100)
+        self.assertEqual(report["comments"]["total_received"]["unique_users"]["unique_users"], 1)
+        self.assertEqual(report["shares"]["evaluated_comments"]["label"],
+                         "share of comments that passed the selection threshold")
+
+    def test_instagram_report_ui_allows_operator_labels_after_jev(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = {"id": "ig:p:c1", "business_id": str(self.biz.pk), "comment_text": "قیمت؟",
+                   "commenter_id": "buyer", "prefilter": {"status": "eligible"},
+                   "jev": {"status": "uncertain", "score": 0.4}}
+            (root / "comment-evaluations.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                page = self.client.get(reverse("discovery:instagram_pages"))
+                self.assertEqual(page.status_code, 200)
+                self.assertContains(page, "برچسب‌گذاری انسانی پس از ارزیابی Jev")
+                response = self.client.post(reverse("discovery:instagram_pages"), {
+                    "action": "label_comment", "comment_id": "ig:p:c1", "label": "approve",
+                })
+                self.assertEqual(response.status_code, 302)
+                saved = json.loads((root / "human-labels.jsonl").read_text(encoding="utf-8").splitlines()[0])
+
+        self.assertEqual(saved["comment_id"], "ig:p:c1")
+        self.assertEqual(saved["business_id"], str(self.biz.pk))
+        self.assertEqual(saved["operator_id"], str(self.user.pk))
+        self.assertEqual(saved["label"], "approve")
+
+    def test_instagram_ingest_is_idempotent_and_fans_out(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from need_engine.text import tokens
+
+        caption = "کفش چرمی مردانه"
+        caption_tokens = set(tokens(caption))
+        products = Product.objects.filter(business__in=[self.biz, self.other], status="ACTIVE",
+                                           is_discovery_active=True)
+        product_tokens = {name: set(tokens(name)) for name in products.values_list("name", flat=True)}
+        if not any(caption_tokens & item_tokens for item_tokens in product_tokens.values()):
+            for business in (self.biz, self.other):
+                Product.objects.create(business=business, name=caption, description="x",
+                                       status="ACTIVE", is_discovery_active=True)
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        InstagramPage.objects.create(business=self.other, handle="SHOP_PAGE")
+        record = {
+            "id": "ig:IGAd102:cc-5", "source": "instagram", "kind": "comment",
+            "text": "قیمت؟", "author_handle": "@buyer", "author_id": "7105",
+            "created_at": "2026-10-12T09:00:00+00:00",
+            "url": "https://www.instagram.com/p/IGAd102/",
+            "metadata": {
+                "seed": "account:shop_page",
+                "parent_post": {"id": "ig:IGAd102", "caption": caption,
+                                 "url": "javascript:alert(1)"},
+                "intent": {"label": "price_question", "cue": "قیمت؟"},
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        opportunities = Opportunity.objects.filter(source_platform="instagram", source_message_id=record["id"])
+        self.assertEqual(opportunities.count(), 2)
+        self.assertEqual(Customer.objects.filter(source_platform="instagram").count(), 2)
+        self.assertEqual(set(opportunities.values_list("trace_metadata__instagram__post_url", flat=True)),
+                         {"https://www.instagram.com/p/IGAd102/"})
+        self.assertTrue(all(item.customer.source_username == "buyer" for item in opportunities.select_related("customer")))
+        self.assertEqual(list(opportunities.values_list("trace_metadata__instagram__product_match", flat=True)),
+                         ["caption_tokens", "caption_tokens"])
+
+    def test_instagram_ingest_uses_default_product_when_caption_does_not_match(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page", default_product=self.p1)
+        record = {"id": "ig:IGAd102:c8", "source": "instagram", "kind": "comment",
+                  "text": "قیمت؟", "author_handle": "@buyer", "author_id": "7108",
+                  "created_at": None, "url": "https://www.instagram.com/p/IGAd102/",
+                  "metadata": {"seed": "account:shop_page",
+                               "parent_post": {"id": "ig:IGAd102", "caption": "وسیله ناشناخته"},
+                               "intent": {"label": "price_question", "cue": "قیمت"}}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        opportunity = Opportunity.objects.get(source_platform="instagram", source_message_id=record["id"])
+        self.assertEqual(opportunity.trace_metadata["instagram"]["product_match"], "default_product")
+        self.assertEqual(opportunity.product_matches.get().product, self.p1)
+
+    def test_hashtag_comment_with_confident_category_creates_scoped_opportunity(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        category = Category.objects.create(business=self.biz, name="کفش اینستاگرام", keywords=["کفش چرمی"])
+        product = Product.objects.create(
+            business=self.biz, category=category, name="کفش چرمی مردانه", description="x",
+            status="ACTIVE", is_discovery_active=True, instagram_discovery_enabled=True,
+        )
+        InstagramCategoryTarget.objects.create(
+            business=self.biz, category=category, terms=["کفش چرمی"], hashtags=["کفش_چرمی"],
+            is_active=True,
+        )
+        decision = {
+            "result": "confident_match", "category_id": category.pk,
+            "category": category.name, "category_path": category.full_path, "score": 0.9,
+            "product_id": product.pk, "product": product.name,
+            "reason": {"code": "matched", "evidence": {"caption_terms": ["کفش چرمی"],
+                                                  "post_hashtags": ["کفش_چرمی"]}},
+            "knowledge_source": {"kind": "seller_category_seed", "business_id": self.biz.pk,
+                                    "category_id": category.pk},
+        }
+        record = {
+            "id": "ig:HashtagPost:c9", "source": "instagram", "kind": "comment",
+            "text": "قیمت این کفش چنده؟", "author_handle": "@buyer", "author_id": "9901",
+            "created_at": None, "url": "https://www.instagram.com/p/HashtagPost/",
+            "metadata": {"seed": "hashtag:کفش_چرمی",
+                "parent_post": {"id": "ig:HashtagPost", "caption": "برای خرید کفش چرمی مردانه لطفاً سایز را بفرمایید.",
+                                "category_decision": decision},
+                "intent": {"label": "price_question", "cue": "قیمت"}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        opportunity = Opportunity.objects.get(source_platform="instagram", source_message_id=record["id"])
+        self.assertEqual(opportunity.business, self.biz)
+        self.assertEqual(opportunity.category, category)
+        self.assertEqual(opportunity.category_confidence, 0.9)
+        self.assertEqual(opportunity.trace_metadata["instagram"]["category_decision"]["result"], "confident_match")
+        self.assertEqual(opportunity.product_matches.get().product, product)
+
+    def test_instagram_owner_comment_and_invalid_intent_are_skipped(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        records = []
+        for comment_id, author, label in (("1", "shop_page", "interest"),
+                                          ("2", "buyer", "follow_for_follow")):
+            records.append({
+                "id": f"ig:IGAd102:c{comment_id}", "source": "instagram", "kind": "comment",
+                "text": "میخوام", "author_handle": f"@{author}", "author_id": None,
+                "created_at": None, "url": "https://www.instagram.com/p/IGAd102/",
+                "metadata": {"seed": "account:shop_page",
+                               "parent_post": {"id": "ig:IGAd102", "caption": "کفش"},
+                               "intent": {"label": label, "cue": "میخوام"}},
+            })
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in records) + "\n",
+                           encoding="utf-8")
+            call_command("ig_ingest", path=str(path), stdout=StringIO())
+
+        self.assertFalse(Opportunity.objects.filter(source_platform="instagram").exists())
+
+    def test_instagram_outcomes_only_apply_to_queued_run_and_all_watching_businesses(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.utils import timezone
+
+        pages = [InstagramPage.objects.create(business=business, handle=handle)
+                 for business, handle in ((self.biz, "shop_page"), (self.other, "SHOP_PAGE"))]
+        queued = timezone.now() - timedelta(minutes=2)
+        InstagramPage.objects.filter(pk__in=[page.pk for page in pages]).update(queued_at=queued)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({
+                "started_at": queued.isoformat(),
+                "updated_at": timezone.now().isoformat(),
+                "handles": {"shop_page": {"status": "not_found", "posts": 0, "comments": 0}},
+            }), encoding="utf-8")
+            from unittest.mock import patch
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                call_command("ig_sync_seeds", apply_status=True)
+        for page in pages:
+            page.refresh_from_db()
+            self.assertEqual(page.last_status, "not_found")
+            self.assertIsNone(page.queued_at)
+            self.assertEqual(page.consecutive_failures, 1)
+
+    def test_instagram_seed_file_is_deduplicated_and_fair(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from unittest.mock import patch
+        from django.test import override_settings
+
+        first = InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        InstagramPage.objects.create(business=self.other, handle="SHOP_PAGE")
+        second = InstagramPage.objects.create(business=self.other, handle="second_shop")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "collector"
+            with patch.dict("os.environ", {"IG_MAX_HANDLES_PER_CYCLE": "1", "IG_CYCLE_MINUTES": "60",
+                                             "IG_COLLECT_OUTPUT_DIR": str(output)}):
+                with override_settings(BASE_DIR=root):
+                    call_command("ig_sync_seeds", stdout=StringIO())
+                    payload = json.loads((root / "data" / "ig_seeds.json").read_text(encoding="utf-8"))
+
+        self.assertEqual([item["username"] for item in payload["accounts"]], ["shop_page"])
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertIsNotNone(first.queued_at)
+        self.assertIsNone(second.queued_at)
+
+    def test_instagram_seed_file_keeps_account_seeds_and_maps_hashtags_to_categories(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.test import override_settings
+        from unittest.mock import patch
+
+        page = InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        category = Category.objects.create(business=self.biz, name="کفش چرمی", keywords=["کفش چرمی", "سایز"])
+        product = Product.objects.create(
+            business=self.biz, category=category, name="کفش مردانه", description="کفش چرمی",
+            instagram_terms=["مردانه"], instagram_hashtags=["#کفش_مردانه"],
+            instagram_discovery_enabled=True,
+        )
+        InstagramCategoryTarget.objects.create(
+            business=self.biz, category=category, terms=["چرم طبیعی"], hashtags=["#کفش_چرمی"],
+            max_posts=9, window_days=14, is_active=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root / "collector")}):
+                with override_settings(BASE_DIR=root):
+                    call_command("ig_sync_seeds", stdout=StringIO())
+                    payload = json.loads((root / "data" / "ig_seeds.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["accounts"], [{"username": "shop_page", "limit": 5}])
+        self.assertEqual(payload["hashtags"], [
+            {
+                "tag": "کفش_چرمی", "limit": 9, "window_days": 14,
+                "business_id": self.biz.pk, "category_id": category.pk,
+                "category": "کفش چرمی", "category_path": "کفش چرمی",
+                "product_ids": [product.pk], "products": ["کفش مردانه"],
+                "terms": ["کفش چرمی", "سایز", "چرم طبیعی", "مردانه"],
+            },
+            {
+                "tag": "کفش_مردانه", "limit": 5, "window_days": 7,
+                "business_id": self.biz.pk, "category_id": category.pk,
+                "category": "کفش چرمی", "category_path": "کفش چرمی",
+                "product_ids": [product.pk], "products": ["کفش مردانه"],
+                "terms": ["کفش چرمی", "سایز", "مردانه"],
+            },
+        ])
+        self.assertTrue(payload["comments"]["read_hashtag_posts"])
+        page.refresh_from_db()
+        self.assertIsNotNone(page.queued_at)
+
+    def test_instagram_private_page_is_not_seeded_again_for_24_hours(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.test import override_settings
+        from django.utils import timezone
+        from unittest.mock import patch
+
+        page = InstagramPage.objects.create(business=self.biz, handle="private_shop", last_status="private",
+                                            last_run_at=timezone.now() - timedelta(hours=1))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root / "collector")}):
+                with override_settings(BASE_DIR=root):
+                    call_command("ig_sync_seeds", stdout=StringIO())
+                    payload = json.loads((root / "data" / "ig_seeds.json").read_text(encoding="utf-8"))
+        self.assertEqual(payload["accounts"], [])
+        page.refresh_from_db()
+        self.assertIsNone(page.queued_at)
+
+    def test_instagram_ignores_old_outcome_and_pauses_after_three_not_found(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+        from django.utils import timezone
+        from unittest.mock import patch
+
+        page = InstagramPage.objects.create(business=self.biz, handle="shop_page", consecutive_failures=2)
+        queued = timezone.now() - timedelta(minutes=2)
+        page.queued_at = queued
+        page.save(update_fields=["queued_at"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({
+                "started_at": (queued - timedelta(seconds=1)).isoformat(),
+                "updated_at": timezone.now().isoformat(),
+                "handles": {"shop_page": {"status": "not_found", "posts": 0, "comments": 0}},
+            }), encoding="utf-8")
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                call_command("ig_sync_seeds", apply_status=True)
+        page.refresh_from_db()
+        self.assertTrue(page.is_active)
+        self.assertEqual(page.consecutive_failures, 2)
+
+        page.queued_at = queued
+        page.save(update_fields=["queued_at"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({
+                "started_at": queued.isoformat(),
+                "updated_at": timezone.now().isoformat(),
+                "handles": {"shop_page": {"status": "not_found", "posts": 0, "comments": 0}},
+            }), encoding="utf-8")
+            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
+                call_command("ig_sync_seeds", apply_status=True)
+        page.refresh_from_db()
+        self.assertFalse(page.is_active)
+        self.assertEqual(page.consecutive_failures, 3)
+
+    def test_instagram_ingest_counts_bad_lines_and_rejects_invalid_owner(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command
+
+        InstagramPage.objects.create(business=self.biz, handle="shop_page")
+        valid = {
+            "id": "ig:IGAd102:c5", "source": "instagram", "kind": "comment",
+            "text": "قیمت؟", "author_handle": "javascript:alert(1)", "author_id": None,
+            "created_at": None, "url": "javascript:alert(1)",
+            "metadata": {"seed": "account:shop_page", "parent_post": {"id": "ig:IGAd102"},
+                         "intent": {"label": "price_question", "cue": "قیمت"}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.jsonl"
+            path.write_text("not json\n" + json.dumps(valid, ensure_ascii=False) + "\n", encoding="utf-8")
+            output = StringIO()
+            call_command("ig_ingest", path=str(path), stdout=output)
+
+        self.assertIn('"invalid_json":1', output.getvalue())
+        self.assertFalse(Opportunity.objects.filter(source_platform="instagram").exists())
 
     def test_dashboard_shows_real_numbers_only(self):
         r = self.client.get(reverse("accounts:dashboard"))
@@ -380,3 +947,199 @@ class XSellerPagesTests(EngineSchemaMixin, TestCase):
             prod.refresh_from_db()
             self.assertFalse(prod.x_search_enabled)
         self.assertIn("جستجوی مشتری در X: خاموش", self.client.get(reverse("products:detail", args=[idle.pk])).content.decode())
+
+
+class InstagramPostReviewViewTests(TestCase):
+    def setUp(self):
+        import shutil
+        import uuid
+        from django.conf import settings
+        from django.core.cache import cache
+
+        self.user, self.biz = seller("review-a@example.com", "فروشگاه بازبینی الف")
+        self.other_user, self.other_biz = seller("review-b@example.com", "فروشگاه بازبینی ب")
+        self.category = Category.objects.create(business=self.biz, name="دستهٔ خودم")
+        self.product = Product.objects.create(
+            business=self.biz, category=self.category, name="محصول خودم", description="محصول آزمایشی",
+        )
+        self.other_category = Category.objects.create(business=self.other_biz, name="دستهٔ دیگری")
+        self.other_product = Product.objects.create(
+            business=self.other_biz, category=self.other_category,
+            name="محصول دیگری", description="محصول آزمایشی دیگر",
+        )
+        self.output_root = Path(settings.BASE_DIR) / f".instagram-post-review-tests-{uuid.uuid4().hex}"
+        self.output_root.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, self.output_root, True)
+        self.client = Client()
+        self.client.force_login(self.user)
+        cache.delete(f"ig-page-change:{self.user.pk}")
+
+    def queue_post(self, *, code="PostAbc1", business_id=None, result="human_review",
+                   reason="caption_too_short", audit=False, caption="کپشن آزمایشی",
+                   candidate_category_id=None):
+        business_id = business_id or self.biz.pk
+        decision = {
+            "result": result, "score": 0.42 if result == "human_review" else 0.93,
+            "category_candidate_id": candidate_category_id or self.category.pk,
+            "category_candidate": "دستهٔ خصوصی پیشنهادی", "product_candidate_id": None,
+            "product_candidate": "محصول خصوصی پیشنهادی",
+            "reason": {"code": reason, "evidence": {"caption_excerpt": caption}},
+            "knowledge_source": {"kind": "seller_category_seed", "category_id": self.category.pk},
+        }
+        row = {
+            "id": f"ig:{code}", "source": "instagram", "kind": "post", "text": caption,
+            "author_handle": "@shop", "author_id": None, "created_at": "2026-10-23T10:00:00+00:00",
+            "url": f"https://www.instagram.com/p/{code}/",
+            "metadata": {
+                "hashtags": ["کفش"], "collection_source": {"kind": "hashtag", "business_id": business_id},
+                "suggested_target": {"business_id": business_id},
+                "audit": audit, "category_decision": decision,
+            },
+        }
+        queue = self.output_root / "needs-review.jsonl"
+        with queue.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return row
+
+    def output_env(self):
+        import os
+        from unittest.mock import patch
+
+        return patch.dict(os.environ, {"IG_COLLECT_OUTPUT_DIR": str(self.output_root)})
+
+    def test_post_review_requires_login_and_csrf(self):
+        from django.urls import reverse
+
+        url = reverse("discovery:instagram_post_review")
+        self.assertEqual(Client().get(url).status_code, 302)
+        self.queue_post()
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        with self.output_env():
+            self.assertEqual(csrf_client.get(url).status_code, 200)
+            response = csrf_client.post(url, {
+                "action": "label_post", "post_id": "ig:PostAbc1", "decision": "reject",
+            })
+        self.assertEqual(response.status_code, 403)
+
+    def test_review_queue_is_scoped_paginated_and_xss_escaped(self):
+        from django.urls import reverse
+
+        malicious = self.queue_post(caption='<script>alert("caption-xss")</script>')
+        self.queue_post(code="PostAbc2", business_id=self.other_biz.pk)
+        with self.output_env():
+            response = self.client.get(reverse("discovery:instagram_post_review"))
+
+        html = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["pending_total"], 1)
+        self.assertContains(response, "&lt;script&gt;")
+        self.assertNotIn('<script>alert("caption-xss")</script>', html)
+        self.assertNotContains(response, "ig:PostAbc2")
+        self.assertContains(response, "rel=\"noopener noreferrer\"")
+        self.assertEqual(response.context["pending_posts"][0]["post_id"], malicious["id"])
+
+        for index in range(21):
+            self.queue_post(code=f"Page{index:04d}")
+        with self.output_env():
+            page_two = self.client.get(reverse("discovery:instagram_post_review"), {"page": 2})
+        self.assertEqual(page_two.status_code, 200)
+        self.assertEqual(page_two.context["page"], 2)
+        self.assertEqual(len(page_two.context["pending_posts"]), 2)
+
+    def test_audit_verdict_is_hidden_until_operator_submits(self):
+        from django.urls import reverse
+
+        self.queue_post(code="AuditAbc", result="confident_match", reason="matched", audit=True,
+                        caption="متن ممیزی بدون برچسب افشاگر")
+        with self.output_env():
+            response = self.client.get(reverse("discovery:instagram_post_review"))
+
+        html = response.content.decode()
+        self.assertContains(response, "نمونهٔ ممیزی کور")
+        self.assertNotIn("confident_match", html)
+        self.assertNotIn("دستهٔ خصوصی پیشنهادی", html)
+
+    def test_approval_validates_business_targets_and_displays_analyzer_result_after_submit(self):
+        from django.urls import reverse
+
+        row = self.queue_post(code="Approve1")
+        queue_path = self.output_root / "needs-review.jsonl"
+        queue_before = queue_path.read_bytes()
+        with self.output_env():
+            invalid_category = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": row["id"], "decision": "approve",
+                "category_id": self.other_category.pk,
+            })
+            invalid_product = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": row["id"], "decision": "approve",
+                "category_id": self.category.pk, "product_id": self.other_product.pk,
+            })
+            saved = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": row["id"], "decision": "approve",
+                "category_id": self.category.pk, "product_id": self.product.pk,
+            })
+            after_submit = self.client.get(saved.url)
+
+        self.assertEqual(invalid_category.status_code, 400)
+        self.assertEqual(invalid_product.status_code, 400)
+        self.assertEqual(saved.status_code, 302)
+        self.assertContains(after_submit, "human_review")
+        self.assertContains(after_submit, "uncertain_score")
+        self.assertEqual(queue_path.read_bytes(), queue_before)
+        label_row = json.loads((self.output_root / "human-post-labels.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(label_row["decision"], "approve")
+        self.assertEqual(label_row["business_id"], str(self.biz.pk))
+        self.assertEqual(label_row["category_id"], str(self.category.pk))
+        self.assertEqual(label_row["product_id"], str(self.product.pk))
+        self.assertEqual(label_row["operator_id"], str(self.user.pk))
+        self.assertEqual(label_row["analyzer_snapshot"]["result"], "human_review")
+
+    def test_foreign_business_post_cannot_be_seen_or_labeled_and_skip_stays_pending(self):
+        from django.urls import reverse
+
+        row = self.queue_post(code="OtherB12", business_id=self.other_biz.pk)
+        url = reverse("discovery:instagram_post_review")
+        with self.output_env():
+            invalid_id = self.client.post(url, {
+                "action": "label_post", "post_id": "not-a-post-id", "decision": "reject",
+            })
+            page = self.client.get(url)
+            denied = self.client.post(url, {
+                "action": "label_post", "post_id": row["id"], "decision": "reject",
+            })
+            skipped = self.client.post(url, {
+                "action": "skip_post", "post_id": row["id"], "page": "1",
+            })
+            again = self.client.get(url)
+
+        self.assertEqual(invalid_id.status_code, 400)
+        self.assertEqual(page.context["pending_total"], 0)
+        self.assertEqual(denied.status_code, 404)
+        self.assertEqual(skipped.status_code, 302)
+        self.assertEqual(again.context["pending_total"], 0)
+        self.assertFalse((self.output_root / "human-post-labels.jsonl").exists())
+
+    def test_post_label_actions_use_the_existing_hourly_limit(self):
+        from django.urls import reverse
+        from unittest.mock import patch
+
+        self.queue_post()
+        with self.output_env(), patch("apps.discovery.views._instagram_change_allowed", return_value=False):
+            response = self.client.post(reverse("discovery:instagram_post_review"), {
+                "action": "label_post", "post_id": "ig:PostAbc1", "decision": "reject",
+            })
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse((self.output_root / "human-post-labels.jsonl").exists())
+
+    def test_post_report_api_is_business_scoped_and_zero_denominators_are_explicit(self):
+        from django.urls import reverse
+
+        with self.output_env():
+            response = self.client.get(reverse("discovery:instagram_post_report_api"))
+
+        self.assertEqual(response.status_code, 200)
+        report = response.json()["data"]
+        self.assertEqual(report["denominators"]["N_posts_analyzed"], 0)
+        self.assertIsNone(report["confident_match_agreement"]["percent"])
+        self.assertEqual(report["confident_match_agreement"]["denominator"], 0)

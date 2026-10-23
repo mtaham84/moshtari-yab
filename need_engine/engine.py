@@ -35,12 +35,19 @@ from need_engine.retrieve import retrieve
 from need_engine.schemas import (STRENGTH_RANK, STRENGTH_WEIGHT, Candidate, ChatMessage, Cost, Evidence, MatchedProduct,
                                  NeedCard, NeedOut, Opportunity, Source, Verdict)
 from need_engine.reply import MessageStyle
-from need_engine.sources import (X_PRODUCT_PREFIX, MessageSource, ProductSource, StyleSource, XMessageSource,
-                                 XProductHitSource, message_source, product_source)
+from need_engine.platforms import for_chat_id, for_message, is_product_chat
+from need_engine.platforms.telegram import external_user_id as telegram_user_id, profile_url as telegram_profile_url
+from need_engine.platforms.x import (X, batch_limits, enabled as x_enabled,
+                                     filter_enabled as x_prefilter_enabled, min_match_score, mode as x_mode,
+                                     prefilter_mode as x_prefilter_mode,
+                                     outreach_enabled as x_outreach_enabled,
+                                     profile_url as x_profile_url,
+                                     product_id_from_chat as x_product_id_from_chat)
+from need_engine.sources import (MessageSource, ProductSource, StyleSource, XMessageSource, XProductHitSource,
+                                 message_source, product_source)
 from need_engine.store import Store
 from need_engine.verify import draft_reply, evidence_messages, verify_need, verify_new_product
 from need_engine.windowing import build_windows, ready_batch
-from need_engine.x_filters import cheap_x_filter
 
 log = logging.getLogger("need_engine")
 
@@ -90,15 +97,6 @@ class RunReport:
                 + (f" errors={len(self.errors)}" if self.errors else ""))
 
 
-def _message_url(m: ChatMessage) -> str | None:
-    if m.url:
-        return m.url
-    if m.chat_username:
-        return f"https://t.me/{m.chat_username}/{m.message_id}"
-    cid = m.chat_id[4:] if m.chat_id.startswith("-100") else m.chat_id.lstrip("-")
-    return f"https://t.me/c/{cid}/{m.message_id}" if cid.isdigit() else None
-
-
 class NeedEngine:
     def __init__(self, cfg: EngineConfig | None = None, messages: MessageSource | None = None,
                  products: ProductSource | None = None, sink: Sink | None = None,
@@ -120,11 +118,11 @@ class NeedEngine:
     # ── steps ───────────────────────────────────────────────────────────────
     def ingest(self) -> int:
         total = self._ingest_source(self.messages, "fetch_cursor")
-        if self.cfg.x_enabled:
+        if x_enabled(self.cfg):
             sources = []
-            if self.cfg.x_mode in {"public", "both"}:
+            if x_mode(self.cfg) in {"public", "both"}:
                 sources.append((XMessageSource, "fetch_cursor_x"))
-            if self.cfg.x_mode in {"product", "both"}:
+            if x_mode(self.cfg) in {"product", "both"}:
                 sources.append((XProductHitSource, "fetch_cursor_xp"))
             for cls, cursor_key in sources:
                 x_source = cls(self.cfg)
@@ -139,7 +137,7 @@ class NeedEngine:
     def refresh_x_products(self) -> None:
         """Per-product X mode: products whose seller switched «جستجوی مشتری در X» on (read every run)."""
         self.x_products = {p.product_id: p.business_id for p in self.catalog.products if p.x_search_enabled} \
-            if self.cfg.x_enabled and self.cfg.x_mode in {"product", "both"} else {}
+            if x_enabled(self.cfg) and x_mode(self.cfg) in {"product", "both"} else {}
         self.access.set_x_products(self.x_products)
 
     def _ingest_source(self, source: MessageSource, cursor_key: str, limit: int | None = None) -> int:
@@ -162,7 +160,7 @@ class NeedEngine:
         return total
 
     def ingest_x(self, source: MessageSource | None = None) -> int:
-        if not self.cfg.x_enabled:
+        if not x_enabled(self.cfg):
             return 0
         x_source = source or XMessageSource(self.cfg)
         try:
@@ -183,7 +181,7 @@ class NeedEngine:
             j = self.catalog.pid_index.get(pid)
             owner = self.catalog.products[j].business_id if j is not None else None
             visible = [(n, v) for n, v in needs if self.access.allows(n.chat_id, owner)
-                       and not n.chat_id.startswith(X_PRODUCT_PREFIX)]   # a product's own X search: that product only
+                       and not is_product_chat(n.chat_id)]   # a product's own X search: that product only
             hits, toman = verify_new_product(pid, visible, self.catalog, self.llm, self.cfg)
             report.cost_matching_toman += toman
             for need_id, mp in hits.items():
@@ -199,8 +197,8 @@ class NeedEngine:
         allowed = self.access.sellers(n.chat_id)
         ret = retrieve(n, qvecs, self.catalog, self.cfg, allowed=allowed, excluded=self.access.blocked)
         self._defer_blocked(n, qvecs, allowed)
-        if n.chat_id.startswith("x:"):   # no LLM verification for products that may not be offered on X
-            ret.candidates = [j for j in ret.candidates if self.catalog.products[j].x_outreach_enabled]
+        if for_chat_id(n.chat_id).key == X.key:   # no LLM verification for products that may not be offered on X
+            ret.candidates = [j for j in ret.candidates if x_outreach_enabled(self.catalog.products[j])]
         matches, toman, calls = verify_need(n, ret, self.catalog, self.store, self.llm, self.cfg)
         report.cost_matching_toman += toman
         n.cost_toman += toman
@@ -252,19 +250,22 @@ class NeedEngine:
         self._finish_and_emit(n, [m for m in old if m.product_id not in ids] + found, report)
 
     def _finish_and_emit(self, n: NeedCard, matches: list[MatchedProduct], report: RunReport, extra_cost: float = 0.0) -> None:
-        if n.chat_id.startswith("x:"):
-            matches = self._x_allowed(matches, own_search=n.chat_id.startswith(X_PRODUCT_PREFIX))
+        if self.store.need_is_scrubbed(n.need_id):
+            return
+        platform = for_chat_id(n.chat_id)
+        if platform.key == X.key:
+            matches = self._x_allowed(matches, own_search=is_product_chat(n.chat_id))
         matches = sorted(matches, key=lambda m: -m.match_score)[:self.cfg.max_products_per_opportunity]
         n.cost_toman += extra_cost
         if self.cfg.write_replies:
-            reply_limit = self.cfg.x_reply_top_n if n.chat_id.startswith("x:") else self.cfg.reply_top_n
+            reply_limit = self.cfg.x_reply_top_n if platform.key == X.key else self.cfg.reply_top_n
             for mp in matches[:reply_limit]:
                 if mp.reply_draft is None:
                     j = self.catalog.pid_index.get(mp.product_id)
                     owner = self.catalog.products[j].business_id if j is not None else None
                     mp.reply_draft, t = draft_reply(n, mp, self.catalog, self.store, self.llm, self.cfg,
                                                     style=self.styles.get(str(owner)))
-                    report.x_reply_drafts += int(n.chat_id.startswith("x:"))
+                    report.x_reply_drafts += int(platform.key == X.key)
                     report.cost_matching_toman += t
                     n.cost_toman += t
                     n.llm_calls += 1
@@ -273,7 +274,7 @@ class NeedEngine:
             return
         opportunity = self._opportunity(n, matches)
         self._emit(opportunity, report)
-        if (n.chat_id.startswith("x:") and self.cfg.x_thread_replies and matches
+        if (platform.key == X.key and self.cfg.x_thread_replies and matches
                 and max(match.match_score for match in matches) * 100 >= self.cfg.x_thread_min_match_score):
             evidence = [self.store.message(n.chat_id, mid) for mid in n.evidence_ids]
             roots = [message for message in evidence if message and message.author_id == n.author_id and message.kind == "post"]
@@ -285,8 +286,9 @@ class NeedEngine:
     def _opportunity(self, n: NeedCard, matches: list[MatchedProduct]) -> Opportunity:
         ev = evidence_messages(n, self.store)
         platform = next((m.platform for m in ev if m.platform), "telegram")
+        source_platform = for_chat_id(n.chat_id)
         title = next((m.chat_title for m in ev if m.chat_title), None)
-        x_source = n.chat_id.startswith("x:")
+        x_source = source_platform.key == X.key
         if x_source:
             username = next((m.author_username for m in ev if m.author_username), None)
             profile_url = next((m.profile_url for m in ev if m.profile_url), None)
@@ -294,8 +296,9 @@ class NeedEngine:
         else:   # Telegram: the need's own author, as on main (evidence may also cite other people's messages)
             username, profile_url, author_id = n.author_username, None, n.author_id
         source_posted_at = max((m.date for m in ev), default=None)
-        if source_posted_at and source_posted_at > datetime.now(timezone.utc):
-            source_posted_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        if source_posted_at and source_posted_at > now:
+            source_posted_at = now
         expires_at = (source_posted_at or n.updated_at) + timedelta(hours=self.cfg.x_need_ttl_hours) if x_source else n.updated_at + timedelta(days=self.cfg.need_ttl_days)
         best = matches[0].match_score if matches else 0.0
         priority = STRENGTH_WEIGHT[n.strength] * best
@@ -331,13 +334,13 @@ class NeedEngine:
             opportunity_id=n.need_id,
             status=n.status if n.status in ("open", "resolved", "expired") else "open",
             created_at=n.created_at, expires_at=expires_at,
-            candidate=Candidate(external_user_id=author_id if platform == "x" else f"telegram_{author_id}", customer_name=n.author_name, username=username,
-                                profile_url=profile_url or ((f"https://x.com/{username}" if platform == "x" else f"https://t.me/{username}") if username else None),
+            candidate=Candidate(external_user_id=author_id if x_source else telegram_user_id(author_id), customer_name=n.author_name, username=username,
+                                profile_url=profile_url or (x_profile_url(username) if x_source else telegram_profile_url(username)),
                                 contacts=contacts, linked_identities=linked_identities),
-            source=Source(platform=platform, chat_id=n.chat_id, chat_title=title, profile_url=f"https://x.com/{username}" if platform == "x" and username else None,
+            source=Source(platform=platform, chat_id=n.chat_id, chat_title=title, profile_url=x_profile_url(username) if x_source else None,
                           search_query=next((m.search_query for m in ev if m.search_query), None),
                           evidence=[Evidence(message_id=str(m.message_id), timestamp=m.date, author=m.author_name, text=m.text,
-                                             url=_message_url(m)) for m in ev]),
+                                             url=for_message(m).message_url(m)) for m in ev]),
             need=NeedOut(label=n.label, strength=n.strength, situation=n.situation, summary=n.need, requirements=n.requirements,
                          constraints={k: v for k, v in n.constraints.model_dump().items() if v not in (None, "")},
                          priority=round(priority, 3)),
@@ -347,6 +350,8 @@ class NeedEngine:
             source_query=next((m.search_query for m in ev if m.search_query), None))
 
     def _emit(self, opp: Opportunity, report: RunReport) -> None:
+        if self.store.need_is_scrubbed(opp.opportunity_id):
+            return
         body = opp.model_dump_json(exclude={"cost"})
         fp = hashlib.sha1(body.encode()).hexdigest()
         prev = self.store.emitted(opp.opportunity_id)
@@ -360,6 +365,8 @@ class NeedEngine:
 
     def _close(self, n: NeedCard, report: RunReport) -> None:
         """A previously emitted opportunity became resolved/expired → emit the status change."""
+        if self.store.need_is_scrubbed(n.need_id):
+            return
         prev = self.store.emitted(n.need_id)
         if not prev:
             return
@@ -377,8 +384,9 @@ class NeedEngine:
                 self._prune_held(chat_id, now)
                 continue
             pending = self.store.pending(chat_id)
-            is_x = chat_id.startswith("x:")
-            product_x = chat_id[len(X_PRODUCT_PREFIX):] if chat_id.startswith(X_PRODUCT_PREFIX) else None
+            platform = for_chat_id(chat_id)
+            is_x = platform.key == X.key
+            product_x = x_product_id_from_chat(chat_id)
             if product_x is not None and product_x not in self.x_products:   # X search switched off / product removed
                 self.store.drop_pending(chat_id, [m.message_id for m in pending])
                 log.info("chat %s: X search is off for the product, dropped %d posts", chat_id, len(pending))
@@ -407,7 +415,7 @@ class NeedEngine:
                             self.cfg, now, payer=self.x_products.get(product_x))
                         report.x_batches += 1
                         report.x_posts_sent_to_llm += len(w.new)
-                    elif w.new and w.new[0].platform == "x":
+                    elif w.new and for_message(w.new[0]).key == X.key:
                         cards, toman, calls = extract_x_batch(w.new, self.llm, self.cfg, now)
                         report.x_batches += int(calls == 1)
                         report.x_single_post_retries += int(calls > 1)
@@ -462,20 +470,22 @@ class NeedEngine:
         stale = [m for m in all_ordered if (now - min(m.date, now)).total_seconds() > self.cfg.x_max_post_age_hours * 3600]
         selected = [m for m in all_ordered if m not in stale][:max(0, self.cfg.x_max_per_run)]
         pending = selected
-        decisions = {m.message_id: cheap_x_filter(m, self.cfg, self.catalog) for m in pending}
+        prefilter = X.prefilter
+        decisions = {m.message_id: prefilter(m, self.cfg, self.catalog) for m in pending}
+        prefilter_setting = x_prefilter_mode(self.cfg)
         for msg in stale:
             decisions[msg.message_id] = type("Decision", (), {"keep": False, "reason": "stale", "signals": {"age_hours": round((now - msg.date).total_seconds() / 3600, 2)}})()
             report.x_prefilter_dropped["stale"] = report.x_prefilter_dropped.get("stale", 0) + 1
             log.info("Skipped stale X post %s", msg.message_id)
-        if self.cfg.x_prefilter in {"shadow", "on"}:
+        if x_prefilter_enabled(self.cfg):
             self.store.drop_x_pending(stale, decisions, mode="stale")
         for msg in pending:
             decision = decisions[msg.message_id]
-            if self.cfg.x_prefilter in {"shadow", "on"}:
-                self.store.record_x_filter_decision(msg, decision.keep, decision.reason, decision.signals, self.cfg.x_prefilter)
-            if self.cfg.x_prefilter == "shadow" and not decision.keep:
+            if x_prefilter_enabled(self.cfg):
+                self.store.record_x_filter_decision(msg, decision.keep, decision.reason, decision.signals, prefilter_setting)
+            if prefilter_setting == "shadow" and not decision.keep:
                 report.x_prefilter_dropped[decision.reason] = report.x_prefilter_dropped.get(decision.reason, 0) + 1
-        if self.cfg.x_prefilter == "on":
+        if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
             dropped = [m for m in pending if not decisions[m.message_id].keep]
             self.store.drop_x_pending(dropped, decisions, mode="on")
             pending = [m for m in pending if decisions[m.message_id].keep]
@@ -488,32 +498,33 @@ class NeedEngine:
             else:
                 decisions[msg.message_id] = type("Decision", (), {"reason": "author_throttle", "signals": {}})()
                 report.x_prefilter_dropped["author_throttle"] = report.x_prefilter_dropped.get("author_throttle", 0) + 1
-        if self.cfg.x_prefilter == "on":
+        if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
             self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
-        if keep_threads and all_ordered and all_ordered[0].chat_id.startswith(X_PRODUCT_PREFIX):
-            dropped = list(stale) if self.cfg.x_prefilter in {"shadow", "on"} else []
-            if self.cfg.x_prefilter == "on":
+        if keep_threads and all_ordered and is_product_chat(all_ordered[0].chat_id):
+            dropped = list(stale) if x_prefilter_enabled(self.cfg) else []
+            if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
                 dropped += [m for m in selected if m not in kept]
             self.store.record_x_hit_results([(m.chat_id, m.message_id, "skipped", getattr(decisions.get(m.message_id), "reason", ""), None)
                                              for m in dropped])
         return [m for m in selected if m in kept]
 
-    def _x_batches(self, windows: list, chat_id: str = "x:public") -> list:
+    def _x_batches(self, windows: list, chat_id: str | None = None) -> list:
         """Regroup X posts into LLM batches of x_batch_size posts / x_batch_max_chars characters."""
         from need_engine.windowing import Window
 
         chunks = []
+        size, max_chars = batch_limits(self.cfg)
         for window in windows:
             chunk, chars = [], 0
             for message in window.new:
-                if chunk and (len(chunk) >= max(1, self.cfg.x_batch_size) or chars + len(message.text) > self.cfg.x_batch_max_chars):
+                if chunk and (len(chunk) >= max(1, size) or chars + len(message.text) > max_chars):
                     chunks.append(chunk)
                     chunk, chars = [], 0
                 chunk.append(message)
                 chars += len(message.text)
             if chunk:
                 chunks.append(chunk)
-        return [Window(chat_id, "X", c, consumed=c) for c in chunks]
+        return [Window(chat_id or X.chat_id(), "X", c, consumed=c) for c in chunks]
 
     def _x_product_brief(self, j: int) -> dict:
         p = self.catalog.products[j]
@@ -565,9 +576,9 @@ class NeedEngine:
         out = []
         for m in matches:
             j = self.catalog.pid_index.get(m.product_id)
-            if j is not None and not own_search and not getattr(self.catalog.products[j], "x_outreach_enabled", True):
+            if j is not None and not own_search and not x_outreach_enabled(self.catalog.products[j]):
                 continue
-            if m.match_score * 100 >= self.cfg.x_min_match_score:
+            if m.match_score * 100 >= min_match_score(self.cfg):
                 out.append(m)
         return out
 
@@ -599,15 +610,21 @@ class NeedEngine:
 
     def expire(self, report: RunReport, now: datetime | None = None) -> None:
         now = now or datetime.now(timezone.utc)
+        tombstones = self.store.emit_retention_tombstones()
+        for payload in tombstones:
+            if self.sink:
+                self.sink(payload)
+            self.store.publish(payload)
+            report.opportunities.append(payload)
         for need_id in self.store.expire_needs((now - timedelta(days=self.cfg.need_ttl_days)).timestamp()):
-            n = self.store.need(need_id)   # Telegram needs: unchanged rule (no update for need_ttl_days)
+            n = self.store.need(need_id)
             if n:
                 self._close(n, report)
-        if not self.cfg.x_enabled:
+        if not x_enabled(self.cfg):
             return
         refreshed = 0
         for n, _ in self.store.open_needs():
-            if not n.chat_id.startswith("x:"):
+            if for_chat_id(n.chat_id).key != X.key:
                 continue
             evidence = [self.store.message(n.chat_id, mid) for mid in n.evidence_ids]
             newest = max((m.date for m in evidence if m is not None), default=n.updated_at)
@@ -623,7 +640,7 @@ class NeedEngine:
         now = now or datetime.now(timezone.utc)
         refreshed = 0
         for n, _ in self.store.open_needs():
-            if not n.chat_id.startswith("x:"):
+            if for_chat_id(n.chat_id).key != X.key:
                 continue
             refreshed += int(self._refresh_x_priority(n, now))
             if refreshed >= max(1, self.cfg.x_refresh_batch_size):

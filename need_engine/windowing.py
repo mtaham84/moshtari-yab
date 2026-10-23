@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from need_engine.config import EngineConfig
+from need_engine.platforms import for_message
+from need_engine.platforms.x import INDEPENDENT_WINDOW_INTRO
 from need_engine.schemas import ChatMessage
 from need_engine.store import Store
 from need_engine.text import is_noise
@@ -62,18 +64,18 @@ def build_windows(chat_id: str, pending: list[ChatMessage], store: Store, cfg: E
     if not useful:
         return [Window(chat_id, title, [], consumed=pending)]
     windows: list[Window] = []
-    is_x = any(m.platform == "x" for m in pending)
-    prev: list[ChatMessage] = [] if is_x else store.recent(chat_id, useful[0].message_id, cfg.context_messages)
+    is_independent = any(for_message(message).independent_posts for message in pending)
+    prev: list[ChatMessage] = [] if is_independent else store.recent(chat_id, useful[0].message_id, cfg.context_messages)
     chunks = [useful[i:i + cfg.window_size] for i in range(0, len(useful), cfg.window_size)]
     bounds = [c[-1].message_id for c in chunks]
     for k, chunk in enumerate(chunks):
         lo = chunks[k - 1][-1].message_id if k else -1
         consumed = [m for m in pending if lo < m.message_id <= bounds[k]] if k < len(chunks) - 1 else [m for m in pending if m.message_id > lo]
-        context = prev[-cfg.context_messages:] if cfg.context_messages and not is_x else []
+        context = prev[-cfg.context_messages:] if cfg.context_messages and not is_independent else []
         seen = {m.message_id for m in chunk} | {m.message_id for m in context}
         parents = []
         for m in chunk:
-            if not is_x and m.reply_to and m.reply_to not in seen:
+            if not is_independent and m.reply_to and m.reply_to not in seen:
                 p = store.message(chat_id, m.reply_to)
                 if p is None and m.reply_to_text:   # parent older than the engine's state: use the archived copy
                     p = ChatMessage(chat_id=chat_id, message_id=m.reply_to, author_id=m.reply_to_author_id or "",
@@ -104,8 +106,8 @@ def _line(m: ChatMessage) -> str:
 
 
 def render(w: Window, cfg: EngineConfig) -> str:
-    if w.new and w.new[0].platform == "x":
-        out = ["Independent public X posts from different authors; do not treat them as a conversation or use another author's post as context.", "NEW messages:"]
+    if w.new and for_message(w.new[0]).independent_posts:
+        out = [INDEPENDENT_WINDOW_INTRO, "NEW messages:"]
         out.extend(f"{_line(m)} URL: {m.url or ''}" for m in w.new)
         return "\n".join(out)
     out = [f"Group: {w.chat_title or w.chat_id}"]

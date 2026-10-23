@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -97,7 +98,15 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect("accounts:dashboard")
 
-    next_url = request.GET.get("next") or request.POST.get("next") or "accounts:dashboard"
+    # QueryDict.getlist keeps a second attacker-supplied ``next`` value from overriding
+    # the one that was validated here when the form is submitted.
+    next_values = request.GET.getlist("next") or request.POST.getlist("next")
+    next_url = next_values[0] if next_values else ""
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        next_url = ""
+    fallback_url = reverse("accounts:dashboard")
 
     if request.method == "POST":
         # Standard Password Login (Primary)
@@ -129,7 +138,7 @@ def login_view(request):
             login(request, user)
             name = user.get_full_name() or user.first_name or user.username
             messages.success(request, f"خوش آمدید، {name} عزیز!")
-            return redirect(next_url)
+            return redirect(next_url or fallback_url)
         else:
             messages.error(request, "نام کاربری/ایمیل یا کلمه عبور وارد شده نادرست است.")
             return render(request, "accounts/login.html", {

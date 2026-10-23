@@ -1,5 +1,6 @@
 # Web panel
 Django>=5.2,<7.0
+cryptography>=43.0,<47.0
 psycopg[binary]>=3.2,<4.0
 pillow>=10.2.0
 gunicorn>=22.0

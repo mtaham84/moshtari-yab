@@ -212,6 +212,23 @@
       </small>
     </div>
 
+    <div class="form-group" style="margin-bottom: 24px; border: 1px solid var(--panel-border); border-radius: 14px; padding: 18px;">
+      <label style="display:flex; gap:8px; align-items:center;">
+        <input type="hidden" name="instagram_discovery_enabled" value="">
+        <input type="checkbox" name="instagram_discovery_enabled" {% if product.instagram_discovery_enabled %}checked{% endif %}>
+        <span class="form-label" style="margin:0;">پایش هشتگی این محصول فعال باشد</span>
+      </label>
+      <label for="instagram_terms" class="form-label" style="margin-top:12px;">واژه‌های مرتبط برای پایش اینستاگرام</label>
+      <textarea name="instagram_terms" id="instagram_terms" class="form-input" rows="2" placeholder="هر واژه یا عبارت در یک خط">{% if product.instagram_terms %}{{ product.instagram_terms|join:", " }}{% elif product.category.keywords %}{{ product.category.keywords|join:", " }}{% endif %}</textarea>
+      <label for="instagram_hashtags" class="form-label" style="margin-top:12px;">هشتگ‌های هدف اینستاگرام</label>
+      <textarea name="instagram_hashtags" id="instagram_hashtags" class="form-input" rows="2" dir="ltr" placeholder="هر هشتگ در یک خط، با یا بدون #">{{ product.instagram_hashtags|join:", " }}</textarea>
+      <div style="display:flex; gap:12px; margin-top:12px; flex-wrap:wrap;">
+        <label>حداکثر پست <input class="form-input" type="number" min="1" max="100" name="instagram_max_posts" value="{{ product.instagram_max_posts|default:5 }}" style="width:110px;"></label>
+        <label>بازهٔ زمانی (روز) <input class="form-input" type="number" min="1" max="90" name="instagram_window_days" value="{{ product.instagram_window_days|default:7 }}" style="width:110px;"></label>
+      </div>
+      <small style="color: var(--panel-text-faint); display: block; margin-top: 6px;">seed هر هشتگ به دسته و محصول مربوط می‌ماند؛ جمع‌آوری هنوز اجرا نمی‌شود.</small>
+    </div>
+
     <!-- Dynamic Custom Attributes Builder (Arbitrary Key-Value Attributes) -->
     <div class="form-group" id="attributes-wrapper" style="border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover); margin-bottom: 24px;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">

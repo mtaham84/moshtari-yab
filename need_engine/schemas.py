@@ -222,3 +222,4 @@ class Opportunity(BaseModel):
     source_posted_at_estimated: bool = False
     source_query: str | None = None
     thread: dict[str, Any] | None = None
+    retention_scrubbed: bool = False

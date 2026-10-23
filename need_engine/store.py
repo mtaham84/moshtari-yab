@@ -8,10 +8,12 @@ The engine writes only to this schema; crawler and Django tables are read throug
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import secrets
 import threading
 import time
+from datetime import datetime
 from typing import Any, Iterable
 
 import numpy as np
@@ -39,7 +41,9 @@ CREATE TABLE IF NOT EXISTS {s}.products (product_id TEXT PRIMARY KEY, hash TEXT,
 CREATE TABLE IF NOT EXISTS {s}.product_vectors (
     product_id TEXT REFERENCES {s}.products (product_id) ON DELETE CASCADE, idx INTEGER, kind TEXT, vec vector NOT NULL,
     PRIMARY KEY (product_id, idx));
-CREATE TABLE IF NOT EXISTS {s}.llm_cache (k TEXT PRIMARY KEY, payload JSONB NOT NULL);
+CREATE TABLE IF NOT EXISTS {s}.llm_cache (k TEXT PRIMARY KEY, payload JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ALTER TABLE {s}.llm_cache ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity'::timestamptz;
+CREATE INDEX IF NOT EXISTS llm_cache_created_idx ON {s}.llm_cache (created_at);
 CREATE TABLE IF NOT EXISTS {s}.costs (id BIGSERIAL PRIMARY KEY, ts DOUBLE PRECISION, stage TEXT, model TEXT,
     prompt_tokens INTEGER, completion_tokens INTEGER, cached BOOLEAN, usd DOUBLE PRECISION, toman DOUBLE PRECISION, ref TEXT);
 ALTER TABLE {s}.costs ADD COLUMN IF NOT EXISTS business_id TEXT;
@@ -121,6 +125,13 @@ class Store:
     def add_pending(self, msgs: list[ChatMessage]) -> int:
         if not msgs:
             return 0
+        import os
+        from datetime import timedelta, timezone
+        retention_days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        msgs = [m for m in msgs if m.date >= cutoff]
+        if not msgs:
+            return 0
         return self._exec("""INSERT INTO {s}.pending (chat_id, message_id, payload)
                              SELECT * FROM unnest(%s::text[], %s::bigint[], %s::jsonb[]) ON CONFLICT DO NOTHING""",
                           ([m.chat_id for m in msgs], [m.message_id for m in msgs], [m.model_dump_json() for m in msgs]))
@@ -138,19 +149,21 @@ class Store:
         def tx(c: psycopg.Connection) -> None:
             with c.transaction():
                 c.execute(f"DELETE FROM {self._t('pending')} WHERE chat_id = %s AND message_id = ANY(%s)", (chat_id, ids))
-                c.execute(f"""INSERT INTO {self._t('recent')} (chat_id, message_id, payload)
-                              SELECT %s, * FROM unnest(%s::bigint[], %s::jsonb[])
-                              ON CONFLICT (chat_id, message_id) DO UPDATE SET payload = EXCLUDED.payload""",
-                          (chat_id, ids, [m.model_dump_json() for m in msgs]))
+                if ids:
+                    c.execute(f"""INSERT INTO {self._t('recent')} (chat_id, message_id, payload)
+                                  SELECT %s, * FROM unnest(%s::bigint[], %s::jsonb[])
+                                  ON CONFLICT (chat_id, message_id) DO UPDATE SET payload = EXCLUDED.payload""",
+                              (chat_id, ids, [m.model_dump_json() for m in msgs]))
                 c.execute(f"""DELETE FROM {self._t('recent')} WHERE chat_id = %s AND message_id NOT IN
                               (SELECT message_id FROM {self._t('recent')} WHERE chat_id = %s ORDER BY message_id DESC LIMIT %s)""",
                           (chat_id, chat_id, max(keep_recent, 1)))
-                c.execute(f"""INSERT INTO {self._t('chat_analysed')} (chat_id, n) VALUES (%s, %s)
-                              ON CONFLICT (chat_id) DO UPDATE SET n = {self._t('chat_analysed')}.n + EXCLUDED.n""",
-                          (chat_id, len(msgs)))
-                c.execute(f"""INSERT INTO {self._t('kv')} (k, v) VALUES ('messages_analysed', to_jsonb(%s::bigint))
-                              ON CONFLICT (k) DO UPDATE SET v = to_jsonb(({self._t('kv')}.v #>> '{{}}')::bigint + %s)""",
-                          (len(msgs), len(msgs)))
+                if msgs:
+                    c.execute(f"""INSERT INTO {self._t('chat_analysed')} (chat_id, n) VALUES (%s, %s)
+                                  ON CONFLICT (chat_id) DO UPDATE SET n = {self._t('chat_analysed')}.n + EXCLUDED.n""",
+                              (chat_id, len(msgs)))
+                    c.execute(f"""INSERT INTO {self._t('kv')} (k, v) VALUES ('messages_analysed', to_jsonb(%s::bigint))
+                                  ON CONFLICT (k) DO UPDATE SET v = to_jsonb(({self._t('kv')}.v #>> '{{}}')::bigint + %s)""",
+                              (len(msgs), len(msgs)))
 
         self._run(tx)
 
@@ -223,6 +236,9 @@ class Store:
     def save_need(self, n: NeedCard, summary_vec: np.ndarray | None, query_vecs: np.ndarray | None) -> None:
         def tx(c: psycopg.Connection) -> None:
             with c.transaction():
+                current = c.execute(f"SELECT status FROM {self._t('needs')} WHERE need_id=%s FOR UPDATE", (n.need_id,)).fetchone()
+                if current and current["status"] == "retention_scrubbed":
+                    return
                 c.execute(f"""INSERT INTO {self._t('needs')} (need_id, chat_id, author_id, status, updated_at, payload, summary_vec)
                               VALUES (%s, %s, %s, %s, %s, %s, %s)
                               ON CONFLICT (need_id) DO UPDATE SET chat_id = EXCLUDED.chat_id, author_id = EXCLUDED.author_id,
@@ -240,7 +256,7 @@ class Store:
 
     def update_need(self, n: NeedCard) -> None:
         """Updates payload/status only (vectors untouched)."""
-        self._exec("UPDATE {s}.needs SET status = %s, updated_at = %s, payload = %s WHERE need_id = %s",
+        self._exec("UPDATE {s}.needs SET status = %s, updated_at = %s, payload = %s WHERE need_id = %s AND status <> 'retention_scrubbed'",
                    (n.status, n.updated_at.timestamp(), Jsonb(n.model_dump(mode="json")), n.need_id))
 
     def query_vecs(self, need_id: str) -> np.ndarray | None:
@@ -249,30 +265,36 @@ class Store:
 
     def person_needs(self, chat_id: str, author_id: str) -> list[tuple[NeedCard, np.ndarray | None]]:
         rows = self._all("""SELECT payload, summary_vec FROM {s}.needs
-                            WHERE chat_id = %s AND author_id = %s AND status IN ('open', 'not_opportunity') ORDER BY need_id""",
+                            WHERE chat_id = %s AND author_id = %s AND status IN ('open', 'not_opportunity')
+                              AND payload->>'retention_scrubbed' IS DISTINCT FROM 'true' ORDER BY need_id""",
                          (chat_id, author_id))
         return [(NeedCard.model_validate(r["payload"]), _vec(r["summary_vec"])) for r in rows]
 
     def open_needs(self) -> list[tuple[NeedCard, np.ndarray | None]]:
-        rows = self._all("SELECT need_id, payload FROM {s}.needs WHERE status = 'open' ORDER BY need_id")
+        rows = self._all("SELECT need_id, payload FROM {s}.needs WHERE status = 'open' AND payload->>'retention_scrubbed' IS DISTINCT FROM 'true' ORDER BY need_id")
         vecs: dict[str, list] = {}
         if rows:
             for r in self._all("""SELECT v.need_id, v.vec FROM {s}.need_vectors v JOIN {s}.needs n USING (need_id)
-                                  WHERE n.status = 'open' ORDER BY v.need_id, v.idx"""):
+                                  WHERE n.status = 'open' AND n.payload->>'retention_scrubbed' IS DISTINCT FROM 'true' ORDER BY v.need_id, v.idx"""):
                 vecs.setdefault(r["need_id"], []).append(_vec(r["vec"]))
         return [(NeedCard.model_validate(r["payload"]), np.stack(vecs[r["need_id"]]) if r["need_id"] in vecs else None) for r in rows]
 
     def need(self, need_id: str) -> NeedCard | None:
-        rows = self._all("SELECT payload FROM {s}.needs WHERE need_id = %s", (need_id,))
+        rows = self._all("SELECT payload FROM {s}.needs WHERE need_id = %s AND payload->>'retention_scrubbed' IS DISTINCT FROM 'true'", (need_id,))
         return NeedCard.model_validate(rows[0]["payload"]) if rows else None
 
+    def need_is_scrubbed(self, need_id: str) -> bool:
+        rows = self._all("SELECT status FROM {s}.needs WHERE need_id=%s", (need_id,))
+        return bool(rows and rows[0]["status"] == "retention_scrubbed")
+
     def expire_needs(self, older_than_ts: float) -> list[str]:
-        rows = self._all("SELECT payload FROM {s}.needs WHERE status = 'open' AND updated_at < %s", (older_than_ts,))
+        rows = self._all("SELECT payload FROM {s}.needs WHERE status = 'open' AND payload->>'retention_scrubbed' IS DISTINCT FROM 'true' AND updated_at < %s", (older_than_ts,))
         out = []
         for r in rows:
             n = NeedCard.model_validate(r["payload"])
             n.status = "expired"
-            self._exec("UPDATE {s}.needs SET status = 'expired', payload = %s WHERE need_id = %s", (Jsonb(n.model_dump(mode="json")), n.need_id))
+            self._exec("UPDATE {s}.needs SET status = 'expired', payload = %s WHERE need_id = %s AND status = 'open'",
+                       (Jsonb(n.model_dump(mode="json")), n.need_id))
             out.append(n.need_id)
         return out
 
@@ -327,7 +349,7 @@ class Store:
         return rows[0]["payload"] if rows else None
 
     def cache_put(self, k: str, v: dict) -> None:
-        self._exec("INSERT INTO {s}.llm_cache (k, payload) VALUES (%s, %s) ON CONFLICT (k) DO UPDATE SET payload = EXCLUDED.payload",
+        self._exec("INSERT INTO {s}.llm_cache (k, payload, created_at) VALUES (%s, %s, now()) ON CONFLICT (k) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()",
                    (k, Jsonb(v)))
 
     def add_cost(self, stage: str, model: str, pt: int, ct: int, cached: bool, usd: float, toman: float, ref: str = "",
@@ -422,6 +444,48 @@ class Store:
         self._exec("""INSERT INTO {s}.emitted VALUES (%s, %s, %s, %s::jsonb) ON CONFLICT (opportunity_id)
                       DO UPDATE SET fingerprint = EXCLUDED.fingerprint, ts = EXCLUDED.ts, payload = EXCLUDED.payload""",
                    (opp_id, fp, time.time(), payload))
+
+    def scrub_emitted(self, opp_id: str, payload: dict) -> None:
+        """Write a permanent retention marker so source text cannot be re-emitted."""
+        payload = dict(payload)
+        payload["retention_scrubbed"] = True
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        fingerprint = hashlib.sha1(encoded.encode()).hexdigest()
+        self._exec("INSERT INTO {s}.emitted (opportunity_id, fingerprint, ts, payload) VALUES (%s,%s,%s,%s::jsonb) "
+                   "ON CONFLICT (opportunity_id) DO UPDATE SET fingerprint=EXCLUDED.fingerprint, ts=EXCLUDED.ts, payload=EXCLUDED.payload",
+                   (opp_id, fingerprint, time.time(), encoded))
+
+    def emit_retention_tombstones(self, limit: int = 500) -> list[Opportunity]:
+        from need_engine.schemas import Candidate, NeedOut, Source
+
+        rows = self._all("""SELECT n.need_id FROM {s}.needs n WHERE n.status='retention_scrubbed'
+                         AND NOT EXISTS (SELECT 1 FROM {s}.opportunities o WHERE o.opportunity_id=n.need_id
+                                         AND o.payload->>'retention_scrubbed'='true') ORDER BY n.need_id LIMIT %s""", (limit,))
+        emitted = []
+        for row in rows:
+            previous = self._all("SELECT payload FROM {s}.emitted WHERE opportunity_id=%s", (row["need_id"],))
+            if not previous:
+                continue
+            raw = previous[0]["payload"]
+            raw = {**raw}
+            raw.update(
+                status="expired",
+                candidate=Candidate(external_user_id="").model_dump(mode="json"),
+                source=Source(platform=(raw.get("source") or {}).get("platform") or "telegram", chat_id="", evidence=[]).model_dump(mode="json"),
+                need=NeedOut(label="", strength="weak", situation=None, summary=None, requirements=[], constraints={}, priority=0).model_dump(mode="json"),
+                matched_products=[{**item, "reply_draft": None, "reply_variants": None,
+                                   "verdict": {**(item.get("verdict") or {}), "reason": None, "conflicts": [], "checks": []}}
+                                  for item in raw.get("matched_products", [])],
+                source_query=None, source_posted_at=None, source_posted_at_estimated=False, thread=None,
+                retention_scrubbed=True,
+            )
+            payload = Opportunity.model_validate(raw)
+            payload.status = "expired"
+            payload.retention_scrubbed = True
+            clean_payload = payload.model_dump(mode="json")
+            self.scrub_emitted(row["need_id"], clean_payload)
+            emitted.append(payload)
+        return emitted
 
     def publish(self, opp: Opportunity) -> None:
         """Latest version of an opportunity for the panel; ``seq`` grows on every change (sync cursor)."""

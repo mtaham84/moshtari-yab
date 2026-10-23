@@ -84,8 +84,8 @@
           </div>
         </div>
 
-        {% if customer.source_profile_url %}
-          <a href="{{ customer.source_profile_url }}" target="_blank" rel="noopener noreferrer" class="p-btn p-btn-sm p-btn-ghost" style="font-size: 0.78rem;">
+        {% if customer_profile_url %}
+          <a href="{{ customer_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" class="p-btn p-btn-sm p-btn-ghost" style="font-size: 0.78rem;">
             <span>مشاهده پروفایل در {{ opportunity.get_source_platform_display }}</span>
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
           </a>
@@ -330,7 +330,7 @@
       <div id="rewrite-error" role="status" style="display: none; margin: -8px 0 12px; font-size: 0.8rem; color: var(--p-danger, #ef4444);"></div>
 
       <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
-        {% if product_matches %}
+        {% if product_matches and opportunity.source_platform != 'instagram' %}
           <button type="button" id="btn-rewrite-reply" class="p-btn p-btn-secondary" style="font-size: 0.82rem; padding: 8px 16px;"
                   data-endpoint="{% url 'discovery:opportunity_rewrite' opportunity.id %}" data-product="{{ product_matches.0.product_id }}">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
@@ -359,9 +359,16 @@
         پیشنهاد مشتری چقدر مرتبط بود؟
       </h3>
       <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-        <button type="button" class="p-btn p-btn-sm p-btn-primary feedback-button" data-feedback="relevant">مشتری مرتبط بود</button>
-        <button type="button" class="p-btn p-btn-sm p-btn-secondary feedback-button" data-feedback="irrelevant">نامرتبط بود</button>
+        <button type="button" class="p-btn p-btn-sm p-btn-primary feedback-button" data-feedback="relevant">مشتری واقعی</button>
+        <button type="button" class="p-btn p-btn-sm p-btn-secondary feedback-button" data-feedback="irrelevant">نامرتبط</button>
       </div>
+      <select id="feedback-reason" class="p-input" style="margin-bottom: 12px; width: 100%;">
+        <option value="">دلیل (اختیاری)</option>
+        <option value="not_a_buyer">قصد خرید نداشت</option>
+        <option value="wrong_product">محصول اشتباه بود</option>
+        <option value="already_bought">قبلاً خریده بود</option>
+        <option value="spam">هرزنامه یا تبلیغ</option>
+      </select>
       <div id="feedback-toast" style="display: none; margin-bottom: 16px; font-size: 0.76rem; color: #10B981; text-align: center;">بازخورد ذخیره شد.</div>
       <h3 style="font-size: 0.95rem; color: var(--panel-text-main); margin: 0 0 12px 0; font-weight: 700;">
         وضعیت پیگیری فرصت
@@ -499,19 +506,24 @@ document.addEventListener("DOMContentLoaded", function() {
   });
   document.querySelectorAll(".feedback-button").forEach(function(button) {
     button.addEventListener("click", function() {
+      document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = true; });
       fetch("{% url 'discovery:opportunity_feedback' opportunity.id %}", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": "{{ csrf_token }}"},
-        body: "feedback=" + encodeURIComponent(button.dataset.feedback)
+        body: "feedback=" + encodeURIComponent(button.dataset.feedback) +
+          "&reason=" + encodeURIComponent(document.getElementById("feedback-reason").value)
       }).then(function(response) { return response.json(); }).then(function(data) {
         if (data.status === "success") {
           document.getElementById("feedback-toast").style.display = "block";
-          document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = false; });
-          button.disabled = true;
+          document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = item !== button; });
         } else {
+          document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = false; });
           alert(data.message || "ذخیره بازخورد ناموفق بود.");
         }
-      }).catch(function() { alert("ذخیره بازخورد ناموفق بود."); });
+      }).catch(function() {
+        document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = false; });
+        alert("ذخیره بازخورد ناموفق بود.");
+      });
     });
   });
 

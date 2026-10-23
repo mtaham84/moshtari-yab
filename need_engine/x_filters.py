@@ -6,21 +6,10 @@ from dataclasses import dataclass, field
 
 from need_engine.schemas import ChatMessage
 from need_engine.text import BM25, norm
+from shared.x_filters import PROMOTIONAL_PATTERNS, is_promotional_post, URL_RE
 
-PROMOTIONAL_PATTERNS = (
-    r"\b(?:buy now|shop now|limited offer|order now|use code|discount|promo code|sponsored|giveaway)\b",
-    r"(?:تخفیف|فروش ویژه|ثبت سفارش|سفارش دهید|خرید کنید|همین حالا بخرید|ارسال رایگان|کد تخفیف|فروش فوری|موجود شد|برای خرید|دایرکت بدهید|دایرکت دهید|تماس بگیرید|قیمت ویژه)",
-)
 INTENT_TERMS = ("دنبال", "میخوام", "سراغ", "پیشنهاد", "معرفی کنید", "کجا بخرم", "چی بخرم", "توصیه", "راهنمایی", "نیاز دارم", "لازم دارم", "می خواهم", "قصد خرید")
 SHOP_TERMS = ("فروشگاه", "ارسال به سراسر", "سفارش", "shop", "store", "official", "فروش")
-URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
-
-
-def is_promotional_post(text: str) -> bool:
-    lowered = text.casefold()
-    if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in PROMOTIONAL_PATTERNS):
-        return True
-    return bool(URL_RE.search(lowered) and re.search(r"خرید|سفارش|فروش|order|buy|shop|دایرکت|تماس", lowered, re.I))
 
 
 @dataclass

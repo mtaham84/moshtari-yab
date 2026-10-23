@@ -1,0 +1,30 @@
+{"id":"fa-01","platform":"telegram","text":"دنبال دستکش گرم موتورم بودجه ۱ میلیون دارم","expected":{"is_need":true,"category":"لوازم موتور"}}
+{"id":"fa-02","platform":"telegram","text":"برای کوه‌نوردی کفش ضدآب می‌خوام، چی پیشنهاد می‌کنید؟","expected":{"is_need":true,"category":"کفش"}}
+{"id":"fa-03","platform":"telegram","text":"گوشی سامسونگم خراب شده، تعمیرکار خوب سراغ دارید؟","expected":{"is_need":true,"category":"موبایل"}}
+{"id":"fa-04","platform":"telegram","text":"قهوه‌ساز برای کافه کوچیک لازم دارم","expected":{"is_need":true,"category":"تجهیزات کافه"}}
+{"id":"fa-05","platform":"telegram","text":"کسی صندلی ماشین کودک دست دوم تمیز داره؟","expected":{"is_need":true,"category":"کودک"}}
+{"id":"fa-06","platform":"telegram","text":"یه مودم فیبر نوری برای خونه می‌خوام، قیمت مناسب","expected":{"is_need":true,"category":"شبکه"}}
+{"id":"fa-07","platform":"telegram","text":"دنبال کلاس زبان آنلاین برای آیلتس هستم","expected":{"is_need":true,"category":"آموزش"}}
+{"id":"fa-08","platform":"telegram","text":"برای مادرم فشارسنج دیجیتال می‌خوام","expected":{"is_need":true,"category":"سلامت"}}
+{"id":"fa-09","platform":"telegram","text":"کسی تعمیرکار پکیج در کرج می‌شناسه؟","expected":{"is_need":true,"category":"خدمات"}}
+{"id":"fa-10","platform":"telegram","text":"یه هدفون بی‌سیم با حذف نویز می‌خوام بخرم","expected":{"is_need":true,"category":"صوتی"}}
+{"id":"fa-11","platform":"telegram","text":"کسی می‌دونه لپتاپ خریدمو کجا بفروشم؟","expected":{"is_need":false}}
+{"id":"fa-12","platform":"telegram","text":"امروز هوای تهران خیلی خوبه، دمتون گرم","expected":{"is_need":false}}
+{"id":"fa-13","platform":"telegram","text":"فروش ویژه موبایل با ارسال رایگان؛ برای سفارش دایرکت بدید","expected":{"is_need":false}}
+{"id":"fa-14","platform":"telegram","text":"موتورم دیروز روشن نشد ولی درستش کردم","expected":{"is_need":false}}
+{"id":"fa-15","platform":"telegram","text":"چه گوشی خفنیه، مبارک صاحبش","expected":{"is_need":false}}
+{"id":"fa-16","platform":"telegram","text":"برای میزکارم مانیتور ۲۷ اینچ می‌خوام، تا ۱۰ میلیون","expected":{"is_need":true,"category":"کامپیوتر"}}
+{"id":"fa-17","platform":"telegram","text":"Ye kafsh kooh peymaii khoob mikhastam, chi pishnahad midin?","expected":{"is_need":true,"category":"کفش"}}
+{"id":"fa-18","platform":"telegram","text":"man yek modem khoob baraye khune mikhām, az koja begiram?","expected":{"is_need":true,"category":"شبکه"}}
+{"id":"fa-19","platform":"telegram","text":"salam, emruz hava aliye","expected":{"is_need":false}}
+{"id":"fa-20","platform":"telegram","text":"dastgahe qahve baraye cafe mikhastam","expected":{"is_need":true,"category":"تجهیزات کافه"}}
+{"id":"fa-21","platform":"telegram","text":"دنبال یک قهوه‌ساز نیمه‌صنعتی می‌گردم","expected":{"is_need":true,"category":"تجهیزات کافه"}}
+{"id":"fa-22","platform":"telegram","text":"یه پاوربانک سبک می‌خوام که گوشی رو دو بار شارژ کنه","expected":{"is_need":true,"category":"موبایل"}}
+{"id":"fa-23","platform":"telegram","text":"کسی تعمیرکار ماشین لباسشویی تو تهران می‌شناسه؟","expected":{"is_need":true,"category":"خدمات"}}
+{"id":"fa-24","platform":"telegram","text":"از این آهنگ قدیمی خیلی خوشم میاد","expected":{"is_need":false}}
+{"id":"fa-25","platform":"telegram","text":"می‌خوام یه صندلی اداری ارگونومیک بخرم","expected":{"is_need":true,"category":"مبلمان"}}
+{"id":"fa-26","platform":"x","text":"کسی فروشگاه لپتاپ خوب در مشهد می‌شناسه؟ قصد خرید این هفته دارم","expected":{"is_need":true,"category":"کامپیوتر"}}
+{"id":"fa-27","platform":"x","text":"دوستان برای خرید دوربین عکاسی تا ۳۰ میلیون چی پیشنهاد می‌دید؟","expected":{"is_need":true,"category":"عکاسی"}}
+{"id":"fa-28","platform":"x","text":"گوشی خریدم، برای فروشش مشتری هست؟","expected":{"is_need":false}}
+{"id":"fa-29","platform":"x","text":"فروش لوازم جانبی موبایل با تخفیف، همین الان سفارش بدید","expected":{"is_need":false}}
+{"id":"fa-30","platform":"x","text":"برای سفر کمپینگ یه چراغ شارژی قوی می‌خوام","expected":{"is_need":true,"category":"کمپینگ"}}

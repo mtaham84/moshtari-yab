@@ -1,0 +1,106 @@
+{% extends "panel/base_panel.html" %}
+
+{% block title %}بازبینی پست‌های اینستاگرام | پیدا{% endblock %}
+{% block breadcrumb %}بازبینی پست‌های اینستاگرام{% endblock %}
+{% block nav_instagram_pages %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header" style="margin-bottom:24px;">
+  <div class="p-header-titles">
+    <h1 class="p-page-title">بازبینی انسانی پست‌های اینستاگرام</h1>
+    <p class="p-page-subtitle">تصمیم شما فقط به‌عنوان برچسب ارزیابی ذخیره می‌شود و به‌تنهایی هیچ پیامی برای کسی نمی‌فرستد.</p>
+  </div>
+</div>
+<p><a href="{% url 'discovery:instagram_pages' %}">بازگشت به تنظیم صفحه‌ها و هشتگ‌ها</a></p>
+{% if messages %}<div class="auth-messages" style="margin-bottom:18px;">{% for message in messages %}<div class="alert alert-{{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+{% if throttled %}<div class="alert alert-error">سقف بازبینی در ساعت گذشته پر شده است. کمی بعد دوباره تلاش کنید.</div>{% endif %}
+{% if last_post_label %}
+<div class="p-card" style="padding:20px;margin-bottom:20px;" aria-live="polite">
+  <h2>نتیجهٔ برچسب ثبت‌شده</h2>
+  <p>تصمیم اپراتور: {% if last_post_label.decision == "approve" %}تأیید{% else %}رد{% endif %}</p>
+  <p>نتیجهٔ تحلیل‌گر پس از ثبت تصمیم: {{ last_post_label.analyzer_snapshot.result }}؛ امتیاز: {{ last_post_label.analyzer_snapshot.score }}؛ دلیل: {{ last_post_label.analyzer_snapshot.reason_code }}.</p>
+  <p>شناسهٔ پست: {{ last_post_label.post_id }}</p>
+</div>
+{% endif %}
+<div class="p-card" style="padding:20px;margin-bottom:20px;">
+  <h2>گزارش دقت تحلیل دسته‌بندی</h2>
+  <p>این گزارش توافق برچسب‌های انسانی با دسته‌بندی پست‌ها را می‌سنجد؛ خروجی آن احتمال خرید نیست و آستانه‌ها را خودکار تغییر نمی‌دهد.</p>
+  <ul>
+    <li>پست‌های تحلیل‌شده N_posts_analyzed: {{ post_report.denominators.N_posts_analyzed }}</li>
+    <li>تطبیق‌های قطعی N_confident: {{ post_report.denominators.N_confident }}</li>
+    <li>پست‌های نیازمند بازبینی N_review: {{ post_report.denominators.N_review }}</li>
+    <li>برچسب‌های بازبینی N_review_labeled: {{ post_report.denominators.N_review_labeled }} (تأیید {{ post_report.review_labels.approve }}، رد {{ post_report.review_labels.reject }})</li>
+    <li>برچسب‌های نمونهٔ ممیزی تطبیق قطعی N_audit_labeled: {{ post_report.denominators.N_audit_labeled }}</li>
+    <li>توافق تطبیق قطعی: {{ post_report.confident_match_agreement.numerator }} از {{ post_report.confident_match_agreement.denominator }}{% if post_report.confident_match_agreement.percent != None %} ({{ post_report.confident_match_agreement.percent|floatformat:1 }}٪){% else %} (نامشخص؛ مخرج صفر است){% endif %}</li>
+    <li>نرخ تأیید در بازهٔ بازبینی: {{ post_report.review_band_approve_rate.numerator }} از {{ post_report.review_band_approve_rate.denominator }}{% if post_report.review_band_approve_rate.percent != None %} ({{ post_report.review_band_approve_rate.percent|floatformat:1 }}٪){% else %} (نامشخص؛ مخرج صفر است){% endif %}</li>
+  </ul>
+  <details><summary>دقت بر اساس بازهٔ امتیاز</summary>
+    <table style="width:100%;text-align:right;"><thead><tr><th>بازه</th><th>تأیید</th><th>برچسب‌خورده</th><th>نرخ تأیید</th></tr></thead><tbody>
+      {% for bucket in post_report.score_buckets %}<tr><td>{{ bucket.range.min_inclusive }} تا {% if bucket.range.max_inclusive != None %}{{ bucket.range.max_inclusive }} (شامل){% else %}کمتر از {{ bucket.range.max_exclusive }}{% endif %}</td><td>{{ bucket.approved }}</td><td>{{ bucket.labeled_denominator }}</td><td>{% if bucket.human_approve_rate.percent != None %}{{ bucket.human_approve_rate.percent|floatformat:1 }}٪{% else %}—{% endif %}</td></tr>{% endfor %}
+    </tbody></table>
+  </details>
+  <p><a href="{% url 'discovery:instagram_post_report_api' %}">دریافت گزارش پست‌ها به‌شکل JSON</a></p>
+</div>
+<div class="p-card" style="padding:20px;margin-bottom:20px;">
+  <h2>صف بازبینی ({{ pending_total }})</h2>
+  <form method="get" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:16px;">
+    <label>دلیل
+      <select class="form-input" name="reason"><option value="">همه</option>
+        {% for reason in review_reasons %}<option value="{{ reason }}" {% if reason_filter == reason %}selected{% endif %}>{{ reason }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>دستهٔ پیشنهادی
+      <select class="form-input" name="category"><option value="">همه</option>
+        {% for category in categories %}<option value="{{ category.pk }}" {% if category_filter == category.pk|stringformat:"s" %}selected{% endif %}>{{ category.full_path|default:category.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <button class="p-btn p-btn-primary" type="submit">اعمال فیلتر</button>
+  </form>
+  {% if invalid_label %}<p class="alert alert-error">اطلاعات تصمیم معتبر نبود؛ دسته‌بندی و محصول باید متعلق به کسب‌وکار شما باشند.</p>{% endif %}
+  {% for row in pending_posts %}
+  <article style="border-top:1px solid var(--panel-border);padding:18px 0;">
+    <p>{{ row.caption }}</p>
+    {% if row.hashtags %}<p>هشتگ‌ها: {% for hashtag in row.hashtags %}<span dir="auto">#{{ hashtag }}</span>{% if not forloop.last %}، {% endif %}{% endfor %}</p>{% endif %}
+    {% if row.source_hashtag %}<p>هشتگ مبدأ: #{{ row.source_hashtag }}</p>{% endif %}
+    {% if row.audit %}
+      <p><strong>نمونهٔ ممیزی کور:</strong> نتیجه و پیشنهاد تحلیل‌گر تا ثبت تصمیم شما پنهان است.</p>
+    {% else %}
+      <p>دستهٔ پیشنهادی: {{ row.candidate_category|default:"—" }}؛ محصول پیشنهادی: {{ row.candidate_product|default:"—" }}؛ امتیاز: {{ row.score|default:"—" }}</p>
+      <p>دلیل: {{ row.reason_code }}؛ منبع دانش: {{ row.knowledge_source.kind|default:"—" }}</p>
+      {% for evidence in row.evidence %}<p>{{ evidence.label }}: {{ evidence.text }}</p>{% endfor %}
+    {% endif %}
+    {% if row.post_url %}
+      <p><a href="{{ row.post_url }}" target="_blank" rel="noopener noreferrer">بازکردن پست اینستاگرام</a></p>
+    {% endif %}
+    <form method="post" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+      {% csrf_token %}<input type="hidden" name="action" value="label_post">
+      <input type="hidden" name="post_id" value="{{ row.post_id }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="reason" value="{{ reason_filter }}">
+      <input type="hidden" name="category" value="{{ category_filter }}">
+      <label>دستهٔ انتخابی
+        <select class="form-input" name="category_id">
+          <option value="">انتخاب دسته (برای تأیید الزامی)</option>
+          {% for category in categories %}<option value="{{ category.pk }}" {% if not row.audit and row.candidate_category_id == category.pk|stringformat:"s" %}selected{% endif %}>{{ category.full_path|default:category.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>محصول (اختیاری)
+        <select class="form-input" name="product_id"><option value="">بدون محصول</option>
+          {% for product in products %}<option value="{{ product.pk }}">{{ product.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="p-btn p-btn-primary" type="submit" name="decision" value="approve">تأیید و انتخاب هدف</button>
+      <button class="p-btn" type="submit" name="decision" value="reject">رد</button>
+      <button class="p-btn p-btn-secondary" type="submit" name="action" value="skip_post">فعلاً رد شدن</button>
+    </form>
+  </article>
+  {% empty %}<p>پستی برای بازبینی در این صفحه نیست.</p>{% endfor %}
+  {% if page_count > 1 %}
+  <nav aria-label="صفحه‌بندی بازبینی پست‌ها" style="display:flex;gap:12px;align-items:center;">
+    {% if page > 1 %}<a href="?page={{ page|add:"-1" }}&amp;reason={{ reason_filter|urlencode }}&amp;category={{ category_filter|urlencode }}">صفحهٔ قبل</a>{% endif %}
+    <span>صفحهٔ {{ page }} از {{ page_count }}</span>
+    {% if page < page_count %}<a href="?page={{ page|add:"1" }}&amp;reason={{ reason_filter|urlencode }}&amp;category={{ category_filter|urlencode }}">صفحهٔ بعد</a>{% endif %}
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}
