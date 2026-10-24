@@ -41,3 +41,6 @@ groups.txt
 xray/config.json
 xray/*.txt
 !xray/*.example.txt
+sessions/
+instagram_engine/sessions/
+
