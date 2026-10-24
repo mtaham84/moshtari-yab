@@ -2,7 +2,7 @@ import random
 import time
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 try:
     from instagrapi import Client

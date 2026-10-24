@@ -44,3 +44,5 @@ xray/*.txt
 sessions/
 instagram_engine/sessions/
 
+
+.worktrees/
