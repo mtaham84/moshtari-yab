@@ -1,0 +1,573 @@
+{% extends "ops/base.html" %}
+
+{% block title %}مدیریت اسکرپرها، لیدها و مصرف مالی{% endblock %}
+
+{% block content %}
+<style>
+  .manage-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 20px;
+    padding-bottom: 4px;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    padding: 10px 18px;
+    font: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.2s ease;
+  }
+  .tab-btn:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent);
+    background: var(--accent-soft);
+  }
+  .tab-pane {
+    display: none;
+  }
+  .tab-pane.active {
+    display: block;
+  }
+  .badge-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .badge-status.active {
+    background: #e6f9f0;
+    color: #0e8a4a;
+  }
+  .badge-status.cooldown {
+    background: #fff8e6;
+    color: #b37400;
+  }
+  .badge-status.challenged {
+    background: #fff0e6;
+    color: #c9510c;
+  }
+  .badge-status.banned {
+    background: #fde8e8;
+    color: #b91c1c;
+  }
+  .intent-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.82rem;
+  }
+  .intent-very-high { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+  .intent-high { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+  .intent-mid { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  .account-form {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    align-items: flex-end;
+  }
+  .test-feedback {
+    font-size: 0.78rem;
+    margin-top: 4px;
+    display: block;
+  }
+</style>
+
+<div class="ops-head">
+  <div>
+    <h1>🚀 مرکز مدیریت اسکرپرها، لیدها و مصرف مالی</h1>
+    <p class="muted" style="margin:4px 0 0;">پایش بلادرنگ سلامت اکانت‌های اینستاگرام، صف ارسال اولویت‌دار و مصرف کیف‌پول</p>
+  </div>
+  <div>
+    <span class="pill" style="font-size:0.85rem; padding:6px 12px;">
+      🕒 به‌روزرسانی: {{ now|date:"Y/m/d H:i" }}
+    </span>
+  </div>
+</div>
+
+<!-- KPI Summary Cards -->
+<div class="grid g4" style="margin-bottom: 24px;">
+  <div class="card stat">
+    <div class="label">اکانت‌های اسکرپر (فعال / کل)</div>
+    <div class="value" style="color:var(--ok);">{{ scrapers_active }} <span style="font-size:1rem;color:var(--muted);">/ {{ scrapers_total }}</span></div>
+    <div class="sub">
+      {% if scrapers_cooldown %}<span style="color:var(--warn);">{{ scrapers_cooldown }} استراحت</span> | {% endif %}
+      {% if scrapers_challenged %}<span style="color:#c9510c;">{{ scrapers_challenged }} چالش</span> | {% endif %}
+      {% if scrapers_banned %}<span style="color:var(--down);">{{ scrapers_banned }} مسدود</span>{% else %}بدون مسدودی{% endif %}
+    </div>
+  </div>
+
+  <div class="card stat">
+    <div class="label">اکانت‌های فرستنده (پاسخگو)</div>
+    <div class="value" style="color:var(--accent);">{{ senders_active }} <span style="font-size:1rem;color:var(--muted);">/ {{ senders_total }}</span></div>
+    <div class="sub">{{ dms_sent_total }} دایرکت ارسالی موفق</div>
+  </div>
+
+  <div class="card stat">
+    <div class="label">سرنخ‌های دارای قصد خرید بالا</div>
+    <div class="value" style="color:#0284c7;">{{ high_intent_leads }} <span style="font-size:1rem;color:var(--muted);">/ {{ total_leads }} کل</span></div>
+    <div class="sub">اولویت‌بندی خودکار از بیشترین به کمترین</div>
+  </div>
+
+  <div class="card stat">
+    <div class="label">کل مصرف مالی فروشنده‌ها</div>
+    <div class="value">{{ total_spent_all|floatformat:0 }} <small style="font-size:0.75rem;">تومان</small></div>
+    <div class="sub">موجودی کیف‌پول‌ها: {{ total_balance_all|floatformat:0 }} تومان</div>
+  </div>
+</div>
+
+<!-- Navigation Tabs -->
+<div class="manage-tabs">
+  <button class="tab-btn active" onclick="openTab('scrapers', this)">🤖 اکانت‌های اسکرپر ({{ scrapers_total }})</button>
+  <button class="tab-btn" onclick="openTab('senders', this)">✉️ اکانت‌های فرستنده و صف لیدها ({{ senders_total }})</button>
+  <button class="tab-btn" onclick="openTab('billing', this)">💳 مصرف مالی و اعتباری اکانت‌ها ({{ financial_rows|length }})</button>
+</div>
+
+<!-- TAB 1: SCRAPERS MANAGEMENT -->
+<div id="tab-scrapers" class="tab-pane active">
+  <div class="account-form">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ افزودن اکانت اسکرپر جدید (Scraper Burner Pool)</h2>
+    <form method="POST" action="{% url 'manage:account_add' %}">
+      {% csrf_token %}
+      <input type="hidden" name="role" value="SCRAPER">
+      <input type="hidden" name="tenant_id" value="tenant_default">
+      <div class="form-row">
+        <div class="field">
+          <label>نام کاربری اینستاگرام (Username)</label>
+          <input type="text" name="username" class="ops-input" placeholder="مثال: scraper_bot_99" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>رمز عبور (Password)</label>
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>پروکسی اختصاصی (اختیاری)</label>
+          <input type="text" name="proxy_url" class="ops-input" placeholder="socks5://user:pass@ip:port" dir="ltr">
+          <span class="help">پشتیبانی از SOCKS5 و HTTP</span>
+        </div>
+        <div>
+          <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت اسکرپر</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <h2>لیست و وضعیت بلادرنگ اکانت‌های اسکرپر</h2>
+      <span class="muted" style="font-size:0.8rem;">وضعیت اتصال، سشن و زمان باقی‌مانده استراحت به طور زنده تست می‌شود</span>
+    </div>
+
+    {% if scrapers %}
+    <table>
+      <thead>
+        <tr>
+          <th>شناسه</th>
+          <th>اکانت اینستاگرام</th>
+          <th>وضعیت اتصال و سشن</th>
+          <th>پروکسی</th>
+          <th>عملیات امروز</th>
+          <th>آخرین فعالیت</th>
+          <th>عملیات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for acc in scrapers %}
+        <tr id="row-acc-{{ acc.id }}">
+          <td>#{{ acc.id }}</td>
+          <td>
+            <strong>@{{ acc.username }}</strong>
+            {% if acc.session_json %}
+              <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">دارای سشن ذخیره‌شده</span>
+            {% else %}
+              <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if acc.status == 'ACTIVE' %}
+              <span class="badge-status active" id="badge-{{ acc.id }}">🟢 متصل و فعال</span>
+            {% elif acc.status == 'COOLDOWN' %}
+              <span class="badge-status cooldown" id="badge-{{ acc.id }}">🟡 استراحت Cooldown ({{ acc.cooldown_until|time:"H:i" }})</span>
+            {% elif acc.status == 'CHALLENGED' %}
+              <span class="badge-status challenged" id="badge-{{ acc.id }}">🟠 چالش امنیتی (کد تایید)</span>
+            {% else %}
+              <span class="badge-status banned" id="badge-{{ acc.id }}">🔴 مسدود شده (Banned)</span>
+            {% endif %}
+            <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
+          </td>
+          <td dir="ltr" style="text-align:right;">
+            {% if acc.proxy_url %}
+              <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:28 }}</code>
+            {% else %}
+              <span class="muted">اتصال مستقیم</span>
+            {% endif %}
+          </td>
+          <td class="n">{{ acc.daily_action_count }}</td>
+          <td>
+            {% if acc.last_action_at %}
+              {{ acc.last_action_at|timesince }} پیش
+            {% else %}
+              <span class="muted">هنوز فعالیتی ثبت نشده</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-test-{{ acc.id }}" title="تست اتصال زنده و وضعیت سشن">
+                ⚡ تست اتصال
+              </button>
+              <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn sm danger">حذف</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center; padding:30px;" class="muted">
+      هیچ اکانت اسکرپری ثبت نشده است. از فرم بالا اولین اکانت اسکرپر را اضافه نمایید.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- TAB 2: SENDERS & PRIORITIZED LEADS -->
+<div id="tab-senders" class="tab-pane">
+  <div class="account-form">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ ثبت اکانت فرستنده / پاسخگوی فروشنده (Sender Account)</h2>
+    <form method="POST" action="{% url 'manage:account_add' %}">
+      {% csrf_token %}
+      <input type="hidden" name="role" value="SENDER">
+      <div class="form-row">
+        <div class="field">
+          <label>انتخاب فروشگاه / کسب‌وکار</label>
+          <select name="tenant_id" class="ops-input" required>
+            <option value="tenant_default">فروشگاه عمومی (tenant_default)</option>
+            {% for b in businesses %}
+              <option value="tenant_{{ b.id }}">{{ b.name }} (مالک: {{ b.user.get_full_name|default:b.user.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>نام کاربری پیج فروشنده</label>
+          <input type="text" name="username" class="ops-input" placeholder="مثال: my_store_support" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>رمز عبور پیج</label>
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>پروکسی اختصاصی (اختیاری)</label>
+          <input type="text" name="proxy_url" class="ops-input" placeholder="socks5://..." dir="ltr">
+        </div>
+        <div>
+          <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت فرستنده</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Senders List -->
+  <div class="card" style="margin-bottom:24px;">
+    <h2>اکانت‌های فرستنده و پاسخگوی معرفی‌شده</h2>
+    {% if senders %}
+    <table>
+      <thead>
+        <tr>
+          <th>شناسه</th>
+          <th>نام اکانت</th>
+          <th>مستأجر / فروشگاه</th>
+          <th>وضعیت</th>
+          <th>دایرکت‌های امروز</th>
+          <th>آخرین دایرکت</th>
+          <th>عملیات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in senders %}
+        <tr>
+          <td>#{{ s.id }}</td>
+          <td><strong>@{{ s.username }}</strong></td>
+          <td><span class="pill">{{ s.tenant_id }}</span></td>
+          <td>
+            {% if s.status == 'ACTIVE' %}
+              <span class="badge-status active">🟢 فعال و آماده</span>
+            {% elif s.status == 'COOLDOWN' %}
+              <span class="badge-status cooldown">🟡 استراحت تا {{ s.cooldown_until|time:"H:i" }}</span>
+            {% else %}
+              <span class="badge-status banned">🔴 {{ s.get_status_display }}</span>
+            {% endif %}
+          </td>
+          <td class="n">{{ s.daily_action_count }} / ۲۰</td>
+          <td>{{ s.last_action_at|timesince|default:"—" }}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)">⚡ تست</button>
+              <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn sm danger">حذف</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:20px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</p>
+    {% endif %}
+  </div>
+
+  <!-- Prioritized Leads Queue -->
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2>🎯 صف لیدها بر اساس بالاترین احتمال خرید (Prioritized Queue)</h2>
+        <p class="muted" style="font-size:0.8rem; margin:2px 0 0;">
+          سیستم به دلیل محدودیت‌های دایرکت اینستاگرام، لیدها را به ترتیب از <strong>بیشترین احتمال خرید به کمترین</strong> ارسال می‌کند.
+        </p>
+      </div>
+      <div>
+        <span class="pill" style="font-weight:600;">نمایش ۶۰ سرنخ دارای اولویت برتر</span>
+      </div>
+    </div>
+
+    {% if leads %}
+    <table>
+      <thead>
+        <tr>
+          <th>اولویت خرید</th>
+          <th>کاربر خریدار</th>
+          <th>متن کامنت خریدار</th>
+          <th>کال‌تو‌اکشن منطبق</th>
+          <th>وضعیت ارسال</th>
+          <th>زمان کشف</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in leads %}
+        <tr>
+          <td>
+            {% if l.intent_score >= 0.95 %}
+              <span class="intent-badge intent-very-high">🔥 {{ l.intent_score|floatformat:2 }} (بسیار بالا)</span>
+            {% elif l.intent_score >= 0.88 %}
+              <span class="intent-badge intent-high">⚡ {{ l.intent_score|floatformat:2 }} (بالا)</span>
+            {% else %}
+              <span class="intent-badge intent-mid">✨ {{ l.intent_score|floatformat:2 }} (عادی)</span>
+            {% endif %}
+          </td>
+          <td>
+            <strong>@{{ l.username }}</strong>
+            {% if l.full_name %}<div class="muted" style="font-size:0.75rem;">{{ l.full_name }}</div>{% endif %}
+          </td>
+          <td style="max-width:320px;">
+            <div style="font-size:0.85rem; line-height:1.4;">{{ l.comment_text|truncatechars:100 }}</div>
+            {% if l.source_post_url %}
+              <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.72rem; color:var(--muted);">🔗 مشاهده پست مبدا</a>
+            {% endif %}
+          </td>
+          <td>
+            {% if l.matched_cta %}
+              <code>{{ l.matched_cta }}</code>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if l.status == 'DM_SENT' %}
+              <span class="badge-status active">✅ پیام ارسال شد</span>
+            {% elif l.status == 'NEW' %}
+              <span class="badge-status cooldown">⏳ در صف ارسال</span>
+            {% elif l.status == 'SKIPPED' %}
+              <span class="badge-status" style="background:#f1f5f9; color:#64748b;">رد شده</span>
+            {% else %}
+              <span class="badge-status banned">خطا در ارسال</span>
+            {% endif %}
+          </td>
+          <td style="font-size:0.8rem;">{{ l.created_at|timesince }} پیش</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز لیدی استخراج نشده است. با اجرای اسکرپر کامنت‌ها و لیدها استخراج خواهند شد.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- TAB 3: FINANCIAL & CREDIT CONSUMPTION -->
+<div id="tab-billing" class="tab-pane">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2>💳 گزارش دقیق مصرف مالی و اعتباری هر اکانت و کسب‌وکار</h2>
+        <p class="muted" style="margin:2px 0 0;">مشاهده موجودی کیف‌پول، مجموع تومانی مصرف‌شده، هزینه دلاری هوش مصنوعی و تعداد درخواست‌ها</p>
+      </div>
+      <div>
+        <a href="{% url 'ops:wallets' %}" class="btn">مدیریت شارژ کیف‌پول‌ها ↗</a>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>شناسه</th>
+          <th>نام کسب‌وکار / فروشنده</th>
+          <th>موجودی کیف‌پول (تومان)</th>
+          <th>کل مصرف تومانی</th>
+          <th>هزینه خام API ($)</th>
+          <th>تعداد پیام و فراخوانی</th>
+          <th>لیدهای کشف‌شده</th>
+          <th>دایرکت‌های ارسالی</th>
+          <th>وضعیت اعتبار</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in financial_rows %}
+        <tr>
+          <td>#{{ row.business.id }}</td>
+          <td>
+            <strong>{{ row.business.name }}</strong>
+            <div class="muted" style="font-size:0.75rem;">مالک: {{ row.business.user.get_full_name|default:row.business.user.username }}</div>
+          </td>
+          <td class="n" style="font-weight:700;">
+            {{ row.balance|floatformat:0 }} تومان
+          </td>
+          <td class="n" style="color:var(--down);">
+            {{ row.spent|floatformat:0 }} تومان
+          </td>
+          <td class="n" style="color:var(--muted);">
+            ${{ row.cost_usd|floatformat:4 }}
+          </td>
+          <td class="n">{{ row.calls }}</td>
+          <td class="n">{{ row.leads_count }}</td>
+          <td class="n" style="color:var(--ok); font-weight:700;">{{ row.dms_sent }}</td>
+          <td>
+            {% if row.has_credit %}
+              <span class="badge-status active">🟢 دارای اعتبار کافی</span>
+            {% else %}
+              <span class="badge-status banned">🔴 اعتبار پایان‌یافته</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9" style="text-align:center; padding:30px;" class="muted">
+            هیچ کسب‌وکاری در سیستم ثبت نشده است.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--accent-soft); font-weight:700;">
+          <td colspan="2">مجموع کل سیستم:</td>
+          <td class="n">{{ total_balance_all|floatformat:0 }} تومان</td>
+          <td class="n" style="color:var(--down);">{{ total_spent_all|floatformat:0 }} تومان</td>
+          <td class="n">${{ total_cost_usd_all|floatformat:4 }}</td>
+          <td class="n">{{ total_calls_all }}</td>
+          <td class="n">{{ total_leads }}</td>
+          <td class="n" style="color:var(--ok);">{{ dms_sent_total }}</td>
+          <td>—</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- Client-side Scripts -->
+<script>
+  function openTab(tabName, btn) {
+    document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tabName).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+
+  function testAccountLive(accId, btn) {
+    const originalText = btn.innerText;
+    btn.innerText = "⏳ در حال تست...";
+    btn.disabled = true;
+
+    const feedback = document.getElementById('feedback-' + accId);
+    if (feedback) {
+      feedback.innerText = "در حال برقراری ارتباط...";
+      feedback.style.color = "var(--muted)";
+    }
+
+    fetch(`/manage/accounts/${accId}/test/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      btn.innerText = originalText;
+      btn.disabled = false;
+      const badge = document.getElementById('badge-' + accId);
+      if (badge && data.status) {
+        badge.className = 'badge-status ' + data.status.toLowerCase();
+        if (data.status === 'ACTIVE') {
+          badge.innerText = '🟢 متصل و فعال';
+        } else if (data.status === 'COOLDOWN') {
+          badge.innerText = '🟡 استراحت Cooldown';
+        } else if (data.status === 'CHALLENGED') {
+          badge.innerText = '🟠 چالش امنیتی';
+        } else {
+          badge.innerText = '🔴 مسدود (Banned)';
+        }
+      }
+      if (feedback) {
+        feedback.innerText = data.message || '';
+        feedback.style.color = data.success ? 'var(--ok)' : 'var(--down)';
+      }
+    })
+    .catch(err => {
+      btn.innerText = originalText;
+      btn.disabled = false;
+      if (feedback) {
+        feedback.innerText = "خطا در تست: " + err;
+        feedback.style.color = 'var(--down)';
+      }
+    });
+  }
+</script>
+{% endblock %}

@@ -851,3 +851,88 @@ class XQueryScore(models.Model):
     metrics = models.JSONField(default=dict)
     score = models.FloatField(default=0)
     recommendation = models.CharField(max_length=40, default="insufficient_data")
+
+
+class InstagramEngineAccount(models.Model):
+    ROLE_CHOICES = [
+        ("SCRAPER", "اسکرپر (پایش کامنت و هشتگ)"),
+        ("SENDER", "فرستنده / پاسخگو (ارسال دایرکت)"),
+    ]
+    STATUS_CHOICES = [
+        ("ACTIVE", "فعال و متصل"),
+        ("COOLDOWN", "استراحت موقت (Cooldown)"),
+        ("CHALLENGED", "نیازمند تایید / کد امنیتی (Challenge)"),
+        ("BANNED", "مسدود شده (Banned)"),
+    ]
+
+    tenant_id = models.CharField(max_length=64, default="tenant_default", db_index=True, verbose_name="شناسه مستأجر / فروشگاه")
+    username = models.CharField(max_length=100, unique=True, db_index=True, verbose_name="نام کاربری اینستاگرام")
+    password = models.CharField(max_length=255, verbose_name="رمز عبور")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="SCRAPER", db_index=True, verbose_name="نقش اکانت")
+    proxy_url = models.CharField(max_length=255, null=True, blank=True, verbose_name="پروکسی (SOCKS5/HTTP)")
+    session_json = models.JSONField(null=True, blank=True, verbose_name="دیتای سشن")
+    device_settings = models.JSONField(null=True, blank=True, verbose_name="تنظیمات سخت‌افزار")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ACTIVE", db_index=True, verbose_name="وضعیت")
+    daily_action_count = models.IntegerField(default=0, verbose_name="تعداد عملیات امروز")
+    last_action_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان فعالیت")
+    cooldown_until = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="پایان دوره استراحت")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ایجاد")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    class Meta:
+        db_table = "ig_accounts"
+        verbose_name = "اکانت موتور اینستاگرام"
+        verbose_name_plural = "اکانت‌های موتور اینستاگرام"
+        indexes = [
+            models.Index(fields=["tenant_id", "role", "status"], name="ix_ig_accounts_tr_status"),
+        ]
+
+    def is_available(self):
+        from django.utils import timezone
+        if self.status != "ACTIVE":
+            return False
+        if self.cooldown_until and self.cooldown_until > timezone.now():
+            return False
+        return True
+
+    def __str__(self):
+        return f"@{self.username} ({self.get_role_display()} - {self.get_status_display()})"
+
+
+class InstagramEngineLead(models.Model):
+    STATUS_CHOICES = [
+        ("NEW", "جدید (در صف ارسال اولویت‌دار)"),
+        ("DM_SENT", "دایرکت ارسال شد"),
+        ("FAILED", "ارسال ناموفق"),
+        ("SKIPPED", "رد شده (نامعتبر یا گاردریل اسپم)"),
+    ]
+
+    tenant_id = models.CharField(max_length=64, default="tenant_default", db_index=True, verbose_name="شناسه مستأجر")
+    ig_user_pk = models.CharField(max_length=64, db_index=True, verbose_name="شناسه عددی کاربر اینستاگرام")
+    username = models.CharField(max_length=100, db_index=True, verbose_name="نام کاربری لید")
+    full_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="نام کاربر")
+    profile_url = models.CharField(max_length=255, null=True, blank=True, verbose_name="لینک پروفایل")
+    comment_text = models.TextField(verbose_name="متن کامنت خریدار")
+    source_post_url = models.CharField(max_length=255, null=True, blank=True, verbose_name="لینک پست مبدا")
+    post_caption_snippet = models.TextField(null=True, blank=True, verbose_name="خلاصه کپشن پست")
+    matched_cta = models.CharField(max_length=100, null=True, blank=True, verbose_name="کال‌تواکشن منطبق")
+    intent_score = models.FloatField(default=0.85, db_index=True, verbose_name="ضریب احتمال خرید")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW", db_index=True, verbose_name="وضعیت لید")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان استخراج")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    class Meta:
+        db_table = "leads"
+        verbose_name = "لید اینستاگرام"
+        verbose_name_plural = "لیدهای اینستاگرام"
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "ig_user_pk"], name="uq_tenant_lead_pk"),
+        ]
+        indexes = [
+            models.Index(fields=["tenant_id", "status"], name="ix_leads_t_status"),
+            models.Index(fields=["intent_score"], name="ix_leads_intent_score"),
+        ]
+
+    def __str__(self):
+        return f"@{self.username} (احتمال خرید: {int(self.intent_score * 100)}% - {self.get_status_display()})"
+

@@ -11,6 +11,7 @@
 <div class="ops-layout">
   <aside class="ops-side">
     <div class="ops-brand">مشتری‌یاب<small>پنل مدیریت</small></div>
+    <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' %}on{% endif %}">🤖 اسکرپر و لیدهای اینستاگرام</a>
     <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}">داشبورد و وضعیت سرویس‌ها</a>
     <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}">هزینه‌ها</a>
     <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}">قیف و کیفیت سرنخ</a>

@@ -201,6 +201,7 @@ class ScraperWorker:
                     is_lead, match_reason = is_buyer_comment(comment_text, cta_word=cta_trigger)
 
                     if is_lead:
+                        score = 0.95 if match_reason and "cta_match" in match_reason else 0.90
                         saved = self._save_lead(
                             ig_user_pk=user_pk,
                             username=username,
@@ -209,6 +210,7 @@ class ScraperWorker:
                             source_post_url=source_post_url,
                             post_caption_snippet=caption_text[:300] if caption_text else None,
                             matched_cta=match_reason,
+                            intent_score=score,
                         )
                         if saved:
                             total_new_leads += 1
@@ -233,6 +235,7 @@ class ScraperWorker:
                             source_post_url=source_post_url,
                             post_caption_snippet=caption_text[:300] if caption_text else None,
                             matched_cta="tier3_llm_qualified",
+                            intent_score=0.80,
                         )
                         if saved:
                             total_new_leads += 1
@@ -262,6 +265,7 @@ class ScraperWorker:
         source_post_url: Optional[str],
         post_caption_snippet: Optional[str],
         matched_cta: Optional[str],
+        intent_score: float = 0.85,
     ) -> bool:
         """
         Inserts lead into database using ON CONFLICT DO NOTHING to strictly ensure
@@ -282,6 +286,7 @@ class ScraperWorker:
                     source_post_url=source_post_url,
                     post_caption_snippet=post_caption_snippet,
                     matched_cta=matched_cta,
+                    intent_score=intent_score,
                     status=LeadStatus.NEW,
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),

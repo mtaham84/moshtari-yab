@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     BigInteger,
     Text,
+    Float,
     DateTime,
     Enum,
     UniqueConstraint,
@@ -111,6 +112,7 @@ class Lead(Base):
     source_post_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     post_caption_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     matched_cta: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    intent_score: Mapped[float] = mapped_column(Float, default=0.8, nullable=False, index=True)
     status: Mapped[LeadStatus] = mapped_column(
         Enum(LeadStatus, name="lead_status_enum", native_enum=False),
         default=LeadStatus.NEW,

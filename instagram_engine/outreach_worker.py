@@ -214,7 +214,7 @@ class OutreachWorker:
                     Lead.tenant_id == self.tenant_id,
                     Lead.status == LeadStatus.NEW,
                 )
-                .order_by(Lead.created_at.asc())
+                .order_by(Lead.intent_score.desc(), Lead.created_at.asc())
                 .limit(max_batch)
                 .all()
             )
