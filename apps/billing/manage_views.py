@@ -400,3 +400,83 @@ def manage_account_submit_code(request, pk):
             "message": f"خطا در ثبت کد تایید: {exc}",
         })
 
+
+@manage_access_required
+@require_GET
+def manage_leads_export_csv(request):
+    """
+    Exports all extracted leads as a UTF-8 BOM CSV dataset.
+    """
+    import csv
+    from django.http import HttpResponse
+
+    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+
+    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
+    response.write('\ufeff')
+
+    writer = csv.writer(response)
+    writer.writerow([
+        "شناسه عددی کاربر (IG PK)",
+        "نام کاربری (Username)",
+        "نام کامل (Full Name)",
+        "لینک پروفایل (Profile URL)",
+        "متن کامنت خریدار (Comment)",
+        "لینک پست مبدا (Source Post URL)",
+        "خلاصه کپشن پست (Post Caption)",
+        "کال‌تو‌اکشن منطبق (Trigger / CTA)",
+        "ضریب احتمال خرید (Intent Score)",
+        "وضعیت (Status)",
+        "مستأجر / فروشگاه (Tenant ID)",
+        "زمان کشف (Created At)",
+    ])
+
+    for l in leads:
+        writer.writerow([
+            l.ig_user_pk,
+            l.username,
+            l.full_name or "",
+            l.profile_url or f"https://www.instagram.com/{l.username}/",
+            l.comment_text,
+            l.source_post_url or "",
+            l.post_caption_snippet or "",
+            l.matched_cta or "",
+            f"{l.intent_score:.2f}",
+            l.get_status_display(),
+            l.tenant_id,
+            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
+        ])
+
+    return response
+
+
+@manage_access_required
+@require_GET
+def manage_leads_export_json(request):
+    """
+    Exports all extracted leads as a JSON dataset.
+    """
+    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+    data = []
+    for l in leads:
+        data.append({
+            "ig_user_pk": l.ig_user_pk,
+            "username": l.username,
+            "full_name": l.full_name,
+            "profile_url": l.profile_url or f"https://www.instagram.com/{l.username}/",
+            "comment_text": l.comment_text,
+            "source_post_url": l.source_post_url,
+            "post_caption_snippet": l.post_caption_snippet,
+            "matched_cta": l.matched_cta,
+            "intent_score": l.intent_score,
+            "status": l.status,
+            "tenant_id": l.tenant_id,
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        })
+
+    response = JsonResponse(data, safe=False, json_dumps_params={"ensure_ascii": False, "indent": 2})
+    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.json"'
+    return response
+
+

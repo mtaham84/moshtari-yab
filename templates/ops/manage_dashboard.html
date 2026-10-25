@@ -353,11 +353,17 @@
       <div>
         <h2>🎯 صف لیدها بر اساس بالاترین احتمال خرید (Prioritized Queue)</h2>
         <p class="muted" style="font-size:0.8rem; margin:2px 0 0;">
-          سیستم به دلیل محدودیت‌های دایرکت اینستاگرام، لیدها را به ترتیب از <strong>بیشترین احتمال خرید به کمترین</strong> ارسال می‌کند.
+          لیدها و خریداران بالقوه از کامنت پست‌های دارای حداقل ۵۰ کامنت استخراج شده و به ترتیب احتمال خرید ذخیره می‌شوند.
         </p>
       </div>
-      <div>
-        <span class="pill" style="font-weight:600;">نمایش ۶۰ سرنخ دارای اولویت برتر</span>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <a href="{% url 'manage:leads_export_csv' %}" class="btn sm" style="background:#059669; color:#fff;" title="دانلود کل دیتاست با فرمت اکسل / CSV">
+          📥 دانلود دیتاست (CSV)
+        </a>
+        <a href="{% url 'manage:leads_export_json' %}" class="btn sm" style="background:#0284c7; color:#fff;" title="دانلود دیتاست استاندارد JSON">
+          📦 خروجی JSON
+        </a>
+        <span class="pill" style="font-weight:600;">{{ total_leads }} کل لیدها</span>
       </div>
     </div>
 
@@ -368,6 +374,7 @@
           <th>اولویت خرید</th>
           <th>کاربر خریدار</th>
           <th>متن کامنت خریدار</th>
+          <th>پست مبدا و کپشن</th>
           <th>کال‌تو‌اکشن منطبق</th>
           <th>وضعیت ارسال</th>
           <th>زمان کشف</th>
@@ -386,13 +393,28 @@
             {% endif %}
           </td>
           <td>
-            <strong>@{{ l.username }}</strong>
+            <a href="{{ l.profile_url|default:'https://www.instagram.com/'|add:l.username }}" target="_blank" style="font-weight:700; color:var(--accent); text-decoration:none;">
+              @{{ l.username }} ↗
+            </a>
             {% if l.full_name %}<div class="muted" style="font-size:0.75rem;">{{ l.full_name }}</div>{% endif %}
+            <div class="muted" style="font-size:0.7rem; font-family:monospace;">PK: {{ l.ig_user_pk }}</div>
           </td>
-          <td style="max-width:320px;">
-            <div style="font-size:0.85rem; line-height:1.4;">{{ l.comment_text|truncatechars:100 }}</div>
+          <td style="max-width:300px;">
+            <div style="font-size:0.86rem; line-height:1.4; background:#f8fafc; padding:8px; border-radius:6px; border:1px solid #e2e8f0;">
+              «{{ l.comment_text }}»
+            </div>
+          </td>
+          <td style="max-width:280px;">
             {% if l.source_post_url %}
-              <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.72rem; color:var(--muted);">🔗 مشاهده پست مبدا</a>
+              <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.78rem; font-weight:600; color:#0284c7; display:inline-block; margin-bottom:4px;">🔗 مشاهده پست مبدا ↗</a>
+            {% endif %}
+            {% if l.post_caption_snippet %}
+              <details style="margin-top:2px;">
+                <summary style="font-size:0.72rem; color:var(--muted); cursor:pointer;">📄 خلاصه کپشن پست</summary>
+                <div style="font-size:0.73rem; background:#fff; padding:6px; border-radius:4px; margin-top:4px; border:1px solid #cbd5e1; line-height:1.4; max-height:90px; overflow-y:auto;">
+                  {{ l.post_caption_snippet }}
+                </div>
+              </details>
             {% endif %}
           </td>
           <td>

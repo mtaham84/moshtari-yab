@@ -115,9 +115,29 @@ class ScraperWorker:
 
     @handle_instagram_exceptions
     def fetch_recent_medias(self, hashtag: str, amount: int = 15):
-        """Fetches recent medias for a hashtag."""
-        logger.info("Fetching top %d recent medias for hashtag #%s...", amount, hashtag)
-        return self.client.hashtag_medias_recent(hashtag, amount=amount)
+        """Fetches both top/high-engagement and recent medias for a hashtag."""
+        logger.info("Fetching top and recent medias for hashtag #%s...", hashtag)
+        medias = []
+        seen = set()
+        try:
+            top_list = self.client.hashtag_medias_top(hashtag, amount=amount)
+            for m in top_list:
+                if str(m.id) not in seen:
+                    seen.add(str(m.id))
+                    medias.append(m)
+        except Exception as te:
+            logger.debug("hashtag_medias_top fallback: %s", te)
+
+        try:
+            recent_list = self.client.hashtag_medias_recent(hashtag, amount=amount)
+            for m in recent_list:
+                if str(m.id) not in seen:
+                    seen.add(str(m.id))
+                    medias.append(m)
+        except Exception as re:
+            logger.debug("hashtag_medias_recent fallback: %s", re)
+
+        return medias
 
     @handle_instagram_exceptions
     def fetch_media_comments(self, media_id: str, amount: int = 50):
@@ -127,18 +147,21 @@ class ScraperWorker:
         """
         return self.client.media_comments(media_id, amount=amount)
 
-    def process_query(self, search_query: str) -> int:
+    def process_query(self, search_query: str, min_comments: Optional[int] = None) -> int:
         """
         Executes a complete scraping cycle for a search query across hashtags,
+        filters posts with at least `min_comments` (default from settings),
         evaluates comments using multi-tier analyzer, and saves qualified leads.
         """
+        threshold = min_comments if min_comments is not None else settings.min_post_comments_threshold
+
         if not self.account or not self.client:
             if not self.acquire_scraper_account():
                 logger.error("Cannot process query: no active scraper client available.")
                 return 0
 
         hashtags = self.expand_query_to_hashtags(search_query)
-        logger.info("Target hashtags to scrape: %s", hashtags)
+        logger.info("Target hashtags to scrape for '%s': %s (filter: >= %d comments)", search_query, hashtags, threshold)
 
         total_new_leads = 0
         hashtag_count = 0
@@ -150,7 +173,7 @@ class ScraperWorker:
                 break
 
             try:
-                medias = self.fetch_recent_medias(tag, amount=15)
+                medias = self.fetch_recent_medias(tag, amount=20)
                 hashtag_count += 1
             except CircuitBreakerTriggered:
                 logger.error("Circuit breaker tripped during hashtag fetch. Switching scraper account.")
@@ -163,15 +186,34 @@ class ScraperWorker:
                 media_id = str(media.id)
                 caption_text = media.caption_text if hasattr(media, "caption_text") else ""
                 source_post_url = f"https://www.instagram.com/p/{media.code}/" if hasattr(media, "code") else None
+                comment_count = getattr(media, "comment_count", 0) or 0
+
+                # Minimum comment threshold filter (default >= 50 comments)
+                if comment_count < threshold:
+                    logger.info(
+                        "⏩ Skipping post %s with %d comments (below requirement of >= %d).",
+                        source_post_url,
+                        comment_count,
+                        threshold,
+                    )
+                    continue
+
+                logger.info(
+                    "🎯 Qualifying post %s with %d comments (>= %d requirement). Analyzing thread...",
+                    source_post_url,
+                    comment_count,
+                    threshold,
+                )
 
                 # Step 1: Extract post CTA trigger word (Tier 1A / Tier 1B)
                 cta_trigger = get_effective_caption_cta(caption_text)
                 if cta_trigger:
                     logger.info("Found CTA trigger word in post %s: '%s'", source_post_url, cta_trigger)
 
-                # Step 2: Fetch comments
+                # Step 2: Fetch comments (fetch up to 100 comments from high-engagement posts)
                 try:
-                    comments = self.fetch_media_comments(media_id, amount=50)
+                    fetch_amount = min(comment_count, 100)
+                    comments = self.fetch_media_comments(media_id, amount=fetch_amount)
                 except CircuitBreakerTriggered:
                     logger.error("Circuit breaker tripped during comment fetch.")
                     return total_new_leads
