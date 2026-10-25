@@ -11,6 +11,8 @@ COPY requirements.txt .
 # PyPI mirror (server in Iran); override: docker compose build --build-arg PIP_INDEX_URL=https://pypi.org/simple
 ARG PIP_INDEX_URL=https://mirror-pypi.runflare.com/simple
 ARG PIP_TRUSTED_HOST=mirror-pypi.runflare.com
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 RUN pip install --default-timeout=120 --retries 10 -r requirements.txt
 
 # twitter-cli 0.8.5 + X web changes (2026-09): /i/jf/ homepage and live query ids; fails the build if it no longer applies
