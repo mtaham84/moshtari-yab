@@ -239,6 +239,13 @@ class Command(BaseCommand):
                                 )
                             )
 
+                        # Sync directly into unified Opportunity domain
+                        try:
+                            from apps.discovery.services import sync_instagram_lead_to_opportunity
+                            sync_instagram_lead_to_opportunity(lead)
+                        except Exception as sync_exc:
+                            self.stderr.write(f"Notice: Opportunity sync skipped: {sync_exc}")
+
                 self.stdout.write(f"   Total qualified leads extracted from this post: {post_leads_found}")
 
                 # Anti-ban sleep between qualifying posts
