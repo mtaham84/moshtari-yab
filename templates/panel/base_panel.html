@@ -224,6 +224,32 @@
             <span>تنظیمات</span>
           </div>
         </a>
+
+        {% if user.is_staff or user.is_superuser %}
+        <!-- لینک پنل مدیریت و اسکرپر برای ادمین -->
+        <a href="{% url 'manage:dashboard' %}" class="sidebar-link" style="color: #10B981; font-weight: 600;">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+            </span>
+            <span>پنل مدیریت و اسکرپر (/manage)</span>
+          </div>
+        </a>
+        <a href="{% url 'admin:index' %}" class="sidebar-link" style="color: #6366F1; font-weight: 600;">
+          <div class="sidebar-link-content">
+            <span class="sidebar-link-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+              </svg>
+            </span>
+            <span>ادمین جنگو (/admin)</span>
+          </div>
+        </a>
+        {% endif %}
       </nav>
 
       <!-- Sidebar Footer (Business Profile, Theme & Logout) -->
