@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from . import cli_mapping as mapping
 from .client import XCliClient, XCliError
+from .intent_queries import KIND_WEIGHTS
 from file_lock import exclusive_file_lock
 from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.seen import SeenStore
@@ -189,8 +190,8 @@ class XCollector:
                     collected_today = dry_state.count_today()
                 except (sqlite3.Error, OSError):
                     pass
-            planned = sorted(normalized_queries, key=lambda item: (-(item.get("priority", 1) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(item.get("kind"), 1.0)), item["query"]))[:self.queries_per_cycle]
-            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "planned_queries": [{**item, "weight": item.get("priority", 1.0) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(item.get("kind"), 1.0), "reason": "priority; stale history is considered on live runs"} for item in planned], "output": str(output_path), "cli_called": False}
+            planned = sorted(normalized_queries, key=lambda item: (-(item.get("priority", 1) * KIND_WEIGHTS.get(item.get("kind"), 1.0)), item["query"]))[:self.queries_per_cycle]
+            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "planned_queries": [{**item, "weight": item.get("priority", 1.0) * KIND_WEIGHTS.get(item.get("kind"), 1.0), "reason": "priority; stale history is considered on live runs"} for item in planned], "output": str(output_path), "cli_called": False}
         self.output_dir.mkdir(parents=True, exist_ok=True)
         guard = nullcontext() if _retention_locked else exclusive_file_lock(self.output_dir / ".retention_guard.lock")
         try:

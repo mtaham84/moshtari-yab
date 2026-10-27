@@ -179,3 +179,66 @@ def test_product_queries_without_llm_use_default_cues():
     assert queries and all(q["product_ids"] == ["1"] for q in queries)
     assert all(c in queries[0]["query"] for c in ("بخرم", "موجود", '"از کجا"'))
     assert len(PRODUCT_MODE_CUES) >= 10
+
+
+def test_queries_generate_alternative_and_complaint_kinds():
+    from workers.x_collector.intent_queries import product_queries
+
+    product = Product(product_id="20", title="نرم‌افزار حسابداری آنلاین", business_id="5")
+
+    # 1. Fallback cues when no LLM terms are provided
+    gen = generate_queries(product, mode="both")
+    kinds = {q["kind"] for q in gen}
+    assert "alternative" in kinds
+    assert "complaint" in kinds
+    assert "intent" in kinds
+    assert all(len(q["query"]) <= 400 for q in gen)
+
+    prod = product_queries(product)
+    p_kinds = {q["kind"] for q in prod}
+    assert "alternative" in p_kinds
+    assert "complaint" in p_kinds
+    assert all(len(q["query"]) <= 400 for q in prod)
+
+    # 2. With LLM terms provided
+    terms = {
+        "names": ["نرم‌افزار حسابداری"],
+        "cues": ["خرید اشتراک"],
+        "negatives": ["استخدام"],
+        "problems": ["حساب کتابم دقیق نیست"],
+        "alternatives": ["جایگزین هلو", "به جای سپیدار"],
+        "complaints": ["از این برنامه حسابداری خسته شدم"],
+    }
+    prod_llm = product_queries(product, terms=terms)
+    alt_q = next(q for q in prod_llm if q["kind"] == "alternative")
+    cmp_q = next(q for q in prod_llm if q["kind"] == "complaint")
+    assert "جایگزین هلو" in alt_q["query"] or "به جای سپیدار" in alt_q["query"]
+    assert "خسته" in cmp_q["query"]
+    assert all(len(q["query"]) <= 400 for q in prod_llm)
+
+
+def test_kind_weights_across_schedulers_and_worker(tmp_path):
+    from shared.collector_kit.seen import SeenStore
+    from workers.x_collector.intent_queries import KIND_WEIGHTS
+
+    assert KIND_WEIGHTS == {
+        "intent": 1.0,
+        "problem": 0.8,
+        "alternative": 0.7,
+        "complaint": 0.6,
+        "product": 0.4,
+    }
+
+    # Verify scheduler orders by weight when freshness is equal
+    db_path = tmp_path / "test_seen.sqlite3"
+    seen = SeenStore(db_path, platform="x")
+    queries = [
+        {"query": "q_prod", "kind": "product", "priority": 1.0},
+        {"query": "q_intent", "kind": "intent", "priority": 1.0},
+        {"query": "q_complaint", "kind": "complaint", "priority": 1.0},
+        {"query": "q_problem", "kind": "problem", "priority": 1.0},
+        {"query": "q_alt", "kind": "alternative", "priority": 1.0},
+    ]
+    selected = seen.schedule(queries, budget=5)
+    selected_kinds = [q["kind"] for q in selected]
+    assert selected_kinds == ["intent", "problem", "alternative", "complaint", "product"]

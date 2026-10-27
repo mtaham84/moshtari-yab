@@ -19,6 +19,9 @@ INTENT_TEMPLATES = (
     "{t} کجا بخرم", "برای خرید {t} راهنمایی", "{t} چی بخرم", "ممنون میشم {t} معرفی کنید",
 )
 INTENT_WORDS = ("بخرم", "بگیرم", "میخوام", "می‌خوام", "پیشنهاد", "سراغ", "معرفی", "دنبال", "خوبه")
+ALTERNATIVE_CUES = ("جایگزین", "\"به جای\"", "\"بهتر از\"", "\"سوییچ به\"", "\"کوچ به\"")
+COMPLAINT_CUES = ("\"خسته شدم از\"", "افتضاحه", "\"کار نمیکنه\"", "\"دیگه نمیکشه\"", "پشیمونم", "\"کند شده\"")
+KIND_WEIGHTS = {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}
 DEFAULT_NEGATIVES = ("تخفیف", "\"ارسال رایگان\"", "\"کد تخفیف\"", "\"فروش ویژه\"")
 _FA = re.compile(r"[آ-ی]")
 # marketing/filler words dropped from title n-grams (nobody searches "ایرفون بلوتوثی مدل")
@@ -147,6 +150,18 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
     values: list[tuple[str, str]] = [(q, "intent") for q in or_queries(names, intent_tail, max_chars)]
     problems = _dedupe_terms(list(terms.get("problems") or []), 2, 5)
     values += [(q, "problem") for q in or_queries(problems, ops, max_chars)]
+    alternatives = _dedupe_terms(list(terms.get("alternatives") or []), 2, 5)
+    if alternatives:
+        values += [(q, "alternative") for q in or_queries(alternatives, ops, max_chars)]
+    elif names:
+        alt_tail = "(" + " OR ".join(ALTERNATIVE_CUES) + ") " + ops
+        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
+    complaints = _dedupe_terms(list(terms.get("complaints") or []), 2, 5)
+    if complaints:
+        values += [(q, "complaint") for q in or_queries(complaints, ops, max_chars)]
+    elif names:
+        cmp_tail = "(" + " OR ".join(COMPLAINT_CUES) + ") " + ops
+        values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars)]
     if mode == "both":
         model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
         if model and len(model) >= 3:
@@ -220,6 +235,18 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     values = [(q, "intent") for q in or_queries(names, tail, max_chars)]
     problems = _dedupe_terms(list(terms.get("problems") or []), 2, 5)
     values += [(q, "problem") for q in or_queries(problems, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
+    alternatives = _dedupe_terms(list(terms.get("alternatives") or []), 2, 5)
+    if alternatives:
+        values += [(q, "alternative") for q in or_queries(alternatives, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
+    elif names:
+        alt_tail = " ".join(x for x in ("(" + " OR ".join(ALTERNATIVE_CUES) + ")", neg_ops, ops) if x)
+        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
+    complaints = _dedupe_terms(list(terms.get("complaints") or []), 2, 5)
+    if complaints:
+        values += [(q, "complaint") for q in or_queries(complaints, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
+    elif names:
+        cmp_tail = " ".join(x for x in ("(" + " OR ".join(COMPLAINT_CUES) + ")", neg_ops, ops) if x)
+        values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars)]
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
     out, seen = [], set()
     for query, kind in values:

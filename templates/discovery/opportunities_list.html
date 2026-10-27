@@ -281,6 +281,7 @@
             {% elif opp.source_platform == 'instagram' %}<span class="opp-chip">اینستاگرام</span>
             {% elif opp.source_platform == 'divar' %}<span class="opp-chip">دیوار</span>
             {% else %}<span class="opp-chip">سایر</span>{% endif %}
+            {% if opp.intent_type %}<span class="opp-chip opp-chip-intent">{{ opp.get_intent_type_display }}</span>{% endif %}
             <strong class="opp-name">{{ opp.customer.display_identifier }}</strong>
             {% if opp.customer.source_username and opp.source_platform == 'x' %}
               <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>

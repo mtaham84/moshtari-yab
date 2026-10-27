@@ -133,6 +133,7 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         opp.source_posted_at = _dt(payload.get("source_posted_at"))
         opp.source_posted_at_estimated = bool(payload.get("source_posted_at_estimated"))
         opp.source_query = str(payload.get("source_query") or "")[:255]
+        opp.intent_type = str(payload.get("intent_type") or (need.get("intent_type") if isinstance(need, dict) else "") or "")[:32]
         thread = payload.get("thread") or {}
         opp.thread_root_tweet_id = thread.get("root_tweet_id")
         opp.demand_count = int(thread.get("demand_count") or 0)
