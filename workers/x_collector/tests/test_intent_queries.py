@@ -217,7 +217,9 @@ def test_queries_generate_alternative_and_complaint_kinds():
     assert all(len(q["query"]) <= 400 for q in prod_llm)
 
 
-def test_kind_weights_across_schedulers_and_worker(tmp_path):
+def test_kind_weights_across_schedulers_and_worker():
+    import tempfile
+    from pathlib import Path
     from shared.collector_kit.seen import SeenStore
     from workers.x_collector.intent_queries import KIND_WEIGHTS
 
@@ -230,15 +232,16 @@ def test_kind_weights_across_schedulers_and_worker(tmp_path):
     }
 
     # Verify scheduler orders by weight when freshness is equal
-    db_path = tmp_path / "test_seen.sqlite3"
-    seen = SeenStore(db_path, platform="x")
-    queries = [
-        {"query": "q_prod", "kind": "product", "priority": 1.0},
-        {"query": "q_intent", "kind": "intent", "priority": 1.0},
-        {"query": "q_complaint", "kind": "complaint", "priority": 1.0},
-        {"query": "q_problem", "kind": "problem", "priority": 1.0},
-        {"query": "q_alt", "kind": "alternative", "priority": 1.0},
-    ]
-    selected = seen.schedule(queries, budget=5)
-    selected_kinds = [q["kind"] for q in selected]
-    assert selected_kinds == ["intent", "problem", "alternative", "complaint", "product"]
+    with tempfile.TemporaryDirectory() as td:
+        db_path = Path(td) / "test_seen.sqlite3"
+        seen = SeenStore(db_path, platform="x")
+        queries = [
+            {"query": "q_prod", "kind": "product", "priority": 1.0},
+            {"query": "q_intent", "kind": "intent", "priority": 1.0},
+            {"query": "q_complaint", "kind": "complaint", "priority": 1.0},
+            {"query": "q_problem", "kind": "problem", "priority": 1.0},
+            {"query": "q_alt", "kind": "alternative", "priority": 1.0},
+        ]
+        selected = seen.schedule(queries, budget=5)
+        selected_kinds = [q["kind"] for q in selected]
+        assert selected_kinds == ["intent", "problem", "alternative", "complaint", "product"]

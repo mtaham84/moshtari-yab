@@ -263,3 +263,11 @@ def test_x_batch_llm_post_caching_and_run_report_counters():
     assert len(cards2) == 1
     assert llm.calls == 1
     assert report2.cache_hits == 1
+
+    # Different product with same post must NOT hit cache (separate judging per product)
+    product2 = {"product_id": "p2", "title": "ویلچر دیگر"}
+    report3 = RunReport()
+    cards3, toman3, fits3 = extract_x_product_batch(messages, "x:public", product2, llm, cfg, datetime.now(timezone.utc), report=report3)
+    assert len(cards3) == 1
+    assert llm.calls == 2
+    assert report3.cache_hits == 0

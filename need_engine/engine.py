@@ -570,7 +570,7 @@ class NeedEngine:
     def _x_product_brief(self, j: int) -> dict:
         p = self.catalog.products[j]
         card = self.catalog.cards.get(p.product_id)
-        brief = {"title": p.title, "type": p.product_type, "summary": self.catalog.line(j)}
+        brief = {"product_id": p.product_id, "title": p.title, "type": p.product_type, "summary": self.catalog.line(j)}
         if card is not None:
             brief.update(what_it_is=card.what_it_is, aliases=card.aliases[:8], problems_solved=card.problems_solved[:5])
         return brief

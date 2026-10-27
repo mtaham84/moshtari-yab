@@ -13,7 +13,7 @@ from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
 from need_engine.platforms import for_chat_id, for_message
-from need_engine.platforms.x import X, batch_limits
+from need_engine.platforms.x import X, batch_limits, product_id_from_chat
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
 from need_engine.store import Store
 from need_engine.text import norm
@@ -239,15 +239,15 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
     if not messages:
         return [], 0.0, {}
     store = getattr(llm, "store", None)
-    pid = str(product.get("product_id") or "")
+    pid = str(product.get("product_id") or product_id_from_chat(chat_id) or "")
     cached_needs: dict[int, list[dict]] = {}
     cached_fits: dict[int, tuple[str, str]] = {}
     uncached: list = []
 
     for m in messages:
         norm_hash = hashlib.sha256(norm(m.text).encode()).hexdigest()
-        key = f"x_llm:prod:{pid}:{norm_hash}"
-        hit = store.cache_get(key) if store else None
+        key = f"x_llm:prod:{pid}:{norm_hash}" if pid else None
+        hit = store.cache_get(key) if (store and key) else None
         if isinstance(hit, dict) and "needs" in hit:
             cached_needs[m.message_id] = hit.get("needs") or []
             cached_fits[m.message_id] = tuple(hit.get("fit") or ("no", ""))
@@ -291,7 +291,7 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
                     best_f = (fit, str(n.get("fit_reason") or "")[:200])
             cached_needs[message.message_id] = relevant
             cached_fits[message.message_id] = best_f
-            if store:
+            if store and pid:
                 norm_hash = hashlib.sha256(norm(message.text).encode()).hexdigest()
                 store.cache_put(f"x_llm:prod:{pid}:{norm_hash}", {"needs": relevant, "fit": best_f})
 
