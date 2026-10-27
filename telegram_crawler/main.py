@@ -98,6 +98,10 @@ async def async_main() -> None:
                              fetch_profiles=False if args.no_profiles else None,
                              panel=PanelCommunities.connect() if use_panel else None)
     heartbeat_task = asyncio.create_task(_heartbeat_loop(monitor)) if not args.no_live else None
+    outreach_task = None
+    if not args.no_live:
+        from telegram_crawler.outreach import run_outbox
+        outreach_task = asyncio.create_task(run_outbox(client))
     try:
         await monitor.run(live=not args.no_live)
     except KeyboardInterrupt:
@@ -109,6 +113,9 @@ async def async_main() -> None:
         if args.no_live:
             beat_ok("telegram", monitor.stats.get("archived", 0))
     finally:
+        if outreach_task:
+            outreach_task.cancel()
+            await asyncio.gather(outreach_task, return_exceptions=True)
         if heartbeat_task:
             heartbeat_task.cancel()
             await asyncio.gather(heartbeat_task, return_exceptions=True)

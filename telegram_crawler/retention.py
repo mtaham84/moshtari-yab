@@ -81,7 +81,7 @@ def scrub_engine_opportunity_payload(payload: dict) -> dict:
 def scrub_panel_opportunities(cutoff: datetime, *, delete: bool) -> dict[str, int]:
     """Anonymize source identity and quotes while keeping sales records and opportunity-level metrics."""
     from django.db import transaction
-    from apps.discovery.retention import customer_ids_to_anonymize
+    from apps.discovery.retention import customer_ids_to_anonymize, scrub_telegram_outbox
 
     from apps.discovery.models import AIAnalysis, Customer, Evidence, Opportunity, OpportunityProductMatch
 
@@ -104,6 +104,7 @@ def scrub_panel_opportunities(cutoff: datetime, *, delete: bool) -> dict[str, in
         opportunity_ids = list(qs.values_list("pk", flat=True))
         if not opportunity_ids:
             return report
+        scrub_telegram_outbox(opportunity_ids)
         Opportunity.objects.filter(pk__in=opportunity_ids, status__in=("NEW", "REVIEWED")).update(status="EXPIRED")
         # Update once per affected business and preserve a customer row if that seller has a
         # retained opportunity or an actual order. Avoid per-opportunity nested scans.

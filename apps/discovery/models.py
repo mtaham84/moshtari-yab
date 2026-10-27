@@ -1,4 +1,8 @@
+import secrets
+
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.db.models.functions import Lower
 from apps.businesses.models import Business
 from .sources import GLOBAL, PRIVATE, SCOPE_CHOICES, display_link, normalize_link, sync_error_message
@@ -416,6 +420,35 @@ class Opportunity(models.Model):
             cost = self.ai_analysis.cost_toman
             return f"{cost:,}".replace(",", "،") if cost else "۰"
         return "۰"
+
+
+def telegram_random_id():
+    return secrets.randbits(63)
+
+
+class TelegramOutboundMessage(models.Model):
+    """One explicitly approved DM per opportunity; uncertain sends are never retried."""
+
+    STATUS_CHOICES = [
+        ("PENDING", "در صف ارسال"), ("SENDING", "در حال ارسال"),
+        ("SENT", "ارسال شد"), ("FAILED", "ارسال ناموفق"),
+        ("UNKNOWN", "نتیجهٔ ارسال نامشخص"),
+    ]
+    opportunity = models.OneToOneField(
+        Opportunity, on_delete=models.CASCADE, related_name="telegram_outbound",
+    )
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    body = models.TextField(max_length=4096)
+    recipient_user_id = models.BigIntegerField()
+    recipient_username = models.CharField(max_length=150, blank=True)
+    random_id = models.BigIntegerField(default=telegram_random_id, unique=True, editable=False)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="PENDING", db_index=True)
+    error_code = models.CharField(max_length=32, blank=True)
+    telegram_message_id = models.BigIntegerField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class AIAnalysis(models.Model):

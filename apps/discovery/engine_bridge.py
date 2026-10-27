@@ -22,7 +22,7 @@ from apps.products.models import Product
 
 from .models import (ENGINE_STATUS_MAP, AIAnalysis, Customer, Evidence, MonitoredCommunity, Opportunity,
                      OpportunityProductMatch, XCollectorState, XQueryDaily, XSearchQuery)
-from .retention import customer_ids_to_anonymize
+from .retention import customer_ids_to_anonymize, scrub_telegram_outbox
 from .sources import GLOBAL
 
 log = logging.getLogger(__name__)
@@ -198,6 +198,7 @@ def scrub_opportunity(payload: dict) -> int:
     count = len(opportunity_ids)
     if not opportunity_ids:
         return 0
+    scrub_telegram_outbox(opportunity_ids)
     customer_business_rows = list(qs.values_list("customer_id", "business_id"))
     customer_businesses: dict[int, set[int]] = {}
     for customer_id, business_id in customer_business_rows:

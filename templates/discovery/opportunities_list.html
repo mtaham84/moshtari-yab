@@ -342,6 +342,9 @@
             <div class="opp-draft">
               <div class="opp-label">پیش‌نویس پاسخ</div>
               <div class="opp-draft-text js-clamp" data-lines="3" id="reply-text-{{ opp.id }}">{{ opp.ai_analysis.suggested_reply }}</div>
+              {% with target_id=opp.id|stringformat:"s" %}
+                {% include "discovery/partials/telegram_send_button.html" with opportunity=opp text_target="reply-text-"|add:target_id %}
+              {% endwith %}
             </div>
           {% else %}
             <div class="opp-draft opp-muted">پیش‌نویسی برای این فرصت ساخته نشده است.</div>
@@ -622,4 +625,5 @@
   }
 })();
 </script>
+{% include "discovery/partials/telegram_send_script.html" %}
 {% endblock %}

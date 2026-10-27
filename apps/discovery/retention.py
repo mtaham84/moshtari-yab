@@ -4,6 +4,15 @@ from django.db.models import Q
 from .models import Customer, Opportunity
 
 
+def scrub_telegram_outbox(opportunity_ids):
+    """Keep the delivery tombstone, but remove approved text and recipient identity."""
+    from .models import TelegramOutboundMessage
+    messages = TelegramOutboundMessage.objects.filter(opportunity_id__in=opportunity_ids)
+    messages.filter(status="PENDING").update(status="FAILED", error_code="STALE_OPPORTUNITY")
+    messages.filter(status="SENDING").update(status="UNKNOWN", error_code="INTERRUPTED")
+    messages.update(body="", recipient_user_id=0, recipient_username="", telegram_message_id=None)
+
+
 def customer_ids_to_anonymize(opportunities):
     """Customers with no retained opportunity or sales record can be anonymized."""
     affected = opportunities.values_list("customer_id", flat=True).distinct()

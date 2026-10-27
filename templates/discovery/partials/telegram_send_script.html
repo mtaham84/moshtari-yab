@@ -1,0 +1,59 @@
+<script>
+(() => {
+  document.querySelectorAll(".telegram-outreach").forEach(root => {
+    const button = root.querySelector(".telegram-send-button");
+    const status = root.querySelector(".telegram-send-status");
+    let state = "CHECKING";
+    let timer;
+    const show = data => {
+      state = data.state;
+      button.disabled = state !== "READY";
+      button.textContent = data.label || "ارسال پیام";
+      status.textContent = data.message || "";
+      clearTimeout(timer);
+      if (["PENDING", "SENDING"].includes(state)) timer = setTimeout(check, 4000);
+    };
+    const check = async () => {
+      try {
+        const response = await fetch(root.dataset.endpoint, {
+          headers: {Accept: "application/json"}, credentials: "same-origin"
+        });
+        if (!response.ok || response.redirected) throw new Error();
+        show(await response.json());
+      } catch (_) {
+        button.disabled = true;
+        status.textContent = "وضعیت ارسال قابل بررسی نیست؛ اتصال یا ورود به پنل را بررسی کنید.";
+        timer = setTimeout(check, 10000);
+      }
+    };
+    button.addEventListener("click", async () => {
+      if (state !== "READY") return;
+      const target = document.getElementById(root.dataset.textTarget);
+      const text = (target?.value ?? target?.textContent ?? "").trim();
+      if (!text) { status.textContent = "ابتدا متن پیام را آماده کنید."; return; }
+      if (!window.confirm("این متن به‌صورت پیام خصوصی از حساب تلگرام متصل به سرور ارسال شود؟\n\n" + text)) return;
+      button.disabled = true;
+      state = "SUBMITTING";
+      try {
+        const response = await fetch(root.dataset.endpoint, {
+          method: "POST", credentials: "same-origin",
+          headers: {"Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": root.dataset.csrf},
+          body: new URLSearchParams({text})
+        });
+        if (response.redirected) throw new Error();
+        const data = await response.json();
+        if (data.status !== "success") {
+          show({state: "READY", message: data.message, label: "ارسال پیام"});
+          return;
+        }
+        show(data);
+      } catch (_) {
+        // The POST may have succeeded: check the durable outbox before enabling another click.
+        status.textContent = "پاسخ سرور دریافت نشد؛ در حال بررسی وضعیت درخواست…";
+        await check();
+      }
+    });
+    check();
+  });
+})();
+</script>

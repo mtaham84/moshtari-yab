@@ -1,0 +1,8 @@
+{% if opportunity.source_platform == 'telegram' %}
+<div class="telegram-outreach" data-endpoint="{% url 'discovery:telegram_message' opportunity.id %}"
+     data-text-target="{{ text_target }}" data-csrf="{{ csrf_token }}">
+  <button type="button" class="p-btn p-btn-sm p-btn-primary telegram-send-button" disabled>در حال بررسی ارسال…</button>
+  <span class="telegram-send-status" role="status" aria-live="polite" style="display: block; font-size: .78rem; margin-top: 6px;"></span>
+  <small style="display: block; color: var(--stone-text-muted);">پیام خصوصی از حساب تلگرام متصل به سرور ارسال می‌شود، نه حساب شخصی فروشنده. فقط برای مخاطبی ارسال کنید که انتظار دریافت پیام دارد.</small>
+</div>
+{% endif %}

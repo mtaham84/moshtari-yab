@@ -132,6 +132,8 @@ DATABASES = {
 }
 
 LANGUAGE_CODE = "fa-ir"
+TELEGRAM_OUTREACH_ENABLED = os.getenv("TG_OUTREACH_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+TELEGRAM_OUTREACH_INTERVAL = max(1, int(os.getenv("TG_OUTREACH_INTERVAL_SECONDS", "60")))
 TIME_ZONE = "Asia/Tehran"
 USE_I18N = True
 USE_TZ = True

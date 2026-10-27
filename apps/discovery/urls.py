@@ -1,10 +1,12 @@
 from django.urls import path
 
 from . import views
+from .telegram_views import telegram_message_view
 
 app_name = "discovery"
 
 urlpatterns = [
+    path("opportunities/<int:pk>/telegram-message/", telegram_message_view, name="telegram_message"),
     path("opportunities/", views.opportunity_list_view, name="opportunity_list"),
     path("opportunities/export/", views.opportunity_export_view, name="opportunity_export"),
     path("opportunities/<int:pk>/", views.opportunity_detail_view, name="opportunity_detail"),

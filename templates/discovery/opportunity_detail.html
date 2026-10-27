@@ -308,7 +308,7 @@
       <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="color: #3B82F6;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
         <span style="font-size: 0.78rem; color: var(--panel-text-main);">
-          این متن صرفاً پیشنهاد هوش مصنوعی به شماست و به هیچ عنوان به صورت خودکار برای کاربر ارسال نمی‌شود. برای ارتباط با مشتری، متن را بررسی یا ویرایش کرده و کپی نمایید.
+          متن را پیش از استفاده بررسی یا ویرایش کنید. برای تلگرام، ارسال تنها با کلیک و تأیید شما انجام می‌شود؛ برای سایر پلتفرم‌ها متن را کپی کنید.
         </span>
       </div>
 
@@ -328,6 +328,7 @@
         <textarea id="suggested-reply-box" class="form-input" rows="4" style="line-height: 1.8; font-size: 0.9rem; resize: vertical;" readonly placeholder="برای این محصول هنوز پیش‌نویسی نوشته نشده؛ «دوباره بنویس» را بزنید.">{{ first_draft }}</textarea>
       </div>
       <div id="rewrite-error" role="status" style="display: none; margin: -8px 0 12px; font-size: 0.8rem; color: var(--p-danger, #ef4444);"></div>
+      {% include "discovery/partials/telegram_send_button.html" with text_target="suggested-reply-box" %}
 
       <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
         {% if product_matches and opportunity.source_platform != 'instagram' %}
@@ -638,4 +639,5 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 });
 </script>
+{% include "discovery/partials/telegram_send_script.html" %}
 {% endblock %}
