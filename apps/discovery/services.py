@@ -11,7 +11,7 @@ from .engine_bridge import engine_totals
 from .models import Opportunity, ProductDailyMetric
 
 HIGH_INTENT = 0.8
-PLATFORM_LABELS = {"telegram": "تلگرام", "x": "ایکس"}
+PLATFORM_LABELS = {"telegram": "تلگرام", "x": "ایکس", "instagram": "اینستاگرام"}
 
 
 def _fa_number(n: int | float) -> str:
@@ -98,3 +98,123 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
         },
         "products": rows,
     }
+
+
+def sync_instagram_lead_to_opportunity(lead, business=None):
+    """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain."""
+    import re
+    from django.db import transaction
+    from apps.businesses.models import Business
+    from apps.products.models import Product
+    from .models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch
+
+    if business is None:
+        if lead.tenant_id and str(lead.tenant_id).startswith("tenant_"):
+            try:
+                biz_id = int(str(lead.tenant_id).replace("tenant_", ""))
+                business = Business.objects.filter(id=biz_id).first()
+            except (ValueError, TypeError):
+                pass
+        if not business:
+            business = Business.objects.filter(user__username="sang@peyda.ir").first() or Business.objects.first()
+
+    if not business:
+        return None
+
+    post_match = re.search(r"/p/([A-Za-z0-9_-]+)", lead.source_post_url or "")
+    post_code = post_match.group(1) if post_match else "post"
+    source_message_id = f"ig:{post_code}:c{lead.ig_user_pk}"
+
+    with transaction.atomic():
+        customer, _ = Customer.objects.get_or_create(
+            business=business,
+            source_platform="instagram",
+            external_user_id=str(lead.ig_user_pk),
+            defaults={
+                "name": lead.full_name or lead.username,
+                "source_username": lead.username,
+                "source_profile_url": lead.profile_url or f"https://www.instagram.com/{lead.username}/",
+            }
+        )
+        if lead.full_name and not customer.name:
+            customer.name = lead.full_name
+            customer.save(update_fields=["name"])
+
+        # Find best matching product in business
+        active_products = list(Product.objects.filter(business=business, status="ACTIVE", is_discovery_active=True).select_related("category"))
+        matched_product = None
+        if active_products:
+            combined_text = f"{lead.comment_text} {lead.post_caption_snippet or ''}".lower()
+            best_score = -1
+            for p in active_products:
+                score = 0
+                for word in p.name.lower().split():
+                    if len(word) > 2 and word in combined_text:
+                        score += 3
+                if p.instagram_terms:
+                    for term in p.instagram_terms:
+                        if term.lower() in combined_text:
+                            score += 4
+                if p.instagram_hashtags:
+                    for tag in p.instagram_hashtags:
+                        if tag.lower() in combined_text:
+                            score += 2
+                if score > best_score:
+                    best_score = score
+                    matched_product = p
+            if not matched_product or best_score <= 0:
+                matched_product = active_products[0]
+
+        opp, created = Opportunity.objects.get_or_create(
+            business=business,
+            source_platform="instagram",
+            source_message_id=source_message_id,
+            defaults={
+                "customer": customer,
+                "category": matched_product.category if matched_product else None,
+                "category_name_snapshot": matched_product.category.name if matched_product and matched_product.category else "اینستاگرام",
+                "source_raw_message": lead.comment_text,
+                "normalized_message": lead.comment_text,
+                "category_confidence": 0.95,
+                "source_posted_at": lead.created_at,
+                "source_query": lead.matched_cta or "instagram_lead",
+                "status": "NEW",
+                "trace_metadata": {
+                    "instagram": {
+                        "post_url": lead.source_post_url or f"https://www.instagram.com/p/{post_code}/",
+                        "post_caption": lead.post_caption_snippet or "",
+                        "matched_cta": lead.matched_cta or "",
+                        "ig_user_pk": str(lead.ig_user_pk),
+                        "lead_id": lead.id,
+                    }
+                }
+            }
+        )
+
+        intent_flt = float(lead.intent_score or 0.90)
+        prod_name = matched_product.name if matched_product else "محصول مورد نظر"
+        AIAnalysis.objects.update_or_create(
+            opportunity=opp,
+            defaults={
+                "need": f"استعلام و تمایل به خرید در اینستاگرام: «{lead.comment_text}»",
+                "intent_score": intent_flt,
+                "product_fit_score": 0.92,
+                "confidence": 0.95,
+                "why_selected": f"ثبت کامنت متقاضی خرید ({lead.matched_cta or 'استعلام قیمت/مشاوره'}) زیر پست مرتبط اینستاگرام",
+                "suggested_reply": f"سلام و احترام جناب/سرکار {customer.display_identifier} عزیز، در پاسخ به استعلام شما در خصوص «{prod_name}»، شرایط همکاری و مشخصات کامل خدمت شما ارسال گردید.",
+                "model_name": "instagram_intent_engine",
+            }
+        )
+
+        if matched_product:
+            OpportunityProductMatch.objects.get_or_create(
+                opportunity=opp,
+                product=matched_product,
+                defaults={
+                    "match_score": intent_flt,
+                    "recommendation_reason": f"تطابق مستقیم کالا با کامنت اینستاگرام ({matched_product.name})",
+                    "rank": 1,
+                }
+            )
+
+        return opp

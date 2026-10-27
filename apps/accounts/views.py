@@ -138,6 +138,8 @@ def login_view(request):
             login(request, user)
             name = user.get_full_name() or user.first_name or user.username
             messages.success(request, f"خوش آمدید، {name} عزیز!")
+            if not next_url and (user.is_staff or user.is_superuser):
+                fallback_url = reverse("manage:dashboard")
             return redirect(next_url or fallback_url)
         else:
             messages.error(request, "نام کاربری/ایمیل یا کلمه عبور وارد شده نادرست است.")

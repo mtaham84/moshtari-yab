@@ -238,11 +238,17 @@ def manage_account_test(request, pk):
     # 3. Live Instagram Login / Session Test
     live_status = account.status
     msg = "اتصال و وضعیت اکانت با موفقیت تایید شد."
+    challenge_hint = ""
     try:
         from instagrapi import Client
+        from instagrapi.exceptions import ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired
         cl = Client()
         if account.proxy_url:
             cl.set_proxy(account.proxy_url)
+
+        def _non_interactive_challenge(username, choice=None):
+            raise ChallengeRequired(f"کد تایید امنیتی به روش {choice} ارسال شد.")
+        cl.challenge_code_handler = _non_interactive_challenge
 
         if account.session_json:
             cl.set_settings(account.session_json)
@@ -260,11 +266,24 @@ def manage_account_test(request, pk):
                     account.status = "ACTIVE"
                     account.save(update_fields=["session_json", "status"])
                     msg = f"لاگین مجدد با موفقیت انجام شد و سشن به‌روزرسانی شد. {proxy_msg}"
+                except (ChallengeRequired, TwoFactorRequired) as ce:
+                    live_status = "CHALLENGED"
+                    account.status = "CHALLENGED"
+                    account.device_settings = cl.get_settings()
+                    account.save(update_fields=["status", "device_settings"])
+                    challenge_hint = str(ce)
+                    msg = f"اینستاگرام درخواست کد تایید داده است: {ce}"
+                except FeedbackRequired as fe:
+                    live_status = "COOLDOWN"
+                    account.status = "COOLDOWN"
+                    account.save(update_fields=["status"])
+                    msg = f"اینستاگرام محدودیت موقت اعمال کرده است (Cooldown): {fe}"
                 except Exception as le:
                     le_str = str(le).lower()
-                    if "challenge" in le_str or "checkpoint" in le_str:
+                    if "challenge" in le_str or "checkpoint" in le_str or "two_step" in le_str:
                         live_status = "CHALLENGED"
                         msg = "اینستاگرام درخواست تایید هویت (کد پیامک/ایمیل یا ۲FA) داده است."
+                        account.device_settings = cl.get_settings()
                     elif "feedback" in le_str:
                         live_status = "COOLDOWN"
                         msg = "اینستاگرام محدودیت موقت اعمال کرده است (Cooldown)."
@@ -281,16 +300,24 @@ def manage_account_test(request, pk):
                 account.status = "ACTIVE"
                 account.save(update_fields=["session_json", "status"])
                 msg = f"ورود اولیه با موفقیت انجام و سشن ذخیره گردید. {proxy_msg}"
+            except (ChallengeRequired, TwoFactorRequired) as ce:
+                live_status = "CHALLENGED"
+                account.status = "CHALLENGED"
+                account.device_settings = cl.get_settings()
+                account.save(update_fields=["status", "device_settings"])
+                challenge_hint = str(ce)
+                msg = f"اینستاگرام کد تایید امنیتی (ایمیل/پیامک) درخواست کرده است."
             except Exception as le:
                 le_str = str(le).lower()
-                if "challenge" in le_str or "checkpoint" in le_str:
+                if "challenge" in le_str or "checkpoint" in le_str or "two_step" in le_str:
                     live_status = "CHALLENGED"
+                    account.device_settings = cl.get_settings()
                     msg = "اینستاگرام چالش امنیتی (کد تایید) درخواست کرده است."
                 else:
                     live_status = "BANNED"
                     msg = f"خطای ورود اولیه: {le}"
                 account.status = live_status
-                account.save(update_fields=["status"])
+                account.save(update_fields=["status", "device_settings"])
 
     except ImportError:
         # Minimal environment fallback: verify credentials and proxy
@@ -307,5 +334,149 @@ def manage_account_test(request, pk):
     return JsonResponse({
         "success": live_status == "ACTIVE",
         "status": account.status,
+        "challenge_required": account.status == "CHALLENGED",
+        "challenge_hint": challenge_hint,
         "message": msg,
     })
+
+
+@manage_access_required
+@require_POST
+def manage_account_submit_code(request, pk):
+    """
+    Submits a 2FA or email/SMS verification code for an account in CHALLENGED status.
+    """
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    
+    # Accept JSON or form POST
+    code = ""
+    if request.content_type == "application/json":
+        try:
+            body = json.loads(request.body.decode("utf-8"))
+            code = str(body.get("code", "")).strip()
+        except Exception:
+            pass
+    if not code:
+        code = request.POST.get("code", "").strip()
+
+    if not code:
+        return JsonResponse({"success": False, "message": "لطفاً کد تایید را وارد کنید."})
+
+    try:
+        from instagrapi import Client
+        cl = Client()
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
+
+        if account.device_settings:
+            try:
+                cl.set_settings(account.device_settings)
+            except Exception as se:
+                logger.warning(f"Could not restore device settings: {se}")
+
+        # Set handler to return user-entered code
+        cl.challenge_code_handler = lambda u, c=None: code
+
+        # Attempt login with verification code
+        logger.info(f"Submitting verification code '{code}' for @{account.username}...")
+        cl.login(account.username, account.password, verification_code=code)
+
+        # Successful verification -> save session
+        new_settings = cl.get_settings()
+        account.session_json = new_settings
+        account.status = "ACTIVE"
+        account.save(update_fields=["session_json", "status"])
+
+        return JsonResponse({
+            "success": True,
+            "status": "ACTIVE",
+            "message": f"اکانت @{account.username} با موفقیت تایید شد و سشن دائمی ذخیره گردید!",
+        })
+    except Exception as exc:
+        logger.warning(f"Failed verification for @{account.username}: {exc}")
+        return JsonResponse({
+            "success": False,
+            "status": account.status,
+            "message": f"خطا در ثبت کد تایید: {exc}",
+        })
+
+
+@manage_access_required
+@require_GET
+def manage_leads_export_csv(request):
+    """
+    Exports all extracted leads as a UTF-8 BOM CSV dataset.
+    """
+    import csv
+    from django.http import HttpResponse
+
+    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+
+    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
+    response.write('\ufeff')
+
+    writer = csv.writer(response)
+    writer.writerow([
+        "شناسه عددی کاربر (IG PK)",
+        "نام کاربری (Username)",
+        "نام کامل (Full Name)",
+        "لینک پروفایل (Profile URL)",
+        "متن کامنت خریدار (Comment)",
+        "لینک پست مبدا (Source Post URL)",
+        "خلاصه کپشن پست (Post Caption)",
+        "کال‌تو‌اکشن منطبق (Trigger / CTA)",
+        "ضریب احتمال خرید (Intent Score)",
+        "وضعیت (Status)",
+        "مستأجر / فروشگاه (Tenant ID)",
+        "زمان کشف (Created At)",
+    ])
+
+    for l in leads:
+        writer.writerow([
+            l.ig_user_pk,
+            l.username,
+            l.full_name or "",
+            l.profile_url or f"https://www.instagram.com/{l.username}/",
+            l.comment_text,
+            l.source_post_url or "",
+            l.post_caption_snippet or "",
+            l.matched_cta or "",
+            f"{l.intent_score:.2f}",
+            l.get_status_display(),
+            l.tenant_id,
+            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
+        ])
+
+    return response
+
+
+@manage_access_required
+@require_GET
+def manage_leads_export_json(request):
+    """
+    Exports all extracted leads as a JSON dataset.
+    """
+    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+    data = []
+    for l in leads:
+        data.append({
+            "ig_user_pk": l.ig_user_pk,
+            "username": l.username,
+            "full_name": l.full_name,
+            "profile_url": l.profile_url or f"https://www.instagram.com/{l.username}/",
+            "comment_text": l.comment_text,
+            "source_post_url": l.source_post_url,
+            "post_caption_snippet": l.post_caption_snippet,
+            "matched_cta": l.matched_cta,
+            "intent_score": l.intent_score,
+            "status": l.status,
+            "tenant_id": l.tenant_id,
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        })
+
+    response = JsonResponse(data, safe=False, json_dumps_params={"ensure_ascii": False, "indent": 2})
+    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.json"'
+    return response
+
+

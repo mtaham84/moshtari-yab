@@ -23,6 +23,8 @@ x-app: &app
   volumes:
     - appdata:/app/data
     - media:/app/media
+    - ./apps:/app/apps
+    - ./templates:/app/templates
   restart: unless-stopped
 
 services:
@@ -48,6 +50,8 @@ services:
       - appdata:/app/data
       - media:/app/media
       - xdata:/app/output
+      - ./apps:/app/apps
+      - ./templates:/app/templates
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
@@ -67,6 +71,8 @@ services:
       - appdata:/app/data
       - media:/app/media
       - xdata:/app/output
+      - ./apps:/app/apps
+      - ./templates:/app/templates
     depends_on:
       web:
         condition: service_healthy
@@ -97,16 +103,16 @@ services:
 
   ig:
     <<: *app
-    entrypoint: ["sh", "-c"]
-    command: ["if [ -z \"$${IG_BACKEND:-}\" ]; then echo 'IG_BACKEND must be set to hikerapi or instaloader' >&2; exit 2; fi; while true; do python manage.py ig_sync_seeds && (python -m workers.ig_collector --once || true) && python manage.py ig_sync_seeds --apply-status && python manage.py ig_ingest; sleep $${IG_CYCLE_MINUTES:-60}m; done"]
-    profiles: ["ig"]
+    command: ["python", "manage.py", "run_instagram_scraper", "--loop", "--all-businesses", "--interval", "15", "--min-comments", "50", "--max-posts", "6"]
     depends_on:
       web:
         condition: service_healthy
     volumes:
       - appdata:/app/data
       - media:/app/media
-      - xdata:/app/output
+      - ./apps:/app/apps
+      - ./templates:/app/templates
+    restart: unless-stopped
 
   retention:
     <<: *app

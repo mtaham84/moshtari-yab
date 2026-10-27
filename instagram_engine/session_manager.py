@@ -177,13 +177,18 @@ class SessionManager:
         device_profile = self.account.device_settings or DEFAULT_DEVICE_SETTINGS
         cl.set_device(device_profile)
 
+        def _non_interactive_challenge(username, choice=None):
+            raise ChallengeRequired(f"Challenge code required via {choice}")
+        cl.challenge_code_handler = _non_interactive_challenge
+
         try:
             logger.info("Logging in to Instagram as @%s...", self.account.username)
             cl.login(self.account.username, self.account.password)
             self._save_session(cl)
             logger.info("✅ First-time login successful for @%s. Session and hardware profile persisted.", self.account.username)
             return cl
-        except (ChallengeRequired, FeedbackRequired):
+        except (ChallengeRequired, FeedbackRequired) as exc:
+            update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Challenge required: {exc}")
             raise
         except Exception as exc:
             logger.critical("Login failed for @%s: %s", self.account.username, exc)
@@ -203,13 +208,18 @@ class SessionManager:
         old_device = old_session.get("device_settings") or self.account.device_settings or DEFAULT_DEVICE_SETTINGS
         cl.set_device(old_device)
 
+        def _non_interactive_challenge(username, choice=None):
+            raise ChallengeRequired(f"Challenge code required via {choice}")
+        cl.challenge_code_handler = _non_interactive_challenge
+
         try:
             logger.info("Re-authenticating @%s with preserved hardware fingerprint...", self.account.username)
             cl.login(self.account.username, self.account.password)
             self._save_session(cl)
             logger.info("✅ Re-authentication successful for @%s", self.account.username)
             return cl
-        except (ChallengeRequired, FeedbackRequired):
+        except (ChallengeRequired, FeedbackRequired) as exc:
+            update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Challenge required: {exc}")
             raise
         except Exception as exc:
             logger.critical("Re-authentication failed for @%s: %s", self.account.username, exc)

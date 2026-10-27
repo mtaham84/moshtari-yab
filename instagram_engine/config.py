@@ -42,6 +42,7 @@ try:
         max_scraper_hashtags_per_hour: int = Field(default=4, alias="MAX_SCRAPER_HASHTAGS_PER_HOUR")
         max_scraper_hashtags_per_day: int = Field(default=18, alias="MAX_SCRAPER_HASHTAGS_PER_DAY")
         max_scraper_post_comments_per_day: int = Field(default=80, alias="MAX_SCRAPER_POST_COMMENTS_PER_DAY")
+        min_post_comments_threshold: int = Field(default=50, alias="MIN_POST_COMMENTS_THRESHOLD")
 
         # Sender Quotas
         sender_dm_sleep_min: float = Field(default=720.0, alias="SENDER_DM_SLEEP_MIN")
@@ -76,6 +77,7 @@ except ImportError:
             self.max_scraper_hashtags_per_hour: int = int(os.getenv("MAX_SCRAPER_HASHTAGS_PER_HOUR", "4"))
             self.max_scraper_hashtags_per_day: int = int(os.getenv("MAX_SCRAPER_HASHTAGS_PER_DAY", "18"))
             self.max_scraper_post_comments_per_day: int = int(os.getenv("MAX_SCRAPER_POST_COMMENTS_PER_DAY", "80"))
+            self.min_post_comments_threshold: int = int(os.getenv("MIN_POST_COMMENTS_THRESHOLD", "50"))
             self.sender_dm_sleep_min: float = float(os.getenv("SENDER_DM_SLEEP_MIN", "720.0"))
             self.sender_dm_sleep_max: float = float(os.getenv("SENDER_DM_SLEEP_MAX", "1500.0"))
             self.sender_warming_max_dms_per_day: int = int(os.getenv("SENDER_WARMING_MAX_DMS_PER_DAY", "8"))
