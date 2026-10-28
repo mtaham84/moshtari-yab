@@ -120,7 +120,7 @@ class XMessageSource:
                          ORDER BY x.row_id LIMIT %s"""
 
     def fetch_after(self, cursor: int, limit: int) -> list[ChatMessage]:
-        days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+        days = min(max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180)), 10)
         return self._messages(self.db.all(self.sql, (cursor, days, limit)))
 
     @staticmethod
@@ -169,7 +169,7 @@ class XProductHitSource(XMessageSource):
             self._exists = bool(rows and rows[0]["t"])
         if not self._exists:   # nothing ingested in per-product mode yet
             return []
-        days = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180))
+        days = min(max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or 180)), 10)
         rows = self.db.all(self.sql, (cursor, days, limit))
         by_row = {int(r["row_id"]): str(r["product_id"]) for r in rows}
         messages = self._messages(rows)

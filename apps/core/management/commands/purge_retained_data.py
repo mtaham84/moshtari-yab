@@ -43,11 +43,21 @@ class Command(BaseCommand):
                     cutoff, delete=options["delete"],
                 )
                 report.update(scrub_panel_opportunities(cutoff, delete=options["delete"]))
-                report.update(purge_panel_x_posts(cutoff, delete=options["delete"], _retention_locked=True))
+                x_cutoff = timezone.now() - timedelta(days=10)
+                report.update(purge_panel_x_posts(x_cutoff, delete=options["delete"], _retention_locked=True))
                 configured_state_path = Path(os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3"))
                 state_path = configured_state_path if configured_state_path.is_absolute() else settings.BASE_DIR / configured_state_path
-                report.update(purge_x_collector_state(state_path, cutoff,
+                report.update(purge_x_collector_state(state_path, x_cutoff,
                                                       delete=options["delete"], _retention_locked=True))
+                try:
+                    from apps.discovery.models import XCrawledPost
+                    if options["delete"]:
+                        purged_x_hashes = XCrawledPost.purge_older_than_10_days()
+                        report["x_crawled_hashes_purged_10d"] = purged_x_hashes
+                    else:
+                        report["x_crawled_hashes_older_than_10d"] = XCrawledPost.objects.filter(crawled_at__lt=x_cutoff).count()
+                except Exception as exc:
+                    report["x_crawled_hashes_error"] = str(exc)
                 configured_ig_output = Path(os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
                 ig_output_path = (configured_ig_output if configured_ig_output.is_absolute()
                                   else settings.BASE_DIR / configured_ig_output)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -68,6 +69,14 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         handle = str(handle).strip().lstrip("@").split("/")[0]
     tweet_url = f"https://x.com/{handle}/status/{clean_id}" if handle else None
     created_at = _normalize_created_at(_first(raw, mapping.OUTPUT_CREATED_KEYS))
+    if created_at:
+        try:
+            created_dt = datetime.fromisoformat(created_at)
+            if created_dt < datetime.now(timezone.utc) - timedelta(days=10):
+                log.info("Skipping X post %s older than 10 days (%s)", clean_id, created_at)
+                return None
+        except Exception:
+            pass
     return SourceRecord.from_dict({
         "id": clean_id,
         "source": "x",
@@ -81,6 +90,38 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         "url": tweet_url,
         "metadata": {"collector": "agent-reach-cli", "raw_cli": raw, "lang": _first(raw, mapping.OUTPUT_LANG_KEYS), "query": query},
     }).as_dict()
+
+
+def compute_tweet_hash(tweet_id: str | int) -> str:
+    clean_id = str(tweet_id).strip()
+    return hashlib.sha256(f"x_tweet:{clean_id}".encode("utf-8")).hexdigest()
+
+
+def filter_uncrawled_tweets(records: list[dict[str, Any]], dsn: str | None = None) -> list[dict[str, Any]]:
+    if not records:
+        return records
+    try:
+        from x_ingest.__main__ import _dsn
+        import psycopg
+        hashes = {compute_tweet_hash(r["id"]): r for r in records if r.get("id")}
+        if not hashes:
+            return records
+        with psycopg.connect(dsn or _dsn(), connect_timeout=3) as conn:
+            has_table = conn.execute("SELECT to_regclass('discovery_xcrawledpost')").fetchone()[0]
+            if not has_table:
+                return records
+            rows = conn.execute(
+                "SELECT post_hash FROM discovery_xcrawledpost WHERE post_hash = ANY(%s)",
+                (list(hashes.keys()),)
+            ).fetchall()
+            seen_hashes = {r[0] for r in rows}
+            if seen_hashes:
+                log.info("Skipping %d duplicate tweet(s) already recorded in XCrawledPost", len(seen_hashes))
+            return [r for r in records if compute_tweet_hash(r["id"]) not in seen_hashes]
+    except Exception as exc:
+        log.debug("Database hash dedup check skipped: %s", exc)
+        return records
+
 
 
 def _normalize_created_at(value: Any) -> str | None:
@@ -132,8 +173,11 @@ def time_window(query: str, last_ok: datetime | None, now: datetime | None = Non
     if mode in {"", "off", "false", "0", "none"} or _TIME_OPERATOR.search(query):
         return query
     now = now or datetime.now(timezone.utc)
-    lookback = timedelta(hours=float(os.getenv("X_QUERY_FIRST_LOOKBACK_HOURS", "168")))
+    max_lookback = timedelta(days=10)
+    requested_hours = float(os.getenv("X_QUERY_FIRST_LOOKBACK_HOURS", "240"))
+    lookback = min(timedelta(hours=requested_hours), max_lookback)
     start = now - lookback if last_ok is None else max(now - lookback, last_ok - timedelta(minutes=float(os.getenv("X_QUERY_OVERLAP_MINUTES", "10"))))
+    start = max(start, now - max_lookback)
     if mode == "since":
         return f"{query} since:{start.astimezone(timezone.utc).date().isoformat()}"
     return f"{query} since_time:{int(start.timestamp())}"
@@ -251,6 +295,7 @@ class XCollector:
                         new_before = len(collected)
                         breaker.success()
                         records = self._records_for_query(raw_items, query, query_products)
+                        records = filter_uncrawled_tweets(records)
                         for record in records:
                             key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
                             if key in already_written or self.state.has_seen(record):

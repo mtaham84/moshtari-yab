@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
 import re
 import sys
 from contextlib import nullcontext
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from file_lock import exclusive_file_lock
@@ -48,9 +49,13 @@ def validate_record(record: object) -> dict:
         if not isinstance(created, str):
             raise ValueError("created_at must be ISO-8601 or null")
         try:
-            datetime.fromisoformat(created.replace("Z", "+00:00"))
+            parsed_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if parsed_dt.tzinfo is None:
+                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+            if parsed_dt < datetime.now(timezone.utc) - timedelta(days=10):
+                raise ValueError(f"tweet created_at ({created}) is older than 10 days")
         except ValueError as exc:
-            raise ValueError("created_at must be ISO-8601 or null") from exc
+            raise ValueError(str(exc)) from exc
     metadata = parsed.meta
     kind = str(record.get("kind") or "post")
     if kind == "comment":
@@ -126,6 +131,15 @@ def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
                     conn.execute(f"""INSERT INTO {schema}.x_post_products (tweet_id, product_id, query) VALUES (%s,%s,%s)
                                      ON CONFLICT (tweet_id, product_id) DO NOTHING""",
                                  (record["tweet_id"], record["product_id"], record["query"]))
+                try:
+                    post_hash = hashlib.sha256(f"x_tweet:{record['tweet_id']}".encode("utf-8")).hexdigest()
+                    conn.execute("""
+                        INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url)
+                        VALUES (%s, %s, %s, %s, now(), %s)
+                        ON CONFLICT (post_hash) DO NOTHING
+                    """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or ""))
+                except Exception as exc:
+                    log.debug("Skipped discovery_xcrawledpost recording: %s", exc)
                 count += 1
     if invalid_count:
         log.info("Skipped %s invalid X record(s) from %s", invalid_count, path)

@@ -1,3 +1,5 @@
+import hashlib
+from datetime import timedelta
 from django.db import models
 from django.utils import timezone as dj_timezone
 from django.db.models.functions import Lower
@@ -1127,5 +1129,50 @@ class InstagramCrawlExecution(models.Model):
         date_part = format_jalali_date(dt.date(), persian_digits=True)
         time_part = to_persian_digits(f"{dt.hour:02d}:{dt.minute:02d}:{dt.second:02d}")
         return f"{date_part} ساعت {time_part}"
+
+
+class XCrawledPost(models.Model):
+    """
+    Tracks crawled X (Twitter) tweets with SHA-256 hash deduplication.
+    Strictly isolated from Instagram hashes by prefixing with 'x_tweet:'.
+    Has a 10-day TTL (tweets older than 10 days are excluded and pruned).
+    """
+    post_hash = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="هش شناسه توییت")
+    tweet_id = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="شناسه توییت X")
+    author_handle = models.CharField(max_length=100, blank=True, verbose_name="اکانت توییت")
+    posted_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان انتشار توییت")
+    crawled_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="زمان ثبت کرول")
+    tweet_url = models.CharField(max_length=255, blank=True, verbose_name="آدرس توییت")
+
+    class Meta:
+        verbose_name = "توییت کرول‌شده X"
+        verbose_name_plural = "توییت‌های کرول‌شده X"
+        indexes = [
+            models.Index(fields=["crawled_at"], name="ix_x_crawled_at"),
+            models.Index(fields=["posted_at"], name="ix_x_posted_at"),
+            models.Index(fields=["post_hash"], name="ix_x_post_hash"),
+            models.Index(fields=["tweet_id"], name="ix_x_tweet_id"),
+        ]
+
+    def __str__(self):
+        return f"Tweet {self.tweet_id} by @{self.author_handle} ({self.post_hash[:8]})"
+
+    @classmethod
+    def compute_hash(cls, tweet_id: str | int) -> str:
+        clean_id = str(tweet_id).strip()
+        # Strictly isolated namespace prefix 'x_tweet:'
+        return hashlib.sha256(f"x_tweet:{clean_id}".encode("utf-8")).hexdigest()
+
+    @classmethod
+    def is_crawled(cls, tweet_id: str | int) -> bool:
+        phash = cls.compute_hash(tweet_id)
+        return cls.objects.filter(post_hash=phash).exists()
+
+    @classmethod
+    def purge_older_than_10_days(cls) -> int:
+        ten_days_ago = dj_timezone.now() - timedelta(days=10)
+        deleted_count, _ = cls.objects.filter(crawled_at__lt=ten_days_ago).delete()
+        return deleted_count
+
 
 
