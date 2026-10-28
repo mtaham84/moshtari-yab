@@ -109,6 +109,21 @@ def _init_anchor_vectors():
     if _CACHED_ANCHOR_VECTORS and _CACHED_POSITIVE_VECTORS is not None:
         return True
 
+    cache_path = os.environ.get("ANCHOR_CACHE_PATH", "/app/data/anchor_vectors_cache.npz")
+    if os.path.exists(cache_path):
+        try:
+            data = np.load(cache_path, allow_pickle=True)
+            for cat in NEGATIVE_ANCHOR_CLUSTERS.keys():
+                if cat in data:
+                    _CACHED_ANCHOR_VECTORS[cat] = data[cat]
+            if "positive_buying" in data:
+                _CACHED_POSITIVE_VECTORS = data["positive_buying"]
+            if _CACHED_ANCHOR_VECTORS and _CACHED_POSITIVE_VECTORS is not None:
+                log.info("Loaded anchor embeddings from disk cache: %s", cache_path)
+                return True
+        except Exception as e:
+            log.warning("Could not load anchor cache: %s", e)
+
     emb = _get_embedder()
     if not emb:
         return False
@@ -119,7 +134,17 @@ def _init_anchor_vectors():
             _CACHED_ANCHOR_VECTORS[cat] = vecs
 
         _CACHED_POSITIVE_VECTORS = emb.encode(POSITIVE_BUYING_ANCHORS)
-        log.info('Semantic moderation BGE-M3 anchors initialized successfully.')
+        
+        try:
+            save_dict = dict(_CACHED_ANCHOR_VECTORS)
+            save_dict["positive_buying"] = _CACHED_POSITIVE_VECTORS
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            np.savez(cache_path, **save_dict)
+            log.info("Saved anchor embeddings to disk cache: %s", cache_path)
+        except Exception as e:
+            log.debug("Failed to save anchor cache: %s", e)
+
+        log.info('Semantic moderation anchors initialized successfully.')
         return True
     except Exception as exc:
         log.error('Failed to compute anchor embeddings: %s', exc)

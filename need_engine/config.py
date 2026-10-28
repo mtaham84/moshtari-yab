@@ -71,6 +71,7 @@ class EngineConfig:
         "gemini-3.5-flash": {"rpm": 5, "tpm": 200000, "rpd": 100},
         "gemini-2.5-flash-lite": {"rpm": 15, "tpm": 250000, "rpd": 1000},
         "gemini-embedding-001": {"rpm": 50, "tpm": None, "rpd": None},
+        "gemini-embedding-2": {"rpm": 50, "tpm": None, "rpd": None},
     })
     default_rate_limit: dict = field(default_factory=lambda: {"rpm": 5, "tpm": 100000, "rpd": None})
     rate_safety: float = _f("NE_RATE_SAFETY", 0.9)
@@ -88,7 +89,7 @@ class EngineConfig:
 
     # ── Embeddings (API only; no local model on the server) ────────────────
     embed_backend: str = _f("NE_EMBED_BACKEND", "gemini")                   # gemini | cloudflare | hash (tests)
-    embed_model: str = _f("NE_EMBED_MODEL", "gemini-embedding-001")
+    embed_model: str = _f("NE_EMBED_MODEL", "gemini-embedding-2")
     embed_price_per_m: float = _f("NE_EMBED_PRICE_PER_M", 0.0)
     cf_account_id: str = _f("NE_CF_ACCOUNT_ID", "")
     cf_api_token: str = _f("NE_CF_API_TOKEN", "")
