@@ -442,6 +442,29 @@ class Opportunity(models.Model):
         return ""
 
     @property
+    def x_post_url(self) -> str:
+        if self.source_platform == "x":
+            if isinstance(self.trace_metadata, dict):
+                x_meta = self.trace_metadata.get("x", {})
+                if x_meta.get("url"):
+                    return x_meta["url"]
+                if x_meta.get("tweet_id") and self.customer and self.customer.source_username:
+                    h = self.customer.source_username.lstrip("@").strip()
+                    return f"https://x.com/{h}/status/{x_meta['tweet_id']}"
+            if self.source_message_id and self.customer and self.customer.source_username:
+                h = self.customer.source_username.lstrip("@").strip()
+                return f"https://x.com/{h}/status/{self.source_message_id}"
+        return ""
+
+    @property
+    def source_post_url(self) -> str:
+        if self.source_platform == "instagram":
+            return self.instagram_post_url
+        if self.source_platform == "x":
+            return self.x_post_url
+        return ""
+
+    @property
     def customer_profile_url(self) -> str:
         if self.customer and self.customer.source_profile_url:
             return self.customer.source_profile_url
