@@ -26,6 +26,9 @@ x-app: &app
     - ./apps:/app/apps
     - ./templates:/app/templates
     - ./instagram_engine:/app/instagram_engine
+    - ./workers:/app/workers
+    - ./need_engine:/app/need_engine
+    - ./shared:/app/shared
   restart: unless-stopped
 
 services:
@@ -54,6 +57,9 @@ services:
       - ./apps:/app/apps
       - ./templates:/app/templates
       - ./instagram_engine:/app/instagram_engine
+      - ./workers:/app/workers
+      - ./need_engine:/app/need_engine
+      - ./shared:/app/shared
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
@@ -75,6 +81,9 @@ services:
       - xdata:/app/output
       - ./apps:/app/apps
       - ./templates:/app/templates
+      - ./workers:/app/workers
+      - ./need_engine:/app/need_engine
+      - ./shared:/app/shared
     depends_on:
       web:
         condition: service_healthy
@@ -102,6 +111,10 @@ services:
     volumes:
       - appdata:/app/data
       - xdata:/app/output
+      - ./apps:/app/apps
+      - ./workers:/app/workers
+      - ./need_engine:/app/need_engine
+      - ./shared:/app/shared
 
   ig:
     <<: *app
@@ -115,6 +128,9 @@ services:
       - ./apps:/app/apps
       - ./templates:/app/templates
       - ./instagram_engine:/app/instagram_engine
+      - ./workers:/app/workers
+      - ./need_engine:/app/need_engine
+      - ./shared:/app/shared
     restart: unless-stopped
 
   retention:
