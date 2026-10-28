@@ -29,6 +29,7 @@ x-app: &app
     - ./workers:/app/workers
     - ./need_engine:/app/need_engine
     - ./shared:/app/shared
+    - ./x_ingest:/app/x_ingest
   restart: unless-stopped
 
 services:
@@ -60,6 +61,7 @@ services:
       - ./workers:/app/workers
       - ./need_engine:/app/need_engine
       - ./shared:/app/shared
+      - ./x_ingest:/app/x_ingest
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
@@ -84,6 +86,7 @@ services:
       - ./workers:/app/workers
       - ./need_engine:/app/need_engine
       - ./shared:/app/shared
+      - ./x_ingest:/app/x_ingest
     depends_on:
       web:
         condition: service_healthy
@@ -115,6 +118,7 @@ services:
       - ./workers:/app/workers
       - ./need_engine:/app/need_engine
       - ./shared:/app/shared
+      - ./x_ingest:/app/x_ingest
 
   ig:
     <<: *app
