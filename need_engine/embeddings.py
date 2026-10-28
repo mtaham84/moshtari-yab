@@ -40,8 +40,9 @@ class Embedder:
         return v
 
     def _post(self, url: str, body: dict, headers: dict) -> dict:
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={**headers, "Content-Type": "application/json"})
+        data = json.dumps(body).encode()
         for attempt in range(5):
+            req = urllib.request.Request(url, data=data, headers={**headers, "Content-Type": "application/json"})
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
                     return json.loads(r.read().decode())
@@ -49,6 +50,7 @@ class Embedder:
                 text = e.read().decode("utf-8", "replace")
                 if e.code == 429:
                     self.llm.rl.on_429(self.cfg.embed_model, text)
+                    self.llm.rl.acquire(self.cfg.embed_model, 0)
                     continue
                 if e.code >= 500:
                     import time
@@ -60,8 +62,8 @@ class Embedder:
 
     def _openai_compatible(self, texts: list[str], stage: str) -> np.ndarray:
         out: list[list[float]] = []
-        for i in range(0, len(texts), 100):
-            chunk = texts[i:i + 100]
+        for i in range(0, len(texts), 15):
+            chunk = texts[i:i + 15]
             self.llm.rl.acquire(self.cfg.embed_model, 0)
             base_url, api_key = self.llm.registry.endpoint(self.cfg.embed_model)
             j = self._post(base_url.rstrip("/") + "/embeddings", {"model": self.cfg.embed_model, "input": chunk},
