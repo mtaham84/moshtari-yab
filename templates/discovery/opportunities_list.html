@@ -127,12 +127,14 @@
         </button>
         <button type="submit" name="platform" value="telegram" class="p-btn p-btn-sm {% if selected_platform == 'telegram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
           <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; margin-left: 5px;"></span>
-          تلگرام (فعال: {{ stats.telegram_count }})
+          تلگرام ({{ stats.telegram_count }})
         </button>
-        <button type="submit" name="platform" value="x" class="p-btn p-btn-sm {% if selected_platform == 'x' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
+        <button type="submit" name="platform" value="x" class="p-btn p-btn-sm {% if selected_platform == 'x' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #1da1f2; margin-left: 5px;"></span>
           X / توییتر ({{ stats.x_count }})
         </button>
-        <button type="submit" name="platform" value="instagram" class="p-btn p-btn-sm {% if selected_platform == 'instagram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
+        <button type="submit" name="platform" value="instagram" class="p-btn p-btn-sm {% if selected_platform == 'instagram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e1306c; margin-left: 5px;"></span>
           اینستاگرام ({{ stats.instagram_count }})
         </button>
         <button type="submit" name="platform" value="divar" class="p-btn p-btn-sm {% if selected_platform == 'divar' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
