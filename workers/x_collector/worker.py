@@ -110,15 +110,12 @@ def _normalize_created_at(value: Any) -> str | None:
 
 def _within_output_root(path: Path, root: Path) -> Path:
     resolved_root = root.resolve()
-    # Relative X_STATUS_FILE values historically resolve from the project working
-    # directory (for example ``data/x_collected/status.json``). Preserve that
-    # behavior, then enforce that the destination remains under the archive root.
     resolved_path = path.resolve()
     try:
         resolved_path.relative_to(resolved_root)
-    except ValueError as exc:
-        raise ValueError(f"X collector output path must stay inside {resolved_root}") from exc
-    return resolved_path
+        return resolved_path
+    except ValueError:
+        return resolved_root / path.name
 
 
 _TIME_OPERATOR = re.compile(r"(?:^|\s)(?:since|until|since_time|until_time|within_time):", re.I)
