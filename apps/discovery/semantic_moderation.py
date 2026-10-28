@@ -37,6 +37,19 @@ NEGATIVE_ANCHOR_CLUSTERS = {
         'حخعهغف قفغعهخ جچپ شسیبلات',
         'خخخخخخخخ ههههههههه پپپپپپپپپ',
         'بلبلبل لبلبلب تبتبتبت',
+    ],
+    'political_and_news': [
+        'مرگ بر دیکتاتور و رژیم جمهوری اسلامی و خامنه‌ای زن زندگی آزادی',
+        'غارت نفت و گاز و غارتگری اموال عمومی و اختلاس میلیارد دلاری توسط مسئولین و آقا زاده ها',
+        'اعتراضات سراسری، اعتصاب عمومی کارگران و بازداشت معترضان و نقض حقوق بشر در زندان',
+        'بیانیه سیاسی احزاب و نمایندگان مجلس و مصوبات دولت و سیاست خارجی',
+        'سپاه پاسداران، جنگ منطقه‌ای، تنش نظامی، حملات موشکی و مذاکرات هسته‌ای و برجام',
+        'دیدار دیپلماتیک وزیر امور خارجه و مقامات سیاسی دولت با سفرای خارجی',
+        'اطلاعیه رسمی حکومت طالبان و امارت اسلامی افغانستان در خصوص معادن و اقتصاد',
+        'اعدام و احکام قضایی صادره برای زندانیان سیاسی و محکومیت توسط سازمان ملل',
+        'تحریم‌های بانکی و نفتی آمریکا و شورای امنیت علیه حکومت و گرانی ناشی از سوءمدیریت دولتی',
+        'پهلوی، پادشاهی‌خواهان، اصلاح‌طلبان، اصولگرایان و احزاب اپوزیسیون خارج از کشور',
+        'سرنگونی حکومت آخوندی و مبارزات مدنی و سیاسی برای آزادی ایران',
     ]
 }
 
@@ -52,6 +65,19 @@ POSITIVE_BUYING_ANCHORS = [
     'کدوم شعبه موجود دارید برای خرید حضوری خدمت برسیم؟',
     'سلام شرایط همکاری و فروش عمده به چه صورته؟',
 ]
+
+POLITICAL_EXPLICIT_KEYWORDS = (
+    'جمهوری اسلامی', 'ج.ا', 'رژیم', 'خامنه‌ای', 'پهلوی', 'شاهزاده', 'برجام', 'سپاه پاسداران',
+    'طالبان', 'امارت اسلامی', 'اختلاس', 'غارتگران', 'زندانیان سیاسی', 'اعتراضات سراسری',
+    'تحریم‌های', 'حقوق بشر', 'اعدام', 'سرنگونی', 'دیکتاتوری', 'آخوند', 'آخوندی', 'جاویدنام'
+)
+
+BUYING_GUARD_KEYWORDS = (
+    'بخرم', 'میخوام بخرم', 'می‌خوام بخرم', 'قصد خرید', 'خریدارم',
+    'سفارش بدم', 'سفارش دهید', 'متری چنده', 'متری چند', 'استعلام قیمت',
+    'موجود دارید', 'موجود دارین', 'قیمت چنده', 'قیمتش چنده', 'قیمت لطفاً', 'قیمت لطفا',
+    'قیمت رو دایرکت', 'قیمت میدید', 'قیمت میدین'
+)
 
 _CACHED_EMBEDDER = None
 _CACHED_ANCHOR_VECTORS: Dict[str, np.ndarray] = {}
@@ -163,7 +189,23 @@ def check_comment_semantic_moderation(comment_text: str) -> Dict[str, Any]:
     is_rejected = False
     reject_reason = ''
 
-    if has_explicit_hostility or not has_polite_buying_cue:
+    if matched_cat == 'political_and_news':
+        has_buying_guard = any(k in comment_text for k in BUYING_GUARD_KEYWORDS)
+        has_pol_kw = any(k in comment_text for k in POLITICAL_EXPLICIT_KEYWORDS)
+
+        # High confidence political check: strictly reject with 0 tokens if verified political
+        if has_pol_kw and not has_buying_guard:
+            if max_neg_sim >= 0.72 and (max_neg_sim - max_pos_sim) >= 0.04:
+                is_rejected = True
+                reject_reason = 'semantic_political_and_news'
+        elif not has_buying_guard:
+            if max_neg_sim >= 0.76 and (max_neg_sim - max_pos_sim) >= 0.10:
+                is_rejected = True
+                reject_reason = 'strong_semantic_political_and_news'
+        elif max_neg_sim >= 0.88 and not any(k in comment_text for k in ['بخرم', 'سفارش بدم', 'متری چند']):
+            is_rejected = True
+            reject_reason = 'strong_semantic_political_and_news'
+    elif has_explicit_hostility or not has_polite_buying_cue:
         if max_neg_sim >= 0.82 and max_neg_sim > max_pos_sim:
             is_rejected = True
             reject_reason = f'strong_semantic_{matched_cat}'
@@ -179,3 +221,18 @@ def check_comment_semantic_moderation(comment_text: str) -> Dict[str, Any]:
         'max_negative_sim': max_neg_sim,
         'max_positive_sim': max_pos_sim,
     }
+
+
+def is_political_post_semantic(text: str) -> Tuple[bool, float, str]:
+    """
+    Evaluates whether an X (Twitter) post is purely political, governmental, or protest
+    news using embeddings with a high confidence threshold, ensuring genuine buyers
+    are never falsely rejected. Returns (is_political, confidence, reason).
+    """
+    if not text or not text.strip():
+        return False, 0.0, ""
+    res = check_comment_semantic_moderation(text)
+    if res.get('is_rejected') and res.get('category') == 'political_and_news':
+        return True, float(res.get('confidence', 0.0)), str(res.get('reason', ''))
+    return False, 0.0, ""
+

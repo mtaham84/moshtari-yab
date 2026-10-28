@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from need_engine.schemas import ChatMessage
 from need_engine.text import BM25, norm
-from shared.x_filters import PROMOTIONAL_PATTERNS, is_promotional_post, URL_RE
+from shared.x_filters import PROMOTIONAL_PATTERNS, is_promotional_post, is_political_x_post, URL_RE
 
 EXPLICIT_INTENT_TERMS = (
     "میخوام بخرم", "می‌خوام بخرم", "کجا بخرم", "چی بخرم", "قصد خرید", "خریدارم",
@@ -126,6 +126,8 @@ def cheap_x_filter(msg: ChatMessage, cfg, catalog=None) -> FilterDecision:
         return FilterDecision(False, "link_only" if not re.search(r"[\wآ-ی]", cleaned) else "too_short", signals)
 
     promotional = is_promotional_post(msg.text)
+    if is_political_x_post(msg.text):
+        return FilterDecision(False, "semantic_political", signals)
     shop_bio = any(term in bio for term in SHOP_TERMS)
     cta = bool(re.search(r"خرید|سفارش|فروش|order|buy|shop|دایرکت|تماس", text, re.I))
     has_link = bool(URL_RE.search(msg.text))

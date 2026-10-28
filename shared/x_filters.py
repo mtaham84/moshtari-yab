@@ -15,3 +15,18 @@ def is_promotional_post(text: str) -> bool:
     if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in PROMOTIONAL_PATTERNS):
         return True
     return bool(URL_RE.search(lowered) and re.search(r"خرید|سفارش|فروش|order|buy|shop|دایرکت|تماس", lowered, re.I))
+
+
+def is_political_x_post(text: str) -> bool:
+    """Semantic embedding check to filter out political, protest, or governmental news posts
+    from X (Twitter) BEFORE calling the LLM, saving 100% of LLM costs on political rants.
+    """
+    if not text or not text.strip():
+        return False
+    try:
+        from apps.discovery.semantic_moderation import is_political_post_semantic
+        is_pol, _, _ = is_political_post_semantic(text)
+        return is_pol
+    except Exception:
+        return False
+

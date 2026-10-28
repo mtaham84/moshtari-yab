@@ -21,7 +21,7 @@ from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.seen import SeenStore
 from shared.collector_kit.state_store import create_state_store
 from shared.records import SourceRecord, to_json_line
-from shared.x_filters import is_promotional_post
+from shared.x_filters import is_promotional_post, is_political_x_post
 from shared.collector_kit.jsonl import append_line
 from shared.collector_kit.limits import CircuitBreaker, Cooldown, DailyCap, retry_delay
 from shared.collector_kit.status import write_status
@@ -61,6 +61,9 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         return None
     if is_promotional_post(text):
         log.info("Skipping promotional X post %s", tweet_id)
+        return None
+    if is_political_x_post(text):
+        log.info("Skipping political X post %s (filtered by embedding with high confidence)", tweet_id)
         return None
     clean_id = str(tweet_id).strip()
     if not clean_id:
