@@ -37,13 +37,13 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
         sales=Sum("sales_amount"), orders=Sum("orders_count"), clicks=Sum("clicks_count"),
         views=Sum("views_count"), outreach=Sum("outreach_sent_count"))}
     per_opp: dict[int, dict] = {}
-    for pid, score, platform, created in opps.values_list(
-            "product_matches__product_id", "product_matches__match_score", "source_platform", "created_at"):
+    for pid, intent_score, platform, created in opps.values_list(
+            "product_matches__product_id", "ai_analysis__intent_score", "source_platform", "created_at"):
         if pid is None:
             continue
         o = per_opp.setdefault(pid, {"n": 0, "high": 0, "platforms": set(), "last": None})
         o["n"] += 1
-        o["high"] += int((score or 0) >= HIGH_INTENT)
+        o["high"] += int((intent_score or 0) >= 0.90)
         o["platforms"].add(platform)
         o["last"] = max(o["last"], created) if o["last"] else created
 
@@ -83,7 +83,7 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
             "total_outreach": totals["outreach"],
             "conversion_rate": round(totals["orders"] / totals["clicks"] * 100, 1) if totals["clicks"] else 0.0,
             "total_leads_in_db": opps.count(),
-            "high_intent_leads_in_db": opps.filter(ai_analysis__product_fit_score__gte=HIGH_INTENT).count(),
+            "high_intent_leads_in_db": opps.filter(ai_analysis__intent_score__gte=0.90).count(),
             "monitored_products_count": products.filter(is_discovery_active=True, status="ACTIVE").count(),
             "monitored_categories_count": products.exclude(category=None).values("category").distinct().count(),
             "messages_analysed": eng["messages_analysed"],
@@ -217,14 +217,22 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
         why_str = (ai_meta.get("why_selected") if ai_meta else None) or f"ثبت کامنت متقاضی خرید ({lead.matched_cta or 'استعلام قیمت/مشاوره'}) زیر پست مرتبط اینستاگرام"
         suggested_reply_str = (ai_meta.get("suggested_reply") if ai_meta else None) or f"سلام و احترام جناب/سرکار {customer.display_identifier} عزیز، در پاسخ به استعلام شما در خصوص «{prod_name}»، شرایط همکاری و مشخصات کامل خدمت شما ارسال گردید."
         model_name = "gpt-6-luna" if (ai_meta and not ai_meta.get("is_direct_cta")) else "instagram_direct_cta"
-        tokens_used = (ai_meta.get("tokens_in", 0) + ai_meta.get("tokens_out", 0)) if ai_meta else 0
+        dynamic_fit_score = 0.72
+        if matched_product and active_products:
+            p_name = matched_product.name.lower()
+            if any(w in combined_text for w in p_name.split() if len(w) > 2):
+                dynamic_fit_score = 0.94
+            elif matched_product.instagram_terms and any(t.lower() in combined_text for t in matched_product.instagram_terms):
+                dynamic_fit_score = 0.86
+            elif matched_product.instagram_hashtags and any(h.lower() in combined_text for h in matched_product.instagram_hashtags):
+                dynamic_fit_score = 0.80
 
         AIAnalysis.objects.update_or_create(
             opportunity=opp,
             defaults={
                 "need": need_str,
                 "intent_score": intent_flt,
-                "product_fit_score": 0.92,
+                "product_fit_score": dynamic_fit_score,
                 "confidence": 0.95,
                 "why_selected": why_str,
                 "suggested_reply": suggested_reply_str,

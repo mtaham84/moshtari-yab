@@ -110,19 +110,19 @@
       </span>
     </div>
 
-    <!-- Metric 2: High Purchase Intent Customers -->
-    <div class="stat-metric-card stat-metric-green">
+    <!-- Metric 2: High Purchase Intent Customers (Golden Opportunities) -->
+    <a href="{% url 'discovery:opportunity_list' %}?min_intent=90" class="stat-metric-card stat-metric-green" style="text-decoration: none; display: block; transition: transform 0.2s, box-shadow 0.2s;" title="مشاهده فرصت‌های طلایی (نیت خرید بالای ۹۰٪)">
       <div class="stat-metric-header">
         <span class="stat-metric-label">مشتریان با نیت خرید قطعی</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
       </div>
-      <div class="stat-metric-val" id="stat-total-clicks">
+      <div class="stat-metric-val" id="stat-total-clicks" style="color: #ca8a04;">
         {{ analytics.summary.high_intent_leads_in_db }} فرصت طلایی
       </div>
       <span class="stat-metric-sub">
-        امتیاز نیت خرید بالای ۸۰٪
+        احتمال خرید بالای ۹۰٪ (مشاهده لیست ↗)
       </span>
-    </div>
+    </a>
 
     <!-- Metric 3: Monitored Catalog & Categories -->
     <div class="stat-metric-card stat-metric-cyan">
@@ -186,11 +186,11 @@
               </td>
               <td style="padding: 12px 14px; color: var(--stone-text-muted);">{{ p.category_name }}</td>
               <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">{{ p.discovered_leads_count }} مشتری</td>
-              <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 750;">{{ p.high_intent_count }} فرصت فوری</td>
+              <td style="padding: 12px 14px; text-align: center; color: #ca8a04; font-weight: 750;">{{ p.high_intent_count }} فرصت طلایی</td>
               <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">{{ p.channels_display }}</td>
               <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">{{ p.last_interaction_date }}</td>
               <td style="padding: 12px 14px; text-align: center;">
-                <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
+                <a href="{% url 'discovery:opportunity_list' %}?product_id={{ p.id }}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
                   <span>مشاهده فرصت‌ها</span>
                 </a>
               </td>
@@ -345,11 +345,11 @@
                     </td>
                     <td style="padding: 12px 14px; color: var(--stone-text-muted);">${p.category_name}</td>
                     <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">${p.discovered_leads_count || 0} مشتری</td>
-                    <td style="padding: 12px 14px; text-align: center; color: #10b981; font-weight: 750;">${p.high_intent_count || 0} فرصت فوری</td>
+                    <td style="padding: 12px 14px; text-align: center; color: #ca8a04; font-weight: 750;">${p.high_intent_count || 0} فرصت طلایی</td>
                     <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">${p.channels_display || ''}</td>
                     <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">${p.last_interaction_date}</td>
                     <td style="padding: 12px 14px; text-align: center;">
-                      <a href="/discovery/opportunities/" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
+                      <a href="/discovery/opportunities/?product_id=${p.id}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
                         <span>مشاهده فرصت‌ها</span>
                       </a>
                     </td>

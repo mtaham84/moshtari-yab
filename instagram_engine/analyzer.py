@@ -422,39 +422,49 @@ def evaluate_comment_smart(
     # 5. Tier 1: Direct CTA or Repeated Trigger Keyword match
     is_direct = False
     matched_kw = None
+    direct_score = 0.75  # base for trigger word
 
-    # Check explicit caption CTA word (e.g. 'سنگ')
-    if cta_word and len(cta_word) >= 2:
-        if cta_word.lower() in clean_comment.lower() and len(words) <= 3:
-            is_direct = True
-            matched_kw = f"cta_trigger:{cta_word}"
-
-    # Check statistically repeated keywords across this post's comments (users asking for DM)
-    if not is_direct and repeated_triggers and len(words) <= 3:
+    # Explicit purchase cues -> Golden Opportunity (>= 0.90)
+    golden_inquiry_cues = [
+        "متری چند", "متری چنده", "ارسال دارید", "ارسال دارین", "موجود دارید", "موجود دارین",
+        "سفارش بدم", "خرید حضوری", "آدرس کجاست", "اقساط", "شرایط اقساط", "چک صیادی",
+        "شماره تماس", "نوبت ویزیت", "معاینه حضوری", "رزرو نوبت", "چند روزه میرسه",
+        "هزینه چقدر میشه", "کیفیتش چطوره", "برا هوای گرم", "برا نما", "برای کف"
+    ]
+    if any(c in norm for c in golden_inquiry_cues):
+        is_direct = True
+        matched_kw = "golden_inquiry"
+        direct_score = 0.94
+    elif cta_word and len(cta_word) >= 2 and cta_word.lower() in clean_comment.lower() and len(words) <= 3:
+        is_direct = True
+        matched_kw = f"cta_trigger:{cta_word}"
+        direct_score = 0.75
+    elif repeated_triggers and len(words) <= 3:
         for trig_word, count in repeated_triggers:
             if trig_word.lower() in clean_comment.lower():
                 is_direct = True
                 matched_kw = f"repeated_trigger:{trig_word}"
+                direct_score = 0.75
                 break
 
-    # For generic words like 'قیمت' or 'چنده'
-    if not is_direct and len(words) <= 3:
-        has_stone_term = any(t in norm for t in ["سنگ", "تراورتن", "اسلب", "مرمریت", "گرانیت", "متری", "پله", "نما"])
+    # For buying inquiry keywords like 'قیمت' or 'چنده'
+    if not is_direct and len(words) <= 4:
         for kw in BUYER_KEYWORDS:
             if kw in norm:
-                if has_stone_term or not any(k in product_context for k in ["سنگ", "stone"]):
-                    is_direct = True
-                    matched_kw = f"direct_kw:{kw}"
-                    break
+                is_direct = True
+                matched_kw = f"direct_kw:{kw}"
+                # If they asked "سلام قیمت" or "قیمت لطفا" with multiple words -> 0.82
+                direct_score = 0.82 if len(words) >= 2 else 0.76
+                break
 
     if is_direct:
         return {
             "is_lead": True,
             "is_direct_cta": True,
-            "intent_score": 0.95,
+            "intent_score": direct_score,
             "matched_cta": matched_kw,
             "need": f"درخواست دایرکت و استعلام ({matched_kw})",
-            "why_selected": "ثبت کلمه کلیدی یا کال‌تواکشن تکرارشده برای ارسال دایرکت",
+            "why_selected": "ثبت کلمه کلیدی یا استعلام قیمت برای ارتباط در دایرکت",
             "suggested_reply": None,
             "tokens_in": 0,
             "tokens_out": 0,

@@ -76,16 +76,19 @@
     </div>
   </div>
 
-  <!-- High Intent (>= 80%) -->
-  <div class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
-    <div class="p-icon-box" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(16, 185, 129, 0.12); color: #10B981; display: flex; align-items: center; justify-content: center;">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+  <!-- High Intent / Golden Opportunities (>= 90%) -->
+  <a href="?{% if selected_business %}business_id={{ selected_business.id }}&{% endif %}{% if selected_min_intent == '90' %}min_intent={% else %}min_intent=90{% endif %}" class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px; text-decoration: none; transition: all 0.2s; {% if selected_min_intent == '90' %}border: 2px solid #ca8a04; background: rgba(234, 179, 8, 0.08);{% endif %}" title="کلیک برای فیلتر فرصت‌های طلایی با نیت خرید بالای ۹۰٪">
+    <div class="p-icon-box" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(234, 179, 8, 0.15); color: #ca8a04; display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
     </div>
     <div>
-      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">قصد خرید بالا (≥ ۸۰٪)</span>
-      <strong style="font-size: 1.4rem; color: #10B981; font-weight: 700;">{{ stats.high_intent }}</strong>
+      <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">فرصت‌های طلایی (نیت ≥ ۹۰٪)</span>
+      <strong style="font-size: 1.4rem; color: #ca8a04; font-weight: 700;">{{ stats.high_intent }}</strong>
+      {% if selected_min_intent == '90' %}
+        <span style="font-size: 0.7rem; color: #ca8a04; font-weight: 600; display: block;">(فیلتر فعال است ✕)</span>
+      {% endif %}
     </div>
-  </div>
+  </a>
 
   <!-- Qualified / Active -->
   <div class="p-card" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
@@ -204,6 +207,19 @@
           📅 تا تاریخ شمسی:
         </label>
         <input type="text" name="date_to" value="{{ date_to|default:'' }}" placeholder="سال/ماه/روز" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
+      </div>
+
+      <!-- Min Intent / Purchase Probability Filter -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          🌟 نیت خرید (احتمال خرید):
+        </label>
+        <select name="min_intent" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="">همه سطوح نیت</option>
+          <option value="90" {% if selected_min_intent == '90' %}selected{% endif %}>🌟 فقط فرصت‌های طلایی (≥ ۹۰٪)</option>
+          <option value="80" {% if selected_min_intent == '80' %}selected{% endif %}>نیت خرید بالا (≥ ۸۰٪)</option>
+          <option value="70" {% if selected_min_intent == '70' %}selected{% endif %}>نیت متوسط به بالا (≥ ۷۰٪)</option>
+        </select>
       </div>
 
       <!-- Min Score Filter -->
@@ -337,6 +353,9 @@
             {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="opp-chip" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
           </div>
           <div class="opp-metrics">
+            {% if opp.intent_score_percentage >= 90 %}
+              <span class="opp-chip" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;">🌟 فرصت طلایی</span>
+            {% endif %}
             <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">
               احتمال خرید <b>{{ opp.intent_score_percentage }}٪</b>
             </span>
@@ -493,6 +512,9 @@
         </div>
 
         <div style="display: flex; align-items: center; gap: 10px;">
+          {% if opp.intent_score_percentage >= 90 %}
+            <span class="p-badge" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;">🌟 فرصت طلایی</span>
+          {% endif %}
           <div style="display: flex; align-items: center; gap: 6px; background: rgba(168, 85, 247, 0.1); padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.25);">
             <span style="font-size: 0.74rem; color: var(--brand-purple);">نیت خرید:</span>
             <strong style="font-size: 0.88rem; color: var(--brand-purple);">{{ opp.intent_score_percentage }}٪</strong>

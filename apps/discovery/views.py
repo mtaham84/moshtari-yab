@@ -157,6 +157,12 @@ def _filter_opportunities_queryset(business, params):
         score_val = float(min_score) / 100.0
         qs = qs.filter(ai_analysis__product_fit_score__gte=score_val)
 
+    # Min intent score filter (buying intent / golden leads >= 90%)
+    min_intent = params.get("min_intent", "").strip()
+    if min_intent.isdigit():
+        intent_val = float(min_intent) / 100.0
+        qs = qs.filter(ai_analysis__intent_score__gte=intent_val)
+
     # Date range filters (Persian calendar)
     date_from_raw = params.get("date_from", "").strip()
     date_to_raw = params.get("date_to", "").strip()
@@ -196,6 +202,7 @@ def _filter_opportunities_queryset(business, params):
         "status": status_filter,
         "product_id": selected_product_id,
         "min_score": min_score,
+        "min_intent": min_intent,
         "q": q,
         "date_from": date_from_raw,
         "date_to": date_to_raw,
@@ -260,7 +267,7 @@ def opportunity_list_view(request):
     stats = {
         "total": all_opps.count(),
         "filtered_count": paginator.count,
-        "high_intent": all_opps.filter(ai_analysis__product_fit_score__gte=0.8).count(),
+        "high_intent": all_opps.filter(ai_analysis__intent_score__gte=0.90).count(),
         "qualified": all_opps.filter(status="NEW").count(),
         "converted": all_opps.filter(status="CONVERTED").count(),
         "telegram_count": all_opps.filter(source_platform="telegram").count(),
@@ -297,6 +304,7 @@ def opportunity_list_view(request):
         "selected_status": filter_meta["status"],
         "selected_product_id": filter_meta["product_id"],
         "selected_min_score": filter_meta["min_score"],
+        "selected_min_intent": filter_meta["min_intent"],
         "selected_sort": filter_meta["sort"],
         "hide_stale": filter_meta["hide_stale"],
         "date_from": filter_meta["date_from"],
