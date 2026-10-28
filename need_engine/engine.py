@@ -82,6 +82,8 @@ class RunReport:
     x_batches: int = 0
     x_single_post_retries: int = 0
     x_reply_drafts: int = 0
+    cache_hits: int = 0
+    dropped_by_stage: dict[str, int] = field(default_factory=dict)
 
     @property
     def toman_per_message(self) -> float:
@@ -94,6 +96,8 @@ class RunReport:
                 f"({self.toman_per_message:,.2f}/msg) matching={self.cost_matching_toman:,.1f} toman"
                 + (f" x_posts_to_llm={self.x_posts_sent_to_llm} x_batches={self.x_batches} x_prefilter_dropped={self.x_prefilter_dropped}"
                    if self.x_posts_sent_to_llm or self.x_prefilter_dropped else "")
+                + (f" cache_hits={self.cache_hits}" if self.cache_hits else "")
+                + (f" dropped_by_stage={self.dropped_by_stage}" if self.dropped_by_stage else "")
                 + (f" errors={len(self.errors)}" if self.errors else ""))
 
 
@@ -343,11 +347,12 @@ class NeedEngine:
                                              url=for_message(m).message_url(m)) for m in ev]),
             need=NeedOut(label=n.label, strength=n.strength, situation=n.situation, summary=n.need, requirements=n.requirements,
                          constraints={k: v for k, v in n.constraints.model_dump().items() if v not in (None, "")},
-                         priority=round(priority, 3)),
+                         priority=round(priority, 3), intent_type=n.intent_type),
             matched_products=matches,
             cost=Cost(toman=round(n.cost_toman, 2), llm_calls=n.llm_calls),
             source_posted_at=source_posted_at, source_posted_at_estimated=any(m.date_estimated for m in ev),
-            source_query=next((m.search_query for m in ev if m.search_query), None))
+            source_query=next((m.search_query for m in ev if m.search_query), None),
+            intent_type=n.intent_type)
 
     def _emit(self, opp: Opportunity, report: RunReport) -> None:
         if self.store.need_is_scrubbed(opp.opportunity_id):
@@ -392,7 +397,7 @@ class NeedEngine:
                 log.info("chat %s: X search is off for the product, dropped %d posts", chat_id, len(pending))
                 continue
             if is_x:
-                pending = self._select_x_pending(pending, report, now, keep_threads=product_x is not None)
+                pending = self._select_x_pending(pending, report, now, keep_threads=product_x is not None, product_id=product_x)
             if is_x:   # X posts are independent: no count trigger, x_max_per_run already bounds a run
                 batch, why = pending, "x"
             else:
@@ -412,11 +417,11 @@ class NeedEngine:
                             break
                         cards, toman, fits = extract_x_product_batch(
                             w.new, chat_id, self._x_product_brief(j), self.llm,
-                            self.cfg, now, payer=self.x_products.get(product_x))
+                            self.cfg, now, payer=self.x_products.get(product_x), report=report)
                         report.x_batches += 1
                         report.x_posts_sent_to_llm += len(w.new)
                     elif w.new and for_message(w.new[0]).key == X.key:
-                        cards, toman, calls = extract_x_batch(w.new, self.llm, self.cfg, now)
+                        cards, toman, calls = extract_x_batch(w.new, self.llm, self.cfg, now, report=report)
                         report.x_batches += int(calls == 1)
                         report.x_single_post_retries += int(calls > 1)
                         report.x_posts_sent_to_llm += len(w.new)
@@ -456,7 +461,7 @@ class NeedEngine:
 
     # ── X: independent public posts ─────────────────────────────────────────
     def _select_x_pending(self, pending: list[ChatMessage], report: RunReport, now: datetime,
-                          keep_threads: bool = False) -> list[ChatMessage]:
+                          keep_threads: bool = False, product_id: str | None = None) -> list[ChatMessage]:
         """Thread rows skipped (kept for a product's own search: «موجود دارین؟» under an ad is the buyer), stale posts
         dropped, cheap prefilter (shadow|on), per-author throttle, x_max_per_run."""
         thread_rows = [message for message in pending if message.kind in {"reply", "quote"}] if not keep_threads else []
@@ -476,6 +481,7 @@ class NeedEngine:
         for msg in stale:
             decisions[msg.message_id] = type("Decision", (), {"keep": False, "reason": "stale", "signals": {"age_hours": round((now - msg.date).total_seconds() / 3600, 2)}})()
             report.x_prefilter_dropped["stale"] = report.x_prefilter_dropped.get("stale", 0) + 1
+            report.dropped_by_stage["stale"] = report.dropped_by_stage.get("stale", 0) + 1
             log.info("Skipped stale X post %s", msg.message_id)
         if x_prefilter_enabled(self.cfg):
             self.store.drop_x_pending(stale, decisions, mode="stale")
@@ -485,6 +491,7 @@ class NeedEngine:
                 self.store.record_x_filter_decision(msg, decision.keep, decision.reason, decision.signals, prefilter_setting)
             if prefilter_setting == "shadow" and not decision.keep:
                 report.x_prefilter_dropped[decision.reason] = report.x_prefilter_dropped.get(decision.reason, 0) + 1
+                report.dropped_by_stage["cheap_filter"] = report.dropped_by_stage.get("cheap_filter", 0) + 1
         if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
             dropped = [m for m in pending if not decisions[m.message_id].keep]
             self.store.drop_x_pending(dropped, decisions, mode="on")
@@ -498,8 +505,42 @@ class NeedEngine:
             else:
                 decisions[msg.message_id] = type("Decision", (), {"reason": "author_throttle", "signals": {}})()
                 report.x_prefilter_dropped["author_throttle"] = report.x_prefilter_dropped.get("author_throttle", 0) + 1
+                report.dropped_by_stage["author_throttle"] = report.dropped_by_stage.get("author_throttle", 0) + 1
         if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
             self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
+        # Stage 4: Embedding gate in product mode (NE_X_MODE=product / before LLM)
+        embed_mode = getattr(self.cfg, "x_embed_gate", "shadow") or prefilter_setting
+        if product_id is not None and self.cfg.x_mode in {"product", "both"} and embed_mode != "off" and kept:
+            p_idx = self.catalog.pid_index.get(product_id)
+            if p_idx is not None:
+                pvecs = self.catalog.product_vectors(product_id)
+                if len(pvecs) > 0:
+                    texts = [m.text for m in kept]
+                    post_vecs = self.emb.encode(texts, stage="embed_x_gate")
+                    sims = (post_vecs @ pvecs.T).max(axis=1)
+                    min_sim = getattr(self.cfg, "x_embed_min_sim", 0.35)
+                    embed_kept = []
+                    embed_dropped = []
+                    for m, sim in zip(kept, sims):
+                        sim_f = float(sim)
+                        signals = {"similarity": round(sim_f, 4), "min_sim": min_sim, "product_id": product_id}
+                        if sim_f < min_sim:
+                            dec = type("Decision", (), {"keep": False, "reason": "embed_low_sim", "signals": signals})()
+                            decisions[m.message_id] = dec
+                            report.x_prefilter_dropped["embed_low_sim"] = report.x_prefilter_dropped.get("embed_low_sim", 0) + 1
+                            report.dropped_by_stage["embed_gate"] = report.dropped_by_stage.get("embed_gate", 0) + 1
+                            if x_prefilter_enabled(self.cfg):
+                                self.store.record_x_filter_decision(m, False, "embed_low_sim", signals, embed_mode)
+                            embed_dropped.append(m)
+                            if embed_mode == "shadow":
+                                embed_kept.append(m)
+                        else:
+                            if x_prefilter_enabled(self.cfg):
+                                self.store.record_x_filter_decision(m, True, "embed_ok", signals, embed_mode)
+                            embed_kept.append(m)
+                    if embed_mode == "on" and embed_dropped:
+                        self.store.drop_x_pending(embed_dropped, decisions, mode="on")
+                    kept = embed_kept
         if keep_threads and all_ordered and is_product_chat(all_ordered[0].chat_id):
             dropped = list(stale) if x_prefilter_enabled(self.cfg) else []
             if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
@@ -529,7 +570,7 @@ class NeedEngine:
     def _x_product_brief(self, j: int) -> dict:
         p = self.catalog.products[j]
         card = self.catalog.cards.get(p.product_id)
-        brief = {"title": p.title, "type": p.product_type, "summary": self.catalog.line(j)}
+        brief = {"product_id": p.product_id, "title": p.title, "type": p.product_type, "summary": self.catalog.line(j)}
         if card is not None:
             brief.update(what_it_is=card.what_it_is, aliases=card.aliases[:8], problems_solved=card.problems_solved[:5])
         return brief

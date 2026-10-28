@@ -30,8 +30,10 @@ a query is (any name) AND (any cue). Return for each product:
   (e.g. «تخفیف», «کد تخفیف», «فعالسازی فوری», «تحویل آنی»).
 - problems: 2-5 short phrases (2-4 words) a person literally writes when they have the problem this product solves,
   colloquial first person. Only problems this product really solves.
+- alternatives: 1-3 short phrases (2-4 words) asking for an alternative or comparison (e.g. «جایگزین نوشن», «به جای notion»).
+- complaints: 1-3 short phrases (2-4 words) expressing dissatisfaction with current or competitor tools (e.g. «خسته شدم از», «نرم‌افزار کند شده»).
 - model: brand + model the way people write it (e.g. "Airfly M7"), or null.
-Return JSON: {"items":[{"product_id":"...","names":[...],"cues":[...],"negatives":[...],"problems":[...],"model":null}]}"""
+Return JSON: {"items":[{"product_id":"...","names":[...],"cues":[...],"negatives":[...],"problems":[...],"alternatives":[...],"complaints":[...],"model":null}]}"""
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
@@ -61,9 +63,18 @@ def sanitize(raw: Any) -> dict[str, Any]:
                 out.append(term)
         return out[:cap]
 
-    return {"names": words(raw.get("names"), 1, 3, 8), "cues": words(raw.get("cues"), 1, 3, 10),
-            "negatives": words(raw.get("negatives"), 1, 3, 5), "problems": terms(raw.get("problems"), 2, 5, 5),
-            "model": model}
+    res = {
+        "names": words(raw.get("names"), 1, 3, 8),
+        "cues": words(raw.get("cues"), 1, 3, 10),
+        "negatives": words(raw.get("negatives"), 1, 3, 5),
+        "problems": terms(raw.get("problems"), 2, 5, 5),
+        "model": model,
+    }
+    if "alternatives" in raw:
+        res["alternatives"] = terms(raw.get("alternatives"), 2, 5, 4)
+    if "complaints" in raw:
+        res["complaints"] = terms(raw.get("complaints"), 2, 5, 4)
+    return res
 
 
 def _user(product: Any, card: Any) -> dict[str, Any]:

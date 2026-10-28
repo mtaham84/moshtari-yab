@@ -45,3 +45,5 @@ sessions/
 instagram_engine/sessions/
 backups/
 
+
+.worktrees/

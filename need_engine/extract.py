@@ -1,6 +1,7 @@
 """Conversation window → need cards (one LLM call per window) and per-person memory (merge across windows/runs)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -12,7 +13,7 @@ from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
 from need_engine.platforms import for_chat_id, for_message
-from need_engine.platforms.x import X, batch_limits
+from need_engine.platforms.x import X, batch_limits, product_id_from_chat
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
 from need_engine.store import Store
 from need_engine.text import norm
@@ -81,6 +82,14 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
     for n in (data or {}).get("needs", []) or []:
         if not isinstance(n, dict):
             continue
+        raw_it = str(n.get("intent_type") or "").strip().lower()
+        intent_type = raw_it if raw_it in {"buy_signal", "recommendation_ask", "complaint", "comparison", "switching", "general"} else "general"
+        strength = n.get("strength") if n.get("strength") in STRENGTH_RANK else "weak"
+        if intent_type in {"complaint", "comparison", "switching"} and strength == "weak":
+            strength = "medium"
+            n["strength"] = "medium"
+        n["intent_type"] = intent_type
+
         ev = sorted({int(e) for e in (n.get("evidence_message_ids") or []) if str(e).lstrip("-").isdigit()} & w.all_ids)
         aid = str(n.get("author_id") or "")
         reason = _x_reject_reason(n, ev, aid, x_messages, cfg.x_allow_unknown_author) if x_messages else None
@@ -97,6 +106,7 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
                 if isinstance(r, dict) and str(r.get("text") or "").strip()][:5]
         a = authors[aid]
         is_opp = bool(n.get("is_opportunity")) and label in OPPORTUNITY_LABELS
+
         cards.append(NeedCard(
             need_id="", chat_id=w.chat_id, author_id=aid, author_name=a.author_name, author_username=a.author_username,
             label=label, is_opportunity=is_opp, buyer_intent_confirmed=n.get("buyer_intent_confirmed") is True,
@@ -106,11 +116,11 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
             requirements=reqs,
             constraints=Constraints(budget_toman=_int_or_none(c.get("budget_toman")), city=c.get("city") or None,
                                     use=c.get("use") or None, level=c.get("level") or None, other=c.get("other") or None),
-            strength=n.get("strength") if n.get("strength") in STRENGTH_RANK else "weak", emotion=n.get("emotion"),
+            strength=strength, emotion=n.get("emotion"),
             evidence_ids=ev, status="open" if is_opp else "not_opportunity", created_at=now, updated_at=now,
             evidence_posted_at=max((x.date for x in w.new if x.message_id in ev), default=None),
             evidence_time_estimated=any(x.date_estimated for x in w.new if x.message_id in ev),
-            author_bio=a.author_bio))
+            author_bio=a.author_bio, intent_type=intent_type))
     if dropped:
         log.info("window %s: dropped %d needs without valid evidence in new messages%s", w.chat_id, dropped,
                  f" (X: {reasons})" if reasons else "")
@@ -120,98 +130,176 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
     return cards, usage["toman"]
 
 
-def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: datetime) -> tuple[list[NeedCard], float, int]:
-    """Extract independent posts together, then validate every result through the existing single-post gate."""
-    batch_size, _ = batch_limits(cfg)
-    if batch_size <= 1 and len(messages) > 1:
-        cards, total = [], 0.0
-        for message in messages:
-            result, cost = extract_window(Window(X.chat_id(), "X", [message]), llm, cfg, now)
-            cards.extend(result)
-            total += cost
-        return cards, total, len(messages)
-    if len(messages) <= 1:
-        result, cost = extract_window(Window(X.chat_id(), "X", messages), llm, cfg, now)
-        return result, cost, 1 if messages else 0
-    # short local ids: LLMs mis-copy 19-digit tweet/author ids, and a wrong digit silently loses the need
-    author_alias = {}
+def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: datetime,
+                    report=None) -> tuple[list[NeedCard], float, int]:
+    """Extract independent posts together, caching results per normalized text hash."""
+    if not messages:
+        return [], 0.0, 0
+    store = getattr(llm, "store", None)
+    cached_needs: dict[int, list[dict]] = {}
+    uncached: list = []
+
     for m in messages:
-        author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
-    real_author = {v: k for k, v in author_alias.items()}
-    payload = [{"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
-                "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
-               for i, m in enumerate(messages)]
-    try:
-        data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
-                                        json.dumps(payload, ensure_ascii=False), max_tokens=6000,
-                                        ref=f"{X.key}:{messages[0].message_id}-{messages[-1].message_id}")
-    except QuotaExhausted:
-        raise
-    except Exception:
-        data, usage = None, {"toman": 0.0}
-    needs = (data or {}).get("needs") if isinstance(data, dict) else None
-    if isinstance(needs, list):
-        needs = [_from_local_ids(n, messages, real_author) for n in needs if isinstance(n, dict)]
-    if not isinstance(needs, list):
-        cards, total = [], 0.0
-        for message in messages:
-            result, cost = extract_window(Window(X.chat_id(), "X", [message]), llm, cfg, now)
-            cards.extend(result)
-            total += cost
-        return cards, total, len(messages)
-    cost_share = float(usage.get("toman") or 0) / max(1, len(messages))
+        norm_hash = hashlib.sha256(norm(m.text).encode()).hexdigest()
+        key = f"x_llm:gen:{norm_hash}"
+        hit = store.cache_get(key) if store else None
+        if isinstance(hit, dict) and "needs" in hit:
+            cached_needs[m.message_id] = hit.get("needs") or []
+            if report is not None:
+                report.cache_hits += 1
+        else:
+            uncached.append(m)
+
+    total_cost = 0.0
+    calls_made = 0
+    uncached_share = 0.0
+
+    if uncached:
+        batch_size, _ = batch_limits(cfg)
+        if batch_size <= 1 and len(uncached) > 1:
+            for message in uncached:
+                r, cost = extract_window(Window(X.chat_id(), "X", [message]), llm, cfg, now)
+                cached_needs[message.message_id] = [card.model_dump() for card in r]
+                total_cost += cost
+                calls_made += 1
+                if store:
+                    norm_hash = hashlib.sha256(norm(message.text).encode()).hexdigest()
+                    store.cache_put(f"x_llm:gen:{norm_hash}", {"needs": cached_needs[message.message_id]})
+        elif len(uncached) <= 1:
+            r, cost = extract_window(Window(X.chat_id(), "X", uncached), llm, cfg, now)
+            total_cost += cost
+            calls_made += 1
+            if uncached:
+                cached_needs[uncached[0].message_id] = [card.model_dump() for card in r]
+                if store:
+                    norm_hash = hashlib.sha256(norm(uncached[0].text).encode()).hexdigest()
+                    store.cache_put(f"x_llm:gen:{norm_hash}", {"needs": cached_needs[uncached[0].message_id]})
+        else:
+            author_alias = {}
+            for m in uncached:
+                author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
+            real_author = {v: k for k, v in author_alias.items()}
+            payload = [{"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
+                        "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
+                       for i, m in enumerate(uncached)]
+            try:
+                data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
+                                                json.dumps(payload, ensure_ascii=False), max_tokens=6000,
+                                                ref=f"{X.key}:{uncached[0].message_id}-{uncached[-1].message_id}")
+            except QuotaExhausted:
+                raise
+            except Exception:
+                data, usage = None, {"toman": 0.0}
+            needs = (data or {}).get("needs") if isinstance(data, dict) else None
+            if isinstance(needs, list):
+                needs = [_from_local_ids(n, uncached, real_author) for n in needs if isinstance(n, dict)]
+            if not isinstance(needs, list):
+                for message in uncached:
+                    result, cost = extract_window(Window(X.chat_id(), "X", [message]), llm, cfg, now)
+                    cached_needs[message.message_id] = [card.model_dump() for card in result]
+                    total_cost += cost
+                    calls_made += 1
+            else:
+                calls_made = 1
+                total_cost = float(usage.get("toman") or 0)
+                uncached_share = total_cost / max(1, len(uncached))
+                for message in uncached:
+                    relevant = [need for need in needs if isinstance(need, dict) and str(need.get("author_id")) == message.author_id
+                                and message.message_id in {int(value) for value in need.get("evidence_message_ids", []) if str(value).isdigit()}]
+                    cached_needs[message.message_id] = relevant
+                    if store:
+                        norm_hash = hashlib.sha256(norm(message.text).encode()).hexdigest()
+                        store.cache_put(f"x_llm:gen:{norm_hash}", {"needs": relevant})
+
     cards = []
     for message in messages:
-        relevant = [need for need in needs if isinstance(need, dict) and str(need.get("author_id")) == message.author_id
-                    and message.message_id in {int(value) for value in need.get("evidence_message_ids", []) if str(value).isdigit()}]
+        relevant = cached_needs.get(message.message_id, [])
+        share = uncached_share if message in uncached else 0.0
+
         class BatchLLM:
             def complete_json(self, *args, **kwargs):
-                return {"needs": relevant}, {"toman": cost_share, "pt": 0, "ct": 0}
+                return {"needs": relevant}, {"toman": share, "pt": 0, "ct": 0}
+
         result, _ = extract_window(Window(X.chat_id(), "X", [message]), BatchLLM(), cfg, now)
         for card in result:
-            card.cost_toman = cost_share / max(1, len(result))
+            card.cost_toman = share / max(1, len(result))
             cards.append(card)
-    return cards, float(usage.get("toman") or 0), 1
+    return cards, total_cost, calls_made
 
 
 _FIT_RANK = {"yes": 2, "partly": 1, "no": 0}
 
 
 def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LLMClient, cfg: EngineConfig, now: datetime,
-                            payer: str | None = None) -> tuple[list[NeedCard], float, dict[int, tuple[str, str]]]:
-    """Per-product mode: posts that ONE product's search found, judged against that product only (one call, billed to
-    the product's seller). Returns (validated need cards, toman, {tweet_id: (fit, fit_reason)})."""
+                            payer: str | None = None, report=None) -> tuple[list[NeedCard], float, dict[int, tuple[str, str]]]:
+    """Per-product mode: posts that ONE product's search found, judged against that product only.
+
+    Caches results per normalized text hash + product_id to avoid repeated LLM cost for duplicate posts.
+    """
     if not messages:
         return [], 0.0, {}
-    author_alias: dict[str, str] = {}
+    store = getattr(llm, "store", None)
+    pid = str(product.get("product_id") or product_id_from_chat(chat_id) or "")
+    cached_needs: dict[int, list[dict]] = {}
+    cached_fits: dict[int, tuple[str, str]] = {}
+    uncached: list = []
+
     for m in messages:
-        author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
-    real_author = {v: k for k, v in author_alias.items()}
-    posts = []
-    for i, m in enumerate(messages):
-        post = {"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
-                "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
-        if m.kind in {"reply", "quote"} and m.reply_to_text:
-            post["reply_to"] = m.reply_to_text[:400]
-        posts.append(post)
-    user = json.dumps({"product": product, "posts": posts}, ensure_ascii=False)
-    data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, NEED_SYSTEM_X_PRODUCT, user,
-                                    max_tokens=6000, ref=f"{chat_id}:{messages[0].message_id}-{messages[-1].message_id}",
-                                    businesses=[payer] if payer else None)
-    needs = (data or {}).get("needs") if isinstance(data, dict) else None
-    needs = [_from_local_ids(n, messages, real_author) for n in needs if isinstance(n, dict)] if isinstance(needs, list) else []
-    toman = float(usage.get("toman") or 0)
-    fits: dict[int, tuple[str, str]] = {}
+        norm_hash = hashlib.sha256(norm(m.text).encode()).hexdigest()
+        key = f"x_llm:prod:{pid}:{norm_hash}" if pid else None
+        hit = store.cache_get(key) if (store and key) else None
+        if isinstance(hit, dict) and "needs" in hit:
+            cached_needs[m.message_id] = hit.get("needs") or []
+            cached_fits[m.message_id] = tuple(hit.get("fit") or ("no", ""))
+            if report is not None:
+                report.cache_hits += 1
+        else:
+            uncached.append(m)
+
+    total_toman = 0.0
+    uncached_share = 0.0
+
+    if uncached:
+        author_alias: dict[str, str] = {}
+        for m in uncached:
+            author_alias.setdefault(m.author_id, f"a{len(author_alias) + 1}")
+        real_author = {v: k for k, v in author_alias.items()}
+        posts = []
+        for i, m in enumerate(uncached):
+            post = {"post_id": i + 1, "author_id": author_alias[m.author_id], "handle": m.author_username,
+                    "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
+            if m.kind in {"reply", "quote"} and m.reply_to_text:
+                post["reply_to"] = m.reply_to_text[:400]
+            posts.append(post)
+        user = json.dumps({"product": product, "posts": posts}, ensure_ascii=False)
+        data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, NEED_SYSTEM_X_PRODUCT, user,
+                                        max_tokens=6000, ref=f"{chat_id}:{uncached[0].message_id}-{uncached[-1].message_id}",
+                                        businesses=[payer] if payer else None)
+        needs = (data or {}).get("needs") if isinstance(data, dict) else None
+        needs = [_from_local_ids(n, uncached, real_author) for n in needs if isinstance(n, dict)] if isinstance(needs, list) else []
+        total_toman = float(usage.get("toman") or 0)
+        uncached_share = total_toman / max(1, len(uncached))
+
+        for message in uncached:
+            relevant = [n for n in needs if str(n.get("author_id")) == message.author_id
+                        and message.message_id in {int(v) for v in n.get("evidence_message_ids", []) if str(v).isdigit()}]
+            best_f = ("no", "")
+            for n in relevant:
+                fit = str(n.get("fit") or "no").strip().lower()
+                fit = fit if fit in _FIT_RANK else "no"
+                if _FIT_RANK[fit] >= _FIT_RANK[best_f[0]]:
+                    best_f = (fit, str(n.get("fit_reason") or "")[:200])
+            cached_needs[message.message_id] = relevant
+            cached_fits[message.message_id] = best_f
+            if store and pid:
+                norm_hash = hashlib.sha256(norm(message.text).encode()).hexdigest()
+                store.cache_put(f"x_llm:prod:{pid}:{norm_hash}", {"needs": relevant, "fit": best_f})
+
     cards = []
-    share = toman / max(1, len(messages))
+    fits = cached_fits
     for message in messages:
-        relevant = [n for n in needs if str(n.get("author_id")) == message.author_id
-                    and message.message_id in {int(v) for v in n.get("evidence_message_ids", []) if str(v).isdigit()}]
-        for n in relevant:
-            fit = str(n.get("fit") or "no").strip().lower()
-            fit = fit if fit in _FIT_RANK else "no"
-            if _FIT_RANK[fit] >= _FIT_RANK[fits.get(message.message_id, ("no", ""))[0]]:
-                fits[message.message_id] = (fit, str(n.get("fit_reason") or "")[:200])
+        relevant = cached_needs.get(message.message_id, [])
+        share = uncached_share if message in uncached else 0.0
 
         class _Given:
             def complete_json(self, *args, **kwargs):
@@ -221,7 +309,7 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
         for card in result:
             card.cost_toman = share / max(1, len(result))
             cards.append(card)
-    return cards, toman, fits
+    return cards, total_toman, fits
 
 
 def best_fit(evidence_ids: list[int], fits: dict[int, tuple[str, str]]) -> tuple[str, str]:
@@ -260,6 +348,7 @@ def _merge(old: NeedCard, new: NeedCard) -> NeedCard:
         m.evidence_posted_at = new.evidence_posted_at
         m.evidence_time_estimated = new.evidence_time_estimated
     m.author_bio = new.author_bio or old.author_bio
+    m.intent_type = new.intent_type or old.intent_type
     # the latest state matters: resolved closes it; a later joke/curiosity does not cancel a real need
     if old.status == "expired" and for_chat_id(old.chat_id).key == X.key:
         m.status, m.is_opportunity = "expired", False

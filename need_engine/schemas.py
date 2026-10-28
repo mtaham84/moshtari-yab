@@ -11,6 +11,17 @@ from pydantic import BaseModel, Field
 Strength = Literal["strong", "medium", "weak"]
 STRENGTH_RANK = {"weak": 0, "medium": 1, "strong": 2}
 STRENGTH_WEIGHT = {"weak": 0.4, "medium": 0.7, "strong": 1.0}
+IntentType = Literal["buy_signal", "recommendation_ask", "complaint", "comparison", "switching", "general"]
+INTENT_TYPES = {"buy_signal", "recommendation_ask", "complaint", "comparison", "switching", "general"}
+
+
+def strength_weight(strength: str, intent_type: str | None = None) -> float:
+    base = STRENGTH_WEIGHT.get(strength, 0.4)
+    if intent_type in {"complaint", "comparison", "switching"}:
+        return min(base, 0.7) if strength != "strong" else 0.85
+    return base
+
+
 OPPORTUNITY_LABELS = {"explicit_need", "implicit_need", "on_behalf_need"}
 
 
@@ -38,6 +49,7 @@ class ChatMessage(BaseModel):
     search_query: str | None = None
     author_verified: bool = False
     author_bio: str | None = None
+    intent_type: str | None = None
     lang: str | None = None
     date_estimated: bool = False
     kind: str = "post"
@@ -141,6 +153,7 @@ class NeedCard(BaseModel):
     evidence_posted_at: datetime | None = None
     evidence_time_estimated: bool = False
     author_bio: str | None = None
+    intent_type: str | None = None
 
     def summary_text(self) -> str:
         return " ".join([self.situation or "", self.need or ""] + self.solution_queries[:3])
@@ -201,6 +214,7 @@ class NeedOut(BaseModel):
     requirements: list[Requirement] = Field(default_factory=list)
     constraints: dict[str, Any] = Field(default_factory=dict)
     priority: float = 0.0
+    intent_type: str | None = None
 
 
 class Cost(BaseModel):
@@ -223,3 +237,4 @@ class Opportunity(BaseModel):
     source_query: str | None = None
     thread: dict[str, Any] | None = None
     retention_scrubbed: bool = False
+    intent_type: str | None = None

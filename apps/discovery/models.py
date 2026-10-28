@@ -340,6 +340,20 @@ class Opportunity(models.Model):
     demand_count = models.PositiveIntegerField(default=0)
     competitor_replies = models.JSONField(default=list, blank=True)
     thread_fetched_at = models.DateTimeField(null=True, blank=True)
+    intent_type = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        choices=[
+            ("buy_signal", "سیگنال خرید صریح"),
+            ("recommendation_ask", "درخواست معرفی / پیشنهاد"),
+            ("complaint", "نارضایتی از محصول فعلی"),
+            ("comparison", "مقایسه گزینه‌ها"),
+            ("switching", "تغییر و جایگزینی"),
+            ("general", "عمومی"),
+        ],
+        verbose_name="نوع قصد خرید",
+    )
     status = models.CharField(
         max_length=30,
         choices=OPPORTUNITY_STATUS_CHOICES,

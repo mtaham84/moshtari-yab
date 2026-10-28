@@ -121,6 +121,15 @@ class EngineConfig:
     x_min_persian_ratio: float = _f("NE_X_MIN_PERSIAN_RATIO", 0.5)
     x_allow_finglish: bool = _f("NE_X_ALLOW_FINGLISH", True)
     x_min_relevance: float = _f("NE_X_MIN_RELEVANCE", 0.05)
+    x_score_intent_weight: float = _f("NE_X_SCORE_INTENT_WEIGHT", 45.0)
+    x_score_topic_weight: float = _f("NE_X_SCORE_TOPIC_WEIGHT", 35.0)
+    x_score_author_weight: float = _f("NE_X_SCORE_AUTHOR_WEIGHT", 20.0)
+    x_filter_min_score: float = _f("NE_X_FILTER_MIN_SCORE", 25.0)
+    x_intent_weights: dict = _f("NE_X_INTENT_WEIGHTS", {
+        "explicit": 1.0, "recommendation": 0.8, "comparison": 0.6, "general": 0.0,
+    })
+    x_embed_min_sim: float = _f("NE_X_EMBED_MIN_SIM", 0.35)
+    x_embed_gate: str = _f("NE_X_EMBED_GATE", "shadow")
     x_max_posts_per_author_per_run: int = _f("NE_X_MAX_POSTS_PER_AUTHOR_PER_RUN", 3)
     x_batch_size: int = _f("NE_X_BATCH_SIZE", 8)
     x_batch_max_chars: int = _f("NE_X_BATCH_MAX_CHARS", 6000)

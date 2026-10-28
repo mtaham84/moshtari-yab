@@ -182,7 +182,7 @@ class PostgresStateStore:
             row = by_query[item["query"]]
             last, kind = row[3], row[1]
             stale = 1e12 if not last else max(1.0, (now - last).total_seconds())
-            return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "product": 0.4}.get(kind, 1.0)), item["query"]
+            return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 1.0)), item["query"]
         return sorted(queries, key=score)[:max(0, budget)]
 
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
