@@ -127,38 +127,45 @@ class Command(BaseCommand):
                             terms.update(p.instagram_terms)
 
                     # Always include the core business domain and main industry names
-                    domain = (getattr(b, "business_domain", "") or "").strip()
-                    if domain:
-                        terms.add(domain)
-                        tags.add(domain.replace(" ", "_"))
-
                     # Core keyword injections based on business profile
+                    domain = (getattr(b, "business_domain", "") or "").strip()
                     name_and_domain = f"{b.name} {domain}".lower()
                     if "سنگ" in name_and_domain:
-                        core_stone_terms = ["سنگ ساختمانی", "سنگبری", "سنگ نما", "تراورتن", "مرمریت"]
+                        core_stone_terms = ["سنگ ساختمانی", "سنگبری", "سنگ نما", "تراورتن", "مرمریت", "سنگ اسلب", "سنگ پله"]
                         for st in core_stone_terms:
                             terms.add(st)
                             tags.add(st.replace(" ", "_"))
                     if "دندان" in name_and_domain:
-                        core_dental_terms = ["دندانپزشکی", "دندان‌پزشکی", "ایمپلنت دندان", "کامپوزیت دندان", "لمینت دندان"]
+                        core_dental_terms = ["دندانپزشکی", "دندان‌پزشکی", "ایمپلنت دندان", "کامپوزیت دندان", "لمینت دندان", "ارتودنسی"]
                         for dt in core_dental_terms:
                             terms.add(dt)
                             tags.add(dt.replace(" ", "_"))
+                    if "لپ" in name_and_domain or "استوک" in name_and_domain:
+                        core_laptop_terms = ["لپ‌تاپ استوک", "لپ تاپ مهندسی", "لپ تاپ استوک", "تینکپد"]
+                        for lt in core_laptop_terms:
+                            terms.add(lt)
+                            tags.add(lt.replace(" ", "_").replace("‌", "_"))
+                    if "کنکور" in name_and_domain:
+                        core_konkur_terms = ["کنکور تجربی", "مشاوره کنکور", "کنکور"]
+                        for kt in core_konkur_terms:
+                            terms.add(kt)
+                            tags.add(kt.replace(" ", "_"))
 
-                    if not tags and not terms:
-                        if getattr(b, "name", ""):
-                            cleaned_name = b.name.strip()
-                            terms.add(cleaned_name)
-                            tags.add(cleaned_name.replace(" ", "_"))
+                    # Sanitize tags: keep only clean, valid Instagram hashtags (no long sentences, no commas/punctuation)
+                    clean_tags = []
+                    for t in tags:
+                        clean = str(t).strip().lstrip("#")
+                        if 2 <= len(clean) <= 30 and not any(ch in clean for ch in "،,.:;!?()[]{}«»*&^%$#@!~`+=\\/"):
+                            clean_tags.append(clean)
 
-                    if tags or terms:
+                    if clean_tags or terms:
                         targets.append({
                             "tenant_id": f"tenant_{b.id}",
                             "business": b,
                             "name": b.name,
-                            "hashtags": list(tags),
+                            "hashtags": sorted(set(clean_tags)),
                             "terms": list(terms),
-                            "query": list(terms)[0] if terms else (list(tags)[0] if tags else b.name),
+                            "query": list(terms)[0] if terms else (clean_tags[0] if clean_tags else b.name),
                         })
             else:
                 default_tenant = tenant_id or "tenant_default"
@@ -230,10 +237,221 @@ class Command(BaseCommand):
 
         return cl
 
+    def _handle_login_required(self, cl, account) -> bool:
+        if not getattr(account, "password", None):
+            return False
+        self.stdout.write(self.style.WARNING(f"    🔄 [Session Expired]: Attempting automatic re-login for @{account.username}..."))
+        try:
+            cl.login(account.username, account.password)
+            account.session_json = cl.get_settings()
+            account.status = "ACTIVE"
+            account.save(update_fields=["session_json", "status"])
+            self.stdout.write(self.style.SUCCESS(f"    ✅ [Auto Re-Login Successful]: @{account.username} session updated!"))
+            return True
+        except Exception as exc:
+            self.stderr.write(f"    ❌ [Auto Re-Login Failed] for @{account.username}: {exc}")
+            return False
+
+    def _inspect_and_process_medias(
+        self,
+        cl,
+        account,
+        target,
+        medias,
+        min_comments,
+        seen_media_ids,
+        query_label: str = "",
+        check_domain_relevance: bool = True,
+    ) -> tuple:
+        tenant_id = target["tenant_id"]
+        business_name = target["name"]
+        posts_inspected = 0
+        qualifying_posts = 0
+        leads_saved = 0
+
+        from datetime import timedelta
+        import hashlib
+        from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
+        from instagram_engine.analyzer import get_effective_caption_cta, evaluate_comment_smart, detect_repeated_comment_triggers
+        from instagram_engine.post_filters import is_irrelevant_post_for_business
+
+        thirty_days_ago = dj_timezone.now() - timedelta(days=30)
+
+        for media in medias:
+            m_id = str(getattr(media, "id", "") or getattr(media, "pk", ""))
+            if not m_id:
+                continue
+            if m_id in seen_media_ids:
+                continue
+            seen_media_ids.add(m_id)
+
+            posts_inspected += 1
+            code = getattr(media, "code", "")
+            source_post_url = f"https://www.instagram.com/p/{code}/" if code else None
+            caption_text = getattr(media, "caption_text", "") or ""
+            comment_count = getattr(media, "comment_count", 0) or 0
+
+            # 1. Age Pre-Filter: Strictly reject posts published more than 30 days ago
+            taken_at = getattr(media, "taken_at", None)
+            if taken_at:
+                if dj_timezone.is_naive(taken_at):
+                    taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
+                if taken_at < thirty_days_ago:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"    ⏭️ [SKIPPED POST > 30 DAYS OLD]: {source_post_url} (Published: {taken_at.strftime('%Y-%m-%d')})"
+                        )
+                    )
+                    continue
+
+            # 2. Multi-Account Post Hash Deduplication: Never crawl the same post twice across any account
+            post_hash = hashlib.sha256(f"ig_post:{m_id}".encode("utf-8")).hexdigest()
+            if InstagramCrawledPost.objects.filter(post_hash=post_hash).exists():
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"    ⏭️ [SKIPPED POST ALREADY CRAWLED (Hash Dedup)]: {source_post_url} (Hash: {post_hash[:10]})"
+                    )
+                )
+                continue
+
+            # Strict Filter: Must have at least min_comments (50)
+            if comment_count < min_comments:
+                continue
+
+            # Domain Relevance Filter: Skip posts outside the business domain
+            if check_domain_relevance:
+                is_irrel, irrel_reason = is_irrelevant_post_for_business(caption_text, business_name)
+                if is_irrel:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"    ⏭️ [SKIPPED UNRELATED POST: {irrel_reason}] {source_post_url}"
+                        )
+                    )
+                    continue
+
+            # 3. Atomic Reservation: Register post in InstagramCrawledPost before comment extraction
+            try:
+                InstagramCrawledPost.objects.create(
+                    post_hash=post_hash,
+                    media_id=m_id,
+                    media_code=code,
+                    account_username=account.username,
+                    posted_at=taken_at or dj_timezone.now(),
+                )
+            except Exception:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"    ⏭️ [SKIPPED CONCURRENTLY CLAIMED POST]: {source_post_url}"
+                    )
+                )
+                continue
+
+            qualifying_posts += 1
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"    🎯 [QUALIFYING POST for {query_label}] {source_post_url} | Comments: {comment_count} (>= {min_comments}) | Hash: {post_hash[:10]}"
+                )
+            )
+
+            cta_trigger = get_effective_caption_cta(caption_text)
+            fetch_amount = min(comment_count, 100)
+            comments = []
+            try:
+                comments = cl.media_comments(m_id, amount=fetch_amount)
+            except Exception as exc:
+                try:
+                    comments = cl.media_comments_gql(m_id, amount=fetch_amount)
+                except Exception:
+                    self.stderr.write(f"    Failed to fetch comments for {source_post_url}: {exc}")
+                    continue
+
+            all_comment_texts = [getattr(c, "text", "") for c in comments if getattr(c, "text", "")]
+            repeated_triggers = detect_repeated_comment_triggers(all_comment_texts, min_count=2)
+            if repeated_triggers:
+                self.stdout.write(
+                    self.style.NOTICE(f"    🔄 [DETECTED REPEATED DM TRIGGERS]: {repeated_triggers}")
+                )
+
+            for c in comments:
+                user_obj = getattr(c, "user", None)
+                if not user_obj:
+                    continue
+
+                user_pk = str(getattr(user_obj, "pk", "") or getattr(user_obj, "id", ""))
+                username = getattr(user_obj, "username", "")
+                full_name = getattr(user_obj, "full_name", "") or username
+                comment_text = getattr(c, "text", "")
+
+                if not user_pk or not username or not comment_text:
+                    continue
+
+                eval_res = evaluate_comment_smart(
+                    comment_text=comment_text,
+                    caption=caption_text,
+                    cta_word=cta_trigger,
+                    product_context=business_name,
+                    repeated_triggers=repeated_triggers,
+                )
+
+                if eval_res.get("is_emoji"):
+                    continue
+
+                if eval_res.get("is_toxic"):
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"      🚫 [REJECTED TOXIC/DISS] @{username}: {eval_res.get('reason')} | '{comment_text[:45]}'"
+                        )
+                    )
+                    continue
+
+                if not eval_res.get("is_lead"):
+                    continue
+
+                score = float(eval_res.get("intent_score") or 0.90)
+                match_reason = eval_res.get("matched_cta") or "direct"
+                profile_url = f"https://www.instagram.com/{username}/"
+                post_snippet = caption_text[:600] if caption_text else None
+
+                lead, created = InstagramEngineLead.objects.get_or_create(
+                    tenant_id=tenant_id,
+                    ig_user_pk=user_pk,
+                    defaults={
+                        "username": username,
+                        "full_name": full_name,
+                        "profile_url": profile_url,
+                        "comment_text": comment_text,
+                        "source_post_url": source_post_url,
+                        "post_caption_snippet": post_snippet,
+                        "matched_cta": match_reason,
+                        "intent_score": score,
+                        "status": "NEW",
+                    },
+                )
+
+                if created:
+                    leads_saved += 1
+                    lead_type_label = "⚡ مستقیم (Zero Cost)" if eval_res.get("is_direct_cta") else "🤖 هوش مصنوعی (Luna GPT-6)"
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {score}) | '{comment_text[:50]}'"
+                        )
+                    )
+
+                try:
+                    from apps.discovery.services import sync_instagram_lead_to_opportunity
+                    sync_instagram_lead_to_opportunity(lead, business=target.get("business"), ai_meta=eval_res)
+                except Exception as sync_exc:
+                    self.stderr.write(f"Notice: Opportunity sync skipped: {sync_exc}")
+
+            time.sleep(random.uniform(4.0, 7.0))
+
+        return posts_inspected, qualifying_posts, leads_saved
+
     def _scrape_target(self, cl, account, target, min_comments, max_posts) -> int:
         tenant_id = target["tenant_id"]
         business_name = target["name"]
-        tags_to_scrape = list(target["hashtags"])
+        tags_to_scrape = list(target.get("hashtags") or [])
+        terms_to_scrape = list(target.get("terms") or [])
         query = target.get("query") or ""
 
         self.stdout.write(self.style.HTTP_INFO(f"\n--- Target: {business_name} ({tenant_id}) ---"))
@@ -253,14 +471,99 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stdout.write(f"Hashtag search fallback warning: {e}")
 
-        self.stdout.write(f"Hashtags to inspect: {tags_to_scrape}")
-
         total_posts_inspected = 0
         total_qualifying_posts = 0
         total_leads_saved = 0
+        seen_media_ids = set()
 
-        # MMR-driven diverse hashtag selection
         from shared.mmr import select_by_mmr
+        from apps.discovery.models import InstagramCrawlExecution
+
+        # ==========================================
+        # 1. KEYWORD SEARCH (Media Search SERP - No Hashtag)
+        # ==========================================
+        if terms_to_scrape:
+            selected_terms = select_by_mmr(
+                terms_to_scrape,
+                lambda t: t,
+                reference_context=f"{business_name} {query}",
+                top_k=3,
+                lambda_param=0.65,
+            )
+        else:
+            selected_terms = [query] if query else []
+
+        self.stdout.write(f"Keywords to search: {terms_to_scrape}")
+        self.stdout.write(f"MMR selected diverse keywords for this cycle: {selected_terms}")
+
+        for term in selected_terms:
+            self.stdout.write(self.style.WARNING(f"\n  [🔍] Keyword Search: '{term}'"))
+            term_err = ""
+            term_medias = []
+            try:
+                term_medias = cl.media_search(term, amount=max_posts)
+                if term_medias:
+                    self.stdout.write(f"    Retrieved {len(term_medias)} posts for keyword '{term}'.")
+            except Exception as exc:
+                term_err = str(exc)
+                if "login_required" in term_err.lower() and self._handle_login_required(cl, account):
+                    try:
+                        term_medias = cl.media_search(term, amount=max_posts)
+                        if term_medias:
+                            self.stdout.write(f"    Retrieved {len(term_medias)} posts for keyword '{term}' after re-login.")
+                            term_err = ""
+                    except Exception as retry_exc:
+                        term_err = str(retry_exc)
+                if term_err:
+                    self.stderr.write(f"    Notice: media_search error for '{term}': {term_err}")
+
+            p_insp, p_qual, l_saved = self._inspect_and_process_medias(
+                cl=cl,
+                account=account,
+                target=target,
+                medias=term_medias,
+                min_comments=min_comments,
+                seen_media_ids=seen_media_ids,
+                query_label=f"keyword '{term}'",
+                check_domain_relevance=True,
+            )
+            total_posts_inspected += p_insp
+            total_qualifying_posts += p_qual
+            total_leads_saved += l_saved
+
+            exec_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
+            if term_err and not term_medias:
+                exec_status = "FAILED"
+            msg_val = (
+                f"جستجوی متنی '{term}': بررسی {p_insp} پست، {p_qual} پست حائز شرایط (کامنت >= {min_comments})، {l_saved} لید جدید کشف شد."
+                if not (term_err and not term_medias)
+                else f"خطا در جستجوی کلیدواژه '{term}': {term_err}"
+            )
+            try:
+                InstagramCrawlExecution.objects.create(
+                    business=target.get("business"),
+                    tenant_id=tenant_id,
+                    query_text=term,
+                    target_type="KEYWORD",
+                    account_username=account.username,
+                    account=account,
+                    status=exec_status,
+                    posts_inspected=p_insp,
+                    qualifying_posts=p_qual,
+                    leads_found=l_saved,
+                    message=msg_val,
+                    crawled_at=dj_timezone.now(),
+                )
+                self.stdout.write(self.style.SUCCESS(f"    📝 [Crawl Log Saved]: Keyword '{term}' by @{account.username} ({exec_status})"))
+            except Exception as log_exc:
+                self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for keyword '{term}': {log_exc}")
+
+            time.sleep(random.uniform(3.0, 6.0))
+
+        # ==========================================
+        # 2. HASHTAG SEARCH (Top & Recent Posts)
+        # ==========================================
+        self.stdout.write(f"Hashtags to inspect: {tags_to_scrape}")
         selected_tags = select_by_mmr(
             tags_to_scrape,
             lambda t: t.replace("_", " "),
@@ -270,29 +573,29 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"MMR selected diverse hashtags for this cycle: {selected_tags}")
 
-        # Scrape loop for target
         for tag in selected_tags:
             self.stdout.write(self.style.WARNING(f"\n  [#] Hashtag: #{tag}"))
-            tag_posts_inspected = 0
-            tag_qualifying_posts = 0
-            tag_leads_saved = 0
             tag_err = ""
-            medias = []
-            seen_media_ids = set()
+            tag_medias = []
 
             # 1. Fetch Top / Viral Posts
             try:
                 top_medias = cl.hashtag_medias_top(tag, amount=max_posts)
-            except Exception:
-                try:
-                    top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
-                except Exception as exc:
-                    top_medias = []
-                    self.stderr.write(f"    Notice: hashtag_medias_top warning for #{tag}: {exc}")
+            except Exception as top_exc:
+                if "login_required" in str(top_exc).lower() and self._handle_login_required(cl, account):
+                    try:
+                        top_medias = cl.hashtag_medias_top(tag, amount=max_posts)
+                    except Exception:
+                        top_medias = []
+                else:
+                    try:
+                        top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
+                    except Exception as exc:
+                        top_medias = []
+                        self.stderr.write(f"    Notice: hashtag_medias_top warning for #{tag}: {exc}")
             for m in top_medias:
-                if str(m.id) not in seen_media_ids:
-                    seen_media_ids.add(str(m.id))
-                    medias.append(m)
+                if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
+                    tag_medias.append(m)
             if top_medias:
                 self.stdout.write(f"    Retrieved {len(top_medias)} TOP posts for #{tag}.")
 
@@ -306,205 +609,43 @@ class Command(BaseCommand):
                     recent_medias = []
                     self.stderr.write(f"    Notice: hashtag_medias_recent warning for #{tag}: {exc}")
             for m in recent_medias:
-                if str(m.id) not in seen_media_ids:
-                    seen_media_ids.add(str(m.id))
-                    medias.append(m)
+                if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
+                    tag_medias.append(m)
             if recent_medias:
                 self.stdout.write(f"    Retrieved {len(recent_medias)} RECENT posts for #{tag}.")
 
             # 3. Fallback to Web GraphQL if private mobile API returns no posts
-            if not medias:
+            if not tag_medias:
                 try:
                     gql_medias, _ = cl.hashtag_medias_paginated_gql(tag, amount=max_posts)
                     for m in gql_medias:
-                        if str(m.id) not in seen_media_ids:
-                            seen_media_ids.add(str(m.id))
-                            medias.append(m)
+                        if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
+                            tag_medias.append(m)
                     if gql_medias:
                         self.stdout.write(f"    Retrieved {len(gql_medias)} posts via GraphQL for #{tag}.")
                 except Exception as exc:
                     self.stderr.write(f"    Notice: hashtag_medias_paginated_gql warning for #{tag}: {exc}")
 
-            for media in medias:
-                total_posts_inspected += 1
-                tag_posts_inspected += 1
-                media_id = str(media.id)
-                code = getattr(media, "code", "")
-                source_post_url = f"https://www.instagram.com/p/{code}/" if code else None
-                caption_text = getattr(media, "caption_text", "") or ""
-                comment_count = getattr(media, "comment_count", 0) or 0
+            p_insp, p_qual, l_saved = self._inspect_and_process_medias(
+                cl=cl,
+                account=account,
+                target=target,
+                medias=tag_medias,
+                min_comments=min_comments,
+                seen_media_ids=seen_media_ids,
+                query_label=f"hashtag #{tag}",
+                check_domain_relevance=True,
+            )
+            total_posts_inspected += p_insp
+            total_qualifying_posts += p_qual
+            total_leads_saved += l_saved
 
-                # 1. Age Pre-Filter: Strictly reject posts published more than 30 days ago
-                import hashlib
-                from datetime import timedelta
-                from apps.discovery.models import InstagramCrawledPost
-                thirty_days_ago = dj_timezone.now() - timedelta(days=30)
-                taken_at = getattr(media, "taken_at", None)
-                if taken_at:
-                    if dj_timezone.is_naive(taken_at):
-                        taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
-                    if taken_at < thirty_days_ago:
-                        self.stdout.write(
-                            self.style.WARNING(
-                                f"    ⏭️ [SKIPPED POST > 30 DAYS OLD]: {source_post_url} (Published: {taken_at.strftime('%Y-%m-%d')})"
-                            )
-                        )
-                        continue
-
-                # 2. Multi-Account Post Hash Deduplication: Never crawl the same post twice across any account
-                post_hash = hashlib.sha256(f"ig_post:{media_id}".encode("utf-8")).hexdigest()
-                if InstagramCrawledPost.objects.filter(post_hash=post_hash).exists():
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    ⏭️ [SKIPPED POST ALREADY CRAWLED (Hash Dedup)]: {source_post_url} (Hash: {post_hash[:10]})"
-                        )
-                    )
-                    continue
-
-                # Strict Filter: Must have at least min_comments (50)
-                if comment_count < min_comments:
-                    continue
-
-                # Domain Relevance Filter: Skip posts that are outside the business domain (e.g. real estate/villa sales for stone business)
-                from instagram_engine.post_filters import is_irrelevant_post_for_business
-                is_irrel, irrel_reason = is_irrelevant_post_for_business(caption_text, business_name)
-                if is_irrel:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    ⏭️ [SKIPPED UNRELATED POST: {irrel_reason}] {source_post_url}"
-                        )
-                    )
-                    continue
-
-                # 3. Atomic Reservation: Register post in InstagramCrawledPost before comment extraction
-                try:
-                    InstagramCrawledPost.objects.create(
-                        post_hash=post_hash,
-                        media_id=media_id,
-                        media_code=code,
-                        account_username=account.username,
-                        posted_at=taken_at or dj_timezone.now(),
-                    )
-                except Exception:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    ⏭️ [SKIPPED CONCURRENTLY CLAIMED POST]: {source_post_url}"
-                        )
-                    )
-                    continue
-
-                total_qualifying_posts += 1
-                tag_qualifying_posts += 1
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        f"    🎯 [QUALIFYING POST] {source_post_url} | Comments: {comment_count} (>= {min_comments}) | Hash: {post_hash[:10]}"
-                    )
-                )
-
-                cta_trigger = get_effective_caption_cta(caption_text)
-                fetch_amount = min(comment_count, 100)
-                try:
-                    comments = cl.media_comments(media_id, amount=fetch_amount)
-                except Exception as exc:
-                    try:
-                        comments = cl.media_comments_gql(media_id, amount=fetch_amount)
-                    except Exception:
-                        self.stderr.write(f"    Failed to fetch comments: {exc}")
-                        continue
-
-                # Statistical detection of repeated keywords (followers requesting DM)
-                from instagram_engine.analyzer import detect_repeated_comment_triggers
-                all_comment_texts = [getattr(c, "text", "") for c in comments if getattr(c, "text", "")]
-                repeated_triggers = detect_repeated_comment_triggers(all_comment_texts, min_count=2)
-                if repeated_triggers:
-                    self.stdout.write(
-                        self.style.NOTICE(f"    🔄 [DETECTED REPEATED DM TRIGGERS]: {repeated_triggers}")
-                    )
-
-                for c in comments:
-                    user_obj = getattr(c, "user", None)
-                    if not user_obj:
-                        continue
-
-                    user_pk = str(getattr(user_obj, "pk", "") or getattr(user_obj, "id", ""))
-                    username = getattr(user_obj, "username", "")
-                    full_name = getattr(user_obj, "full_name", "") or username
-                    comment_text = getattr(c, "text", "")
-
-                    if not user_pk or not username or not comment_text:
-                        continue
-
-                    # Multi-tier smart comment evaluation & zero-cost emoji/toxicity filter
-                    eval_res = evaluate_comment_smart(
-                        comment_text=comment_text,
-                        caption=caption_text,
-                        cta_word=cta_trigger,
-                        product_context=business_name,
-                        repeated_triggers=repeated_triggers,
-                    )
-
-                    if eval_res.get("is_emoji"):
-                        # Zero token cost, skipped early
-                        continue
-
-                    if eval_res.get("is_toxic"):
-                        self.stdout.write(
-                            self.style.WARNING(
-                                f"      🚫 [REJECTED TOXIC/DISS] @{username}: {eval_res.get('reason')} | '{comment_text[:45]}'"
-                            )
-                        )
-                        continue
-
-                    if not eval_res.get("is_lead"):
-                        continue
-
-                    score = float(eval_res.get("intent_score") or 0.90)
-                    match_reason = eval_res.get("matched_cta") or "direct"
-                    profile_url = f"https://www.instagram.com/{username}/"
-                    post_snippet = caption_text[:600] if caption_text else None
-
-                    lead, created = InstagramEngineLead.objects.get_or_create(
-                        tenant_id=tenant_id,
-                        ig_user_pk=user_pk,
-                        defaults={
-                            "username": username,
-                            "full_name": full_name,
-                            "profile_url": profile_url,
-                            "comment_text": comment_text,
-                            "source_post_url": source_post_url,
-                            "post_caption_snippet": post_snippet,
-                            "matched_cta": match_reason,
-                            "intent_score": score,
-                            "status": "NEW",
-                        },
-                    )
-
-                    if created:
-                        total_leads_saved += 1
-                        tag_leads_saved += 1
-                        lead_type_label = "⚡ مستقیم (Zero Cost)" if eval_res.get("is_direct_cta") else "🤖 هوش مصنوعی (Luna GPT-6)"
-                        self.stdout.write(
-                            self.style.SUCCESS(
-                                f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {score}) | '{comment_text[:50]}'"
-                            )
-                        )
-
-                    # Sync directly into unified Opportunity domain with AI and billing metadata
-                    try:
-                        from apps.discovery.services import sync_instagram_lead_to_opportunity
-                        sync_instagram_lead_to_opportunity(lead, business=target.get("business"), ai_meta=eval_res)
-                    except Exception as sync_exc:
-                        self.stderr.write(f"Notice: Opportunity sync skipped: {sync_exc}")
-
-                time.sleep(random.uniform(4.0, 8.0))
-
-            # Record audit execution in InstagramCrawlExecution for this hashtag
-            exec_status = "SUCCESS" if tag_qualifying_posts > 0 else ("NO_POSTS" if tag_posts_inspected == 0 else "SUCCESS")
-            if tag_err and not medias:
+            exec_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
+            if tag_err and not tag_medias:
                 exec_status = "FAILED"
             msg_val = (
-                f"بررسی {tag_posts_inspected} پست، {tag_qualifying_posts} پست حائز شرایط (کامنت >= {min_comments})، {tag_leads_saved} لید جدید کشف شد."
-                if not (tag_err and not medias)
+                f"بررسی {p_insp} پست، {p_qual} پست حائز شرایط (کامنت >= {min_comments})، {l_saved} لید جدید کشف شد."
+                if not (tag_err and not tag_medias)
                 else f"خطا در اسکن هشتگ #{tag}: {tag_err}"
             )
             try:
@@ -516,9 +657,9 @@ class Command(BaseCommand):
                     account_username=account.username,
                     account=account,
                     status=exec_status,
-                    posts_inspected=tag_posts_inspected,
-                    qualifying_posts=tag_qualifying_posts,
-                    leads_found=tag_leads_saved,
+                    posts_inspected=p_insp,
+                    qualifying_posts=p_qual,
+                    leads_found=l_saved,
                     message=msg_val,
                     crawled_at=dj_timezone.now(),
                 )
@@ -528,16 +669,15 @@ class Command(BaseCommand):
 
             time.sleep(random.uniform(3.0, 6.0))
 
-        # Check active competitor/target pages for business
+        # ==========================================
+        # 3. COMPETITOR & TARGET PAGES
+        # ==========================================
         if target.get("business"):
             from apps.discovery.models import InstagramPage
             comp_pages = InstagramPage.objects.filter(business=target["business"], is_active=True)
             for page in comp_pages:
                 handle = page.handle.lstrip("@").strip()
                 self.stdout.write(self.style.WARNING(f"\n  [👤] Scraper @{account.username} inspecting competitor page: @{handle}"))
-                page_posts_inspected = 0
-                page_qualifying_posts = 0
-                page_leads_saved = 0
                 page_err = ""
                 page_medias = []
                 try:
@@ -547,111 +687,21 @@ class Command(BaseCommand):
                     page_err = str(exc)
                     self.stderr.write(f"    Notice: Error fetching medias from @{handle}: {exc}")
 
-                for media in page_medias:
-                    page_posts_inspected += 1
-                    total_posts_inspected += 1
-                    media_id = str(media.id)
-                    code = getattr(media, "code", "")
-                    source_post_url = f"https://www.instagram.com/p/{code}/" if code else None
-                    caption_text = getattr(media, "caption_text", "") or ""
-                    comment_count = getattr(media, "comment_count", 0) or 0
+                p_insp, p_qual, l_saved = self._inspect_and_process_medias(
+                    cl=cl,
+                    account=account,
+                    target=target,
+                    medias=page_medias,
+                    min_comments=min_comments,
+                    seen_media_ids=seen_media_ids,
+                    query_label=f"competitor page @{handle}",
+                    check_domain_relevance=False,
+                )
+                total_posts_inspected += p_insp
+                total_qualifying_posts += p_qual
+                total_leads_saved += l_saved
 
-                    from datetime import timedelta
-                    import hashlib
-                    thirty_days_ago = dj_timezone.now() - timedelta(days=30)
-                    taken_at = getattr(media, "taken_at", None)
-                    if taken_at:
-                        if dj_timezone.is_naive(taken_at):
-                            taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
-                        if taken_at < thirty_days_ago:
-                            continue
-
-                    post_hash = hashlib.sha256(f"ig_post:{media_id}".encode("utf-8")).hexdigest()
-                    if InstagramCrawledPost.objects.filter(post_hash=post_hash).exists():
-                        continue
-
-                    if comment_count < min_comments:
-                        continue
-
-                    try:
-                        InstagramCrawledPost.objects.create(
-                            post_hash=post_hash,
-                            media_id=media_id,
-                            media_code=code,
-                            account_username=account.username,
-                            posted_at=taken_at or dj_timezone.now(),
-                        )
-                    except Exception:
-                        continue
-
-                    page_qualifying_posts += 1
-                    total_qualifying_posts += 1
-                    self.stdout.write(self.style.SUCCESS(f"    🎯 [QUALIFYING PAGE POST] {source_post_url} | Comments: {comment_count}"))
-
-                    cta_trigger = get_effective_caption_cta(caption_text)
-                    fetch_amount = min(comment_count, 100)
-                    try:
-                        comments = cl.media_comments(media_id, amount=fetch_amount)
-                    except Exception:
-                        try:
-                            comments = cl.media_comments_gql(media_id, amount=fetch_amount)
-                        except Exception:
-                            continue
-
-                    from instagram_engine.analyzer import detect_repeated_comment_triggers
-                    all_comment_texts = [getattr(c, "text", "") for c in comments if getattr(c, "text", "")]
-                    repeated_triggers = detect_repeated_comment_triggers(all_comment_texts, min_count=2)
-
-                    for c in comments:
-                        user_obj = getattr(c, "user", None)
-                        if not user_obj:
-                            continue
-                        user_pk = str(getattr(user_obj, "pk", "") or getattr(user_obj, "id", ""))
-                        username = getattr(user_obj, "username", "")
-                        full_name = getattr(user_obj, "full_name", "") or username
-                        comment_text = getattr(c, "text", "")
-                        if not user_pk or not username or not comment_text:
-                            continue
-
-                        eval_res = evaluate_comment_smart(
-                            comment_text=comment_text,
-                            caption=caption_text,
-                            cta_word=cta_trigger,
-                            product_context=business_name,
-                            repeated_triggers=repeated_triggers,
-                        )
-                        if eval_res.get("is_emoji") or eval_res.get("is_toxic") or not eval_res.get("is_lead"):
-                            continue
-
-                        score = float(eval_res.get("intent_score") or 0.90)
-                        match_reason = eval_res.get("matched_cta") or "direct"
-                        lead, created = InstagramEngineLead.objects.get_or_create(
-                            tenant_id=tenant_id,
-                            ig_user_pk=user_pk,
-                            defaults={
-                                "username": username,
-                                "full_name": full_name,
-                                "profile_url": f"https://www.instagram.com/{username}/",
-                                "comment_text": comment_text,
-                                "source_post_url": source_post_url,
-                                "post_caption_snippet": caption_text[:600] if caption_text else None,
-                                "matched_cta": match_reason,
-                                "intent_score": score,
-                                "status": "NEW",
-                            },
-                        )
-                        if created:
-                            page_leads_saved += 1
-                            total_leads_saved += 1
-                            self.stdout.write(self.style.SUCCESS(f"      ⭐ Lead from @{handle}: @{username} (score: {score})"))
-
-                        try:
-                            from apps.discovery.services import sync_instagram_lead_to_opportunity
-                            sync_instagram_lead_to_opportunity(lead, business=target.get("business"), ai_meta=eval_res)
-                        except Exception:
-                            pass
-
-                page_status = "SUCCESS" if page_qualifying_posts > 0 else ("NO_POSTS" if page_posts_inspected == 0 else "SUCCESS")
+                page_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
                 if page_err and not page_medias:
                     page_status = "FAILED"
                 try:
@@ -663,15 +713,17 @@ class Command(BaseCommand):
                         account_username=account.username,
                         account=account,
                         status=page_status,
-                        posts_inspected=page_posts_inspected,
-                        qualifying_posts=page_qualifying_posts,
-                        leads_found=page_leads_saved,
-                        message=f"بررسی {page_posts_inspected} پست از صفحه @{handle}، {page_qualifying_posts} پست حائز شرایط، {page_leads_saved} سرنخ ثبت شد." if not (page_err and not page_medias) else f"خطای دسترسی: {page_err}",
+                        posts_inspected=p_insp,
+                        qualifying_posts=p_qual,
+                        leads_found=l_saved,
+                        message=f"بررسی {p_insp} پست از صفحه @{handle}، {p_qual} پست حائز شرایط، {l_saved} سرنخ ثبت شد." if not (page_err and not page_medias) else f"خطای دسترسی: {page_err}",
                         crawled_at=dj_timezone.now(),
                     )
                     self.stdout.write(self.style.SUCCESS(f"    📝 [Crawl Log Saved]: @{handle} by @{account.username} ({page_status})"))
                 except Exception as log_exc:
                     self.stderr.write(f"Notice: Failed to log InstagramCrawlExecution for @{handle}: {log_exc}")
+
+                time.sleep(random.uniform(3.0, 6.0))
 
         # Update account action count
         account.daily_action_count += total_qualifying_posts
