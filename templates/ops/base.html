@@ -11,19 +11,21 @@
 <div class="ops-layout">
   <aside class="ops-side">
     <div class="ops-brand">مشتری‌یاب<small>پنل مدیریت</small></div>
-    <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' %}on{% endif %}">🤖 اسکرپر و لیدهای اینستاگرام</a>
-    <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}">داشبورد و وضعیت سرویس‌ها</a>
-    <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}">هزینه‌ها</a>
-    <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}">قیف و کیفیت سرنخ</a>
-    <a href="{% url 'ops:providers' %}" class="{% if nav == 'providers' %}on{% endif %}">سرویس‌دهنده‌ها و مدل‌ها</a>
-    <a href="{% url 'ops:wallets' %}" class="{% if nav == 'wallets' %}on{% endif %}">کیف پول فروشنده‌ها</a>
-    <a href="{% url 'ops:communities' %}" class="{% if nav == 'communities' %}on{% endif %}">گروه‌های تلگرام</a>
-    <a href="{% url 'ops:x' %}" class="{% if nav == 'x' %}on{% endif %}">ایکس (توییتر)</a>
-    <a href="{% url 'ops:settings' %}" class="{% if nav == 'settings' %}on{% endif %}">تنظیمات پرداخت</a>
-    <hr>
-    <a href="{% url 'admin:index' %}">ادمین جنگو</a>
-    <a href="{% url 'accounts:dashboard' %}">پنل فروشنده</a>
-    <a href="{% url 'accounts:logout' %}">خروج</a>
+    <div class="ops-side-nav">
+      <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' %}on{% endif %}">🤖 اسکرپر و لیدهای اینستاگرام</a>
+      <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}">داشبورد و وضعیت سرویس‌ها</a>
+      <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}">هزینه‌ها</a>
+      <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}">قیف و کیفیت سرنخ</a>
+      <a href="{% url 'ops:providers' %}" class="{% if nav == 'providers' %}on{% endif %}">سرویس‌دهنده‌ها و مدل‌ها</a>
+      <a href="{% url 'ops:wallets' %}" class="{% if nav == 'wallets' %}on{% endif %}">کیف پول فروشنده‌ها</a>
+      <a href="{% url 'ops:communities' %}" class="{% if nav == 'communities' %}on{% endif %}">گروه‌های تلگرام</a>
+      <a href="{% url 'ops:x' %}" class="{% if nav == 'x' %}on{% endif %}">ایکس (توییتر)</a>
+      <a href="{% url 'ops:settings' %}" class="{% if nav == 'settings' %}on{% endif %}">تنظیمات پرداخت</a>
+      <hr>
+      <a href="{% url 'admin:index' %}">ادمین جنگو</a>
+      <a href="{% url 'accounts:dashboard' %}">پنل فروشنده</a>
+      <a href="{% url 'accounts:logout' %}">خروج</a>
+    </div>
   </aside>
   <main class="ops-main">
     {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}

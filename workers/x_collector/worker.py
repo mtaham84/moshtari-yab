@@ -470,6 +470,21 @@ def collect_forever(collector: XCollector, queries: list[str] | Callable[[], lis
             if mock_records is None:
                 charge_searches(getattr(collector, "searches", []))
                 record_searches(getattr(collector, "searches", []))
-        if result["status"] in {"CIRCUIT_OPEN", "RATE_LIMITED", "AUTH_FAILED", "FAILED"}:
-            raise XCliError(f"Collector stopped with status {result['status']}")
+        if result["status"] == "RATE_LIMITED":
+            log.warning("X rate limited; sleeping for 15 minutes before retry...")
+            time.sleep(900)
+            continue
+        elif result["status"] == "CIRCUIT_OPEN":
+            log.warning("X circuit open; sleeping for 5 minutes before retry...")
+            time.sleep(300)
+            continue
+        elif result["status"] == "FAILED":
+            log.warning("X collector cycle failed; sleeping for 2 minutes before retry...")
+            time.sleep(120)
+            continue
+        elif result["status"] == "AUTH_FAILED":
+            log.error("X authentication failed; sleeping 1 hour before recheck...")
+            time.sleep(3600)
+            continue
         time.sleep(interval)
+

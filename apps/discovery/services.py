@@ -100,12 +100,15 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
     }
 
 
-def sync_instagram_lead_to_opportunity(lead, business=None):
-    """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain."""
+def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
+    """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain with accurate Luna GPT-6 billing."""
     import re
+    from decimal import Decimal
     from django.db import transaction
     from apps.businesses.models import Business
     from apps.products.models import Product
+    from apps.billing.models import BillingSettings, WalletTransaction
+    from apps.billing.services import apply_transaction
     from .models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch
 
     if business is None:
@@ -124,6 +127,15 @@ def sync_instagram_lead_to_opportunity(lead, business=None):
     post_match = re.search(r"/p/([A-Za-z0-9_-]+)", lead.source_post_url or "")
     post_code = post_match.group(1) if post_match else "post"
     source_message_id = f"ig:{post_code}:c{lead.ig_user_pk}"
+
+    # Calculate token cost and 150% marked-up tenant fee
+    s = BillingSettings.get()
+    usd_rate = s.usd_to_toman or Decimal("268000")
+    markup_pct = s.markup_percent or Decimal("150.0")
+    cost_usd_dec = Decimal(str(ai_meta.get("cost_usd", 0.0) if ai_meta else 0.0))
+    raw_toman_dec = cost_usd_dec * usd_rate
+    # Final price charged to customer = Raw Toman + 150% markup
+    final_toman = int(round(raw_toman_dec * (1 + markup_pct / 100)))
 
     with transaction.atomic():
         customer, _ = Customer.objects.get_or_create(
@@ -186,23 +198,40 @@ def sync_instagram_lead_to_opportunity(lead, business=None):
                         "matched_cta": lead.matched_cta or "",
                         "ig_user_pk": str(lead.ig_user_pk),
                         "lead_id": lead.id,
+                        "billing": {
+                            "cost_usd": float(cost_usd_dec),
+                            "raw_cost_toman": int(round(raw_toman_dec)),
+                            "markup_percent": float(markup_pct),
+                            "final_cost_toman": final_toman,
+                        }
                     }
                 }
             }
         )
 
-        intent_flt = float(lead.intent_score or 0.90)
+        intent_flt = float(lead.intent_score or (ai_meta.get("intent_score") if ai_meta else 0.90) or 0.90)
         prod_name = matched_product.name if matched_product else "محصول مورد نظر"
+
+        # Suggested reply and reasoning from AI or direct template
+        need_str = (ai_meta.get("need") if ai_meta else None) or f"استعلام و تمایل به خرید در اینستاگرام: «{lead.comment_text}»"
+        why_str = (ai_meta.get("why_selected") if ai_meta else None) or f"ثبت کامنت متقاضی خرید ({lead.matched_cta or 'استعلام قیمت/مشاوره'}) زیر پست مرتبط اینستاگرام"
+        suggested_reply_str = (ai_meta.get("suggested_reply") if ai_meta else None) or f"سلام و احترام جناب/سرکار {customer.display_identifier} عزیز، در پاسخ به استعلام شما در خصوص «{prod_name}»، شرایط همکاری و مشخصات کامل خدمت شما ارسال گردید."
+        model_name = "gpt-6-luna" if (ai_meta and not ai_meta.get("is_direct_cta")) else "instagram_direct_cta"
+        tokens_used = (ai_meta.get("tokens_in", 0) + ai_meta.get("tokens_out", 0)) if ai_meta else 0
+
         AIAnalysis.objects.update_or_create(
             opportunity=opp,
             defaults={
-                "need": f"استعلام و تمایل به خرید در اینستاگرام: «{lead.comment_text}»",
+                "need": need_str,
                 "intent_score": intent_flt,
                 "product_fit_score": 0.92,
                 "confidence": 0.95,
-                "why_selected": f"ثبت کامنت متقاضی خرید ({lead.matched_cta or 'استعلام قیمت/مشاوره'}) زیر پست مرتبط اینستاگرام",
-                "suggested_reply": f"سلام و احترام جناب/سرکار {customer.display_identifier} عزیز، در پاسخ به استعلام شما در خصوص «{prod_name}»، شرایط همکاری و مشخصات کامل خدمت شما ارسال گردید.",
-                "model_name": "instagram_intent_engine",
+                "why_selected": why_str,
+                "suggested_reply": suggested_reply_str,
+                "model_name": model_name,
+                "tokens_used": tokens_used,
+                "cost_usd": cost_usd_dec,
+                "cost_toman": final_toman,
             }
         )
 
@@ -217,4 +246,19 @@ def sync_instagram_lead_to_opportunity(lead, business=None):
                 }
             )
 
+        # Apply transaction debit for AI usage if cost incurred
+        if final_toman > 0:
+            try:
+                apply_transaction(
+                    business=business,
+                    amount=-final_toman,
+                    kind=WalletTransaction.USAGE,
+                    description=f"تحلیل هوشمند کامنت اینستاگرام (GPT-6 Luna: {tokens_used} توکن)",
+                    cost_usd=cost_usd_dec,
+                    calls=1
+                )
+            except Exception as w_exc:
+                pass
+
         return opp
+

@@ -25,6 +25,7 @@ x-app: &app
     - media:/app/media
     - ./apps:/app/apps
     - ./templates:/app/templates
+    - ./instagram_engine:/app/instagram_engine
   restart: unless-stopped
 
 services:
@@ -52,6 +53,7 @@ services:
       - xdata:/app/output
       - ./apps:/app/apps
       - ./templates:/app/templates
+      - ./instagram_engine:/app/instagram_engine
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
@@ -112,6 +114,7 @@ services:
       - media:/app/media
       - ./apps:/app/apps
       - ./templates:/app/templates
+      - ./instagram_engine:/app/instagram_engine
     restart: unless-stopped
 
   retention:

@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone as dj_timezone
 from django.db.models.functions import Lower
 from apps.businesses.models import Business
 from .sources import GLOBAL, PRIVATE, SCOPE_CHOICES, display_link, normalize_link, sync_error_message
@@ -416,6 +417,52 @@ class Opportunity(models.Model):
             cost = self.ai_analysis.cost_toman
             return f"{cost:,}".replace(",", "،") if cost else "۰"
         return "۰"
+
+    @property
+    def instagram_post_url(self) -> str:
+        if self.source_platform == "instagram" and isinstance(self.trace_metadata, dict):
+            ig_meta = self.trace_metadata.get("instagram", {})
+            return ig_meta.get("post_url", "")
+        return ""
+
+    @property
+    def customer_profile_url(self) -> str:
+        if self.customer and self.customer.source_profile_url:
+            return self.customer.source_profile_url
+        if self.customer and self.customer.source_username:
+            u = self.customer.source_username.lstrip("@").strip()
+            if not u:
+                return ""
+            if self.source_platform == "instagram":
+                return f"https://www.instagram.com/{u}/"
+            if self.source_platform == "x":
+                return f"https://x.com/{u}"
+            if self.source_platform == "telegram":
+                return f"https://t.me/{u}"
+        return ""
+
+    @property
+    def instagram_profile_url(self) -> str:
+        return self.customer_profile_url
+
+    @property
+    def instagram_post_caption(self) -> str:
+        if self.source_platform == "instagram" and isinstance(self.trace_metadata, dict):
+            ig_meta = self.trace_metadata.get("instagram", {})
+            return ig_meta.get("post_caption", "")
+        return ""
+
+    @property
+    def raw_cost_usd(self) -> float:
+        if hasattr(self, "ai_analysis") and self.ai_analysis:
+            return float(self.ai_analysis.cost_usd or 0.0)
+        return 0.0
+
+    @property
+    def raw_cost_toman(self) -> int:
+        from apps.billing.models import BillingSettings
+        s = BillingSettings.get()
+        return int(round(self.raw_cost_usd * float(s.usd_to_toman)))
 
 
 class AIAnalysis(models.Model):
@@ -935,4 +982,136 @@ class InstagramEngineLead(models.Model):
 
     def __str__(self):
         return f"@{self.username} (احتمال خرید: {int(self.intent_score * 100)}% - {self.get_status_display()})"
+
+
+class InstagramCrawledPost(models.Model):
+    post_hash = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="هش شناسه پست")
+    media_id = models.CharField(max_length=64, db_index=True, verbose_name="شناسه پست اینستاگرام")
+    media_code = models.CharField(max_length=32, blank=True, verbose_name="کد کوتاه پست")
+    account_username = models.CharField(max_length=100, verbose_name="اکانت اسکرپر")
+    posted_at = models.DateTimeField(db_index=True, verbose_name="زمان انتشار پست")
+    crawled_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="زمان ثبت کرول")
+
+    class Meta:
+        verbose_name = "پست کرول‌شده اینستاگرام"
+        verbose_name_plural = "پست‌های کرول‌شده اینستاگرام"
+        indexes = [
+            models.Index(fields=["crawled_at"], name="ix_ig_crawled_at"),
+            models.Index(fields=["posted_at"], name="ix_ig_posted_at"),
+            models.Index(fields=["post_hash"], name="ix_ig_post_hash"),
+        ]
+
+    def __str__(self):
+        return f"Post {self.media_code or self.media_id} by @{self.account_username} ({self.post_hash[:8]})"
+
+
+class InstagramCrawlExecution(models.Model):
+    """
+    Audit log of each discovery crawl execution per query/hashtag and scraper account.
+    Tracks exact Persian Jalali date, Tehran time, account used, and discovery metrics.
+    """
+    STATUS_CHOICES = [
+        ("SUCCESS", "موفق"),
+        ("NO_POSTS", "بدون پست جدید"),
+        ("THROTTLED", "محدودیت موقت"),
+        ("FAILED", "خطا"),
+    ]
+
+    business = models.ForeignKey(
+        Business,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="instagram_crawl_executions",
+        verbose_name="کسب‌وکار مستأجر",
+    )
+    tenant_id = models.CharField(
+        max_length=64,
+        default="tenant_default",
+        db_index=True,
+        verbose_name="شناسه مستأجر",
+    )
+    query_text = models.CharField(
+        max_length=255,
+        db_index=True,
+        verbose_name="کوئری یا هشتگ",
+    )
+    target_type = models.CharField(
+        max_length=50,
+        default="HASHTAG",
+        choices=[("HASHTAG", "هشتگ"), ("KEYWORD", "کلمه کلیدی"), ("PAGE", "صفحه هدف")],
+        verbose_name="نوع هدف",
+    )
+    account_username = models.CharField(
+        max_length=150,
+        db_index=True,
+        verbose_name="نام کاربری اکانت اسکرپر",
+    )
+    account = models.ForeignKey(
+        "discovery.InstagramEngineAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="crawl_executions",
+        verbose_name="اکانت ثبت‌شده",
+    )
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_CHOICES,
+        default="SUCCESS",
+        verbose_name="وضعیت اجرا",
+    )
+    posts_inspected = models.PositiveIntegerField(
+        default=0,
+        verbose_name="پست‌های بررسی‌شده",
+    )
+    qualifying_posts = models.PositiveIntegerField(
+        default=0,
+        verbose_name="پست‌های حائز شرایط (کامنت >= ۵۰)",
+    )
+    leads_found = models.PositiveIntegerField(
+        default=0,
+        verbose_name="لیدهای یافت‌شده",
+    )
+    message = models.TextField(
+        blank=True,
+        verbose_name="پیام و جزییات نتیجه",
+    )
+    crawled_at = models.DateTimeField(
+        default=dj_timezone.now,
+        db_index=True,
+        verbose_name="زمان کرول (UTC)",
+    )
+
+    class Meta:
+        verbose_name = "لاگ کرول اینستاگرام"
+        verbose_name_plural = "لاگ‌های کرول اینستاگرام"
+        ordering = ["-crawled_at"]
+        indexes = [
+            models.Index(fields=["crawled_at"], name="ix_ig_exec_crawled_at"),
+            models.Index(fields=["tenant_id", "query_text"], name="ix_ig_exec_tenant_query"),
+            models.Index(fields=["account_username"], name="ix_ig_exec_account"),
+        ]
+
+    def __str__(self):
+        return f"{self.query_text} (@{self.account_username}) - {self.crawled_at_jalali}"
+
+    @property
+    def crawled_at_tehran(self):
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("Asia/Tehran")
+        if self.crawled_at:
+            return self.crawled_at.astimezone(tz)
+        return None
+
+    @property
+    def crawled_at_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_date, to_persian_digits
+        if not self.crawled_at:
+            return "—"
+        dt = self.crawled_at_tehran
+        date_part = format_jalali_date(dt.date(), persian_digits=True)
+        time_part = to_persian_digits(f"{dt.hour:02d}:{dt.minute:02d}:{dt.second:02d}")
+        return f"{date_part} ساعت {time_part}"
+
 

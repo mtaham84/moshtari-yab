@@ -1,6 +1,7 @@
 {% extends "ops/base.html" %}
+{% load ops %}
 
-{% block title %}مدیریت اسکرپرها، لیدها و مصرف مالی{% endblock %}
+{% block title %}مرکز پایش اسکرپرها، سرنخ‌ها و صورت‌حساب مالی مستأجرین{% endblock %}
 
 {% block content %}
 <style>
@@ -10,18 +11,92 @@
     border-bottom: 2px solid var(--border);
     margin-bottom: 20px;
     padding-bottom: 4px;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+    background: var(--card);
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+  .table-responsive::-webkit-scrollbar {
+    height: 6px;
+  }
+  .table-responsive::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .table-responsive table {
+    width: 100%;
+    min-width: 680px;
+    border-collapse: collapse;
+  }
+  .table-responsive th, .table-responsive td {
+    padding: 10px 12px;
+    text-align: right;
+    direction: rtl;
+    vertical-align: middle;
+    font-family: 'Vazirmatn', Tahoma, sans-serif;
+  }
+  .table-responsive th {
+    white-space: nowrap;
+    background: #f8fafc;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+  .jalali-time-cell {
+    font-size: 0.84rem;
+    white-space: nowrap;
+    direction: rtl !important;
+    text-align: right !important;
+    font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+    font-feature-settings: 'ss01';
+  }
+  @media (max-width: 768px) {
+    .ops-main {
+      padding: 12px 8px;
+    }
+    .card {
+      padding: 14px 10px;
+      border-radius: 10px;
+    }
+    .ops-head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .activity-banner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .stat .value {
+      font-size: 1.25rem;
+    }
+    .table-responsive table {
+      min-width: 620px;
+      font-size: 0.8rem;
+    }
   }
   .tab-btn {
     background: transparent;
     border: none;
     padding: 10px 18px;
     font: inherit;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     font-weight: 600;
     color: var(--muted);
     cursor: pointer;
     border-radius: 8px 8px 0 0;
     transition: all 0.2s ease;
+    flex-shrink: 0;
   }
   .tab-btn:hover {
     color: var(--accent);
@@ -47,22 +122,10 @@
     font-size: 0.8rem;
     font-weight: 600;
   }
-  .badge-status.active {
-    background: #e6f9f0;
-    color: #0e8a4a;
-  }
-  .badge-status.cooldown {
-    background: #fff8e6;
-    color: #b37400;
-  }
-  .badge-status.challenged {
-    background: #fff0e6;
-    color: #c9510c;
-  }
-  .badge-status.banned {
-    background: #fde8e8;
-    color: #b91c1c;
-  }
+  .badge-status.active { background: #e6f9f0; color: #0e8a4a; }
+  .badge-status.cooldown { background: #fff8e6; color: #b37400; }
+  .badge-status.challenged { background: #fff0e6; color: #c9510c; }
+  .badge-status.banned { background: #fde8e8; color: #b91c1c; }
   .intent-badge {
     display: inline-block;
     padding: 3px 8px;
@@ -91,18 +154,112 @@
     margin-top: 4px;
     display: block;
   }
+  .activity-banner {
+    background: linear-gradient(135deg, rgba(91, 76, 240, 0.08), rgba(16, 185, 129, 0.08));
+    border: 1px solid rgba(91, 76, 240, 0.25);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
 </style>
 
 <div class="ops-head">
   <div>
-    <h1>🚀 مرکز مدیریت اسکرپرها، لیدها و مصرف مالی</h1>
-    <p class="muted" style="margin:4px 0 0;">پایش بلادرنگ سلامت اکانت‌های اینستاگرام، صف ارسال اولویت‌دار و مصرف کیف‌پول</p>
+    <h1>🚀 مرکز پایش اسکرپرها، سرنخ‌ها و صورت‌حساب مالی مستأجرین</h1>
+    <p class="muted" style="margin:4px 0 0;">پایش بلادرنگ ربات اینستاگرام، تفکیک مصرف ۳ پلتفرم برای مستأجرین و تنظیمات نرخ ارز</p>
   </div>
   <div>
-    <span class="pill" style="font-size:0.85rem; padding:6px 12px;">
-      🕒 به‌روزرسانی: {{ now|date:"Y/m/d H:i" }}
+    <span class="pill" style="font-size:0.85rem; padding:6px 14px;">
+      🕒 به‌روزرسانی زنده: {{ now|date:"Y/m/d H:i:s" }}
     </span>
   </div>
+<!-- Account Status Alert Banner (Immediate notification on disconnect) -->
+{% if scrapers_challenged > 0 or scrapers_banned > 0 or scrapers_active == 0 %}
+<div style="background: linear-gradient(135deg, #fef2f2, #fee2e2); border: 2px solid #ef4444; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.18); animation: pulse 2s infinite;">
+  <div style="display: flex; align-items: center; gap: 14px;">
+    <span style="font-size: 2.2rem;">🚨</span>
+    <div>
+      <h3 style="margin: 0; color: #991b1b; font-size: 1.05rem; font-weight: 800;">⚠️ هشدار فوری: اتصال اکانت اینستاگرام قطع شده یا نیاز به تایید دارد!</h3>
+      <p style="margin: 5px 0 0; color: #b91c1c; font-size: 0.85rem; line-height: 1.5;">
+        {% if scrapers_active == 0 %}
+          هیچ اکانت اسکرپر فعالی در سیستم وجود ندارد و عملیات استخراج متوقف است!
+        {% else %}
+          وضعیت اکانت اسکرپر از حالت فعال خارج شده است (احتمال نیاز به تایید مجدد یا لاگین).
+        {% endif %}
+        جهت فعال‌سازی مجدد، کافیست در تب «اکانت‌های اینستاگرام» روی دکمه اتصال کلیک کنید.
+      </p>
+    </div>
+  </div>
+  <a href="#tab-accounts" onclick="switchTab('accounts')" class="p-btn" style="background: #dc2626; color: #fff; padding: 9px 20px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 0.88rem; flex-shrink: 0; border: none; box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);">
+    بررسی وضعیت اکانت ⬅
+  </a>
+</div>
+{% endif %}
+
+<!-- Live Scraper Activity Banner -->
+<div class="activity-banner">
+  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <span style="font-size:1.4rem;">🔄</span>
+    <div>
+      <strong style="color:var(--text); font-size:0.95rem;">وضعیت چرخه خودکار اسکرپر (پس‌زمینه):</strong>
+      <div class="muted" style="font-size:0.82rem; margin-top:2px;">
+        فیلتر پست‌های با ۵۰ کامنت به بالا • پالایش کامل فحش و دیس • محاسبه توکن GPT-6 Luna
+      </div>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div style="background:#fff; border:1px solid var(--border); padding:6px 12px; border-radius:8px; font-size:0.8rem; direction:rtl;">
+      <span class="muted">آخرین فعالیت اسکرپر:</span>
+      <strong style="color:var(--ok); font-family:'Vazirmatn', sans-serif;">
+        {{ latest_scraper_action_at|time_ago_fa|default:"در حال بررسی" }}
+      </strong>
+    </div>
+    <div style="background:#fff; border:1px solid var(--border); padding:6px 12px; border-radius:8px; font-size:0.8rem; direction:rtl;">
+      <span class="muted">آخرین لید کشف‌شده:</span>
+      <strong style="color:var(--accent); font-family:'Vazirmatn', sans-serif;">
+        {{ latest_lead_at|time_ago_fa|default:"—" }}
+      </strong>
+    </div>
+    <span class="badge-status active">🟢 سرویس فعال (هر ۱۵ دقیقه)</span>
+  </div>
+</div>
+
+<!-- Live Dollar Exchange Rate & Markup Setting Widget -->
+<div class="account-form" style="background:#fafafa; border:1px solid #d4d4d8; margin-bottom:20px;">
+  <form method="POST" action="{% url 'manage:exchange_rate_update' %}" style="margin:0;">
+    {% csrf_token %}
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.15rem;">💵</span>
+        <strong style="font-size:0.95rem;">تنظیمات نرخ روز ارز دلار و فرمول صورت‌حساب مستأجرین:</strong>
+      </div>
+      <div class="muted" style="font-size:0.8rem;">
+        فرمول: مبلغ نهایی مستأجر = هزینه خام هوش مصنوعی + ۱۵۰٪ کارمزد پلتفرم
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field" style="margin-bottom:0;">
+        <label style="font-size:0.82rem;">نرخ روز دلار (تومان):</label>
+        <input type="number" name="usd_to_toman" value="{{ usd_rate|floatformat:0 }}" class="ops-input" required dir="ltr" style="font-weight:700;">
+        <span class="help">پیش‌فرض: ۲۶۸،۰۰۰ تومان به ازای هر ۱ دلار</span>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label style="font-size:0.82rem;">درصد کارمزد و سود پلتفرم (٪):</label>
+        <input type="number" step="0.1" name="markup_percent" value="{{ markup_percent|floatformat:1 }}" class="ops-input" required dir="ltr" style="font-weight:700;">
+        <span class="help">تعیین شده: ۱۵۰٪ سود اضافه بر هزینه واقعی</span>
+      </div>
+      <div>
+        <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:700;">
+          💾 ذخیره و اعمال بلادرنگ محاسبات
+        </button>
+      </div>
+    </div>
+  </form>
 </div>
 
 <!-- KPI Summary Cards -->
@@ -118,52 +275,207 @@
   </div>
 
   <div class="card stat">
-    <div class="label">اکانت‌های فرستنده (پاسخگو)</div>
-    <div class="value" style="color:var(--accent);">{{ senders_active }} <span style="font-size:1rem;color:var(--muted);">/ {{ senders_total }}</span></div>
-    <div class="sub">{{ dms_sent_total }} دایرکت ارسالی موفق</div>
+    <div class="label">سرنخ‌های اینستاگرام (کل / قصد بالا)</div>
+    <div class="value" style="color:#0284c7;">{{ total_leads }} <span style="font-size:1rem;color:var(--muted);">({{ high_intent_leads }} نیت بالا)</span></div>
+    <div class="sub">پالایش کامل فحش و دیس‌های ارسالی</div>
   </div>
 
   <div class="card stat">
-    <div class="label">سرنخ‌های دارای قصد خرید بالا</div>
-    <div class="value" style="color:#0284c7;">{{ high_intent_leads }} <span style="font-size:1rem;color:var(--muted);">/ {{ total_leads }} کل</span></div>
-    <div class="sub">اولویت‌بندی خودکار از بیشترین به کمترین</div>
+    <div class="label">هزینه خام هوش مصنوعی (مدیریت)</div>
+    <div class="value" style="color:var(--accent);">${{ total_cost_usd_all|floatformat:4 }}</div>
+    <div class="sub">{{ total_raw_toman_all|floatformat:0 }} تومان (نرخ روز دلار)</div>
   </div>
 
   <div class="card stat">
-    <div class="label">کل مصرف مالی فروشنده‌ها</div>
-    <div class="value">{{ total_spent_all|floatformat:0 }} <small style="font-size:0.75rem;">تومان</small></div>
+    <div class="label">مبلغ صورت‌حساب کل مستأجرین (+۱۵۰٪)</div>
+    <div class="value" style="color:var(--down);">{{ total_payable_all|floatformat:0 }} <small style="font-size:0.75rem;">تومان</small></div>
     <div class="sub">موجودی کیف‌پول‌ها: {{ total_balance_all|floatformat:0 }} تومان</div>
   </div>
 </div>
 
 <!-- Navigation Tabs -->
 <div class="manage-tabs">
-  <button class="tab-btn active" onclick="openTab('scrapers', this)">🤖 اکانت‌های اسکرپر ({{ scrapers_total }})</button>
-  <button class="tab-btn" onclick="openTab('senders', this)">✉️ اکانت‌های فرستنده و صف لیدها ({{ senders_total }})</button>
-  <button class="tab-btn" onclick="openTab('billing', this)">💳 مصرف مالی و اعتباری اکانت‌ها ({{ financial_rows|length }})</button>
+  <button class="tab-btn active" onclick="openTab('matrix', this)">📊 تفکیک لیدهای ۳ پلتفرم برای هر ۳ مستأجر</button>
+  <button class="tab-btn" onclick="openTab('billing', this)">💳 صورت‌حساب مالی و اعتباری مستأجرین ({{ financial_rows|length }})</button>
+  <button class="tab-btn" onclick="openTab('scrapers', this)">🤖 مخزن اکانت‌های اسکرپر ({{ scrapers_total }})</button>
+  <button class="tab-btn" onclick="openTab('leads', this)">🎯 صف لیدهای پالایش‌شده اینستاگرام ({{ total_leads }})</button>
+  <button class="tab-btn" onclick="openTab('senders', this)">✉️ اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
 </div>
 
-<!-- TAB 1: SCRAPERS MANAGEMENT -->
-<div id="tab-scrapers" class="tab-pane active">
+<!-- TAB 1: 3-PLATFORMS X 3-TENANTS MATRIX -->
+<div id="tab-matrix" class="tab-pane active">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2>📊 ماتریس سرنخ‌ها و فرصت‌های کشف‌شده به تفکیک پلتفرم و مستأجر</h2>
+        <p class="muted" style="margin:2px 0 0;">آمار کامل فرصت‌های ایجادشده از تلگرام، اینستاگرام و توییتر/ایکس برای هر کسب‌وکار</p>
+      </div>
+      <div>
+        <a href="{% url 'discovery:opportunity_list' %}" class="btn">مشاهده جدول فرصت‌ها ↗</a>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>شناسه</th>
+            <th>کسب‌وکار / مستأجر (Tenant)</th>
+            <th style="color:#d946ef; font-weight:700;">📸 اینستاگرام</th>
+            <th style="color:#0284c7; font-weight:700;">✈️ تلگرام</th>
+            <th style="color:#0f172a; font-weight:700;">✖️ ایکس (توییتر)</th>
+            <th style="font-weight:700;">مجموع کل سرنخ‌ها</th>
+            <th>قصد خرید بالا (≥۸۰٪)</th>
+            <th>دایرکت ارسالی</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in tenant_matrix %}
+          <tr>
+            <td>#{{ row.business.id }}</td>
+            <td>
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}" style="font-weight:700; color:var(--accent); text-decoration:none;" title="مشاهده فرصت‌های این کسب‌وکار">
+                {{ row.business.name }} ↗
+              </a>
+              <div class="muted" style="font-size:0.75rem;">مالک: {{ row.business.user.get_full_name|default:row.business.user.username }}</div>
+            </td>
+            <td class="n" style="font-weight:700; color:#d946ef; font-size:1rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}&platform=instagram" style="text-decoration:none; color:inherit;">{{ row.instagram }}</a>
+            </td>
+            <td class="n" style="font-weight:700; color:#0284c7; font-size:1rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}&platform=telegram" style="text-decoration:none; color:inherit;">{{ row.telegram }}</a>
+            </td>
+            <td class="n" style="font-weight:700; color:#0f172a; font-size:1rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}&platform=x" style="text-decoration:none; color:inherit;">{{ row.x }}</a>
+            </td>
+            <td class="n" style="font-weight:800; font-size:1.05rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}" class="pill" style="font-weight:800; background:rgba(99,102,241,0.15); color:var(--accent); text-decoration:none;">
+                {{ row.total }} فرصت ↗
+              </a>
+            </td>
+            <td class="n" style="color:var(--ok); font-weight:700;">{{ row.high_intent }}</td>
+            <td class="n">{{ row.dms_sent }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--accent-soft); font-weight:800;">
+            <td colspan="2">مجموع کل پلتفرم‌ها:</td>
+            <td class="n" style="color:#d946ef; font-size:1.05rem;">{{ matrix_totals.instagram }}</td>
+            <td class="n" style="color:#0284c7; font-size:1.05rem;">{{ matrix_totals.telegram }}</td>
+            <td class="n" style="color:#0f172a; font-size:1.05rem;">{{ matrix_totals.x }}</td>
+            <td class="n" style="font-size:1.15rem;">{{ matrix_totals.total }}</td>
+            <td class="n" style="color:var(--ok);">{{ matrix_totals.high_intent }}</td>
+            <td class="n">{{ matrix_totals.dms_sent }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 2: FINANCIAL & TENANT BILLING BREAKDOWN -->
+<div id="tab-billing" class="tab-pane">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2>💳 گزارش دقیق مالی مستأجرین: هزینه خام دلاری و تومانی در برابر مبلغ نهایی با ۱۵۰٪ کارمزد</h2>
+        <p class="muted" style="margin:2px 0 0;">
+          دیدگاه اختصاصی مدیریت: شما هزینه خام دلاری، هزینه خام تومانی و کارمزد ۱۵۰٪ را می‌بینید؛ در پنل مشتری صرفاً مبلغ نهایی کسر می‌گردد.
+        </p>
+      </div>
+      <div>
+        <a href="{% url 'ops:wallets' %}" class="btn">مدیریت شارژ کیف‌پول‌ها ↗</a>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>شناسه</th>
+            <th>کسب‌وکار / مستأجر</th>
+            <th>فراخوانی هوش مصنوعی</th>
+            <th style="color:var(--muted);">هزینه خام AI ($)</th>
+            <th style="color:var(--muted);">هزینه خام (تومان)</th>
+            <th style="color:#c2410c;">کارمزد پلتفرم ({{ markup_percent|floatformat:0 }}٪)</th>
+            <th style="font-weight:800; color:var(--down);">مبلغ کل قابل پرداخت مستأجر</th>
+            <th>موجودی کیف‌پول</th>
+            <th>وضعیت اعتبار</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in financial_rows %}
+          <tr>
+            <td>#{{ row.business.id }}</td>
+            <td>
+              <strong>{{ row.business.name }}</strong>
+              <div class="muted" style="font-size:0.75rem;">مالک: {{ row.business.user.get_full_name|default:row.business.user.username }}</div>
+            </td>
+            <td class="n">{{ row.calls }}</td>
+            <td class="n" style="color:var(--muted);">${{ row.cost_usd|floatformat:5 }}</td>
+            <td class="n" style="color:var(--muted);">{{ row.raw_toman|floatformat:0 }} تومان</td>
+            <td class="n" style="color:#c2410c;">+{{ row.markup_toman|floatformat:0 }} تومان</td>
+            <td class="n" style="font-weight:800; font-size:1.05rem; color:var(--down);">
+              {{ row.total_payable|floatformat:0 }} تومان
+            </td>
+            <td class="n" style="font-weight:700;">
+              {{ row.balance|floatformat:0 }} تومان
+            </td>
+            <td>
+              {% if row.has_credit %}
+                <span class="badge-status active">🟢 دارای اعتبار کافی</span>
+              {% else %}
+                <span class="badge-status banned">🔴 اعتبار پایان‌یافته</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="9" style="text-align:center; padding:30px;" class="muted">
+              هیچ مستأجری در سیستم ثبت نشده است.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--accent-soft); font-weight:800;">
+            <td colspan="2">مجموع کل سیستم:</td>
+            <td class="n">{{ total_calls_all }}</td>
+            <td class="n">${{ total_cost_usd_all|floatformat:4 }}</td>
+            <td class="n">{{ total_raw_toman_all|floatformat:0 }} تومان</td>
+            <td class="n" style="color:#c2410c;">+{{ total_payable_all|floatformat:0 }}</td>
+            <td class="n" style="color:var(--down); font-size:1.1rem;">{{ total_payable_all|floatformat:0 }} تومان</td>
+            <td class="n">{{ total_balance_all|floatformat:0 }} تومان</td>
+            <td>—</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 3: SCRAPERS MANAGEMENT -->
+<div id="tab-scrapers" class="tab-pane">
   <div class="account-form">
-    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ افزودن اکانت اسکرپر جدید (Scraper Burner Pool)</h2>
-    <form method="POST" action="{% url 'manage:account_add' %}">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ افزودن اکانت اسکرپر جدید به مخزن (Instagram Scraper Account)</h2>
+    <form id="form-add-scraper" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
       {% csrf_token %}
       <input type="hidden" name="role" value="SCRAPER">
       <input type="hidden" name="tenant_id" value="tenant_default">
       <div class="form-row">
         <div class="field">
-          <label>نام کاربری اینستاگرام (Username)</label>
+          <label>نام کاربری اینستاگرام</label>
           <input type="text" name="username" class="ops-input" placeholder="مثال: scraper_bot_99" required dir="ltr">
         </div>
         <div class="field">
-          <label>رمز عبور (Password)</label>
+          <label>رمز عبور اکانت</label>
           <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" required dir="ltr">
         </div>
         <div class="field">
           <label>پروکسی اختصاصی (اختیاری)</label>
-          <input type="text" name="proxy_url" class="ops-input" placeholder="socks5://user:pass@ip:port" dir="ltr">
-          <span class="help">پشتیبانی از SOCKS5 و HTTP</span>
+          <input type="text" name="proxy_url" class="ops-input" placeholder="http://xray:8080 یا socks5://..." dir="ltr">
+          <span class="help">پشتیبانی از پروتکل‌های HTTP و SOCKS5</span>
         </div>
         <div>
           <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت اسکرپر</button>
@@ -179,95 +491,287 @@
     </div>
 
     {% if scrapers %}
-    <table>
-      <thead>
-        <tr>
-          <th>شناسه</th>
-          <th>اکانت اینستاگرام</th>
-          <th>وضعیت اتصال و سشن</th>
-          <th>پروکسی</th>
-          <th>عملیات امروز</th>
-          <th>آخرین فعالیت</th>
-          <th>عملیات</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for acc in scrapers %}
-        <tr id="row-acc-{{ acc.id }}">
-          <td>#{{ acc.id }}</td>
-          <td>
-            <strong>@{{ acc.username }}</strong>
-            {% if acc.session_json %}
-              <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">دارای سشن ذخیره‌شده</span>
-            {% else %}
-              <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if acc.status == 'ACTIVE' %}
-              <span class="badge-status active" id="badge-{{ acc.id }}">🟢 متصل و فعال</span>
-            {% elif acc.status == 'COOLDOWN' %}
-              <span class="badge-status cooldown" id="badge-{{ acc.id }}">🟡 استراحت Cooldown ({{ acc.cooldown_until|time:"H:i" }})</span>
-            {% elif acc.status == 'CHALLENGED' %}
-              <span class="badge-status challenged" id="badge-{{ acc.id }}">🟠 چالش امنیتی (کد تایید)</span>
-            {% else %}
-              <span class="badge-status banned" id="badge-{{ acc.id }}">🔴 مسدود شده (Banned)</span>
-            {% endif %}
-            <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
-          </td>
-          <td dir="ltr" style="text-align:right;">
-            {% if acc.proxy_url %}
-              <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:28 }}</code>
-            {% else %}
-              <span class="muted">اتصال مستقیم</span>
-            {% endif %}
-          </td>
-          <td class="n">{{ acc.daily_action_count }}</td>
-          <td>
-            {% if acc.last_action_at %}
-              {{ acc.last_action_at|timesince }} پیش
-            {% else %}
-              <span class="muted">هنوز فعالیتی ثبت نشده</span>
-            {% endif %}
-          </td>
-          <td>
-            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-              <button class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-test-{{ acc.id }}" title="تست اتصال زنده و وضعیت سشن">
-                ⚡ تست اتصال
-              </button>
-              <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" title="ثبت کد تایید ارسال شده">
-                🔑 ثبت کد تایید
-              </button>
-              <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
-                {% csrf_token %}
-                <button type="submit" class="btn sm danger">حذف</button>
-              </form>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>اکانت اینستاگرام</th>
+            <th>وضعیت اتصال و سشن</th>
+            <th>پروکسی</th>
+            <th>عملیات امروز</th>
+            <th>آخرین فعالیت</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in scrapers %}
+          <tr id="row-acc-{{ acc.id }}">
+            <td>#{{ acc.id }}</td>
+            <td>
+              <strong>@{{ acc.username }}</strong>
+              {% if acc.session_json %}
+                <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">دارای سشن ذخیره‌شده</span>
+              {% else %}
+                <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if acc.status == 'ACTIVE' %}
+                <span class="badge-status active" id="badge-{{ acc.id }}">🟢 متصل و فعال</span>
+              {% elif acc.status == 'COOLDOWN' %}
+                <span class="badge-status cooldown" id="badge-{{ acc.id }}">🟡 استراحت ({{ acc.cooldown_until|time:"H:i" }})</span>
+              {% elif acc.status == 'CHALLENGED' %}
+                <span class="badge-status challenged" id="badge-{{ acc.id }}">🟠 چالش امنیتی (کد تایید)</span>
+              {% else %}
+                <span class="badge-status banned" id="badge-{{ acc.id }}">🔴 مسدود شده</span>
+              {% endif %}
+              <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
+            </td>
+            <td dir="ltr" style="text-align:right;">
+              {% if acc.proxy_url %}
+                <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:28 }}</code>
+              {% else %}
+                <span class="muted">اتصال مستقیم</span>
+              {% endif %}
+            </td>
+            <td class="n">{{ acc.daily_action_count }}</td>
+            <td class="jalali-time-cell">
+              {% if acc.last_action_at %}
+                {{ acc.last_action_at|time_ago_fa }}
+              {% else %}
+                <span class="muted">در انتظار اسکن</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-test-{{ acc.id }}" title="تست اتصال زنده و وضعیت سشن">
+                  ⚡ تست اتصال
+                </button>
+                <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" title="ثبت کد تایید ارسال شده">
+                  🔑 ثبت کد تایید
+                </button>
+                <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn sm danger">حذف</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
     <div style="text-align:center; padding:30px;" class="muted">
       هیچ اکانت اسکرپری ثبت نشده است. از فرم بالا اولین اکانت اسکرپر را اضافه نمایید.
     </div>
     {% endif %}
   </div>
+
+  <!-- Live Instagram Crawl Audit Trail per Query & Account -->
+  <div class="card" style="margin-top:24px;">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div>
+        <h2>📋 تاریخچه و آخرین وضعیت کرول کوئری‌ها بر اساس اکانت‌های اینستاگرام</h2>
+        <span class="muted" style="font-size:0.82rem;">
+          ثبت دقیق تاریخ شمسی و ساعت تهران، اکانت اسکرپر مجری، تعداد پست‌های بررسی شده و لیدهای یافت‌شده به تفکیک کوئری و مستأجر
+        </span>
+      </div>
+      <span class="pill" style="font-weight:700;">{{ crawl_executions|length }} اجرای اخیر</span>
+    </div>
+
+    {% if crawl_executions %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>کوئری / هشتگ</th>
+            <th>نوع</th>
+            <th>اکانت اسکرپر</th>
+            <th>کسب‌وکار / مستأجر</th>
+            <th>زمان اجرا (ساعت تهران و شمسی)</th>
+            <th class="n">پست‌های بررسی‌شده</th>
+            <th class="n">پست حائز شرایط</th>
+            <th class="n">لیدهای جدید</th>
+            <th>وضعیت</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in crawl_executions %}
+          <tr>
+            <td>
+              <strong>{{ log.query_text }}</strong>
+            </td>
+            <td>
+              {% if log.target_type == 'HASHTAG' %}
+                <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.75rem;">#️⃣ هشتگ</span>
+              {% elif log.target_type == 'PAGE' %}
+                <span class="pill" style="background:#fef3c7; color:#92400e; font-size:0.75rem;">👤 صفحه رقیب</span>
+              {% else %}
+                <span class="pill" style="background:#f1f5f9; color:#475569; font-size:0.75rem;">🔍 کلمه کلیدی</span>
+              {% endif %}
+            </td>
+            <td>
+              <span style="font-weight:700; color:var(--accent);">@{{ log.account_username }}</span>
+            </td>
+            <td>
+              {% if log.business %}
+                <span>{{ log.business.name }}</span>
+                <div class="muted" style="font-size:0.72rem;">#{{ log.business.id }} ({{ log.tenant_id }})</div>
+              {% else %}
+                <span class="muted">{{ log.tenant_id }}</span>
+              {% endif %}
+            </td>
+            <td class="jalali-time-cell">
+              <strong>{{ log.crawled_at_jalali }}</strong>
+            </td>
+            <td class="n">{{ log.posts_inspected }}</td>
+            <td class="n">{{ log.qualifying_posts }}</td>
+            <td class="n" style="font-weight:700; color:var(--accent);">{{ log.leads_found }}</td>
+            <td>
+              {% if log.status == 'SUCCESS' %}
+                <span class="badge-status active">🟢 موفق</span>
+              {% elif log.status == 'NO_POSTS' %}
+                <span class="badge-status cooldown">🟡 بدون پست جدید</span>
+              {% elif log.status == 'THROTTLED' %}
+                <span class="badge-status challenged">🟠 محدودیت موقت</span>
+              {% else %}
+                <span class="badge-status banned" title="{{ log.message }}">🔴 خطا</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز لاگ کرولی ثبت نشده است. پس از اولین اجرای اسکرپر، تاریخ و ساعت دقیق تهران در اینجا نمایش داده خواهد شد.</p>
+    {% endif %}
+  </div>
 </div>
 
-<!-- TAB 2: SENDERS & PRIORITIZED LEADS -->
+<!-- TAB 4: PRIORITIZED LEADS QUEUE -->
+<div id="tab-leads" class="tab-pane">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2>🎯 صف سرنخ‌های پالایش‌شده اینستاگرام بر اساس بالاترین احتمال خرید</h2>
+        <p class="muted" style="font-size:0.8rem; margin:2px 0 0;">
+          کامنت‌های حاوی توهین و دیس کاملاً مسدود شده‌اند؛ کامنت‌های CTA مستقیم بدون هزینه و سایر کامنت‌ها توسط هوش مصنوعی Luna GPT-6 ارزیابی شده‌اند.
+        </p>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <a href="{% url 'manage:leads_export_csv' %}" class="btn sm" style="background:#059669; color:#fff;" title="دانلود کل دیتاست با فرمت اکسل">
+          📥 خروجی اکسل (CSV)
+        </a>
+        <a href="{% url 'manage:leads_export_json' %}" class="btn sm" style="background:#0284c7; color:#fff;" title="دانلود دیتاست استاندارد JSON">
+          📦 خروجی JSON
+        </a>
+        <span class="pill" style="font-weight:700;">{{ total_leads }} کل لیدها</span>
+      </div>
+    </div>
+
+    {% if leads %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>اولویت خرید</th>
+            <th>کاربر خریدار</th>
+            <th>متن کامنت خریدار</th>
+            <th>پست مبدأ و کپشن</th>
+            <th>روش پردازش و تطابق</th>
+            <th>وضعیت ارسال</th>
+            <th>زمان کشف</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in leads %}
+          <tr>
+            <td>
+              {% if l.intent_score >= 0.95 %}
+                <span class="intent-badge intent-very-high">🔥 {{ l.intent_score|floatformat:2 }} (بسیار بالا)</span>
+              {% elif l.intent_score >= 0.88 %}
+                <span class="intent-badge intent-high">⚡ {{ l.intent_score|floatformat:2 }} (بالا)</span>
+              {% else %}
+                <span class="intent-badge intent-mid">✨ {{ l.intent_score|floatformat:2 }} (عادی)</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ l.profile_url|default:'https://www.instagram.com/'|add:l.username }}" target="_blank" style="font-weight:700; color:var(--accent); text-decoration:none;">
+                @{{ l.username }} ↗
+              </a>
+              {% if l.full_name %}<div class="muted" style="font-size:0.75rem;">{{ l.full_name }}</div>{% endif %}
+              <div class="muted" style="font-size:0.7rem; font-family:monospace;">شناسه: {{ l.ig_user_pk }}</div>
+            </td>
+            <td style="max-width:320px;">
+              <div style="font-size:0.86rem; line-height:1.5; background:#f8fafc; padding:8px 10px; border-radius:6px; border:1px solid #e2e8f0;">
+                «{{ l.comment_text }}»
+              </div>
+            </td>
+            <td style="max-width:280px;">
+              {% if l.source_post_url %}
+                <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.8rem; font-weight:700; color:#0284c7; display:inline-flex; align-items:center; gap:4px; margin-bottom:4px;">
+                  <span>🔗 مشاهده پست در اینستاگرام</span> ↗
+                </a>
+              {% endif %}
+              {% if l.post_caption_snippet %}
+                <details style="margin-top:2px;">
+                  <summary style="font-size:0.74rem; color:var(--muted); cursor:pointer;">📄 پیش‌نمایش کپشن پست</summary>
+                  <div style="font-size:0.74rem; background:#fff; padding:6px; border-radius:4px; margin-top:4px; border:1px solid #cbd5e1; line-height:1.4; max-height:90px; overflow-y:auto;">
+                    {{ l.post_caption_snippet }}
+                  </div>
+                </details>
+              {% endif %}
+            </td>
+            <td>
+              {% if l.matched_cta %}
+                {% if 'cta' in l.matched_cta or 'direct' in l.matched_cta %}
+                  <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.74rem;">⚡ CTA مستقیم (رایگان)</span>
+                {% else %}
+                  <span class="pill" style="background:#fce7f3; color:#be185d; font-size:0.74rem;">🤖 ارزیابی Luna GPT-6</span>
+                {% endif %}
+                <div style="font-size:0.72rem; margin-top:3px; color:var(--muted);">{{ l.matched_cta|truncatechars:25 }}</div>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if l.status == 'DM_SENT' %}
+                <span class="badge-status active">✅ ارسال شد</span>
+              {% elif l.status == 'NEW' %}
+                <span class="badge-status cooldown">⏳ در صف ارسال</span>
+              {% elif l.status == 'SKIPPED' %}
+                <span class="badge-status" style="background:#f1f5f9; color:#64748b;">رد شده</span>
+              {% else %}
+                <span class="badge-status banned">خطا</span>
+              {% endif %}
+            </td>
+            <td class="jalali-time-cell" style="font-size:0.8rem;">{{ l.created_at|time_ago_fa }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز لیدی استخراج نشده است.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- TAB 5: SENDERS MANAGEMENT -->
 <div id="tab-senders" class="tab-pane">
   <div class="account-form">
-    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ ثبت اکانت فرستنده / پاسخگوی فروشنده (Sender Account)</h2>
-    <form method="POST" action="{% url 'manage:account_add' %}">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ ثبت اکانت فرستنده و پاسخگوی پیام (Sender Account)</h2>
+    <form id="form-add-sender" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
       {% csrf_token %}
       <input type="hidden" name="role" value="SENDER">
       <div class="form-row">
         <div class="field">
-          <label>انتخاب فروشگاه / کسب‌وکار</label>
+          <label>انتخاب فروشگاه / مستأجر</label>
           <select name="tenant_id" class="ops-input" required>
-            <option value="tenant_default">فروشگاه عمومی (tenant_default)</option>
+            <option value="tenant_default">فروشگاه عمومی</option>
             {% for b in businesses %}
               <option value="tenant_{{ b.id }}">{{ b.name }} (مالک: {{ b.user.get_full_name|default:b.user.username }})</option>
             {% endfor %}
@@ -283,7 +787,7 @@
         </div>
         <div class="field">
           <label>پروکسی اختصاصی (اختیاری)</label>
-          <input type="text" name="proxy_url" class="ops-input" placeholder="socks5://..." dir="ltr">
+          <input type="text" name="proxy_url" class="ops-input" placeholder="http://xray:8080" dir="ltr">
         </div>
         <div>
           <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت فرستنده</button>
@@ -292,236 +796,60 @@
     </form>
   </div>
 
-  <!-- Senders List -->
-  <div class="card" style="margin-bottom:24px;">
+  <div class="card">
     <h2>اکانت‌های فرستنده و پاسخگوی معرفی‌شده</h2>
     {% if senders %}
-    <table>
-      <thead>
-        <tr>
-          <th>شناسه</th>
-          <th>نام اکانت</th>
-          <th>مستأجر / فروشگاه</th>
-          <th>وضعیت</th>
-          <th>دایرکت‌های امروز</th>
-          <th>آخرین دایرکت</th>
-          <th>عملیات</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in senders %}
-        <tr>
-          <td>#{{ s.id }}</td>
-          <td><strong>@{{ s.username }}</strong></td>
-          <td><span class="pill">{{ s.tenant_id }}</span></td>
-          <td>
-            {% if s.status == 'ACTIVE' %}
-              <span class="badge-status active" id="badge-{{ s.id }}">🟢 فعال و آماده</span>
-            {% elif s.status == 'COOLDOWN' %}
-              <span class="badge-status cooldown" id="badge-{{ s.id }}">🟡 استراحت تا {{ s.cooldown_until|time:"H:i" }}</span>
-            {% elif s.status == 'CHALLENGED' %}
-              <span class="badge-status challenged" id="badge-{{ s.id }}">🟠 چالش امنیتی (کد تایید)</span>
-            {% else %}
-              <span class="badge-status banned" id="badge-{{ s.id }}">🔴 {{ s.get_status_display }}</span>
-            {% endif %}
-            <span class="test-feedback" id="feedback-{{ s.id }}"></span>
-          </td>
-          <td class="n">{{ s.daily_action_count }} / ۲۰</td>
-          <td>{{ s.last_action_at|timesince|default:"—" }}</td>
-          <td>
-            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-              <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)" id="btn-test-{{ s.id }}">⚡ تست</button>
-              <button class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ s.id }}, '{{ s.username }}')" id="btn-challenge-{{ s.id }}">🔑 ثبت کد</button>
-              <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline;">
-                {% csrf_token %}
-                <button type="submit" class="btn sm danger">حذف</button>
-              </form>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>نام اکانت</th>
+            <th>مستأجر / فروشگاه</th>
+            <th>وضعیت</th>
+            <th>دایرکت‌های امروز</th>
+            <th>آخرین دایرکت</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in senders %}
+          <tr>
+            <td>#{{ s.id }}</td>
+            <td><strong>@{{ s.username }}</strong></td>
+            <td><span class="pill">{{ s.tenant_id }}</span></td>
+            <td>
+              {% if s.status == 'ACTIVE' %}
+                <span class="badge-status active" id="badge-{{ s.id }}">🟢 فعال و آماده</span>
+              {% elif s.status == 'COOLDOWN' %}
+                <span class="badge-status cooldown" id="badge-{{ s.id }}">🟡 استراحت تا {{ s.cooldown_until|time:"H:i" }}</span>
+              {% elif s.status == 'CHALLENGED' %}
+                <span class="badge-status challenged" id="badge-{{ s.id }}">🟠 چالش امنیتی (کد تایید)</span>
+              {% else %}
+                <span class="badge-status banned" id="badge-{{ s.id }}">🔴 مسدود شده</span>
+              {% endif %}
+              <span class="test-feedback" id="feedback-{{ s.id }}"></span>
+            </td>
+            <td class="n">{{ s.daily_action_count }} / ۲۰</td>
+            <td class="jalali-time-cell">{% if s.last_action_at %}{{ s.last_action_at|time_ago_fa }}{% else %}—{% endif %}</td>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)" id="btn-test-{{ s.id }}">⚡ تست</button>
+                <button class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ s.id }}, '{{ s.username }}')" id="btn-challenge-{{ s.id }}">🔑 ثبت کد</button>
+                <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn sm danger">حذف</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
     <p class="muted" style="text-align:center; padding:20px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</p>
     {% endif %}
-  </div>
-
-  <!-- Prioritized Leads Queue -->
-  <div class="card">
-    <div class="ops-head">
-      <div>
-        <h2>🎯 صف لیدها بر اساس بالاترین احتمال خرید (Prioritized Queue)</h2>
-        <p class="muted" style="font-size:0.8rem; margin:2px 0 0;">
-          لیدها و خریداران بالقوه از کامنت پست‌های دارای حداقل ۵۰ کامنت استخراج شده و به ترتیب احتمال خرید ذخیره می‌شوند.
-        </p>
-      </div>
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <a href="{% url 'manage:leads_export_csv' %}" class="btn sm" style="background:#059669; color:#fff;" title="دانلود کل دیتاست با فرمت اکسل / CSV">
-          📥 دانلود دیتاست (CSV)
-        </a>
-        <a href="{% url 'manage:leads_export_json' %}" class="btn sm" style="background:#0284c7; color:#fff;" title="دانلود دیتاست استاندارد JSON">
-          📦 خروجی JSON
-        </a>
-        <span class="pill" style="font-weight:600;">{{ total_leads }} کل لیدها</span>
-      </div>
-    </div>
-
-    {% if leads %}
-    <table>
-      <thead>
-        <tr>
-          <th>اولویت خرید</th>
-          <th>کاربر خریدار</th>
-          <th>متن کامنت خریدار</th>
-          <th>پست مبدا و کپشن</th>
-          <th>کال‌تو‌اکشن منطبق</th>
-          <th>وضعیت ارسال</th>
-          <th>زمان کشف</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for l in leads %}
-        <tr>
-          <td>
-            {% if l.intent_score >= 0.95 %}
-              <span class="intent-badge intent-very-high">🔥 {{ l.intent_score|floatformat:2 }} (بسیار بالا)</span>
-            {% elif l.intent_score >= 0.88 %}
-              <span class="intent-badge intent-high">⚡ {{ l.intent_score|floatformat:2 }} (بالا)</span>
-            {% else %}
-              <span class="intent-badge intent-mid">✨ {{ l.intent_score|floatformat:2 }} (عادی)</span>
-            {% endif %}
-          </td>
-          <td>
-            <a href="{{ l.profile_url|default:'https://www.instagram.com/'|add:l.username }}" target="_blank" style="font-weight:700; color:var(--accent); text-decoration:none;">
-              @{{ l.username }} ↗
-            </a>
-            {% if l.full_name %}<div class="muted" style="font-size:0.75rem;">{{ l.full_name }}</div>{% endif %}
-            <div class="muted" style="font-size:0.7rem; font-family:monospace;">PK: {{ l.ig_user_pk }}</div>
-          </td>
-          <td style="max-width:300px;">
-            <div style="font-size:0.86rem; line-height:1.4; background:#f8fafc; padding:8px; border-radius:6px; border:1px solid #e2e8f0;">
-              «{{ l.comment_text }}»
-            </div>
-          </td>
-          <td style="max-width:280px;">
-            {% if l.source_post_url %}
-              <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.78rem; font-weight:600; color:#0284c7; display:inline-block; margin-bottom:4px;">🔗 مشاهده پست مبدا ↗</a>
-            {% endif %}
-            {% if l.post_caption_snippet %}
-              <details style="margin-top:2px;">
-                <summary style="font-size:0.72rem; color:var(--muted); cursor:pointer;">📄 خلاصه کپشن پست</summary>
-                <div style="font-size:0.73rem; background:#fff; padding:6px; border-radius:4px; margin-top:4px; border:1px solid #cbd5e1; line-height:1.4; max-height:90px; overflow-y:auto;">
-                  {{ l.post_caption_snippet }}
-                </div>
-              </details>
-            {% endif %}
-          </td>
-          <td>
-            {% if l.matched_cta %}
-              <code>{{ l.matched_cta }}</code>
-            {% else %}
-              <span class="muted">—</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if l.status == 'DM_SENT' %}
-              <span class="badge-status active">✅ پیام ارسال شد</span>
-            {% elif l.status == 'NEW' %}
-              <span class="badge-status cooldown">⏳ در صف ارسال</span>
-            {% elif l.status == 'SKIPPED' %}
-              <span class="badge-status" style="background:#f1f5f9; color:#64748b;">رد شده</span>
-            {% else %}
-              <span class="badge-status banned">خطا در ارسال</span>
-            {% endif %}
-          </td>
-          <td style="font-size:0.8rem;">{{ l.created_at|timesince }} پیش</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="muted" style="text-align:center; padding:30px;">هنوز لیدی استخراج نشده است. با اجرای اسکرپر کامنت‌ها و لیدها استخراج خواهند شد.</p>
-    {% endif %}
-  </div>
-</div>
-
-<!-- TAB 3: FINANCIAL & CREDIT CONSUMPTION -->
-<div id="tab-billing" class="tab-pane">
-  <div class="card">
-    <div class="ops-head">
-      <div>
-        <h2>💳 گزارش دقیق مصرف مالی و اعتباری هر اکانت و کسب‌وکار</h2>
-        <p class="muted" style="margin:2px 0 0;">مشاهده موجودی کیف‌پول، مجموع تومانی مصرف‌شده، هزینه دلاری هوش مصنوعی و تعداد درخواست‌ها</p>
-      </div>
-      <div>
-        <a href="{% url 'ops:wallets' %}" class="btn">مدیریت شارژ کیف‌پول‌ها ↗</a>
-      </div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>شناسه</th>
-          <th>نام کسب‌وکار / فروشنده</th>
-          <th>موجودی کیف‌پول (تومان)</th>
-          <th>کل مصرف تومانی</th>
-          <th>هزینه خام API ($)</th>
-          <th>تعداد پیام و فراخوانی</th>
-          <th>لیدهای کشف‌شده</th>
-          <th>دایرکت‌های ارسالی</th>
-          <th>وضعیت اعتبار</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in financial_rows %}
-        <tr>
-          <td>#{{ row.business.id }}</td>
-          <td>
-            <strong>{{ row.business.name }}</strong>
-            <div class="muted" style="font-size:0.75rem;">مالک: {{ row.business.user.get_full_name|default:row.business.user.username }}</div>
-          </td>
-          <td class="n" style="font-weight:700;">
-            {{ row.balance|floatformat:0 }} تومان
-          </td>
-          <td class="n" style="color:var(--down);">
-            {{ row.spent|floatformat:0 }} تومان
-          </td>
-          <td class="n" style="color:var(--muted);">
-            ${{ row.cost_usd|floatformat:4 }}
-          </td>
-          <td class="n">{{ row.calls }}</td>
-          <td class="n">{{ row.leads_count }}</td>
-          <td class="n" style="color:var(--ok); font-weight:700;">{{ row.dms_sent }}</td>
-          <td>
-            {% if row.has_credit %}
-              <span class="badge-status active">🟢 دارای اعتبار کافی</span>
-            {% else %}
-              <span class="badge-status banned">🔴 اعتبار پایان‌یافته</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="9" style="text-align:center; padding:30px;" class="muted">
-            هیچ کسب‌وکاری در سیستم ثبت نشده است.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      <tfoot>
-        <tr style="background:var(--accent-soft); font-weight:700;">
-          <td colspan="2">مجموع کل سیستم:</td>
-          <td class="n">{{ total_balance_all|floatformat:0 }} تومان</td>
-          <td class="n" style="color:var(--down);">{{ total_spent_all|floatformat:0 }} تومان</td>
-          <td class="n">${{ total_cost_usd_all|floatformat:4 }}</td>
-          <td class="n">{{ total_calls_all }}</td>
-          <td class="n">{{ total_leads }}</td>
-          <td class="n" style="color:var(--ok);">{{ dms_sent_total }}</td>
-          <td>—</td>
-        </tr>
-      </tfoot>
-    </table>
   </div>
 </div>
 
@@ -538,7 +866,7 @@
     <input type="hidden" id="modalAccountId">
     <div style="margin-bottom:16px;">
       <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:6px;">کد ۶ رقمی (Security Code):</label>
-      <input type="text" id="modalCodeInput" class="ops-input" placeholder="مثال: 123456" maxlength="8" dir="ltr" style="font-size:1.4rem; letter-spacing:6px; text-align:center; font-weight:700;">
+      <input type="text" id="modalCodeInput" class="ops-input" placeholder="مثال: 123456" maxlength="10" dir="ltr" style="font-size:1.4rem; letter-spacing:6px; text-align:center; font-weight:700;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitChallengeCode();}">
     </div>
     <div id="modalError" style="color:var(--down); font-size:0.85rem; margin-bottom:12px; display:none;"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
@@ -553,8 +881,9 @@
   function openTab(tabName, btn) {
     document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-    document.getElementById('tab-' + tabName).classList.add('active');
-    btn.classList.add('active');
+    const targetPane = document.getElementById('tab-' + tabName);
+    if (targetPane) targetPane.classList.add('active');
+    if (btn) btn.classList.add('active');
   }
 
   function getCookie(name) {
@@ -571,14 +900,44 @@
     }
     return cookieValue;
   }
-        const cookie = cookies[i].trim();
-        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
+
+  function handleAccountAddForm(e, form) {
+    e.preventDefault();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const origText = submitBtn.innerText;
+    submitBtn.innerText = '⏳ در حال ورود و احراز هویت در اینستاگرام...';
+    submitBtn.disabled = true;
+
+    const formData = new FormData(form);
+
+    fetch(form.action, {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      if (data.success) {
+        alert('✅ ' + data.message);
+        window.location.reload();
+      } else if (data.requires_code) {
+        openChallengeModal(data.account_id, data.username);
+        if (data.message) {
+          document.getElementById('modalAccountHint').innerText = data.message;
         }
+      } else {
+        alert('❌ ' + (data.message || 'خطا در ثبت اکانت'));
       }
-    }
-    return cookieValue;
+    })
+    .catch(err => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      alert('خطای برقراری ارتباط با سرور: ' + err);
+    });
   }
 
   function openChallengeModal(accId, username) {
@@ -589,7 +948,9 @@
     document.getElementById('modalError').innerText = '';
     const modal = document.getElementById('challengeModal');
     modal.style.display = 'flex';
-    document.getElementById('modalCodeInput').focus();
+    setTimeout(() => {
+      document.getElementById('modalCodeInput').focus();
+    }, 100);
   }
 
   function closeChallengeModal() {
@@ -598,9 +959,14 @@
 
   function submitChallengeCode() {
     const accId = document.getElementById('modalAccountId').value;
-    const code = document.getElementById('modalCodeInput').value.trim();
+    let code = document.getElementById('modalCodeInput').value.trim();
     const errorEl = document.getElementById('modalError');
     const submitBtn = document.getElementById('btnSubmitCode');
+
+    // Normalize Persian and Arabic digits
+    code = code.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+               .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+               .replace(/[\s\-]/g, '');
 
     if (!code) {
       errorEl.innerText = 'لطفاً کد تایید را وارد نمایید.';
@@ -610,14 +976,15 @@
 
     errorEl.style.display = 'none';
     const origText = submitBtn.innerText;
-    submitBtn.innerText = '⏳ در حال تایید...';
+    submitBtn.innerText = '⏳ در حال تایید و ثبت سشن...';
     submitBtn.disabled = true;
 
     fetch(`/manage/accounts/${accId}/code/`, {
       method: 'POST',
       headers: {
         'X-CSRFToken': getCookie('csrftoken'),
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
       },
       body: JSON.stringify({ code: code })
     })
@@ -627,21 +994,8 @@
       submitBtn.disabled = false;
       if (data.success) {
         closeChallengeModal();
-        const badge = document.getElementById('badge-' + accId);
-        if (badge) {
-          badge.className = 'badge-status active';
-          badge.innerText = '🟢 متصل و فعال';
-        }
-        const challengeBtn = document.getElementById('btn-challenge-' + accId);
-        if (challengeBtn) {
-          challengeBtn.style.display = 'none';
-        }
-        const feedback = document.getElementById('feedback-' + accId);
-        if (feedback) {
-          feedback.innerText = data.message || 'سشن تایید و ذخیره شد.';
-          feedback.style.color = 'var(--ok)';
-        }
         alert('✅ ' + data.message);
+        window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت کد تایید.';
         errorEl.style.display = 'block';
@@ -657,12 +1011,12 @@
 
   function testAccountLive(accId, btn) {
     const originalText = btn.innerText;
-    btn.innerText = "⏳ در حال تست...";
+    btn.innerText = "⏳ تست...";
     btn.disabled = true;
 
     const feedback = document.getElementById('feedback-' + accId);
     if (feedback) {
-      feedback.innerText = "در حال برقراری ارتباط...";
+      feedback.innerText = "در حال اتصال به پروکسی و اینستاگرام...";
       feedback.style.color = "var(--muted)";
     }
 
@@ -686,13 +1040,13 @@
           badge.innerText = '🟢 متصل و فعال';
           if (challengeBtn) challengeBtn.style.display = 'none';
         } else if (data.status === 'COOLDOWN') {
-          badge.innerText = '🟡 استراحت Cooldown';
+          badge.innerText = '🟡 استراحت';
           if (challengeBtn) challengeBtn.style.display = 'none';
         } else if (data.status === 'CHALLENGED') {
           badge.innerText = '🟠 چالش امنیتی (کد تایید)';
           if (challengeBtn) challengeBtn.style.display = 'inline-block';
         } else {
-          badge.innerText = '🔴 مسدود (Banned)';
+          badge.innerText = '🔴 مسدود شده';
           if (challengeBtn) challengeBtn.style.display = 'none';
         }
       }

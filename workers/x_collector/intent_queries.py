@@ -151,17 +151,26 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
         model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
         if model and len(model) >= 3:
             values.append((f"{_quote(model)} ({' OR '.join(PRODUCT_CUES)}) {ops}".strip(), "product"))
-    out, seen = [], set()
+    raw_candidates, seen = [], set()
     for query, kind in values:
         query = " ".join(query.split())
         key = norm(query)
         if not query or query.startswith("-") or len(query) > max_chars or key in seen:
             continue
         seen.add(key)
-        out.append({"query": query, "kind": kind})
-        if len(out) >= max_count:
-            break
-    return out
+        raw_candidates.append({"query": query, "kind": kind})
+
+    # MMR-driven diverse query selection
+    from shared.mmr import select_by_mmr
+    target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
+    return select_by_mmr(
+        raw_candidates,
+        lambda item: item["query"],
+        reference_context=target_ref,
+        top_k=max_count,
+        lambda_param=0.65,
+    )
+
 
 
 # ── per-product mode (NE_X_MODE=product): every query belongs to one seller product ────────────────────────────
@@ -221,15 +230,26 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     problems = _dedupe_terms(list(terms.get("problems") or []), 2, 5)
     values += [(q, "problem") for q in or_queries(problems, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
-    out, seen = [], set()
+    raw_candidates, seen = [], set()
     for query, kind in values:
         query = " ".join(query.split())
         key = norm(query)
         if not query or query.startswith("-") or len(query) > max_chars or key in seen:
             continue
         seen.add(key)
-        out.append({"query": query, "kind": kind, "product_ids": [pid], "business_ids": [str(bid)] if bid else [],
-                    "priority": float(getattr(product, "discovery_priority", 1) or 1)})
-        if len(out) >= max_count:
-            break
-    return out
+        raw_candidates.append({
+            "query": query, "kind": kind, "product_ids": [pid], "business_ids": [str(bid)] if bid else [],
+            "priority": float(getattr(product, "discovery_priority", 1) or 1)
+        })
+
+    # MMR-driven diverse query selection
+    from shared.mmr import select_by_mmr
+    target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
+    return select_by_mmr(
+        raw_candidates,
+        lambda item: item["query"],
+        reference_context=target_ref,
+        top_k=max_count,
+        lambda_param=0.65,
+    )
+

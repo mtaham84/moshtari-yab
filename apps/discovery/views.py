@@ -38,7 +38,7 @@ from instagram_discovery.post_metrics import (
 from instagram_discovery.post_label_store import PostLabelStore, create_post_label_store
 
 from shared.instagram import PageRefError, parse_page_ref
-from .models import (InstagramCategoryTarget, InstagramPage, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
+from .models import (InstagramCategoryTarget, InstagramPage, InstagramCrawlExecution, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
                     XNegativeTerm, XSearchQuery)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
@@ -175,21 +175,21 @@ def _filter_opportunities_queryset(business, params):
     sort_order = params.get("sort", default_sort).strip()
 
     if sort_order == "newest":
-        qs = qs.order_by("-source_message_timestamp", "-created_at")
+        qs = qs.order_by("-created_at", "-id")
     elif sort_order == "oldest":
-        qs = qs.order_by("source_message_timestamp", "created_at")
+        qs = qs.order_by("created_at", "id")
     elif sort_order == "source_newest":
-        qs = qs.order_by("-source_posted_at", "-created_at")
+        qs = qs.order_by("-source_posted_at", "-created_at", "-id")
     elif sort_order == "intent_desc":
-        qs = qs.order_by("-ai_analysis__intent_score", "-created_at")
+        qs = qs.order_by("-ai_analysis__intent_score", "-created_at", "-id")
     elif sort_order == "intent_asc":
-        qs = qs.order_by("ai_analysis__intent_score", "-created_at")
+        qs = qs.order_by("ai_analysis__intent_score", "created_at", "id")
     elif sort_order == "fit_desc":
-        qs = qs.order_by("-ai_analysis__product_fit_score", "-created_at")
+        qs = qs.order_by("-ai_analysis__product_fit_score", "-created_at", "-id")
     elif sort_order == "cost_desc":
-        qs = qs.order_by("-ai_analysis__cost_toman", "-created_at")
+        qs = qs.order_by("-ai_analysis__cost_toman", "-created_at", "-id")
     else:
-        qs = qs.order_by("-created_at")
+        qs = qs.order_by("-created_at", "-id")
 
     filter_meta = {
         "platform": platform_filter,
@@ -208,6 +208,21 @@ def _filter_opportunities_queryset(business, params):
 @login_required
 def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
+    all_businesses = None
+    if request.user.is_staff or request.user.is_superuser:
+        from django.db.models import Count
+        all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
+        requested_biz_id = request.GET.get("business_id", "").strip()
+        if requested_biz_id.isdigit():
+            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
+            if b_found:
+                business = b_found
+        elif not business or Opportunity.objects.filter(business=business).count() == 0:
+            # If current admin user's business has 0 opportunities, default to the first business with opportunities
+            first_biz_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().first()
+            if first_biz_with_opps:
+                business = first_biz_with_opps
+
     if not business:
         business = Business.objects.create(
             user=request.user,
@@ -234,12 +249,11 @@ def opportunity_list_view(request):
             opportunity.instagram_comment_detail_url = reverse(
                 "discovery:instagram_comment_detail", args=[opportunity.pk]
             )
-            try:
-                author = parse_page_ref(opportunity.customer.source_username or "")
-            except PageRefError:
-                opportunity.instagram_profile_url = ""
-            else:
-                opportunity.instagram_profile_url = f"https://www.instagram.com/{author}/"
+            if opportunity.customer and not opportunity.customer.source_profile_url:
+                handle = (opportunity.customer.source_username or "").lstrip("@").strip()
+                if handle:
+                    opportunity.customer.source_profile_url = f"https://www.instagram.com/{handle}/"
+
 
     # Global summary stats
     all_opps = Opportunity.objects.filter(business=business)
@@ -276,6 +290,8 @@ def opportunity_list_view(request):
         "opportunities": opportunities,
         "page_obj": page_obj,
         "stats": stats,
+        "all_businesses": all_businesses,
+        "selected_business": business,
         "seller_products": seller_products,
         "selected_platform": filter_meta["platform"],
         "selected_status": filter_meta["status"],
@@ -471,15 +487,16 @@ def opportunity_detail_view(request, pk):
 
     matches = list(opportunity.product_matches.select_related("product").order_by("rank"))
     drafts = drafts_for(opportunity)
-    analysis = getattr(opportunity, "ai_analysis", None)
-    customer_profile_url = opportunity.customer.source_profile_url
-    if opportunity.source_platform == "instagram":
-        try:
-            author = parse_page_ref(opportunity.customer.source_username or "")
-        except PageRefError:
-            customer_profile_url = ""
-        else:
-            customer_profile_url = f"https://www.instagram.com/{author}/"
+    customer_profile_url = opportunity.customer_profile_url or opportunity.customer.source_profile_url
+    if not customer_profile_url and opportunity.customer.source_username:
+        handle = opportunity.customer.source_username.lstrip("@").strip()
+        if opportunity.source_platform == "instagram":
+            customer_profile_url = f"https://www.instagram.com/{handle}/"
+        elif opportunity.source_platform == "x":
+            customer_profile_url = f"https://x.com/{handle}"
+        elif opportunity.source_platform == "telegram":
+            customer_profile_url = f"https://t.me/{handle}"
+
     if matches and analysis and analysis.suggested_reply and not drafts.get(str(matches[0].product_id)):
         drafts[str(matches[0].product_id)] = analysis.suggested_reply
     context = {
@@ -741,6 +758,7 @@ def instagram_pages_view(request):
     page_context["pending_comment_labels"] = pending_human_labels(
         evaluation_rows, human_labels, business_id=business.pk, limit=25,
     )
+    page_context["crawl_executions"] = InstagramCrawlExecution.objects.filter(business=business).order_by("-crawled_at")[:30]
     if request.method == "POST":
         action = request.POST.get("action", "add")
         if action == "label_comment":

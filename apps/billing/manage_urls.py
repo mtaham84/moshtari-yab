@@ -11,4 +11,5 @@ urlpatterns = [
     path("accounts/<int:pk>/code/", manage_views.manage_account_submit_code, name="account_submit_code"),
     path("leads/export/csv/", manage_views.manage_leads_export_csv, name="leads_export_csv"),
     path("leads/export/json/", manage_views.manage_leads_export_json, name="leads_export_json"),
+    path("settings/exchange-rate/", manage_views.manage_exchange_rate_update, name="exchange_rate_update"),
 ]

@@ -76,9 +76,9 @@ class AIModel(models.Model):
 class BillingSettings(models.Model):
     """Single row (pk=1)."""
 
-    usd_to_toman = models.DecimalField(max_digits=12, decimal_places=0, default=Decimal("100000"),
+    usd_to_toman = models.DecimalField(max_digits=12, decimal_places=0, default=Decimal("268000"),
                                        verbose_name="نرخ دلار (تومان)")
-    markup_percent = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("30"),
+    markup_percent = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("150.0"),
                                          validators=[MinValueValidator(0)], verbose_name="سود روی هزینه‌ی واقعی (٪)")
     charge_cached = models.BooleanField(default=False, verbose_name="کسر هزینه برای پاسخ‌های کش‌شده",
                                         help_text="پاسخ کش‌شده برای ما هزینه‌ای ندارد؛ پیش‌فرض: رایگان برای فروشنده")
@@ -95,7 +95,10 @@ class BillingSettings(models.Model):
 
     @classmethod
     def get(cls) -> "BillingSettings":
-        obj, _ = cls.objects.get_or_create(pk=1)
+        obj, created = cls.objects.get_or_create(
+            pk=1,
+            defaults={"usd_to_toman": Decimal("268000"), "markup_percent": Decimal("150.0")}
+        )
         return obj
 
     @property

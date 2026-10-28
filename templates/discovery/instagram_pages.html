@@ -25,6 +25,58 @@
     <button class="p-btn p-btn-primary" type="submit">افزودن صفحه</button>
   </form>
 </div>
+
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h2 style="margin:0;">📊 تاریخچه و آخرین زمان کرول کوئری‌های اینستاگرام</h2>
+      <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.86rem;">
+        زمان دقیق کرول به ساعت تهران و تاریخ شمسی و نتایج دریافت لیدهای مرتبط با کسب‌وکار شما
+      </p>
+    </div>
+    <span class="p-badge p-badge-neutral" style="font-size:0.8rem;">فقط کرول‌های مربوط به این کسب‌وکار</span>
+  </div>
+
+  {% if crawl_executions %}
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; text-align: right; border-collapse: collapse;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.88rem;">
+          <th style="padding:10px 8px;">کوئری / هشتگ</th>
+          <th style="padding:10px 8px;">اکانت اسکرپر</th>
+          <th style="padding:10px 8px;">آخرین زمان اجرا (ساعت تهران و شمسی)</th>
+          <th style="padding:10px 8px; text-align:center;">پست‌های بررسی‌شده</th>
+          <th style="padding:10px 8px; text-align:center;">لیدهای یافت‌شده</th>
+          <th style="padding:10px 8px;">نتیجه و وضعیت</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in crawl_executions %}
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;">
+          <td style="padding:10px 8px;"><strong>{{ log.query_text }}</strong></td>
+          <td style="padding:10px 8px; color:var(--panel-accent); font-weight:600;">@{{ log.account_username }}</td>
+          <td style="padding:10px 8px; font-weight:700;">{{ log.crawled_at_jalali }}</td>
+          <td style="padding:10px 8px; text-align:center;">{{ log.posts_inspected }}</td>
+          <td style="padding:10px 8px; text-align:center; font-weight:700; color:#16a34a;">{{ log.leads_found }}</td>
+          <td style="padding:10px 8px;">
+            {% if log.status == 'SUCCESS' %}
+              <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;">🟢 موفق</span>
+            {% elif log.status == 'NO_POSTS' %}
+              <span class="p-badge" style="background:#fff8e6; color:#b37400; padding:3px 8px; border-radius:4px; font-weight:600;">🟡 بدون پست جدید</span>
+            {% else %}
+              <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;">🔴 {{ log.get_status_display }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--panel-text-muted); font-size:0.9rem; margin-top:8px;">هنوز کرولی برای کوئری‌های این کسب‌وکار اجرا نشده است. در اولین دور اسکرپ، زمان دقیق تهران و نتایج در اینجا نمایش داده می‌شود.</p>
+  {% endif %}
+</div>
+
 <div class="p-card" style="padding: 24px; margin-bottom: 24px;">
   <h2>پایش هشتگی بر اساس دسته‌بندی</h2>
   <p><a class="p-btn p-btn-secondary" href="{% url 'discovery:instagram_post_review' %}">صف بازبینی پست‌ها و گزارش دقت دسته‌بندی</a></p>

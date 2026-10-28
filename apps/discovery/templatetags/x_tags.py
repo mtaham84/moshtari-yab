@@ -9,11 +9,12 @@ def ago(value) -> str:
     """Persian «… پیش» regardless of the active locale (e.g. «۵ دقیقه پیش»)."""
     if not value:
         return ""
+    from apps.core.jalali import to_persian_digits
     seconds = max(0.0, (timezone.now() - value).total_seconds())
     if seconds < 60:
         return "همین الان"
     if seconds < 3600:
-        return f"{int(seconds // 60)} دقیقه پیش"
+        return f"{to_persian_digits(int(seconds // 60))} دقیقه پیش"
     if seconds < 86400:
-        return f"{int(seconds // 3600)} ساعت پیش"
-    return f"{int(seconds // 86400)} روز پیش"
+        return f"{to_persian_digits(int(seconds // 3600))} ساعت پیش"
+    return f"{to_persian_digits(int(seconds // 86400))} روز پیش"
