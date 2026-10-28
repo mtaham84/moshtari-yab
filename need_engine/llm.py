@@ -162,77 +162,136 @@ class LLMClient:
                       businesses: list[str | None] | None = None) -> tuple[dict | None, dict]:
         """Returns (data, usage) where usage = {"toman", "cached", "pt", "ct"}. Equivalent cost is recorded even on cache hits.
         ``businesses``: sellers who pay for the call, split equally (None/empty = platform cost).
-        The model chosen for the stage's role in the admin panel (extract / verify / reply) replaces ``model``."""
-        model = self.registry.model_for(stage) or model
-        key = hashlib.sha256(json.dumps([model, system, user, max_tokens, temperature, self.cfg.reasoning_effort],
-                                        ensure_ascii=False).encode()).hexdigest()
-        hit = self.store.cache_get(key)
-        if hit is not None:
-            toman = self._record(stage, model, hit["pt"], hit["ct"], True, ref, businesses)
-            return parse_json(hit["content"]), {"toman": toman, "cached": True, "pt": hit["pt"], "ct": hit["ct"]}
+        Tries candidate models for the stage's role in priority order (e.g. Luna -> Gemini failover)."""
         if self.mock is not None:
             content = json.dumps(self.mock(stage, system, user), ensure_ascii=False)
             pt, ct = len(system + user) // 3, len(content) // 3
-            self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})
             toman = self._record(stage, model, pt, ct, False, ref, businesses)
             return parse_json(content), {"toman": toman, "cached": False, "pt": pt, "ct": ct}
-        if not self.registry.endpoint(model)[1]:
-            raise LLMError(f"no API key for {model}: add its provider in the admin panel or set NE_LLM_API_KEY")
 
-        body: dict[str, Any] = {"model": model, "temperature": temperature, "max_tokens": max_tokens,
-                                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                                "response_format": {"type": "json_object"}}
-        if self.cfg.reasoning_effort:
-            body["reasoning_effort"] = self.cfg.reasoning_effort
-        est = _est_tokens(system, user)
-        last = None
-        spent = 0.0
-        for attempt in range(self.cfg.llm_max_retries + 1):
-            self.rl.acquire(model, est)
-            t0 = time.time()
-            try:
-                status, text = self._post("/chat/completions", body, self.cfg.llm_timeout)
-            except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError) as e:
-                pause = min(30, 2 ** attempt)
-                last = f"network: {e}"
-                log.warning("%s: network/timeout after %.0fs (attempt %d) – retry in %ss", stage, time.time() - t0, attempt + 1, pause)
-                time.sleep(pause)
+        candidates = self.registry.candidate_models_for(stage)
+        if not candidates:
+            chosen = self.registry.model_for(stage) or model
+            candidates = [chosen]
+        elif model and model not in candidates:
+            candidates.append(model)
+
+        last_error = None
+        for cand_idx, current_model in enumerate(candidates):
+            endpoint_url, api_key = self.registry.endpoint(current_model)
+            if not api_key:
+                log.warning("%s: no API key for model %s – skipping to next candidate", stage, current_model)
                 continue
-            if status == 429:
-                self.rl.on_429(model, text)
-                last = f"HTTP 429: {text[:200]}"
-                continue
-            if status in (500, 502, 503, 504):
-                pause = min(60, 2 ** attempt * 2)
-                last = f"HTTP {status}: {text[:200]}"
-                log.warning("%s: provider HTTP %s – retry in %ss", stage, status, pause)
-                time.sleep(pause)
-                continue
-            if status >= 400:
-                if status == 400 and "response_format" in body and "json" in text.lower():
-                    body.pop("response_format")
+
+            key = hashlib.sha256(json.dumps([current_model, system, user, max_tokens, temperature, self.cfg.reasoning_effort],
+                                            ensure_ascii=False).encode()).hexdigest()
+            hit = self.store.cache_get(key)
+            if hit is not None:
+                toman = self._record(stage, current_model, hit["pt"], hit["ct"], True, ref, businesses)
+                return parse_json(hit["content"]), {"toman": toman, "cached": True, "pt": hit["pt"], "ct": hit["ct"]}
+
+            body: dict[str, Any] = {"model": current_model, "temperature": temperature, "max_tokens": max_tokens,
+                                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                                    "response_format": {"type": "json_object"}}
+            if self.cfg.reasoning_effort:
+                body["reasoning_effort"] = self.cfg.reasoning_effort
+            est = _est_tokens(system, user)
+            spent = 0.0
+            p_retries = parse_retries
+            has_fallback = cand_idx < len(candidates) - 1
+            max_attempts = 2 if has_fallback else (self.cfg.llm_max_retries + 1)
+            model_failed = False
+
+            for attempt in range(max_attempts):
+                self.rl.acquire(current_model, est)
+                t0 = time.time()
+                try:
+                    status, text = self._post("/chat/completions", body, self.cfg.llm_timeout)
+                except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError) as e:
+                    pause = min(3 if has_fallback else 30, 2 ** attempt)
+                    last_error = f"network: {e}"
+                    if has_fallback:
+                        log.warning("%s: candidate model %s failed with network/SSL error (%s) – failing over to next model...",
+                                    stage, current_model, e)
+                        model_failed = True
+                        break
+                    log.warning("%s: network/timeout after %.0fs (attempt %d) – retry in %ss", stage, time.time() - t0, attempt + 1, pause)
+                    time.sleep(pause)
                     continue
-                raise LLMError(f"HTTP {status}: {text[:400]}")
-            self.rl.on_success(model)
-            j = json.loads(text)
-            ch = (j.get("choices") or [{}])[0]
-            content = (ch.get("message") or {}).get("content") or ""
-            u = j.get("usage") or {}
-            pt, ct, tot = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0), int(u.get("total_tokens") or 0)
-            if tot > pt + ct:
-                ct = tot - pt  # thinking tokens are billed as output
-            spent += self._record(stage, model, pt, ct, False, ref, businesses)
-            data = parse_json(content)
-            if data is not None:
-                self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})
-                return data, {"toman": spent, "cached": False, "pt": pt, "ct": ct}
-            if ch.get("finish_reason") == "length" and body["max_tokens"] < 32000:
-                body["max_tokens"] = min(32000, body["max_tokens"] * 2)
-                log.warning("%s: output truncated, retrying with %d tokens", stage, body["max_tokens"])
-                continue
-            if parse_retries > 0:
-                parse_retries -= 1
-                log.warning("%s: invalid JSON (finish=%s, %d chars) – retrying once", stage, ch.get("finish_reason"), len(content))
-                continue
-            return None, {"toman": spent, "cached": False, "pt": pt, "ct": ct}
-        raise LLMError(last or "unknown LLM error")
+
+                if status == 429:
+                    self.rl.on_429(current_model, text)
+                    last_error = f"HTTP 429: {text[:200]}"
+                    if has_fallback:
+                        log.warning("%s: candidate model %s hit 429 – failing over to next model...", stage, current_model)
+                        model_failed = True
+                        break
+                    continue
+
+                if status in (500, 502, 503, 504):
+                    pause = min(3 if has_fallback else 60, 2 ** attempt * 2)
+                    last_error = f"HTTP {status}: {text[:200]}"
+                    if has_fallback and attempt >= 1:
+                        log.warning("%s: candidate model %s HTTP %s – failing over to next model...", stage, current_model, status)
+                        model_failed = True
+                        break
+                    log.warning("%s: provider HTTP %s – retry in %ss", stage, status, pause)
+                    time.sleep(pause)
+                    continue
+
+                if status >= 400:
+                    if status == 400 and "response_format" in body and "json" in text.lower():
+                        body.pop("response_format")
+                        continue
+                    last_error = f"HTTP {status}: {text[:400]}"
+                    if has_fallback:
+                        log.warning("%s: candidate model %s HTTP %s (%s) – failing over to next model...",
+                                    stage, current_model, status, text[:150])
+                        model_failed = True
+                        break
+                    raise LLMError(f"HTTP {status}: {text[:400]}")
+
+                self.rl.on_success(current_model)
+                try:
+                    j = json.loads(text)
+                except Exception as exc:
+                    last_error = f"invalid response JSON: {exc}"
+                    if has_fallback:
+                        log.warning("%s: candidate model %s invalid JSON body – failing over to next model...", stage, current_model)
+                        model_failed = True
+                        break
+                    continue
+
+                ch = (j.get("choices") or [{}])[0]
+                content = (ch.get("message") or {}).get("content") or ""
+                u = j.get("usage") or {}
+                pt, ct, tot = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0), int(u.get("total_tokens") or 0)
+                if tot > pt + ct:
+                    ct = tot - pt
+                spent += self._record(stage, current_model, pt, ct, False, ref, businesses)
+                data = parse_json(content)
+                if data is not None:
+                    self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})
+                    return data, {"toman": spent, "cached": False, "pt": pt, "ct": ct}
+
+                if ch.get("finish_reason") == "length" and body["max_tokens"] < 32000:
+                    body["max_tokens"] = min(32000, body["max_tokens"] * 2)
+                    log.warning("%s: output truncated, retrying with %d tokens", stage, body["max_tokens"])
+                    continue
+
+                if p_retries > 0:
+                    p_retries -= 1
+                    log.warning("%s: invalid JSON (finish=%s, %d chars) – retrying once", stage, ch.get("finish_reason"), len(content))
+                    continue
+
+                if has_fallback:
+                    log.warning("%s: candidate model %s unparseable JSON – failing over to next model...", stage, current_model)
+                    model_failed = True
+                    break
+
+                return None, {"toman": spent, "cached": False, "pt": pt, "ct": ct}
+
+            if not model_failed and not has_fallback:
+                break
+
+        raise LLMError(last_error or f"all candidate models failed for stage {stage}: {candidates}")

@@ -67,8 +67,43 @@ def retrieve(n: NeedCard, qvecs: np.ndarray, cat: Catalog, cfg: EngineConfig,
              allowed: frozenset[str] | None = None, excluded: frozenset[str] = frozenset()) -> Retrieval:
     """``allowed`` = business ids whose products this need's chat may be matched against (None = all sellers).
     ``excluded`` = sellers left out anyway (prepaid balance used up, see need_engine/registry.py)."""
-    if cat.n == 0 or qvecs is None or len(qvecs) == 0:
+    if cat.n == 0:
         return Retrieval()
+
+    has_dense = (qvecs is not None and len(qvecs) > 0 and getattr(qvecs, 'ndim', 1) >= 2 and qvecs.shape[1] > 0)
+    visible_indices = [j for j, p in enumerate(cat.products)
+                       if (allowed is None or p.business_id in allowed) and p.business_id not in excluded]
+    if not visible_indices:
+        return Retrieval()
+
+    if not has_dense:
+        # Graceful fallback without embeddings:
+        # Rank products using BM25 keyword matching + catalog fallback, and pass candidates directly to LLM!
+        query_text = " ".join([n.need or "", n.situation or ""] + n.solution_queries)
+        if cat.bm25 and query_text.strip():
+            bm = cat.bm25.scores(query_text)
+            b_rank = [j for j in np.argsort(-bm) if j in visible_indices and bm[j] > 0]
+        else:
+            b_rank = []
+
+        sel = list(b_rank[:cfg.cand_max])
+        if len(sel) < cfg.cand_max:
+            for j in visible_indices:
+                if j not in sel:
+                    sel.append(j)
+                if len(sel) >= cfg.cand_max:
+                    break
+
+        kept, dropped = [], 0
+        for j in sel:
+            r = budget_ratio(n, cat.products[j].price_toman)
+            if r is not None and r > cfg.budget_hard_factor:
+                dropped += 1
+                continue
+            kept.append(j)
+
+        return Retrieval(kept, None, 0.0, 0.0, dropped)
+
     dense = cat.dense_scores(qvecs)
     if allowed is not None or excluded:
         visible = np.array([(allowed is None or p.business_id in allowed) and p.business_id not in excluded

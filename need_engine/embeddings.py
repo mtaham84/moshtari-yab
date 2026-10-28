@@ -10,7 +10,7 @@ import urllib.request
 import numpy as np
 
 from need_engine.config import EngineConfig
-from need_engine.llm import LLMClient, LLMError
+from need_engine.llm import LLMClient, LLMError, QuotaExhausted
 from need_engine.text import norm, tokens
 
 log = logging.getLogger("need_engine.embeddings")
@@ -21,22 +21,36 @@ class Embedder:
         self.cfg, self.llm = cfg, llm
         self.backend = cfg.embed_backend
         self.dim: int | None = None
+        self.exhausted: bool = False
 
     def encode(self, texts: list[str], stage: str = "embed") -> np.ndarray:
         texts = [norm(t) for t in texts]
         if not texts:
             return np.zeros((0, self.dim or 8), dtype=np.float32)
-        if self.backend == "hash":
-            v = np.stack([self._hash_vec(t) for t in texts])
-        elif self.backend == "gemini":
-            v = self._openai_compatible(texts, stage)
-        elif self.backend == "cloudflare":
-            v = self._cloudflare(texts, stage)
-        else:
-            raise LLMError(f"unknown embed backend: {self.backend}")
+        if self.exhausted:
+            log.warning("Embedder: daily quota previously exhausted; bypassing embedding for %d texts", len(texts))
+            return np.zeros((len(texts), 0), dtype=np.float32)
+        try:
+            if self.backend == "hash":
+                v = np.stack([self._hash_vec(t) for t in texts])
+            elif self.backend == "gemini":
+                v = self._openai_compatible(texts, stage)
+            elif self.backend == "cloudflare":
+                v = self._cloudflare(texts, stage)
+            else:
+                raise LLMError(f"unknown embed backend: {self.backend}")
+        except QuotaExhausted as qe:
+            log.warning("Embedder: daily quota exhausted during %s (%s). Falling back to LLM-only mode.", stage, qe)
+            self.exhausted = True
+            return np.zeros((len(texts), 0), dtype=np.float32)
+        except Exception as e:
+            log.warning("Embedder: embedding call failed during %s (%s). Falling back to LLM-only mode.", stage, e)
+            return np.zeros((len(texts), 0), dtype=np.float32)
+
         v = np.asarray(v, dtype=np.float32)
-        v /= np.linalg.norm(v, axis=1, keepdims=True) + 1e-9
-        self.dim = v.shape[1]
+        if v.ndim == 2 and v.shape[1] > 0:
+            v /= np.linalg.norm(v, axis=1, keepdims=True) + 1e-9
+            self.dim = v.shape[1]
         return v
 
     def _post(self, url: str, body: dict, headers: dict) -> dict:

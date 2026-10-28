@@ -517,30 +517,33 @@ class NeedEngine:
                 if len(pvecs) > 0:
                     texts = [m.text for m in kept]
                     post_vecs = self.emb.encode(texts, stage="embed_x_gate")
-                    sims = (post_vecs @ pvecs.T).max(axis=1)
-                    min_sim = getattr(self.cfg, "x_embed_min_sim", 0.35)
-                    embed_kept = []
-                    embed_dropped = []
-                    for m, sim in zip(kept, sims):
-                        sim_f = float(sim)
-                        signals = {"similarity": round(sim_f, 4), "min_sim": min_sim, "product_id": product_id}
-                        if sim_f < min_sim:
-                            dec = type("Decision", (), {"keep": False, "reason": "embed_low_sim", "signals": signals})()
-                            decisions[m.message_id] = dec
-                            report.x_prefilter_dropped["embed_low_sim"] = report.x_prefilter_dropped.get("embed_low_sim", 0) + 1
-                            report.dropped_by_stage["embed_gate"] = report.dropped_by_stage.get("embed_gate", 0) + 1
-                            if x_prefilter_enabled(self.cfg):
-                                self.store.record_x_filter_decision(m, False, "embed_low_sim", signals, embed_mode)
-                            embed_dropped.append(m)
-                            if embed_mode == "shadow":
+                    if getattr(post_vecs, "shape", (0, 0))[1] == 0:
+                        log.info("embed_x_gate: embedding unavailable or quota exhausted – bypassing embed filter directly to LLM")
+                    else:
+                        sims = (post_vecs @ pvecs.T).max(axis=1)
+                        min_sim = getattr(self.cfg, "x_embed_min_sim", 0.35)
+                        embed_kept = []
+                        embed_dropped = []
+                        for m, sim in zip(kept, sims):
+                            sim_f = float(sim)
+                            signals = {"similarity": round(sim_f, 4), "min_sim": min_sim, "product_id": product_id}
+                            if sim_f < min_sim:
+                                dec = type("Decision", (), {"keep": False, "reason": "embed_low_sim", "signals": signals})()
+                                decisions[m.message_id] = dec
+                                report.x_prefilter_dropped["embed_low_sim"] = report.x_prefilter_dropped.get("embed_low_sim", 0) + 1
+                                report.dropped_by_stage["embed_gate"] = report.dropped_by_stage.get("embed_gate", 0) + 1
+                                if x_prefilter_enabled(self.cfg):
+                                    self.store.record_x_filter_decision(m, False, "embed_low_sim", signals, embed_mode)
+                                embed_dropped.append(m)
+                                if embed_mode == "shadow":
+                                    embed_kept.append(m)
+                            else:
+                                if x_prefilter_enabled(self.cfg):
+                                    self.store.record_x_filter_decision(m, True, "embed_ok", signals, embed_mode)
                                 embed_kept.append(m)
-                        else:
-                            if x_prefilter_enabled(self.cfg):
-                                self.store.record_x_filter_decision(m, True, "embed_ok", signals, embed_mode)
-                            embed_kept.append(m)
-                    if embed_mode == "on" and embed_dropped:
-                        self.store.drop_x_pending(embed_dropped, decisions, mode="on")
-                    kept = embed_kept
+                        if embed_mode == "on" and embed_dropped:
+                            self.store.drop_x_pending(embed_dropped, decisions, mode="on")
+                        kept = embed_kept
         if keep_threads and all_ordered and is_product_chat(all_ordered[0].chat_id):
             dropped = list(stale) if x_prefilter_enabled(self.cfg) else []
             if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":

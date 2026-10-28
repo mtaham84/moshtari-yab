@@ -57,7 +57,8 @@ class ModelEntry:
 @dataclass
 class Snapshot:
     models: dict[str, ModelEntry] = field(default_factory=dict)      # model name → entry (best priority wins)
-    by_role: dict[str, str] = field(default_factory=dict)              # role → model name
+    by_role: dict[str, str] = field(default_factory=dict)              # role → primary model name
+    models_by_role: dict[str, list[str]] = field(default_factory=dict) # role → ordered candidate models for fallback
     usd_to_toman: float | None = None
     enforce_balance: bool = False
     min_balance: float = 0.0
@@ -116,6 +117,10 @@ class ModelRegistry:
                 snap.models.setdefault(e.name, e)
                 for role in roles:
                     snap.by_role.setdefault(role, e.name)
+                    if role not in snap.models_by_role:
+                        snap.models_by_role[role] = []
+                    if e.name not in snap.models_by_role[role]:
+                        snap.models_by_role[role].append(e.name)
         settings_t = _ident(self.cfg.billing_settings_table)
         if self._exists(settings_t):
             rows = db.all(f"SELECT usd_to_toman, enforce_balance, min_balance_toman FROM {settings_t} ORDER BY id LIMIT 1")
@@ -133,6 +138,13 @@ class ModelRegistry:
     def model_for(self, stage: str) -> str | None:
         role = role_of(stage)
         return self.refresh().by_role.get(role) if role else None
+
+    def candidate_models_for(self, stage: str) -> list[str]:
+        role = role_of(stage)
+        if not role:
+            return []
+        snap = self.refresh()
+        return list(snap.models_by_role.get(role, []))
 
     def entry(self, model: str) -> ModelEntry | None:
         return self.refresh().models.get(model)

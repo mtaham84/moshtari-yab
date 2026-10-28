@@ -377,30 +377,41 @@ def remember(cards: list[NeedCard], store: Store, emb: Embedder, cfg: EngineConf
     Returns [(card, is_new, needs_rematch)]; re-matching is skipped when nothing relevant to matching changed."""
     if not cards:
         return []
-    svecs = emb.encode([c.summary_text() for c in cards], stage="embed_needs")
+    raw_svecs = emb.encode([c.summary_text() for c in cards], stage="embed_needs")
+    has_svecs = getattr(raw_svecs, "shape", (0, 0))[1] > 0
+    svecs = raw_svecs if has_svecs else [None] * len(cards)
     out: dict[str, tuple[NeedCard, bool, bool]] = {}
     for c, v in zip(cards, svecs):
         target, tvec = None, None
         for old, ov in store.person_needs(c.chat_id, c.author_id):
             overlap = set(old.evidence_ids) & set(c.evidence_ids)
-            if overlap or (ov is not None and ov.shape == v.shape and float(ov @ v) >= cfg.person_merge_sim):
+            if overlap or (v is not None and ov is not None and ov.shape == v.shape and float(ov @ v) >= cfg.person_merge_sim):
                 target, tvec = old, ov
                 break
         if target is None and c.label == "resolved":
             # "got it, thanks" rarely repeats the product words → close the person's closest open need
             opens = [(old, ov) for old, ov in store.person_needs(c.chat_id, c.author_id) if old.status == "open"]
             if opens:
-                target, tvec = max(opens, key=lambda x: float(x[1] @ v) if x[1] is not None and x[1].shape == v.shape else -1.0)
+                target, tvec = max(opens, key=lambda x: float(x[1] @ v) if (v is not None and x[1] is not None and x[1].shape == v.shape) else -1.0)
         if target is None:
             c.need_id = store.next_need_id()
             merged, is_new, mv, rematch = c, True, v, True
         else:
             merged = _merge(target, c)
             is_new = False
-            mv = (tvec + v) / (np.linalg.norm(tvec + v) + 1e-9)
+            if tvec is not None and v is not None and tvec.shape == v.shape:
+                mv = (tvec + v) / (np.linalg.norm(tvec + v) + 1e-9)
+            else:
+                mv = v if v is not None else tvec
             rematch = _match_key(merged) != _match_key(target)
         old_qv = None if (is_new or rematch) else store.query_vecs(merged.need_id)
-        qv = old_qv if old_qv is not None else (emb.encode(query_texts(merged), stage="embed_queries") if merged.is_opportunity else None)
+        if old_qv is not None:
+            qv = old_qv
+        elif merged.is_opportunity:
+            raw_qv = emb.encode(query_texts(merged), stage="embed_queries")
+            qv = raw_qv if getattr(raw_qv, "shape", (0, 0))[1] > 0 else None
+        else:
+            qv = None
         store.save_need(merged, mv, qv)
         prev = out.get(merged.need_id)
         out[merged.need_id] = (merged, is_new or bool(prev and prev[1]), rematch or bool(prev and prev[2]))
