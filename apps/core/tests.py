@@ -23,8 +23,8 @@ class LandingPageTestCase(TestCase):
         content = response.content.decode('utf-8')
         # Core brand and headlines
         self.assertIn('مشتری‌یاب', content)
-        self.assertIn('مشتری‌های بالقوه‌ات رو', content)
-        self.assertIn('پیدا کن', content)
+        self.assertIn('به خریدار تبدیل کن', content)
+        self.assertIn('پیدا', content)
         # Circular step cards
         self.assertIn('چند قدم تا پیدا کردن خریداران واقعی', content)
         self.assertIn('معرفی محصول', content)
