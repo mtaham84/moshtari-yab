@@ -663,6 +663,7 @@
                 <span class="badge-status banned" id="badge-{{ acc.id }}">🔴 مسدود شده</span>
               {% endif %}
               <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
+              {% if acc.status_message %}<div class="muted" style="font-size:0.78rem; margin-top:6px; color:var(--down); max-width:260px; white-space:normal;">{{ acc.status_message }}</div>{% endif %}
             </td>
             <td class="n" style="font-weight:700; font-size:1rem;">{{ acc.daily_action_count }}</td>
             <td class="jalali-time-cell">
@@ -680,7 +681,7 @@
                 <button class="btn sm" onclick="openSessionModal({{ acc.id }}, '{{ acc.username }}')" title="تنظیم یا به‌روزرسانی کوکی sessionid بدون پسورد">
                   🍪 ثبت sessionid
                 </button>
-                <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" title="ثبت کد تایید ارسال شده">
+                <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" {% if acc.status == 'CHALLENGED' and acc.device_settings.challenge_hint %}data-autoopen="1"{% endif %} title="ثبت کد تایید ارسال شده">
                   🔑 ثبت کد تایید
                 </button>
                 <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
@@ -1703,6 +1704,9 @@
 </script>
 <script>
   document.addEventListener('DOMContentLoaded', () => {
+    // Instagram asked for a code: jump to the accounts tab and open the code field for the first such account.
+    const pending = document.querySelector('button[data-autoopen="1"]');
+    if (pending) { openTab('scrapers', document.querySelector('.tab-btn[onclick*="scrapers"]')); setTimeout(() => pending.click(), 300); }
     document.querySelectorAll('.table-responsive table').forEach(table => {
       const heads = Array.from(table.querySelectorAll('thead th')).map(th => th.innerText.trim());
       table.querySelectorAll('tbody tr').forEach(tr => Array.from(tr.children).forEach((td, i) => {

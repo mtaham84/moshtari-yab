@@ -866,6 +866,8 @@ def manage_account_submit_code(request, pk):
 
         if not success:
             err_str = str(last_error or "کد تایید وارد شده نامعتبر یا منقضی است.")
+            account.status_message = f"کد رد شد: {err_str}"[:250]
+            account.save(update_fields=["status_message"])
             return JsonResponse({
                 "success": False,
                 "status": account.status,
@@ -882,7 +884,9 @@ def manage_account_submit_code(request, pk):
         account.session_json = new_settings
         account.device_settings = {"settings": new_settings}
         account.status = "ACTIVE"
-        account.save(update_fields=["session_json", "device_settings", "status"])
+        account.status_message = ""
+        account.cooldown_until = None
+        account.save(update_fields=["session_json", "device_settings", "status", "status_message", "cooldown_until"])
 
         return JsonResponse({
             "success": True,

@@ -75,7 +75,7 @@ class Policy:
         e = os.environ.get
         return cls(
             session_dir=Path(e("INSTAGRAM_SESSION_DIR", "/app/data/instagram_sessions")),
-            auto_reauth=e("INSTAGRAM_SESSION_AUTO_REAUTH_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
+            auto_reauth=e("INSTAGRAM_SESSION_AUTO_REAUTH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
             max_attempts=int(e("INSTAGRAM_SESSION_MAX_RECOVERY_ATTEMPTS", "1")),
             recovery_cooldown_s=int(e("INSTAGRAM_SESSION_RECOVERY_COOLDOWN_SECONDS", "21600")),
             net_retries=int(e("INSTAGRAM_NETWORK_MAX_RETRIES", "3")),

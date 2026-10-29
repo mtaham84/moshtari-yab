@@ -37,7 +37,7 @@ def test_classification():
 
 
 def test_recovery_only_for_rejected_session_and_bounded(tmp_path):
-    off, on = _policy(tmp_path), _policy(tmp_path, auto_reauth=True)
+    off, on = _policy(tmp_path, auto_reauth=False), _policy(tmp_path, auto_reauth=True)
     assert not off.may_recover(ErrorKind.LOGIN_REQUIRED, 0)
     assert on.may_recover(ErrorKind.LOGIN_REQUIRED, 0)
     assert not on.may_recover(ErrorKind.LOGIN_REQUIRED, 1)

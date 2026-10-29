@@ -312,6 +312,14 @@ class Command(BaseCommand):
             self._policy_cache = Policy.from_env()
         return self._policy_cache
 
+    def _set_state(self, account, status: str, message: str = "", hours: float | None = None, extra=()) -> None:
+        from datetime import timedelta
+
+        account.status = status
+        account.status_message = message[:250]
+        account.cooldown_until = dj_timezone.now() + timedelta(hours=hours) if hours else None
+        account.save(update_fields=["status", "status_message", "cooldown_until", *extra])
+
     def _restore_from_mirror(self, account) -> None:
         """If the DB lost the session, recover it from the atomic file mirror (never overwrites an existing DB session)."""
         if account.session_json:
@@ -372,20 +380,30 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"    recovery_started: account {account.id}"))
                 time.sleep(random.uniform(8.0, 20.0))
                 cl.login(account.username, account.password)
-            except (ChallengeRequired, TwoFactorRequired, BadPassword) as exc:
-                account.status, account.cooldown_until = "CHALLENGED", None
-                account.save(update_fields=["status", "cooldown_until"])
-                self.stderr.write(f"    recovery_failed: account {account.id} needs a human ({exc.__class__.__name__})")
+            except (ChallengeRequired, TwoFactorRequired) as exc:
+                # Instagram wants a code (2FA / email / SMS): hand over to the dashboard, keep the pending challenge state.
+                try:
+                    account.device_settings = {"settings": cl.get_settings(), "last_json": getattr(cl, "last_json", None),
+                                               "challenge_hint": redact(exc)}
+                except Exception:
+                    pass
+                self._set_state(account, "CHALLENGED",
+                                "اینستاگرام کد تایید خواست (ایمیل/پیامک/۲FA). کد را در داشبورد /manage/ وارد کنید.",
+                                extra=["device_settings"])
+                self.stderr.write(f"    recovery_failed: account {account.id} needs a verification code")
+                return False
+            except BadPassword as exc:
+                self._set_state(account, "CHALLENGED", "لاگین ناموفق بود: رمز عبور رد شد. رمز را بررسی کنید.")
+                self.stderr.write(f"    recovery_failed: account {account.id} bad credentials")
                 return False
             except Exception as exc:
-                account.status = "COOLDOWN"
-                account.cooldown_until = dj_timezone.now() + timedelta(hours=self.RENEW_COOLDOWN_HOURS)
-                account.save(update_fields=["status", "cooldown_until"])
+                # One try only: no further automatic logins until the operator acts.
+                self._set_state(account, "CHALLENGED", f"لاگین مجدد با شکست مواجه شد: {redact(exc, 180)}")
                 self.stderr.write(f"    recovery_failed: account {account.id}: {redact(exc)}")
                 return False
             fresh = cl.get_settings()
-            account.session_json, account.status, account.cooldown_until = fresh, "ACTIVE", None
-            account.save(update_fields=["session_json", "status", "cooldown_until"])
+            account.session_json = fresh
+            self._set_state(account, "ACTIVE", "", extra=["session_json"])
             save_atomic(session_path(account.id, self._policy), fresh)
             self._renew_attempts[account.id] = 0
             self.stdout.write(self.style.SUCCESS(f"    recovery_succeeded: account {account.id}; session stored"))
@@ -438,18 +456,19 @@ class Command(BaseCommand):
                 return False
             if account.status != "ACTIVE":
                 return True
-            if self._policy.auto_reauth:  # enabled but exhausted/locked: rest, do not loop
-                return self._rest_account(account, self.RENEW_COOLDOWN_HOURS)
-            account.status, account.cooldown_until = "CHALLENGED", None   # needs a new sessionid from the operator
-            account.save(update_fields=["status", "cooldown_until"])
+            if self._policy.auto_reauth:  # enabled but already tried this incident: stop, do not loop
+                self._set_state(account, "CHALLENGED", "لاگین مجدد انجام شد یا ممکن نبود و سشن همچنان رد می‌شود؛ بررسی دستی لازم است.")
+                return True
+            self._set_state(account, "CHALLENGED", "سشن توسط اینستاگرام رد شد و لاگین خودکار خاموش است؛ sessionid جدید ثبت کنید.")
             self.stdout.write(self.style.WARNING(
                 f"    session_rejected: account {account.id} paused; set a fresh sessionid (auto re-login is off)."))
             return True
         if kind in self._KIND_POLICY:
             status, hours = self._KIND_POLICY[kind]
-            account.status = status
-            account.cooldown_until = dj_timezone.now() + timedelta(hours=hours) if hours else None
-            account.save(update_fields=["status", "cooldown_until"])
+            msgs = {ErrorKind.CHALLENGE: "اینستاگرام چالش امنیتی/تایید هویت خواست؛ کد را در داشبورد وارد کنید.",
+                    ErrorKind.BAD_CREDENTIALS: "لاگین ناموفق: رمز عبور رد شد.",
+                    ErrorKind.RATE_LIMIT: "محدودیت موقت اینستاگرام (۲ ساعت استراحت)."}
+            self._set_state(account, status, msgs[kind], hours)
             self.stdout.write(self.style.WARNING(
                 f"    {kind.value}: account {account.id} -> {status}{f' ({hours:g}h)' if hours else ''}; no login attempted."))
             return True

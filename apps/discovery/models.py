@@ -962,6 +962,7 @@ class InstagramEngineAccount(models.Model):
     daily_action_count = models.IntegerField(default=0, verbose_name="تعداد عملیات امروز")
     last_action_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان فعالیت")
     cooldown_until = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="پایان دوره استراحت")
+    status_message = models.CharField(max_length=255, blank=True, default="", verbose_name="پیام آخرین وضعیت / خطا")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ایجاد")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
 
