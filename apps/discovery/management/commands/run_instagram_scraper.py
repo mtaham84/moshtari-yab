@@ -226,19 +226,40 @@ class Command(BaseCommand):
 
     def _build_client(self, account):
         from instagrapi import Client
+        import re
+
         cl = Client()
         cl.delay_range = [2, 5]
 
+        if account.device_settings:
+            try:
+                cl.set_device(account.device_settings, reset=False)
+            except Exception:
+                pass
+
         if account.session_json:
-            cl.set_settings(account.session_json)
-            cl.username = account.username
-            cookies = account.session_json.get("cookies", {})
-            for k, v in cookies.items():
-                try:
-                    cl.public.cookies.set(k, v, domain=".instagram.com")
-                    cl.private.cookies.set(k, v, domain=".instagram.com")
-                except Exception:
-                    pass
+            try:
+                cl.set_settings(account.session_json)
+                cl.username = account.username
+                cookies = account.session_json.get("cookies", {})
+                for k, v in cookies.items():
+                    try:
+                        cl.public.cookies.set(k, v, domain=".instagram.com")
+                        cl.private.cookies.set(k, v, domain=".instagram.com")
+                    except Exception:
+                        pass
+                sess_id = cookies.get("sessionid")
+                if sess_id:
+                    m = re.search(r"^\d+", sess_id)
+                    if m:
+                        uid = m.group()
+                        cl.authorization_data = {
+                            "ds_user_id": uid,
+                            "sessionid": sess_id,
+                            "should_use_header_over_cookies": True,
+                        }
+            except Exception as e:
+                self.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
         if account.proxy_url:
             from apps.billing.manage_views import _test_proxy_connection

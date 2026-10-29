@@ -521,6 +521,9 @@
               {% else %}
                 <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
               {% endif %}
+              {% if acc.device_settings.model %}
+                <span class="pill" style="font-size:0.7rem; background:#eff6ff; color:#1d4ed8;" title="{{ acc.device_settings.manufacturer }} {{ acc.device_settings.model }}">📱 {{ acc.device_settings.model }}</span>
+              {% endif %}
             </td>
             <td>
               {% if acc.status == 'ACTIVE' %}

@@ -552,11 +552,18 @@ def manage_account_set_session(request, pk):
         except Exception:
             pass
 
+    if account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings:
+        try:
+            cl.set_device(account.device_settings, reset=False)
+        except Exception:
+            pass
+
     try:
         cl.login_by_sessionid(sessionid)
         settings = cl.get_settings()
         account.session_json = settings
-        account.device_settings = {"settings": settings}
+        if not (account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings):
+            account.device_settings = {"model": cl.device_settings.get("model", "Pixel 8 Pro")}
         account.status = "ACTIVE"
         account.save(update_fields=["session_json", "device_settings", "status"])
         return JsonResponse({
@@ -619,71 +626,49 @@ def manage_account_test(request, pk):
             raise ChallengeRequired(f"کد تایید امنیتی به روش {choice} ارسال شد.")
         cl.challenge_code_handler = _non_interactive_challenge
 
-        if account.session_json:
-            cl.set_settings(account.session_json)
+        if account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings:
             try:
-                cl.get_timeline_feed()
-                live_status = "ACTIVE"
-                account.status = "ACTIVE"
-                account.save(update_fields=["status"])
-                msg = f"سشن اینستاگرام معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
-            except Exception as se:
-                msg = f"سشن منقضی شده، تلاش برای لاگین مجدد: {se}"
+                cl.set_device(account.device_settings, reset=False)
+            except Exception:
+                pass
+
+        if account.session_json:
+            cookies = account.session_json.get("cookies", {})
+            sess_id = cookies.get("sessionid")
+            if sess_id:
                 try:
-                    cl.login(account.username, account.password)
-                    new_settings = cl.get_settings()
-                    account.session_json = new_settings
-                    account.device_settings = {"settings": new_settings}
+                    cl.login_by_sessionid(sess_id)
+                    live_status = "ACTIVE"
                     account.status = "ACTIVE"
-                    account.save(update_fields=["session_json", "device_settings", "status"])
-                    msg = f"لاگین مجدد با موفقیت انجام شد و سشن به‌روزرسانی شد. {proxy_msg}"
-                except (ChallengeRequired, TwoFactorRequired) as ce:
+                    account.session_json = cl.get_settings()
+                    account.save(update_fields=["status", "session_json"])
+                    msg = f"سشن اینستاگرام کاملاً معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
+                except Exception as se:
+                    se_str = str(se).lower()
+                    if "pleasewait" in se_str or "429" in se_str:
+                        live_status = "COOLDOWN"
+                        account.status = "COOLDOWN"
+                        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                        account.save(update_fields=["status", "cooldown_until"])
+                        msg = f"محدودیت موقت اینستاگرام (PleaseWaitFewMinutes). اکانت برای ۱۵ دقیقه در حالت استراحت قرار گرفت."
+                    else:
+                        live_status = "CHALLENGED"
+                        account.status = "CHALLENGED"
+                        account.save(update_fields=["status"])
+                        msg = f"سشن اینستاگرام منقضی یا نامعتبر شده است. لطفاً sessionid جدید را ثبت نمایید: {se}"
+            else:
+                cl.set_settings(account.session_json)
+                try:
+                    cl.get_timeline_feed()
+                    live_status = "ACTIVE"
+                    account.status = "ACTIVE"
+                    account.save(update_fields=["status"])
+                    msg = f"سشن اینستاگرام معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
+                except Exception as se:
                     live_status = "CHALLENGED"
                     account.status = "CHALLENGED"
-                    account.device_settings = {
-                        "settings": cl.get_settings(),
-                        "last_json": getattr(cl, "last_json", None),
-                        "challenge_hint": str(ce),
-                    }
-                    account.save(update_fields=["status", "device_settings"])
-                    challenge_hint = str(ce)
-                    msg = f"اینستاگرام درخواست کد تایید داده است: {ce}"
-                except (FeedbackRequired, PleaseWaitFewMinutes) as fe:
-                    live_status = "COOLDOWN"
-                    account.status = "COOLDOWN"
-                    account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                    account.save(update_fields=["status", "cooldown_until"])
-                    msg = f"اینستاگرام محدودیت موقت اعمال کرده است (Cooldown / چند دقیقه استراحت): {fe}"
-                except Exception as le:
-                    le_str = str(le).lower()
-                    if "pleasewaitfewminutes" in le_str or "429" in le_str or "feedback" in le_str:
-                        live_status = "COOLDOWN"
-                        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                        msg = "محدودیت موقت اینستاگرام (PleaseWaitFewMinutes). اکانت برای چند دقیقه در حالت استراحت قرار گرفت."
-                    elif "suspended" in le_str:
-                        live_status = "CHALLENGED"
-                        msg = "اکانت توسط اینستاگرام به صفحه تعلیق (Suspended) منتقل شده است و نیاز به تایید هویت در مرورگر دارد."
-                        account.device_settings = {
-                            "settings": cl.get_settings(),
-                            "last_json": getattr(cl, "last_json", None),
-                            "challenge_hint": str(le),
-                        }
-                    elif "challenge" in le_str or "checkpoint" in le_str or "two_step" in le_str:
-                        live_status = "CHALLENGED"
-                        msg = "اینستاگرام درخواست تایید هویت (کد پیامک/ایمیل یا ۲FA) داده است."
-                        account.device_settings = {
-                            "settings": cl.get_settings(),
-                            "last_json": getattr(cl, "last_json", None),
-                            "challenge_hint": str(le),
-                        }
-                    elif "bad_password" in le_str or "password" in le_str:
-                        live_status = "BANNED"
-                        msg = f"رمز عبور اینستاگرام اشتباه است: {le}"
-                    else:
-                        live_status = "COOLDOWN"
-                        msg = f"پاسخ ناپایدار از اینستاگرام (استراحت موقت): {le}"
-                    account.status = live_status
-                    account.save(update_fields=["status", "device_settings", "cooldown_until"] if account.cooldown_until else ["status", "device_settings"])
+                    account.save(update_fields=["status"])
+                    msg = f"سشن منقضی شده است: {se}"
         else:
             # First-time login test
             try:
