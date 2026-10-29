@@ -1,7 +1,7 @@
 import json
 import logging
 import socket
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import wraps
 from urllib.parse import urlparse
@@ -17,7 +17,7 @@ from django.views.decorators.http import require_POST, require_GET
 
 from apps.businesses.models import Business
 from apps.billing.models import Wallet, WalletTransaction, BillingSettings
-from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution
+from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution, TwitterEngineAccount
 
 logger = logging.getLogger("management")
 
@@ -191,6 +191,34 @@ def manage_dashboard(request):
             "has_credit": balance > 0,
         })
 
+    # 6. Twitter / X Scraper Accounts
+    try:
+        twitter_scrapers = TwitterEngineAccount.objects.all().order_by("-id")
+        twitter_scrapers_total = twitter_scrapers.count()
+        twitter_scrapers_active = twitter_scrapers.filter(status="ACTIVE", is_active=True).count()
+        twitter_scrapers_cooldown = twitter_scrapers.filter(status="COOLDOWN").count()
+        twitter_scrapers_challenged = twitter_scrapers.filter(status="CHALLENGED").count()
+        twitter_scrapers_banned = twitter_scrapers.filter(status="BANNED").count()
+    except Exception as exc:
+        logger.warning("Could not query TwitterEngineAccount: %s", exc)
+        twitter_scrapers = []
+        twitter_scrapers_total = twitter_scrapers_active = twitter_scrapers_cooldown = twitter_scrapers_challenged = twitter_scrapers_banned = 0
+
+    # 7. Twitter Search Runs / Crawl Logs
+    twitter_crawl_runs = []
+    try:
+        from apps.discovery.x_activity import _crawler_schema, _exists, _all
+        cs = _crawler_schema()
+        if _exists(cs, "x_search_runs"):
+            twitter_crawl_runs = _all(f"""
+                SELECT run_id, ran_at, product_id, query, fetched, new_posts
+                FROM {cs}.x_search_runs
+                ORDER BY ran_at DESC
+                LIMIT 60
+            """)
+    except Exception as exc:
+        logger.warning("Could not query x_search_runs: %s", exc)
+
     context = {
         "nav": "manage",
         "scrapers": scrapers,
@@ -202,6 +230,13 @@ def manage_dashboard(request):
         "senders": senders,
         "senders_total": senders_total,
         "senders_active": senders_active,
+        "twitter_scrapers": twitter_scrapers,
+        "twitter_scrapers_total": twitter_scrapers_total,
+        "twitter_scrapers_active": twitter_scrapers_active,
+        "twitter_scrapers_cooldown": twitter_scrapers_cooldown,
+        "twitter_scrapers_challenged": twitter_scrapers_challenged,
+        "twitter_scrapers_banned": twitter_scrapers_banned,
+        "twitter_crawl_runs": twitter_crawl_runs,
         "leads": leads,
         "total_leads": total_leads,
         "dms_sent_total": dms_sent_total,
@@ -940,5 +975,171 @@ def manage_leads_export_json(request):
     response = JsonResponse(data, safe=False, json_dumps_params={"ensure_ascii": False, "indent": 2})
     response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.json"'
     return response
+
+
+# ---------------------------------------------------------------------------
+# Twitter / X Scraper Account Management
+# ---------------------------------------------------------------------------
+
+def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[bool, str, str]:
+    """Tests Twitter account connectivity and session validity."""
+    if account.proxy_url:
+        proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url)
+        if not proxy_ok:
+            return False, account.status, f"خطای پروکسی: {proxy_msg}"
+
+    now = dj_timezone.now()
+    if account.cooldown_until and account.cooldown_until > now:
+        rem_min = int((account.cooldown_until - now).total_seconds()) // 60
+        return True, "COOLDOWN", f"اکانت در دوره استراحت است ({rem_min} دقیقه باقی‌مانده)"
+
+    auth_token = (account.auth_token or "").strip()
+    ct0 = (account.ct0 or "").strip() or "a" * 32
+    if not auth_token:
+        account.status = "CHALLENGED"
+        account.status_message = "کوکی auth_token تنظیم نشده است"
+        account.save(update_fields=["status", "status_message"])
+        return False, "CHALLENGED", "کوکی auth_token تنظیم نشده است."
+
+    try:
+        from curl_cffi import requests
+        headers = {
+            "Authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "Cookie": f"auth_token={auth_token}; ct0={ct0};",
+            "X-Csrf-Token": ct0,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        proxies = {"http": account.proxy_url, "https": account.proxy_url} if account.proxy_url else None
+        r = requests.get("https://x.com/i/api/1.1/account/settings.json", headers=headers, proxies=proxies, timeout=12, impersonate="chrome120")
+        if r.status_code == 200:
+            data = r.json()
+            uname = data.get("screen_name") or account.username
+            account.status = "ACTIVE"
+            account.status_message = "متصل و فعال"
+            account.save(update_fields=["status", "status_message"])
+            return True, "ACTIVE", f"اتصال به اکانت @{uname} تایید شد."
+        elif r.status_code == 401 or "Could not authenticate" in r.text:
+            account.status = "CHALLENGED"
+            account.status_message = "سشن نامعتبر یا منقضی شده است (HTTP 401)"
+            account.save(update_fields=["status", "status_message"])
+            return False, "CHALLENGED", "سشن منقضی یا نامعتبر است (HTTP 401). لطفاً سشن جدید را وارد نمایید."
+        elif r.status_code == 429:
+            account.status = "COOLDOWN"
+            account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+            account.status_message = "محدودیت موقت نرخ درخواست (429)"
+            account.save(update_fields=["status", "status_message", "cooldown_until"])
+            return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
+        else:
+            account.status = "ACTIVE"
+            account.status_message = "متصل و فعال"
+            account.save(update_fields=["status", "status_message"])
+            return True, "ACTIVE", f"ارتباط با توییتر برقرار است (پاسخ: {r.status_code})."
+    except Exception as exc:
+        return False, account.status, f"خطای تست اتصال: {exc}"
+
+
+@manage_access_required
+@require_POST
+def manage_twitter_account_add(request):
+    is_ajax = (
+        request.headers.get("x-requested-with") == "XMLHttpRequest"
+        or request.content_type == "application/json"
+        or "application/json" in request.headers.get("Accept", "")
+    )
+    username = request.POST.get("username", "").strip().lstrip("@")
+    password = request.POST.get("password", "").strip()
+    auth_token = request.POST.get("auth_token", "").strip()
+    ct0 = request.POST.get("ct0", "").strip()
+    proxy_url = request.POST.get("proxy_url", "").strip() or "socks5h://xray:1080"
+
+    if not username:
+        err = "نام کاربری توییتر الزامی است."
+        if is_ajax:
+            return JsonResponse({"success": False, "message": err})
+        messages.error(request, err)
+        return redirect("manage:dashboard")
+
+    account, created = TwitterEngineAccount.objects.update_or_create(
+        username=username,
+        defaults={
+            "password": password,
+            "auth_token": auth_token,
+            "ct0": ct0 or "a" * 32,
+            "proxy_url": proxy_url,
+            "status": "ACTIVE" if auth_token else "CHALLENGED",
+            "status_message": "ثبت شد" if auth_token else "نیازمند سشن",
+            "is_active": True,
+        }
+    )
+
+    ok, st, msg = _test_twitter_account_connection(account) if auth_token else (False, "CHALLENGED", "اکانت ثبت شد ولی سشن وارد نشده است.")
+
+    succ_msg = f"اکانت توییتر @{username} با موفقیت ثبت شد. ({msg})"
+    if is_ajax:
+        return JsonResponse({"success": ok, "account_id": account.id, "username": username, "status": st, "message": succ_msg})
+    messages.success(request, succ_msg)
+    return redirect("manage:dashboard")
+
+
+@manage_access_required
+@require_POST
+def manage_twitter_account_delete(request, pk):
+    account = get_object_or_404(TwitterEngineAccount, pk=pk)
+    uname = account.username
+    account.delete()
+    messages.success(request, f"اکانت توییتر @{uname} با موفقیت حذف گردید.")
+    return redirect("manage:dashboard")
+
+
+@manage_access_required
+@require_POST
+def manage_twitter_account_test(request, pk):
+    account = get_object_or_404(TwitterEngineAccount, pk=pk)
+    ok, status, message = _test_twitter_account_connection(account)
+    return JsonResponse({
+        "success": ok,
+        "status": status,
+        "status_display": account.get_status_display(),
+        "message": message,
+        "last_action_at": account.last_action_at.isoformat() if account.last_action_at else None,
+    })
+
+
+@manage_access_required
+@require_POST
+def manage_twitter_account_set_session(request, pk):
+    account = get_object_or_404(TwitterEngineAccount, pk=pk)
+    auth_token = request.POST.get("auth_token", "").strip()
+    ct0 = request.POST.get("ct0", "").strip()
+    password = request.POST.get("password", "").strip()
+    if password:
+        account.password = password
+    if auth_token:
+        account.auth_token = auth_token
+    if ct0:
+        account.ct0 = ct0
+
+    ok, status, message = _test_twitter_account_connection(account)
+    account.save()
+    return JsonResponse({
+        "success": ok,
+        "status": status,
+        "status_display": account.get_status_display(),
+        "message": message,
+    })
+
+
+@manage_access_required
+@require_POST
+def manage_twitter_account_toggle(request, pk):
+    account = get_object_or_404(TwitterEngineAccount, pk=pk)
+    account.is_active = not account.is_active
+    account.save(update_fields=["is_active"])
+    return JsonResponse({
+        "success": True,
+        "is_active": account.is_active,
+        "message": f"وضعیت اکانت @{account.username} به {'فعال' if account.is_active else 'غیرفعال'} تغییر یافت.",
+    })
+
 
 

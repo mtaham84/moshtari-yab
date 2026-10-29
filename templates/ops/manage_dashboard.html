@@ -360,7 +360,8 @@
 <div class="manage-tabs">
   <button class="tab-btn active" onclick="openTab('matrix', this)">📊 تفکیک لیدهای ۳ پلتفرم برای هر ۳ مستأجر</button>
   <button class="tab-btn" onclick="openTab('billing', this)">💳 صورت‌حساب مالی و اعتباری مستأجرین ({{ financial_rows|length }})</button>
-  <button class="tab-btn" onclick="openTab('scrapers', this)">🤖 مخزن اکانت‌های اسکرپر ({{ scrapers_total }})</button>
+  <button class="tab-btn" onclick="openTab('scrapers', this)">📸 مخزن اکانت‌های اینستاگرام ({{ scrapers_total }})</button>
+  <button class="tab-btn" onclick="openTab('twitter-scrapers', this)">🐦 مخزن اکانت‌ها و کرول‌های توییتر / X ({{ twitter_scrapers_total }})</button>
   <button class="tab-btn" onclick="openTab('leads', this)">🎯 صف لیدهای پالایش‌شده اینستاگرام ({{ total_leads }})</button>
   <button class="tab-btn" onclick="openTab('senders', this)">✉️ اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
 </div>
@@ -782,6 +783,195 @@
   </div>
 </div>
 
+<!-- TAB: TWITTER SCRAPERS & CRAWL LOGS -->
+<div id="tab-twitter-scrapers" class="tab-pane">
+  <div class="account-form">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ افزودن اکانت اسکرپر توییتر / X (Twitter Scraper Account)</h2>
+    <form id="form-add-twitter-scraper" method="POST" action="{% url 'manage:twitter_account_add' %}" onsubmit="handleTwitterAccountAddForm(event, this)">
+      {% csrf_token %}
+      <div class="form-row">
+        <div class="field">
+          <label>نام کاربری توییتر / X</label>
+          <input type="text" name="username" class="ops-input" placeholder="مثال: ebi123456url" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>رمز عبور (اختیاری)</label>
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" dir="ltr">
+        </div>
+        <div class="field">
+          <label>کوکی auth_token (سشن لاگین)</label>
+          <input type="text" name="auth_token" class="ops-input" placeholder="مثال: 9baa2fdd446fc..." dir="ltr">
+          <span class="help">از مرورگر: F12 > Application > Cookies > auth_token</span>
+        </div>
+        <div class="field">
+          <label>کوکی ct0 (CSRF Token - اختیاری)</label>
+          <input type="text" name="ct0" class="ops-input" placeholder="مقدار ct0 (در صورت وجود)" dir="ltr">
+        </div>
+        <div class="field">
+          <label>پروکسی اختصاصی</label>
+          <input type="text" name="proxy_url" class="ops-input" value="socks5h://xray:1080" placeholder="socks5h://xray:1080" dir="ltr">
+        </div>
+        <div>
+          <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت توییتر</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="margin-bottom:24px;">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div>
+        <h2>لیست و وضعیت بلادرنگ اکانت‌های اسکرپر توییتر / X</h2>
+        <span class="muted" style="font-size:0.8rem;">کرول‌ها به صورت چرخشی (Round-Robin) و بالانس بار بین اکانت‌ها تقسیم می‌شوند و در صورت ریت‌لیمیت سوئیچ خودکار انجام می‌شود</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span class="pill" style="background:#e0f2fe; color:#0369a1; font-weight:700;">کل اکانت‌ها: {{ twitter_scrapers_total }}</span>
+        <span class="pill" style="background:#dcfce7; color:#15803d; font-weight:700;">فعال: {{ twitter_scrapers_active }}</span>
+        <span class="pill" style="background:#fff8e6; color:#b45309; font-weight:700;">استراحت: {{ twitter_scrapers_cooldown }}</span>
+      </div>
+    </div>
+
+    {% if twitter_scrapers %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>اکانت توییتر / X</th>
+            <th>🌐 پروکسی و کانفیگ</th>
+            <th>وضعیت اتصال و سشن</th>
+            <th>سرچ‌های امروز</th>
+            <th>کل سرچ‌ها</th>
+            <th>توییت‌های یافته</th>
+            <th>آخرین فعالیت</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in twitter_scrapers %}
+          <tr id="row-tw-acc-{{ acc.id }}">
+            <td style="font-weight:700; color:var(--muted);">#{{ acc.id }}</td>
+            <td>
+              <div style="font-weight:800; font-size:1rem; color:var(--text);" dir="ltr">@{{ acc.username }}</div>
+              <div style="margin-top:4px;">
+                {% if acc.auth_token %}
+                  <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">سشن ذخیره‌شده</span>
+                {% else %}
+                  <span class="pill" style="font-size:0.7rem; background:#fee2e2; color:#b91c1c;">بدون سشن</span>
+                {% endif %}
+                {% if not acc.is_active %}
+                  <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">غیرفعال دستی</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div style="font-size:0.82rem; font-family:monospace;" dir="ltr">{{ acc.proxy_url|default:"اتصال مستقیم" }}</div>
+            </td>
+            <td>
+              <div id="tw-status-badge-{{ acc.id }}">
+                {% if acc.status == 'ACTIVE' and acc.is_active %}
+                  <span class="badge-status active">🟢 فعال و متصل</span>
+                {% elif acc.status == 'COOLDOWN' %}
+                  <span class="badge-status cooldown">🟡 استراحت موقت (Rate Limit)</span>
+                {% elif acc.status == 'CHALLENGED' %}
+                  <span class="badge-status challenged">🟠 نیازمند سشن معتبر</span>
+                {% elif acc.status == 'BANNED' %}
+                  <span class="badge-status banned">🔴 مسدود شده</span>
+                {% else %}
+                  <span class="badge-status" style="background:#f1f5f9; color:#64748b;">⚪ {{ acc.get_status_display }}</span>
+                {% endif %}
+              </div>
+              <div id="tw-status-msg-{{ acc.id }}" class="test-feedback muted" style="font-size:0.75rem; margin-top:3px;">
+                {{ acc.status_message|default:"" }}
+              </div>
+            </td>
+            <td class="n">{{ acc.daily_action_count }}</td>
+            <td class="n">{{ acc.total_action_count }}</td>
+            <td class="n" style="font-weight:700; color:var(--accent);">{{ acc.posts_found_count }}</td>
+            <td class="jalali-time-cell">
+              {% if acc.last_action_at %}
+                <span dir="ltr">{{ acc.last_action_at|date:"Y-m-d H:i" }}</span>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                <button type="button" class="btn sm" onclick="testTwitterAccount({{ acc.id }}, this)" style="background:#0284c7; color:#fff;" title="تست زنده اتصال اکانت">
+                  ⚡ تست اتصال
+                </button>
+                <button type="button" class="btn sm" onclick="openTwitterSessionModal({{ acc.id }}, '{{ acc.username }}', '{{ acc.auth_token }}', '{{ acc.ct0 }}')" style="background:#f8fafc; border:1px solid #cbd5e1; color:#334155;" title="ویرایش یا ثبت کوکی سشن">
+                  🍪 ویرایش سشن
+                </button>
+                <button type="button" class="btn sm" onclick="toggleTwitterAccount({{ acc.id }}, this)" style="background:#f1f5f9; border:1px solid #cbd5e1;" title="فعال یا غیرفعال کردن اکانت">
+                  {% if acc.is_active %}غیرفعال{% else %}فعال{% endif %}
+                </button>
+                <form method="POST" action="{% url 'manage:twitter_account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟')" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn sm" style="background:#fee2e2; color:#b91c1c; border:none;" title="حذف اکانت">
+                    🗑️
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هیچ اکانت توییتری ثبت نشده است. از فرم بالا اکانت اول یا دوم خود را ثبت نمایید.</p>
+    {% endif %}
+  </div>
+
+  <!-- Twitter Crawl Logs -->
+  <div class="card">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div>
+        <h2>📊 گزارش جامع کرول‌ها و سرچ‌های توییتر / X (Twitter Search Runs)</h2>
+        <span class="muted" style="font-size:0.8rem;">تاریخچه زنده جستجوهای مشتریان انجام‌شده در توییتر و نتایج یافته‌شده</span>
+      </div>
+    </div>
+
+    {% if twitter_crawl_runs %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>متن کوئری جستجو (Search Query)</th>
+            <th>شناسه محصول هدف</th>
+            <th>توییت‌های بررسی‌شده</th>
+            <th>توییت‌های جدید اینجست‌شده</th>
+            <th>زمان اجرا</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in twitter_crawl_runs %}
+          <tr>
+            <td style="font-weight:700; color:var(--muted);">#{{ run.run_id }}</td>
+            <td style="max-width:380px; word-break:break-word;">
+              <strong dir="rtl">{{ run.query }}</strong>
+            </td>
+            <td>
+              <span class="pill" style="background:#f1f5f9; color:#475569; font-size:0.75rem;">محصول #{{ run.product_id }}</span>
+            </td>
+            <td class="n">{{ run.fetched }}</td>
+            <td class="n" style="font-weight:700; color:var(--accent);">{{ run.new_posts }}</td>
+            <td class="jalali-time-cell">
+              <span dir="ltr">{{ run.ran_at|date:"Y-m-d H:i:s" }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز لاگ سرچ توییتری ثبت نشده است.</p>
+    {% endif %}
+  </div>
+</div>
+
 <!-- TAB 4: PRIORITIZED LEADS QUEUE -->
 <div id="tab-leads" class="tab-pane">
   <div class="card">
@@ -1028,6 +1218,39 @@
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button type="button" class="btn" onclick="closeSessionModal()">انصراف</button>
       <button type="button" class="btn primary" id="btnSubmitSession" onclick="submitSessionId()">تایید و اتصال سشن</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Direct Twitter Session Injection -->
+<div id="twitterSessionModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:var(--card-bg, #fff); border-radius:12px; padding:24px; width:92%; max-width:520px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.3); border:1px solid var(--border); direction:rtl; text-align:right;">
+    <h3 style="margin-top:0; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+      <span>🐦 ثبت و ویرایش سشن توییتر / X</span>
+    </h3>
+    <p class="muted" id="modalTwitterSessionAccountHint" style="font-size:0.85rem; line-height:1.6; margin:8px 0 16px;">
+      کوکی‌های نشست (auth_token و ct0) مربوط به اکانت را وارد نمایید تا سشن فعال و معتبر شود:
+    </p>
+    <input type="hidden" id="modalTwitterSessionAccountId">
+    <div style="margin-bottom:14px;">
+      <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:6px;">کوکی auth_token (الزامی):</label>
+      <input type="text" id="modalTwitterAuthTokenInput" class="ops-input" placeholder="مثال: 9baa2fdd446fc020b08ea56501bd1a991f50ee21" dir="ltr" style="font-family:monospace; font-size:0.85rem; width:100%;">
+      <span class="help" style="font-size:0.75rem; color:var(--muted); display:block; margin-top:3px;">
+        مرورگر > F12 > Applications > Storage/Cookies > x.com > auth_token
+      </span>
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:6px;">کوکی ct0 (CSRF - اختیاری):</label>
+      <input type="text" id="modalTwitterCt0Input" class="ops-input" placeholder="مقدار ct0" dir="ltr" style="font-family:monospace; font-size:0.85rem; width:100%;">
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:6px;">رمز عبور (اختیاری جهت بازیابی):</label>
+      <input type="password" id="modalTwitterPasswordInput" class="ops-input" placeholder="رمز عبور اکانت" dir="ltr" style="font-size:0.85rem; width:100%;">
+    </div>
+    <div id="modalTwitterSessionError" style="color:var(--down); font-size:0.85rem; margin-bottom:12px; display:none;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" class="btn" onclick="closeTwitterSessionModal()">انصراف</button>
+      <button type="button" class="btn primary" id="btnSubmitTwitterSession" onclick="submitTwitterSession()">تایید و تست زنده سشن</button>
     </div>
   </div>
 </div>
@@ -1283,6 +1506,192 @@
         feedback.innerText = "خطا در تست: " + err;
         feedback.style.color = 'var(--down)';
       }
+    });
+  function handleTwitterAccountAddForm(e, form) {
+    e.preventDefault();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const origText = submitBtn.innerText;
+    submitBtn.innerText = '⏳ در حال تست و ثبت اکانت...';
+    submitBtn.disabled = true;
+
+    const formData = new FormData(form);
+
+    fetch(form.action, {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      if (data.success) {
+        alert('✅ ' + data.message);
+        window.location.reload();
+      } else {
+        alert((data.success === false && data.account_id ? '⚠️ ' : '❌ ') + (data.message || 'خطا در ثبت اکانت'));
+        window.location.reload();
+      }
+    })
+    .catch(err => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      alert('خطای برقراری ارتباط با سرور: ' + err);
+    });
+  }
+
+  function openTwitterSessionModal(accId, username, authToken, ct0) {
+    document.getElementById('modalTwitterSessionAccountId').value = accId;
+    document.getElementById('modalTwitterSessionAccountHint').innerText = `کوکی‌های سشن اکانت @${username} را وارد یا ویرایش نمایید:`;
+    document.getElementById('modalTwitterAuthTokenInput').value = authToken || '';
+    document.getElementById('modalTwitterCt0Input').value = (ct0 && ct0 !== 'None') ? ct0 : '';
+    document.getElementById('modalTwitterPasswordInput').value = '';
+    document.getElementById('modalTwitterSessionError').style.display = 'none';
+    document.getElementById('modalTwitterSessionError').innerText = '';
+    document.getElementById('twitterSessionModal').style.display = 'flex';
+    setTimeout(() => {
+      document.getElementById('modalTwitterAuthTokenInput').focus();
+    }, 100);
+  }
+
+  function closeTwitterSessionModal() {
+    document.getElementById('twitterSessionModal').style.display = 'none';
+  }
+
+  function submitTwitterSession() {
+    const accId = document.getElementById('modalTwitterSessionAccountId').value;
+    const authToken = document.getElementById('modalTwitterAuthTokenInput').value.trim();
+    const ct0 = document.getElementById('modalTwitterCt0Input').value.trim();
+    const password = document.getElementById('modalTwitterPasswordInput').value.trim();
+    const errorEl = document.getElementById('modalTwitterSessionError');
+    const submitBtn = document.getElementById('btnSubmitTwitterSession');
+
+    if (!authToken) {
+      errorEl.innerText = 'لطفاً مقدار کوکی auth_token را وارد نمایید.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    errorEl.style.display = 'none';
+    const origText = submitBtn.innerText;
+    submitBtn.innerText = '⏳ در حال اتصال و اعتبارسنجی سشن...';
+    submitBtn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('auth_token', authToken);
+    if (ct0) formData.append('ct0', ct0);
+    if (password) formData.append('password', password);
+
+    fetch(`/manage/twitter-accounts/${accId}/session/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      if (data.success) {
+        closeTwitterSessionModal();
+        alert('✅ ' + data.message);
+        window.location.reload();
+      } else {
+        errorEl.innerText = data.message || 'خطا در ثبت سشن.';
+        errorEl.style.display = 'block';
+      }
+    })
+    .catch(err => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      errorEl.innerText = 'خطای ارتباط با سرور: ' + err;
+      errorEl.style.display = 'block';
+    });
+  }
+
+  function testTwitterAccount(accId, btn) {
+    const originalText = btn.innerText;
+    btn.innerText = "⏳ تست...";
+    btn.disabled = true;
+
+    const msgEl = document.getElementById('tw-status-msg-' + accId);
+    if (msgEl) {
+      msgEl.innerText = "در حال تست اتصال به توییتر / X...";
+      msgEl.style.color = "var(--muted)";
+    }
+
+    fetch(`/manage/twitter-accounts/${accId}/test/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      btn.innerText = originalText;
+      btn.disabled = false;
+      const badge = document.getElementById('tw-status-badge-' + accId);
+
+      if (badge && data.status) {
+        if (data.status === 'ACTIVE') {
+          badge.innerHTML = '<span class="badge-status active">🟢 فعال و متصل</span>';
+        } else if (data.status === 'COOLDOWN') {
+          badge.innerHTML = '<span class="badge-status cooldown">🟡 استراحت موقت (Rate Limit)</span>';
+        } else if (data.status === 'CHALLENGED') {
+          badge.innerHTML = '<span class="badge-status challenged">🟠 نیازمند سشن معتبر</span>';
+        } else if (data.status === 'BANNED') {
+          badge.innerHTML = '<span class="badge-status banned">🔴 مسدود شده</span>';
+        } else {
+          badge.innerHTML = `<span class="badge-status" style="background:#f1f5f9; color:#64748b;">⚪ ${data.status_display || data.status}</span>`;
+        }
+      }
+      if (msgEl) {
+        msgEl.innerText = data.message || '';
+        msgEl.style.color = data.success ? 'var(--ok)' : 'var(--down)';
+      }
+    })
+    .catch(err => {
+      btn.innerText = originalText;
+      btn.disabled = false;
+      if (msgEl) {
+        msgEl.innerText = "خطا در تست: " + err;
+        msgEl.style.color = 'var(--down)';
+      }
+    });
+  }
+
+  function toggleTwitterAccount(accId, btn) {
+    const origText = btn.innerText;
+    btn.innerText = '...';
+    btn.disabled = true;
+
+    fetch(`/manage/twitter-accounts/${accId}/toggle/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      if (data.success) {
+        btn.innerText = data.is_active ? 'غیرفعال' : 'فعال';
+        window.location.reload();
+      } else {
+        btn.innerText = origText;
+        alert('خطا در تغییر وضعیت اکانت');
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerText = origText;
+      alert('خطای ارتباط با سرور: ' + err);
     });
   }
 </script>

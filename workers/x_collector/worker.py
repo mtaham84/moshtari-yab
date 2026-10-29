@@ -187,7 +187,7 @@ def time_window(query: str, last_ok: datetime | None, now: datetime | None = Non
 
 
 class XCollector:
-    def __init__(self, client: Any | None = None, output_dir: str | Path | None = None, state_path: str | Path | None = None, max_per_query: int | None = None, daily_cap: int | None = None, sleep_min: float | None = None, sleep_max: float | None = None, max_retries: int | None = None, circuit_breaker: int | None = None, sleeper: Callable[[float], None] = time.sleep, jitter: Callable[[float, float], float] = random.uniform):
+    def __init__(self, client: Any | None = None, output_dir: str | Path | None = None, state_path: str | Path | None = None, max_per_query: int | None = None, daily_cap: int | None = None, sleep_min: float | None = None, sleep_max: float | None = None, max_retries: int | None = None, circuit_breaker: int | None = None, sleeper: Callable[[float], None] = time.sleep, jitter: Callable[[float, float], float] = random.uniform, account_pool: Any | None = None):
         self.client = client or XCliClient()
         raw_output_dir = Path(output_dir or os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
         project_root = Path(__file__).resolve().parents[2]
@@ -207,6 +207,14 @@ class XCollector:
         self.sleeper, self.jitter = sleeper, jitter
         self.queries_per_cycle = int(os.getenv("X_COLLECT_QUERIES_PER_CYCLE", "12"))
         self.searches: list[dict[str, Any]] = []
+        self.account_pool = account_pool
+        if self.account_pool is None:
+            try:
+                from .account_pool import TwitterAccountPool
+                self.account_pool = TwitterAccountPool()
+                self.account_pool.seed_initial_accounts_if_empty()
+            except Exception as pool_exc:
+                log.debug("TwitterAccountPool initialization skipped: %s", pool_exc)
 
     @staticmethod
     def load_queries(query_file: str | Path | None = None) -> list[str]:
@@ -284,6 +292,7 @@ class XCollector:
         latest_path = self.output_dir / "latest.jsonl"
         with exclusive_file_lock(latest_path.with_suffix(latest_path.suffix + ".lock")):
             already_written = self._written_keys(output_path)
+            current_account = self.account_pool.get_next_account() if hasattr(self, "account_pool") and self.account_pool else None
             for query_index, query in enumerate(queries):
                 if len(collected) >= daily_remaining:
                     break
@@ -292,9 +301,14 @@ class XCollector:
                 search_query = time_window(query, self.state.last_ok(query), started_at)
                 while retry <= self.max_retries:
                     try:
+                        if current_account is None and hasattr(self, "account_pool") and self.account_pool:
+                            current_account = self.account_pool.get_next_account()
                         raw_items = mock_records if mock_records is not None else self.client.search(
-                            search_query, min(self.max_per_query, daily_remaining - len(collected)))
+                            search_query, min(self.max_per_query, daily_remaining - len(collected)),
+                            account=current_account)
                         fetched_count = len(raw_items)
+                        if current_account and hasattr(self, "account_pool") and self.account_pool:
+                            self.account_pool.record_success(current_account, posts_count=fetched_count)
                         new_before = len(collected)
                         breaker.success()
                         records = self._records_for_query(raw_items, query, query_products)
@@ -326,11 +340,25 @@ class XCollector:
                         failures += 1
                         circuit_open = breaker.failure()
                         if exc.kind == "rate_limit":
+                            if current_account and hasattr(self, "account_pool") and self.account_pool:
+                                self.account_pool.record_rate_limit(current_account)
+                                next_acc = self.account_pool.get_next_account()
+                                if next_acc:
+                                    log.info("Rate limit on @%s; rotating immediately to @%s", current_account.username, next_acc.username)
+                                    current_account = next_acc
+                                    continue
                             cooldown_until = cooldown.start()
-                            log.error("Rate limit received; collection paused until %s", cooldown_until)
+                            log.error("All accounts rate limited; collection paused until %s", cooldown_until)
                             stop_reason = "RATE_LIMITED"
                             break
                         if exc.kind == "fatal":
+                            if current_account and hasattr(self, "account_pool") and self.account_pool and "authentication" in str(exc).casefold():
+                                self.account_pool.record_auth_error(current_account, str(exc))
+                                next_acc = self.account_pool.get_next_account()
+                                if next_acc:
+                                    log.info("Auth error on @%s; rotating to @%s", current_account.username, next_acc.username)
+                                    current_account = next_acc
+                                    continue
                             log.error("Fatal CLI error; stopping collection: %s", exc)
                             stop_reason = "AUTH_FAILED" if "authentication" in str(exc).casefold() else "FAILED"
                             failed_queries += 1

@@ -21,19 +21,27 @@ class XCliClient:
         self.command = command or mapping.CLI_COMMAND
         self.timeout = timeout or int(os.getenv("X_CLI_TIMEOUT", "45"))
 
-    def search(self, query: str, limit: int) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:
         if query.lstrip().startswith("-"):
             raise XCliError("Search queries starting with '-' are not supported because they may be parsed as CLI options.")
         executable = shutil.which(self.command)
         if not executable:
             raise XCliError(f"CLI '{self.command}' was not found. Install/diagnose Agent Reach, then run 'agent-reach doctor'.")
-        if not os.getenv("TWITTER_AUTH_TOKEN") or not os.getenv("TWITTER_CT0"):
+        sub_env = os.environ.copy()
+        if account is not None:
+            if getattr(account, "auth_token", None):
+                sub_env["TWITTER_AUTH_TOKEN"] = str(account.auth_token)
+            if getattr(account, "ct0", None):
+                sub_env["TWITTER_CT0"] = str(account.ct0)
+            if getattr(account, "proxy_url", None):
+                sub_env["TWITTER_PROXY"] = str(account.proxy_url)
+        if not sub_env.get("TWITTER_AUTH_TOKEN") or not sub_env.get("TWITTER_CT0"):
             raise XCliError("X session cookies are missing. Configure TWITTER_AUTH_TOKEN and TWITTER_CT0 securely, then run 'agent-reach doctor'.")
         args = [executable, mapping.CLI_SEARCH_SUBCOMMAND, query, "-t", mapping.CLI_TIME_FILTER,
                 mapping.CLI_EXCLUDE_RETWEETS_FLAG, mapping.CLI_EXCLUDE_RETWEETS_VALUE,
                 mapping.CLI_LIMIT_FLAG, str(limit), mapping.CLI_OUTPUT_FLAG]
         try:
-            completed = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=self.timeout, check=False, shell=False)
+            completed = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=self.timeout, check=False, shell=False, env=sub_env)
         except subprocess.TimeoutExpired as exc:
             raise XCliError("X CLI search timed out", kind="transient") from exc
         except OSError as exc:
@@ -56,8 +64,7 @@ class XCliClient:
             raise XCliError(f"X CLI failed with error code: {code}")
         if completed.returncode and not (isinstance(payload, dict) and payload.get("ok") is True):
             detail = (completed.stderr or completed.stdout or "CLI returned an error").strip()
-            for secret_name in ("TWITTER_AUTH_TOKEN", "TWITTER_CT0"):
-                secret = os.getenv(secret_name, "")
+            for secret in (sub_env.get("TWITTER_AUTH_TOKEN"), sub_env.get("TWITTER_CT0")):
                 if secret:
                     detail = detail.replace(secret, "[REDACTED]")
             detail = detail[:500]

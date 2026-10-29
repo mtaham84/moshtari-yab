@@ -1198,4 +1198,50 @@ class XCrawledPost(models.Model):
         return deleted_count
 
 
+class TwitterEngineAccount(models.Model):
+    STATUS_CHOICES = [
+        ("ACTIVE", "فعال و متصل"),
+        ("COOLDOWN", "استراحت موقت (Rate Limit / Cooldown)"),
+        ("CHALLENGED", "نیازمند سشن معتبر / چالش امنیتی (Challenge)"),
+        ("BANNED", "مسدود شده (Banned)"),
+        ("DISABLED", "غیرفعال دستی"),
+    ]
+
+    username = models.CharField(max_length=100, unique=True, db_index=True, verbose_name="نام کاربری توییتر / X")
+    password = models.CharField(max_length=255, blank=True, default="", verbose_name="رمز عبور")
+    auth_token = models.CharField(max_length=255, blank=True, default="", verbose_name="کوکی auth_token (Session)")
+    ct0 = models.CharField(max_length=255, blank=True, default="", verbose_name="کوکی ct0 (CSRF Token)")
+    proxy_url = models.CharField(max_length=255, blank=True, default="socks5h://xray:1080", verbose_name="پروکسی (SOCKS5/HTTP)")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ACTIVE", db_index=True, verbose_name="وضعیت")
+    status_message = models.CharField(max_length=255, blank=True, default="آماده به کار", verbose_name="پیام وضعیت")
+    daily_action_count = models.IntegerField(default=0, verbose_name="تعداد سرچ‌های امروز")
+    total_action_count = models.IntegerField(default=0, verbose_name="کل سرچ‌ها")
+    posts_found_count = models.IntegerField(default=0, verbose_name="تعداد توییت‌های یافته‌شده")
+    last_action_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان فعالیت")
+    cooldown_until = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="پایان استراحت")
+    is_active = models.BooleanField(default=True, verbose_name="فعال در چرخه چرخش")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ثبت")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    class Meta:
+        db_table = "x_accounts"
+        verbose_name = "اکانت اسکرپر توییتر / X"
+        verbose_name_plural = "اکانت‌های اسکرپر توییتر / X"
+        indexes = [
+            models.Index(fields=["status", "is_active"], name="ix_x_acc_status_active"),
+        ]
+
+    def is_available(self):
+        from django.utils import timezone
+        if not self.is_active or self.status in ("BANNED", "DISABLED", "CHALLENGED"):
+            return False
+        if self.cooldown_until and self.cooldown_until > timezone.now():
+            return False
+        return True
+
+    def __str__(self):
+        return f"@{self.username} ({self.get_status_display()})"
+
+
+
 
