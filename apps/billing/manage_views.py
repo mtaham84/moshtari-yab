@@ -1034,10 +1034,8 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             account.save(update_fields=["status", "status_message", "cooldown_until"])
             return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
         else:
-            account.status = "ACTIVE"
-            account.status_message = "متصل و فعال"
-            account.save(update_fields=["status", "status_message"])
-            return True, "ACTIVE", f"ارتباط با توییتر برقرار است (پاسخ: {r.status_code})."
+            # Any other code (e.g. 404 from a changed endpoint) does not prove the session works: keep the status as is.
+            return False, account.status, f"پاسخ نامشخص از توییتر (HTTP {r.status_code}); سشن تایید نشد."
     except Exception as exc:
         return False, account.status, f"خطای تست اتصال: {exc}"
 
