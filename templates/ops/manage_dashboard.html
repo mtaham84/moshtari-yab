@@ -365,6 +365,7 @@
   <button class="tab-btn" onclick="openTab('twitter-scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg> مخزن اکانت‌ها و کرول‌های توییتر / X ({{ twitter_scrapers_total }})</button>
   <button class="tab-btn" onclick="openTab('leads', this)"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> صف لیدهای پالایش‌شده اینستاگرام ({{ total_leads }})</button>
   <button class="tab-btn" onclick="openTab('senders', this)"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
+  <button class="tab-btn" onclick="openTab('proxies', this)"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> پروکسی‌ها ({{ proxy_configs_active }}/{{ proxy_configs_total }})</button>
 </div>
 
 <!-- TAB 1: 3-PLATFORMS X 3-TENANTS MATRIX -->
@@ -1084,6 +1085,60 @@
 </div>
 
 <!-- TAB 5: SENDERS MANAGEMENT -->
+<!-- ============ Tab: proxy pool (managed by the Telegram config bot / multi_proxy_manager) ============ -->
+<div id="tab-proxies" class="tab-pane">
+  <div class="account-form">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:8px;"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> استخر پروکسی و کانفیگ‌های اختصاصی هر اکانت</h2>
+    <p class="muted" style="margin:0; font-size:0.84rem; line-height:1.9;">
+      لینک کانفیگ (vless، vmess، trojan، ss) را برای ربات تلگرام <span dir="ltr">@config_peyda_bot</span> بفرستید؛ ربات آن را اعتبارسنجی و پینگ می‌کند،
+      یک پورت اختصاصی Xray به آن می‌دهد و به یک اکانت اینستاگرام یا X اختصاص می‌دهد. کانفیگ‌های قطع‌شده خودکار حذف می‌شوند.
+    </p>
+  </div>
+
+  {% if proxy_configs %}
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>پورت اختصاصی</th>
+          <th>نام / تگ</th>
+          <th>پروتکل</th>
+          <th>سرور</th>
+          <th>پینگ</th>
+          <th>وضعیت</th>
+          <th>پلتفرم</th>
+          <th>اکانت منتسب</th>
+          <th>آخرین تست</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for px in proxy_configs %}
+        <tr>
+          <td dir="ltr" style="font-weight:700;">{{ px.local_port|default:"—" }}</td>
+          <td>{{ px.tag|default:"—"|truncatechars:28 }}</td>
+          <td dir="ltr"><code>{{ px.protocol }}</code></td>
+          <td dir="ltr"><code>{{ px.server|default:"—" }}:{{ px.port }}</code></td>
+          <td dir="ltr">{% if px.ping_ms >= 0 %}{{ px.ping_ms|floatformat:0 }} ms{% else %}—{% endif %}</td>
+          <td>
+            {% if px.status == 'ACTIVE' %}<span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> فعال</span>
+            {% elif px.status == 'DEAD' %}<span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> قطع</span>
+            {% else %}<span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> در حال تست</span>{% endif %}
+          </td>
+          <td>{{ px.get_assigned_platform_display }}</td>
+          <td dir="ltr">{{ px.assigned_to|default:"—" }}</td>
+          <td class="jalali-time-cell">{% if px.last_checked_at %}{{ px.last_checked_at|time_ago_fa }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center; padding:30px;" class="muted">
+    هنوز کانفیگی ثبت نشده است. اکانت‌ها فعلاً از پروکسی مشترک (xray:8080 / xray:1080) استفاده می‌کنند.
+  </div>
+  {% endif %}
+</div>
+
 <div id="tab-senders" class="tab-pane">
   <div class="account-form">
     <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> ثبت اکانت فرستنده و پاسخگوی پیام (Sender Account)</h2>

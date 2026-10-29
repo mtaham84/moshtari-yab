@@ -494,6 +494,10 @@ def opportunity_detail_view(request, pk):
     )
 
     matches = list(opportunity.product_matches.select_related("product").order_by("rank"))
+    try:   # reverse one-to-one: missing row raises instead of returning None
+        analysis = opportunity.ai_analysis
+    except Exception:
+        analysis = None
     drafts = drafts_for(opportunity)
     customer_profile_url = opportunity.customer_profile_url or opportunity.customer.source_profile_url
     if not customer_profile_url and opportunity.customer.source_username:

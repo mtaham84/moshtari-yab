@@ -29,9 +29,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("telegram_config_bot")
 
-BOT_TOKEN = os.environ.get("CONFIG_BOT_TOKEN", "9264511568:AAFq7eQ4EJ1nhNsOuh8AMxg-NZRr-EIbGhY")
-TG_API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
 # Setup Django Environment & Load .env
 sys.path.insert(0, "/root/moshtari-yab")
 sys.path.insert(0, "/home/taha/HDD/customerweb")
@@ -46,6 +43,12 @@ for env_candidate in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().
                     os.environ.setdefault(k.strip(), v.strip())
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
+# The bot token lives only in .env (CONFIG_BOT_TOKEN); it is never stored in the repository.
+BOT_TOKEN = os.environ.get("CONFIG_BOT_TOKEN", "").strip()
+if not BOT_TOKEN:
+    sys.exit("CONFIG_BOT_TOKEN is not set (add it to .env)")
+TG_API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # When running on host, PostgreSQL is bound to localhost 127.0.0.1
 if not Path("/.dockerenv").exists():
