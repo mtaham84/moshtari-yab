@@ -6,9 +6,9 @@
      Cosmic Hero Section (Matching Reference Image)
      ========================================================================== -->
 <header class="hero-wrapper" id="بالا">
-  <div class="hero-fallback" aria-hidden="true"><i></i><i></i><i></i></div>
-  <video class="hero-video" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture
-         data-src="{% static 'images/coverr-50-sale-sign-on-the-street-5893-1080p.mp4' %}"></video>
+  <video class="hero-video" id="hero-video" autoplay muted loop playsinline preload="auto" disablepictureinpicture aria-hidden="true" tabindex="-1">
+    <source src="{% static 'images/coverr-50-sale-sign-on-the-street-5893-1080p.mp4' %}" type="video/mp4">
+  </video>
 
   <!-- Navigation Bar -->
   <nav class="navbar" aria-label="ناوبری اصلی">

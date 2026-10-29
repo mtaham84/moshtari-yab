@@ -107,6 +107,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.flags",
+                "apps.core.context_processors.appearance",
                 "apps.billing.context_processors.wallet",
                 "apps.discovery.context_processors.x_panel",
             ],

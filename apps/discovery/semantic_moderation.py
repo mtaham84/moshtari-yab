@@ -119,9 +119,14 @@ def _init_anchor_vectors():
                     _CACHED_ANCHOR_VECTORS[cat] = data[cat]
             if "positive_buying" in data:
                 _CACHED_POSITIVE_VECTORS = data["positive_buying"]
-            if _CACHED_ANCHOR_VECTORS and _CACHED_POSITIVE_VECTORS is not None:
+            if (_CACHED_ANCHOR_VECTORS and _CACHED_POSITIVE_VECTORS is not None
+                    and all(getattr(v, "ndim", 0) == 2 and v.shape[1] > 0 for v in _CACHED_ANCHOR_VECTORS.values())
+                    and getattr(_CACHED_POSITIVE_VECTORS, "ndim", 0) == 2 and _CACHED_POSITIVE_VECTORS.shape[1] > 0):
                 log.info("Loaded anchor embeddings from disk cache: %s", cache_path)
                 return True
+            _CACHED_ANCHOR_VECTORS.clear()
+            _CACHED_POSITIVE_VECTORS = None
+            log.warning("Ignoring unusable anchor cache %s", cache_path)
         except Exception as e:
             log.warning("Could not load anchor cache: %s", e)
 
@@ -129,13 +134,25 @@ def _init_anchor_vectors():
     if not emb:
         return False
 
+    def _usable(vecs, texts) -> bool:
+        # the embedder returns (n, 0) arrays when the API is down/over quota: never keep or cache those
+        return getattr(vecs, "ndim", 0) == 2 and vecs.shape[0] == len(texts) and vecs.shape[1] > 0
+
     try:
+        fresh = {}
         for cat, texts in NEGATIVE_ANCHOR_CLUSTERS.items():
             vecs = emb.encode(texts)
-            _CACHED_ANCHOR_VECTORS[cat] = vecs
+            if not _usable(vecs, texts):
+                log.warning("Anchor embeddings unavailable right now (category %s); semantic gate stays off until they are", cat)
+                return False
+            fresh[cat] = vecs
+        positive = emb.encode(POSITIVE_BUYING_ANCHORS)
+        if not _usable(positive, POSITIVE_BUYING_ANCHORS):
+            log.warning("Positive anchor embeddings unavailable right now; semantic gate stays off until they are")
+            return False
+        _CACHED_ANCHOR_VECTORS.update(fresh)
+        _CACHED_POSITIVE_VECTORS = positive
 
-        _CACHED_POSITIVE_VECTORS = emb.encode(POSITIVE_BUYING_ANCHORS)
-        
         try:
             save_dict = dict(_CACHED_ANCHOR_VECTORS)
             save_dict["positive_buying"] = _CACHED_POSITIVE_VECTORS

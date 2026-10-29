@@ -3249,10 +3249,7 @@ input[dir="ltr"]:not(:placeholder-shown) { text-align: left; }
   .landing-eval-banner { padding: 0 16px !important; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .hero-video { display: none; }
-  .hero-wrapper { background-color: var(--space-dark); }
-}
+
 
 /* Hero video loads lazily; until it is ready (or if the connection is weak) the animated aurora below is shown */
 .hero-video { opacity: 0; transition: opacity 1.2s ease; }
@@ -3271,7 +3268,6 @@ input[dir="ltr"]:not(:placeholder-shown) { text-align: left; }
    ========================================================================== */
 .hero-wrapper { --hp: 0; min-height: 100svh; background: #0b0d14 !important; background-image: none !important; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .hero-wrapper .hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; filter: none; transform: scale(calc(1 + var(--hp) * 0.14)); transition: opacity 1.2s ease; will-change: transform; }
-.hero-wrapper .hero-fallback { z-index: 0; }
 .hero-wrapper .navbar { position: relative; z-index: 20; }
 .hero-body { flex: 1; display: grid; place-items: center; text-align: center; padding: 24px 20px 120px; position: relative; z-index: 10; transform: translateY(calc(var(--hp) * -70px)); opacity: calc(1 - var(--hp) * 1.25); will-change: transform, opacity; max-width: none; width: 100%; grid-template-columns: minmax(0, 1fr); }
 .hero-title { margin: 0; font-size: clamp(1.9rem, 4.6vw, 4.3rem); font-weight: 900; line-height: 1.4; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.45), 0 8px 28px rgba(0,0,0,.7), 0 0 60px rgba(0,0,0,.45); letter-spacing: -0.5px; max-width: 1200px; }
@@ -3287,3 +3283,19 @@ input[dir="ltr"]:not(:placeholder-shown) { text-align: left; }
 main { position: relative; z-index: 20; }
 @media (max-width: 640px) { .hero-title { font-size: clamp(1.9rem, 9vw, 2.6rem); } .hero-body { padding-bottom: 96px; } }
 @media (prefers-reduced-motion: reduce) { .hero-title .hero-line { animation: none; opacity: 1; transform: none; filter: none; } .hero-scroll-cue { animation: none; } .hero-wrapper .hero-video { transform: none; } .hero-body { transform: none; opacity: 1; } }
+
+/* video v4: visible as soon as it has a frame; neutral dark photo while buffering / on failure */
+.hero-wrapper { background: #0b0d14 url("../images/dashboard-bg.jpg") center / cover no-repeat !important; }
+.hero-wrapper .hero-video { opacity: 0; transition: opacity .8s ease; }
+.hero-wrapper .hero-video.is-ready { opacity: 1; }
+
+/* premium nav: a floating glass pill so links stay legible over the untouched video */
+.hero-wrapper .navbar {
+  margin: 16px auto 0; width: min(1320px, calc(100% - 32px)); padding: 10px 18px; border-radius: 22px;
+  background: rgba(12, 14, 24, 0.38); border: 1px solid rgba(255, 255, 255, 0.22);
+  -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+.hero-wrapper.is-scrolled .navbar { background: rgba(12, 14, 24, 0.6); }
+.hero-wrapper .nav-link, .hero-wrapper .brand-name, .hero-wrapper .brand-tagline { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45); }
+@media (max-width: 640px) { .hero-wrapper .navbar { margin-top: 10px; width: calc(100% - 20px); padding: 8px 12px; border-radius: 18px; } }

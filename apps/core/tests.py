@@ -41,3 +41,22 @@ class LandingPageTestCase(TestCase):
         self.assertIn('دیوار', content)
         # Theme toggle
         self.assertIn('data-theme-toggle', content)
+
+
+class SiteAppearanceTests(TestCase):
+    def test_default_and_uploaded_background(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.core.models import SiteAppearance
+
+        html = self.client.get(reverse('core:landing')).content.decode()
+        self.assertIn('--ui-overlay: 0.2', html)
+        self.assertNotIn('--ui-bg:', html)            # bundled photo is used
+        png = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+               b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x9a\xa0\xa0\x00\x00\x00\x00IEND\xaeB`\x82")
+        row = SiteAppearance(overlay_percent=45)
+        row.background_image.save("bg.png", SimpleUploadedFile("bg.png", png, "image/png"), save=False)
+        row.save()
+        html = self.client.get(reverse('core:landing')).content.decode()
+        self.assertIn('--ui-overlay: 0.45', html)
+        self.assertIn('--ui-bg: url("/media/site/', html)
+        row.background_image.delete(save=False)
