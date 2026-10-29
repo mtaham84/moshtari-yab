@@ -210,7 +210,7 @@ def test_product_queries_cover_three_formats_with_sane_count():
     kinds = {q["kind"] for q in qs}
     assert 9 <= len(qs) <= 12
     assert {"problem", "alternative", "solution"} <= kinds
-    assert all(q["query"].count(" OR ") <= 4 for q in qs)  # no giant OR blobs
+    assert all(q["query"].split(")")[0].count(" OR ") <= 1 for q in qs if q["kind"] not in {"intent", "complaint"})  # <=2 phrases per query
 
 
 def test_ig_term_scoring_demotes_empty_terms_and_keeps_explorers():

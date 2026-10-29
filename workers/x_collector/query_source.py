@@ -72,7 +72,7 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
 
             llm_inst = LLMClient(config, store)
             terms = llm_terms(products, cards, store, llm_inst, config.extract_model,
-                              batch_size=int(os.getenv("X_QUERY_LLM_BATCH", "15")))
+                              batch_size=int(os.getenv("X_QUERY_LLM_BATCH", "6")))
 
             state_file = os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3")
             exemplar_store = ExemplarStore(state_file)
