@@ -267,7 +267,7 @@ def handle_incoming_text(chat_id: int | str, text: str) -> None:
 
     send_message(
         chat_id,
-        f"🔍 <b>تعداد {len(matches)} کانفیگ شناسایی شد.</b>\nدر حال بررسی ساختار و تست زنده پینگ اتصال... ⏳",
+        f"🔍 <b>تعداد {len(matches)} کانفیگ شناسایی شد.</b>\nدر حال بررسی ساختار و تست زنده پینگ اتصال (حداکثر ۲ ثانیه به ازای هر کانفیگ)... ⏳",
         reply_markup=get_main_keyboard()
     )
 
@@ -289,12 +289,12 @@ def handle_incoming_text(chat_id: int | str, text: str) -> None:
         else:
             fail_count += 1
             reply = (
-                f"❌ <b>کانفیگ ناموفق (پینگ منفی یک / قطعی):</b>\n\n"
+                f"❌ <b>کانفیگ ناموفق (پینگ منفی یک / بالای ۲۰۰۰ms):</b>\n\n"
                 f"⚠️ دلیل: {res.get('message')}\n"
                 f"🚫 <i>این کانفیگ ذخیره نشد و از دیتابیس حذف گردید.</i>"
             )
         send_message(chat_id, reply)
-        time.sleep(0.5)
+        time.sleep(0.1)
 
     summary = (
         f"🏁 <b>نتیجه بررسی نهایی:</b>\n"

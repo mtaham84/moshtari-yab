@@ -359,11 +359,12 @@ def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) 
             return False, -1.0, "خطا: پروسه تست Xray آماده نشد."
 
         t0 = time.time()
+        max_time = min(float(timeout_sec), 2.0)
         res = subprocess.run(
             [
                 "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
-                "--connect-timeout", str(int(timeout_sec)),
-                "--max-time", str(int(timeout_sec) + 2),
+                "--connect-timeout", str(max(1, int(max_time))),
+                "--max-time", str(round(max_time, 1)),
                 "-x", f"socks5h://127.0.0.1:{test_port}",
                 PROBE_URL
             ],
@@ -378,7 +379,11 @@ def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) 
         time_total = float(parts[1]) * 1000.0 if len(parts) > 1 and parts[1] else elapsed_total_ms
 
         if http_code in ["200", "301", "302", "307", "400", "403", "404"]:
+            if time_total > 2000.0:
+                return False, -1.0, f"پینگ بالا ({time_total:.0f}ms > ۲۰۰۰ms)"
             return True, round(time_total, 1), ""
+        elif res.returncode == 28:
+            return False, -1.0, "تایم‌اوت اتصال (پینگ بالای ۲۰۰۰ms)"
         else:
             return False, -1.0, f"پاسخ سرور: HTTP {http_code}"
     except Exception as e:
@@ -549,19 +554,20 @@ def add_proxy_config(raw_link: str) -> dict[str, Any]:
     except Exception as exc:
         return {"success": False, "ping_ms": -1.0, "message": f"خطا در تجزیه ساختار کانفیگ: {exc}"}
 
-    # Live test ping
-    ok, ping_ms, test_err = test_outbound_ping(ob, timeout_sec=4.0)
-    if not ok or ping_ms < 0:
+    # Live test ping (max 2.0s timeout; ping > 2000ms is treated as -1)
+    ok, ping_ms, test_err = test_outbound_ping(ob, timeout_sec=2.0)
+    if not ok or ping_ms < 0 or ping_ms > 2000:
         # If config already existed in DB, delete it
-        ProxyConfig.objects.filter(raw_url=raw_link).delete()
-        rebuild_xray_config_file()
-        reload_xray_service()
+        if ProxyConfig.objects.filter(raw_url=raw_link).exists():
+            ProxyConfig.objects.filter(raw_url=raw_link).delete()
+            rebuild_xray_config_file()
+            reload_xray_service()
         return {
             "success": False,
             "ping_ms": -1.0,
             "protocol": proto,
             "tag": ob.get("tag", "بدون نام"),
-            "message": f"❌ تست پینگ ناموفق بود (پینگ -۱). اتصال برقرار نشد ({test_err or 'تایم‌اوت'}). کانفیگ اضافه نگردید."
+            "message": f"❌ تست پینگ ناموفق بود (پینگ -۱ یا بالای ۲۰۰۰ms). {test_err or 'تایم‌اوت / قطعی'}. کانفیگ اضافه نگردید."
         }
 
     # Extract tag, server, port
@@ -635,14 +641,14 @@ def prune_dead_configs() -> list[dict[str, Any]]:
     for p in configs:
         try:
             ob = parse_link_to_outbound(p.raw_url)
-            ok, ping_ms, _ = test_outbound_ping(ob, timeout_sec=3.5)
-            if ok and ping_ms > 0:
+            ok, ping_ms, _ = test_outbound_ping(ob, timeout_sec=2.0)
+            if ok and 0 < ping_ms <= 2000:
                 p.ping_ms = ping_ms
                 p.status = "ACTIVE"
                 p.last_checked_at = timezone.now()
                 p.save(update_fields=["ping_ms", "status", "last_checked_at"])
             else:
-                log.info("Pruning dead proxy #%s (%s, ping -1)", p.id, p.tag)
+                log.info("Pruning dead proxy #%s (%s, ping -1 or > 2000ms)", p.id, p.tag)
                 removed.append({
                     "id": p.id,
                     "tag": p.tag or p.server,
