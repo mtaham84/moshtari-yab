@@ -91,14 +91,7 @@ class Command(BaseCommand):
 
         while True:
             # 1. Fetch Active Scraper Accounts Pool
-            scraper_accounts = list(
-                InstagramEngineAccount.objects.filter(
-                    role="SCRAPER",
-                    status="ACTIVE",
-                )
-                .exclude(session_json__isnull=True)
-                .order_by("last_action_at")
-            )
+            scraper_accounts = self._available_scraper_accounts()
 
             if not scraper_accounts:
                 self.stderr.write(self.style.WARNING("No active SCRAPER account with stored session found in database!"))
@@ -210,13 +203,23 @@ class Command(BaseCommand):
                 b_obj = target.get("business")
                 b_id = getattr(b_obj, "id", 0) if b_obj else 0
                 account = scraper_accounts[b_id % len(scraper_accounts)]
+                if not self._is_usable(account):
+                    healthy = [a for a in scraper_accounts if self._is_usable(a)]
+                    if not healthy:
+                        self.stderr.write(self.style.WARNING(
+                            f"No healthy scraper account left this cycle; skipping target {target['name']}."
+                        ))
+                        continue
+                    account = healthy[b_id % len(healthy)]
 
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
                 cl = self._get_persistent_client(account)
                 try:
                     leads_found = self._scrape_target(cl, account, target, min_comments, max_posts)
                     cycle_leads += leads_found
+                    self._persist_session(cl, account)
                 except Exception as exc:
+                    self._note_account_error(account, str(exc), cl)
                     self.stderr.write(f"Error while scraping target {target['name']}: {exc}")
                 time.sleep(random.uniform(4.0, 8.0))
 
@@ -291,21 +294,134 @@ class Command(BaseCommand):
 
         return cl
 
-    def _handle_login_required(self, cl, account) -> bool:
+    # (needles, new status, cooldown hours) — first match wins. Never triggers a login.
+    _ERROR_POLICY = (
+        (("challenge_required", "checkpoint", "consent_required", "sentryblock", "suspended", "disabled"), "CHALLENGED", None),
+        (("feedback_required", "spam", "action blocked"), "COOLDOWN", 48.0),
+        (("please wait", "wait a few minutes"), "COOLDOWN", 2.0),
+        (("429", "too many requests", "rate limit"), "COOLDOWN", 1.0),
+    )
+    RENEW_COOLDOWN_HOURS = 6.0  # after a failed automatic re-login, wait this long before the next attempt
+
+    def _persist_session(self, cl, account) -> None:
+        """Writes rotated cookies/tokens back so the session stays as fresh as the live client (only if changed)."""
+        try:
+            import json as _json
+            fresh = cl.get_settings()
+            if _json.dumps(fresh, sort_keys=True, default=str) != _json.dumps(account.session_json, sort_keys=True, default=str):
+                account.session_json = fresh
+                account.last_action_at = dj_timezone.now()
+                account.save(update_fields=["session_json", "last_action_at"])
+        except Exception as exc:
+            self.stderr.write(f"Notice: could not persist session for @{account.username}: {exc}")
+
+    def _auto_renew_session(self, cl, account) -> bool:
+        """
+        Last resort when the stored session is dead (login_required): one careful re-login that reuses the saved
+        device/UUIDs so Instagram sees the same phone. Rate-limited to one attempt per RENEW_COOLDOWN_HOURS (persisted
+        through cooldown_until, so a restart cannot cause a login storm). Challenges and bad passwords are never retried.
+        """
+        from datetime import timedelta
+
+        if cl is None or not account.password:
+            return False
+        try:
+            from instagrapi.exceptions import ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired
+        except ImportError:
+            return False
+
+        old = account.session_json or {}
+        if old.get("uuids"):
+            cl.set_uuids(old["uuids"])
+
+        def _no_challenge(username, choice=None):
+            raise ChallengeRequired(f"Challenge code required via {choice}")
+        cl.challenge_code_handler = _no_challenge
+
+        try:
+            self.stdout.write(self.style.WARNING(f"    🔑 Session of @{account.username} expired; renewing once with saved device..."))
+            time.sleep(random.uniform(8.0, 20.0))
+            cl.login(account.username, account.password)
+        except (ChallengeRequired, TwoFactorRequired, BadPassword) as exc:
+            account.status = "CHALLENGED"
+            account.cooldown_until = None
+            account.save(update_fields=["status", "cooldown_until"])
+            self.stderr.write(f"    Auto-renew needs a human for @{account.username}: {exc.__class__.__name__}")
+            return False
+        except Exception as exc:
+            account.status = "COOLDOWN"
+            account.cooldown_until = dj_timezone.now() + timedelta(hours=self.RENEW_COOLDOWN_HOURS)
+            account.save(update_fields=["status", "cooldown_until"])
+            self.stderr.write(f"    Auto-renew failed for @{account.username}: {exc}")
+            return False
+
+        account.session_json = cl.get_settings()
+        account.status = "ACTIVE"
+        account.cooldown_until = None
+        account.save(update_fields=["session_json", "status", "cooldown_until"])
+        self.stdout.write(self.style.SUCCESS(f"    ✅ Session renewed for @{account.username}; stored automatically."))
+        return True
+
+    def _available_scraper_accounts(self):
+        """Accounts with a stored session whose cooldown has expired; expired cooldowns are lifted."""
+        now = dj_timezone.now()
+        candidates = (
+            InstagramEngineAccount.objects.filter(role="SCRAPER", status__in=["ACTIVE", "COOLDOWN"])
+            .exclude(session_json__isnull=True)
+            .order_by("last_action_at")
+        )
+        usable = []
+        for acc in candidates:
+            if acc.cooldown_until and acc.cooldown_until > now:
+                continue
+            if acc.status == "COOLDOWN":
+                acc.status = "ACTIVE"
+                acc.cooldown_until = None
+                acc.save(update_fields=["status", "cooldown_until"])
+            usable.append(acc)
+        return usable
+
+    def _rest_account(self, account, hours: float) -> bool:
+        from datetime import timedelta
+
+        account.status = "COOLDOWN"
+        account.cooldown_until = dj_timezone.now() + timedelta(hours=hours)
+        account.save(update_fields=["status", "cooldown_until"])
+        return True
+
+    def _is_usable(self, account) -> bool:
+        account.refresh_from_db(fields=["status", "cooldown_until"])
+        return account.status == "ACTIVE" and not (
+            account.cooldown_until and account.cooldown_until > dj_timezone.now()
+        )
+
+    def _note_account_error(self, account, err_text: str, cl=None) -> bool:
         """
         Strict Session Persistence:
         NEVER attempt password login or CAA login when an account has a valid browser session!
         Multiple logins from different protocols invalidate the web session and get accounts flagged.
-        If a read error occurs, respect the rate limit, set cooldown, and keep the session untouched.
+        Classify the error, rest the account for a matching period and keep the session untouched.
+        Returns True when the account was taken out of rotation.
         """
-        self.stdout.write(self.style.WARNING(
-            f"    ⚠️ [Rate Limit / Rest Triggered] for @{account.username}. Keeping existing session intact without re-logging in."
-        ))
-        from django.utils import timezone as dj_timezone
         from datetime import timedelta
-        account.status = "COOLDOWN"
-        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-        account.save(update_fields=["status", "cooldown_until"])
+
+        lowered = (err_text or "").lower()
+        if "login_required" in lowered and not any(
+            n in lowered for needles, _, _ in self._ERROR_POLICY[:3] for n in needles
+        ):
+            # Dead session: renew it ourselves so nobody has to paste a new sessionid.
+            if self._auto_renew_session(cl, account):
+                return False  # account is healthy again, keep going
+            return account.status != "ACTIVE" or self._rest_account(account, 1.0)
+        for needles, status, hours in self._ERROR_POLICY:
+            if any(n in lowered for n in needles):
+                account.status = status
+                account.cooldown_until = dj_timezone.now() + timedelta(hours=hours) if hours else None
+                account.save(update_fields=["status", "cooldown_until"])
+                self.stdout.write(self.style.WARNING(
+                    f"    ⚠️ [{status}{f' {hours:g}h' if hours else ''}] @{account.username}: session kept intact, no re-login."
+                ))
+                return True
         return False
 
     def _inspect_and_process_medias(
@@ -539,20 +655,21 @@ class Command(BaseCommand):
         # 1. KEYWORD SEARCH (Media Search SERP - No Hashtag)
         # ==========================================
         if terms_to_scrape:
-            selected_terms = select_by_mmr(
-                terms_to_scrape,
-                lambda t: t,
-                reference_context=f"{business_name} {query}",
-                top_k=3,
-                lambda_param=0.65,
+            from apps.discovery.ig_query_scoring import select_scored
+            selected_terms = select_scored(
+                terms_to_scrape, 3, "KEYWORD",
+                lambda items, k: select_by_mmr(items, lambda t: t, reference_context=f"{business_name} {query}",
+                                               top_k=k, lambda_param=0.65),
             )
         else:
             selected_terms = [query] if query else []
 
         self.stdout.write(f"Keywords to search: {terms_to_scrape}")
-        self.stdout.write(f"MMR selected diverse keywords for this cycle: {selected_terms}")
+        self.stdout.write(f"History-scored keywords for this cycle: {selected_terms}")
 
         for term in selected_terms:
+            if account.status != "ACTIVE":
+                break
             self.stdout.write(self.style.WARNING(f"\n  [🔍] Keyword Search: '{term}'"))
             term_err = ""
             term_medias = []
@@ -562,14 +679,7 @@ class Command(BaseCommand):
                     self.stdout.write(f"    Retrieved {len(term_medias)} posts for keyword '{term}'.")
             except Exception as exc:
                 term_err = str(exc)
-                if "login_required" in term_err.lower() and self._handle_login_required(cl, account):
-                    try:
-                        term_medias = cl.media_search(term, amount=max_posts)
-                        if term_medias:
-                            self.stdout.write(f"    Retrieved {len(term_medias)} posts for keyword '{term}' after re-login.")
-                            term_err = ""
-                    except Exception as retry_exc:
-                        term_err = str(retry_exc)
+                self._note_account_error(account, term_err, cl)
                 if term_err:
                     self.stderr.write(f"    Notice: media_search error for '{term}': {term_err}")
 
@@ -620,16 +730,18 @@ class Command(BaseCommand):
         # 2. HASHTAG SEARCH (Top & Recent Posts)
         # ==========================================
         self.stdout.write(f"Hashtags to inspect: {tags_to_scrape}")
-        selected_tags = select_by_mmr(
-            tags_to_scrape,
-            lambda t: t.replace("_", " "),
-            reference_context=f"{business_name} {query}",
-            top_k=4,
-            lambda_param=0.65,
+        from apps.discovery.ig_query_scoring import select_scored
+        selected_tags = select_scored(
+            tags_to_scrape, 4, "HASHTAG",
+            lambda items, k: select_by_mmr(items, lambda t: t.replace("_", " "), reference_context=f"{business_name} {query}",
+                                           top_k=k, lambda_param=0.65),
+            label_of=lambda t: t if t.startswith("#") else f"#{t}",
         )
-        self.stdout.write(f"MMR selected diverse hashtags for this cycle: {selected_tags}")
+        self.stdout.write(f"History-scored hashtags for this cycle: {selected_tags}")
 
         for tag in selected_tags:
+            if account.status != "ACTIVE":
+                break
             self.stdout.write(self.style.WARNING(f"\n  [#] Hashtag: #{tag}"))
             tag_err = ""
             tag_medias = []
@@ -640,7 +752,8 @@ class Command(BaseCommand):
             except Exception as top_exc:
                 try:
                     top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
-                except Exception:
+                except Exception as top_err:
+                    self._note_account_error(account, str(top_err), cl)
                     top_medias = []
             for m in top_medias:
                 if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
@@ -654,7 +767,8 @@ class Command(BaseCommand):
             except Exception:
                 try:
                     recent_medias = cl.hashtag_medias_recent_v1(tag, amount=max_posts)
-                except Exception:
+                except Exception as recent_err:
+                    self._note_account_error(account, str(recent_err), cl)
                     recent_medias = []
             for m in recent_medias:
                 if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
@@ -724,6 +838,8 @@ class Command(BaseCommand):
             from apps.discovery.models import InstagramPage
             comp_pages = InstagramPage.objects.filter(business=target["business"], is_active=True)
             for page in comp_pages:
+                if account.status != "ACTIVE":
+                    break
                 handle = page.handle.lstrip("@").strip()
                 self.stdout.write(self.style.WARNING(f"\n  [👤] Scraper @{account.username} inspecting competitor page: @{handle}"))
                 page_err = ""
@@ -733,6 +849,7 @@ class Command(BaseCommand):
                     page_medias = cl.user_medias(uid, amount=max_posts)
                 except Exception as exc:
                     page_err = str(exc)
+                    self._note_account_error(account, page_err, cl)
                     self.stderr.write(f"    Notice: Error fetching medias from @{handle}: {exc}")
 
                 p_insp, p_qual, l_saved = self._inspect_and_process_medias(

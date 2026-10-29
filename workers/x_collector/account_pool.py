@@ -41,6 +41,23 @@ class TwitterAccount:
         return True
 
 
+def _env_account() -> "TwitterAccount | None":
+    """Builds the default account from TWITTER_AUTH_TOKEN / TWITTER_CT0 / TWITTER_PROXY, if both cookies are set."""
+    auth = os.getenv("TWITTER_AUTH_TOKEN", "").strip()
+    ct0 = os.getenv("TWITTER_CT0", "").strip()
+    if not (auth and ct0):
+        return None
+    return TwitterAccount(
+        id=1,
+        username=os.getenv("TWITTER_USERNAME", "env_account"),
+        password="",
+        auth_token=auth,
+        ct0=ct0,
+        proxy_url=os.getenv("TWITTER_PROXY", "socks5h://xray:1080"),
+        status="ACTIVE",
+    )
+
+
 class TwitterAccountPool:
     def __init__(self, dsn: str | None = None):
         self.dsn = dsn
@@ -94,31 +111,9 @@ class TwitterAccountPool:
                 log.warning("Could not read x_accounts from database: %s", exc)
 
         if not loaded:
-            # Fallback to env / default seeded accounts
-            primary_auth = os.getenv("TWITTER_AUTH_TOKEN", "b2fcb8fbdf370a373023aa9758d8e23aaf15dbbf")
-            primary_ct0 = os.getenv("TWITTER_CT0", "9abb304674bf282b38ad51a29177e80c5bcd834ea4b56f226cd24b0e9d1a2a76d2c3defe085f4ed499fc5ec54f708735e62de74dbdae17efcb6aa8ad98aec74e335ae75927e7b4d40c50bdd872d1a2a6")
-            primary_proxy = os.getenv("TWITTER_PROXY", "socks5h://xray:1080")
-
-            loaded = [
-                TwitterAccount(
-                    id=1,
-                    username="scienceTechno_m",
-                    password="",
-                    auth_token=primary_auth,
-                    ct0=primary_ct0,
-                    proxy_url=primary_proxy,
-                    status="ACTIVE"
-                ),
-                TwitterAccount(
-                    id=2,
-                    username="ebi123456url",
-                    password="Sahand1385@",
-                    auth_token="9baa2fdd446fc020b08ea56501bd1a991f50ee21",
-                    ct0="a" * 32,
-                    proxy_url=primary_proxy,
-                    status="CHALLENGED"
-                )
-            ]
+            # Fallback: a single account from the environment. Credentials never live in source.
+            env_account = _env_account()
+            loaded = [env_account] if env_account else []
 
         self.accounts = loaded
 
@@ -134,20 +129,15 @@ class TwitterAccountPool:
                     return
                 count = conn.execute("SELECT count(*) FROM public.x_accounts").fetchone()[0]
                 if count == 0:
-                    primary_auth = os.getenv("TWITTER_AUTH_TOKEN", "b2fcb8fbdf370a373023aa9758d8e23aaf15dbbf")
-                    primary_ct0 = os.getenv("TWITTER_CT0", "9abb304674bf282b38ad51a29177e80c5bcd834ea4b56f226cd24b0e9d1a2a76d2c3defe085f4ed499fc5ec54f708735e62de74dbdae17efcb6aa8ad98aec74e335ae75927e7b4d40c50bdd872d1a2a6")
-                    proxy = os.getenv("TWITTER_PROXY", "socks5h://xray:1080")
-
+                    env_account = _env_account()
+                    if env_account is None:
+                        return
                     conn.execute("""
                         INSERT INTO public.x_accounts (username, password, auth_token, ct0, proxy_url, status, status_message, daily_action_count, total_action_count, posts_found_count, is_active, created_at, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, 0, true, now(), now())
-                    """, ("scienceTechno_m", "", primary_auth, primary_ct0, proxy, "ACTIVE", "متصل و فعال"))
-
-                    conn.execute("""
-                        INSERT INTO public.x_accounts (username, password, auth_token, ct0, proxy_url, status, status_message, daily_action_count, total_action_count, posts_found_count, is_active, created_at, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, 0, true, now(), now())
-                    """, ("ebi123456url", "Sahand1385@", "9baa2fdd446fc020b08ea56501bd1a991f50ee21", "a" * 32, proxy, "CHALLENGED", "سشن نیازمند لاگین اولیه یا تایید مرورگر"))
-                    log.info("Seeded initial Twitter scraper accounts into database")
+                        VALUES (%s, '', %s, %s, %s, 'ACTIVE', %s, 0, 0, 0, true, now(), now())
+                    """, (env_account.username, env_account.auth_token, env_account.ct0,
+                          env_account.proxy_url, "متصل و فعال"))
+                    log.info("Seeded Twitter scraper account from environment into database")
                     self.refresh()
         except Exception as exc:
             log.warning("Failed to seed initial Twitter accounts: %s", exc)
