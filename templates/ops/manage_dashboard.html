@@ -1265,6 +1265,10 @@
     if (btn) btn.classList.add('active');
   }
 
+  function switchTab(tabName) {
+    openTab(tabName, document.querySelector('.tab-btn[onclick*="' + tabName + '"]'));
+  }
+
   function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
@@ -1507,6 +1511,8 @@
         feedback.style.color = 'var(--down)';
       }
     });
+  }
+
   function handleTwitterAccountAddForm(e, form) {
     e.preventDefault();
     const submitBtn = form.querySelector('button[type="submit"]');
@@ -1694,5 +1700,15 @@
       alert('خطای ارتباط با سرور: ' + err);
     });
   }
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.table-responsive table').forEach(table => {
+      const heads = Array.from(table.querySelectorAll('thead th')).map(th => th.innerText.trim());
+      table.querySelectorAll('tbody tr').forEach(tr => Array.from(tr.children).forEach((td, i) => {
+        if (td.tagName === 'TD' && !td.hasAttribute('data-label') && heads[i]) td.setAttribute('data-label', heads[i]);
+      }));
+    });
+  });
 </script>
 {% endblock %}

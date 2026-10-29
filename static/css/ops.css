@@ -73,3 +73,19 @@ img,video,svg,canvas{max-width:100%;height:auto}
 .ops-main,.ops-content{min-width:0}
 @media (max-width:860px){.grid,.cards,.kpis{grid-template-columns:1fr 1fr!important}}
 @media (max-width:480px){.grid,.cards,.kpis{grid-template-columns:1fr!important}}
+
+/* /manage/ tables → stacked cards on phones (labels filled from <thead> by manage_dashboard.html) */
+@media (max-width:720px){
+  .table-responsive{border:0;background:transparent;overflow:visible}
+  .table-responsive table{min-width:0!important;display:block}
+  .table-responsive thead{display:none}
+  .table-responsive tbody,.table-responsive tr,.table-responsive td{display:block;width:100%}
+  .table-responsive tr{margin-bottom:12px;padding:10px 12px;border-radius:14px;background:color-mix(in srgb,var(--card) 70%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--border);border-inline-start:3px solid #e8268e}
+  .table-responsive td{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0!important;border:0!important;text-align:right}
+  .table-responsive td::before{content:attr(data-label);flex:0 0 auto;font-size:.76rem;font-weight:700;color:var(--muted)}
+  .table-responsive td:last-child{flex-wrap:wrap}
+  .table-responsive td .btn{min-height:40px;flex:1 1 auto}
+  .manage-tabs{padding-bottom:8px}
+  .btn.sm{min-height:38px}
+  #challengeModal>div,#sessionModal>div,#twitterSessionModal>div{width:calc(100vw - 24px)!important;max-width:520px;max-height:90vh;overflow:auto}
+}

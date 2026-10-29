@@ -28,3 +28,4 @@ data/ig_temp_test/
 **/cookies.*
 .DS_Store
 groups.txt
+instagram_sessions/

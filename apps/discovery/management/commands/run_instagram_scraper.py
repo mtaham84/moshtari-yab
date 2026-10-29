@@ -12,6 +12,9 @@ from apps.discovery.models import (
     InstagramCrawledPost,
     InstagramCrawlExecution,
 )
+from apps.discovery.ig_session import (
+    ErrorKind, Policy, account_lock, classify, load_file, redact, save_atomic, session_path,
+)
 from instagram_engine.analyzer import get_effective_caption_cta, is_buyer_comment, evaluate_comment_smart
 from instagram_engine.config import settings
 
@@ -219,7 +222,7 @@ class Command(BaseCommand):
                     cycle_leads += leads_found
                     self._persist_session(cl, account)
                 except Exception as exc:
-                    self._note_account_error(account, str(exc), cl)
+                    self._note_account_error(account, str(exc), cl, exc)
                     self.stderr.write(f"Error while scraping target {target['name']}: {exc}")
                 time.sleep(random.uniform(4.0, 8.0))
 
@@ -260,6 +263,7 @@ class Command(BaseCommand):
             except Exception:
                 pass
 
+        self._restore_from_mirror(account)
         if account.session_json:
             try:
                 cl.set_settings(account.session_json)
@@ -294,17 +298,34 @@ class Command(BaseCommand):
 
         return cl
 
-    # (needles, new status, cooldown hours) — first match wins. Never triggers a login.
-    _ERROR_POLICY = (
-        (("challenge_required", "checkpoint", "consent_required", "sentryblock", "suspended", "disabled"), "CHALLENGED", None),
-        (("feedback_required", "spam", "action blocked"), "COOLDOWN", 48.0),
-        (("please wait", "wait a few minutes"), "COOLDOWN", 2.0),
-        (("429", "too many requests", "rate limit"), "COOLDOWN", 1.0),
-    )
+    # Error kind -> (account status, rest hours). LOGIN_REQUIRED/NETWORK/OTHER are handled separately.
+    _KIND_POLICY = {
+        ErrorKind.CHALLENGE: ("CHALLENGED", None),
+        ErrorKind.BAD_CREDENTIALS: ("CHALLENGED", None),
+        ErrorKind.RATE_LIMIT: ("COOLDOWN", 2.0),
+    }
     RENEW_COOLDOWN_HOURS = 6.0  # after a failed automatic re-login, wait this long before the next attempt
 
+    @property
+    def _policy(self):
+        if not hasattr(self, "_policy_cache"):
+            self._policy_cache = Policy.from_env()
+        return self._policy_cache
+
+    def _restore_from_mirror(self, account) -> None:
+        """If the DB lost the session, recover it from the atomic file mirror (never overwrites an existing DB session)."""
+        if account.session_json:
+            return
+        data, state = load_file(session_path(account.id, self._policy))
+        if data:
+            account.session_json = data
+            account.save(update_fields=["session_json"])
+            self.stdout.write(f"    session of @{account.username} restored from file mirror")
+        elif state == "corrupt":
+            self.stderr.write(f"    session_storage_error: mirror file for account {account.id} is corrupt; left untouched")
+
     def _persist_session(self, cl, account) -> None:
-        """Writes rotated cookies/tokens back so the session stays as fresh as the live client (only if changed)."""
+        """Stores rotated cookies/tokens (only when changed) in the DB and the 0600 file mirror."""
         try:
             import json as _json
             fresh = cl.get_settings()
@@ -312,55 +333,63 @@ class Command(BaseCommand):
                 account.session_json = fresh
                 account.last_action_at = dj_timezone.now()
                 account.save(update_fields=["session_json", "last_action_at"])
+                if not save_atomic(session_path(account.id, self._policy), fresh):
+                    self.stderr.write(f"    session_save_failed (file mirror) for account {account.id}")
         except Exception as exc:
-            self.stderr.write(f"Notice: could not persist session for @{account.username}: {exc}")
+            self.stderr.write(f"Notice: could not persist session for account {account.id}: {redact(exc)}")
 
     def _auto_renew_session(self, cl, account) -> bool:
         """
-        Last resort when the stored session is dead (login_required): one careful re-login that reuses the saved
-        device/UUIDs so Instagram sees the same phone. Rate-limited to one attempt per RENEW_COOLDOWN_HOURS (persisted
-        through cooldown_until, so a restart cannot cause a login storm). Challenges and bad passwords are never retried.
+        One careful credential re-login for a session Instagram rejected, reusing the saved device/UUIDs.
+        Runs only if INSTAGRAM_SESSION_AUTO_REAUTH_ENABLED is on, at most INSTAGRAM_SESSION_MAX_RECOVERY_ATTEMPTS per
+        incident, under a cross-container account lock. Failure cools the account down (persisted in cooldown_until).
         """
         from datetime import timedelta
 
         if cl is None or not account.password:
             return False
+        attempts = getattr(self, "_renew_attempts", {}).get(account.id, 0)
+        if not self._policy.may_recover(ErrorKind.LOGIN_REQUIRED, attempts):
+            return False
         try:
-            from instagrapi.exceptions import ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired
+            from instagrapi.exceptions import ChallengeRequired, TwoFactorRequired, BadPassword
         except ImportError:
             return False
+        self._renew_attempts = {**getattr(self, "_renew_attempts", {}), account.id: attempts + 1}
 
-        old = account.session_json or {}
-        if old.get("uuids"):
-            cl.set_uuids(old["uuids"])
+        with account_lock(account.id, self._policy) as got:
+            if not got:
+                self.stdout.write(f"    recovery_skipped: another worker holds the lock for account {account.id}")
+                return False
+            old = account.session_json or {}
+            if old.get("uuids"):
+                cl.set_uuids(old["uuids"])
 
-        def _no_challenge(username, choice=None):
-            raise ChallengeRequired(f"Challenge code required via {choice}")
-        cl.challenge_code_handler = _no_challenge
-
-        try:
-            self.stdout.write(self.style.WARNING(f"    🔑 Session of @{account.username} expired; renewing once with saved device..."))
-            time.sleep(random.uniform(8.0, 20.0))
-            cl.login(account.username, account.password)
-        except (ChallengeRequired, TwoFactorRequired, BadPassword) as exc:
-            account.status = "CHALLENGED"
-            account.cooldown_until = None
-            account.save(update_fields=["status", "cooldown_until"])
-            self.stderr.write(f"    Auto-renew needs a human for @{account.username}: {exc.__class__.__name__}")
-            return False
-        except Exception as exc:
-            account.status = "COOLDOWN"
-            account.cooldown_until = dj_timezone.now() + timedelta(hours=self.RENEW_COOLDOWN_HOURS)
-            account.save(update_fields=["status", "cooldown_until"])
-            self.stderr.write(f"    Auto-renew failed for @{account.username}: {exc}")
-            return False
-
-        account.session_json = cl.get_settings()
-        account.status = "ACTIVE"
-        account.cooldown_until = None
-        account.save(update_fields=["session_json", "status", "cooldown_until"])
-        self.stdout.write(self.style.SUCCESS(f"    ✅ Session renewed for @{account.username}; stored automatically."))
-        return True
+            def _no_challenge(username, choice=None):
+                raise ChallengeRequired(f"Challenge code required via {choice}")
+            cl.challenge_code_handler = _no_challenge
+            try:
+                self.stdout.write(self.style.WARNING(f"    recovery_started: account {account.id}"))
+                time.sleep(random.uniform(8.0, 20.0))
+                cl.login(account.username, account.password)
+            except (ChallengeRequired, TwoFactorRequired, BadPassword) as exc:
+                account.status, account.cooldown_until = "CHALLENGED", None
+                account.save(update_fields=["status", "cooldown_until"])
+                self.stderr.write(f"    recovery_failed: account {account.id} needs a human ({exc.__class__.__name__})")
+                return False
+            except Exception as exc:
+                account.status = "COOLDOWN"
+                account.cooldown_until = dj_timezone.now() + timedelta(hours=self.RENEW_COOLDOWN_HOURS)
+                account.save(update_fields=["status", "cooldown_until"])
+                self.stderr.write(f"    recovery_failed: account {account.id}: {redact(exc)}")
+                return False
+            fresh = cl.get_settings()
+            account.session_json, account.status, account.cooldown_until = fresh, "ACTIVE", None
+            account.save(update_fields=["session_json", "status", "cooldown_until"])
+            save_atomic(session_path(account.id, self._policy), fresh)
+            self._renew_attempts[account.id] = 0
+            self.stdout.write(self.style.SUCCESS(f"    recovery_succeeded: account {account.id}; session stored"))
+            return True
 
     def _available_scraper_accounts(self):
         """Accounts with a stored session whose cooldown has expired; expired cooldowns are lifted."""
@@ -395,34 +424,36 @@ class Command(BaseCommand):
             account.cooldown_until and account.cooldown_until > dj_timezone.now()
         )
 
-    def _note_account_error(self, account, err_text: str, cl=None) -> bool:
+    def _note_account_error(self, account, err_text: str, cl=None, exc=None) -> bool:
         """
-        Strict Session Persistence:
-        NEVER attempt password login or CAA login when an account has a valid browser session!
-        Multiple logins from different protocols invalidate the web session and get accounts flagged.
-        Classify the error, rest the account for a matching period and keep the session untouched.
-        Returns True when the account was taken out of rotation.
+        Classify the failure and react conservatively. A login is only ever considered for a rejected session
+        (LOGIN_REQUIRED) and only when auto-reauth is enabled; challenges, restrictions, network and unknown errors
+        never log in. Returns True when the account was taken out of rotation.
         """
         from datetime import timedelta
 
-        lowered = (err_text or "").lower()
-        if "login_required" in lowered and not any(
-            n in lowered for needles, _, _ in self._ERROR_POLICY[:3] for n in needles
-        ):
-            # Dead session: renew it ourselves so nobody has to paste a new sessionid.
+        kind = classify(exc if exc is not None else err_text)
+        if kind is ErrorKind.LOGIN_REQUIRED:
             if self._auto_renew_session(cl, account):
-                return False  # account is healthy again, keep going
-            return account.status != "ACTIVE" or self._rest_account(account, 1.0)
-        for needles, status, hours in self._ERROR_POLICY:
-            if any(n in lowered for n in needles):
-                account.status = status
-                account.cooldown_until = dj_timezone.now() + timedelta(hours=hours) if hours else None
-                account.save(update_fields=["status", "cooldown_until"])
-                self.stdout.write(self.style.WARNING(
-                    f"    ⚠️ [{status}{f' {hours:g}h' if hours else ''}] @{account.username}: session kept intact, no re-login."
-                ))
+                return False
+            if account.status != "ACTIVE":
                 return True
-        return False
+            if self._policy.auto_reauth:  # enabled but exhausted/locked: rest, do not loop
+                return self._rest_account(account, self.RENEW_COOLDOWN_HOURS)
+            account.status, account.cooldown_until = "CHALLENGED", None   # needs a new sessionid from the operator
+            account.save(update_fields=["status", "cooldown_until"])
+            self.stdout.write(self.style.WARNING(
+                f"    session_rejected: account {account.id} paused; set a fresh sessionid (auto re-login is off)."))
+            return True
+        if kind in self._KIND_POLICY:
+            status, hours = self._KIND_POLICY[kind]
+            account.status = status
+            account.cooldown_until = dj_timezone.now() + timedelta(hours=hours) if hours else None
+            account.save(update_fields=["status", "cooldown_until"])
+            self.stdout.write(self.style.WARNING(
+                f"    {kind.value}: account {account.id} -> {status}{f' ({hours:g}h)' if hours else ''}; no login attempted."))
+            return True
+        return False  # network / unclassified: no state change, never a login
 
     def _inspect_and_process_medias(
         self,
@@ -679,7 +710,15 @@ class Command(BaseCommand):
                     self.stdout.write(f"    Retrieved {len(term_medias)} posts for keyword '{term}'.")
             except Exception as exc:
                 term_err = str(exc)
-                self._note_account_error(account, term_err, cl)
+                if classify(exc) is ErrorKind.LOGIN_REQUIRED and account.status == "ACTIVE" and not self._note_account_error(account, term_err, cl, exc):
+                    try:   # read-only search: retry exactly once after a successful recovery
+                        term_medias = cl.media_search(term, amount=max_posts)
+                        term_err = ""
+                    except Exception as retry_exc:
+                        term_err = str(retry_exc)
+                        self._note_account_error(account, term_err, cl, retry_exc) if classify(retry_exc) is not ErrorKind.LOGIN_REQUIRED else None
+                else:
+                    self._note_account_error(account, term_err, cl, exc)
                 if term_err:
                     self.stderr.write(f"    Notice: media_search error for '{term}': {term_err}")
 
@@ -753,7 +792,7 @@ class Command(BaseCommand):
                 try:
                     top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
                 except Exception as top_err:
-                    self._note_account_error(account, str(top_err), cl)
+                    self._note_account_error(account, str(top_err), cl, top_err)
                     top_medias = []
             for m in top_medias:
                 if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
@@ -768,7 +807,7 @@ class Command(BaseCommand):
                 try:
                     recent_medias = cl.hashtag_medias_recent_v1(tag, amount=max_posts)
                 except Exception as recent_err:
-                    self._note_account_error(account, str(recent_err), cl)
+                    self._note_account_error(account, str(recent_err), cl, recent_err)
                     recent_medias = []
             for m in recent_medias:
                 if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
@@ -849,7 +888,7 @@ class Command(BaseCommand):
                     page_medias = cl.user_medias(uid, amount=max_posts)
                 except Exception as exc:
                     page_err = str(exc)
-                    self._note_account_error(account, page_err, cl)
+                    self._note_account_error(account, page_err, cl, exc)
                     self.stderr.write(f"    Notice: Error fetching medias from @{handle}: {exc}")
 
                 p_insp, p_qual, l_saved = self._inspect_and_process_medias(
