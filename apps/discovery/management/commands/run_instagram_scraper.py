@@ -274,6 +274,27 @@ class Command(BaseCommand):
     def _handle_login_required(self, cl, account) -> bool:
         if getattr(self, "_relogin_failed_account_id", None) == account.id:
             return False
+
+        sess_id = (account.session_json or {}).get("cookies", {}).get("sessionid")
+        if sess_id:
+            try:
+                self.stdout.write(self.style.WARNING(f"    🔄 [Session Refresh]: Re-authorizing sessionid for @{account.username}..."))
+                if account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings:
+                    cl.set_device(account.device_settings, reset=False)
+                cl.login_by_sessionid(sess_id)
+                account.session_json = cl.get_settings()
+                account.status = "ACTIVE"
+                account.save(update_fields=["session_json", "status"])
+                self.stdout.write(self.style.SUCCESS(f"    ✅ [Session Re-Authorized]: @{account.username} updated!"))
+                self._relogin_failed_account_id = None
+                return True
+            except Exception as se:
+                self.stderr.write(f"    ❌ [Session Re-Authorization Failed] for @{account.username}: {se}")
+                self._relogin_failed_account_id = account.id
+                account.status = "CHALLENGED"
+                account.save(update_fields=["status"])
+                return False
+
         if not getattr(account, "password", None):
             return False
         self.stdout.write(self.style.WARNING(f"    🔄 [Session Expired]: Attempting automatic re-login for @{account.username}..."))
