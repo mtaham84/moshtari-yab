@@ -26,8 +26,10 @@
   <!-- Global Base Styles & Seller Panel Stylesheet -->
   <link rel="stylesheet" href="{% static 'css/site.css' %}">
   <link rel="stylesheet" href="{% static 'css/panel.css' %}">
+  <link rel="stylesheet" href="{% static 'css/ui.css' %}?v=20261030_1">
 </head>
 <body>
+  {% include 'partials/icons.html' %}
   <div class="panel-app-container">
 
     <!-- ======================================================================
@@ -194,7 +196,7 @@
           <span class="sidebar-badge">{{ user.business.monitored_communities.count|default:"0" }}</span>
         </a>
         <a href="{% url 'discovery:instagram_pages' %}" class="sidebar-link {% block nav_instagram_pages %}{% endblock %}">
-          <div class="sidebar-link-content"><span>صفحه‌های اینستاگرام</span></div>
+          <div class="sidebar-link-content"><span class="sidebar-link-icon"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg></span><span>صفحه‌های اینستاگرام</span></div>
         </a>
         {% if X_SELLER_UI %}
         <a href="{% url 'discovery:x_search' %}" class="sidebar-link {% block nav_x_management %}{% endblock %}">
@@ -207,7 +209,7 @@
         </a>
         {% elif X_PANEL_ENABLED %}
         <a href="{% url 'discovery:x_management' %}" class="sidebar-link">
-          <div class="sidebar-link-content"><span>مدیریت X</span></div>
+          <div class="sidebar-link-content"><span class="sidebar-link-icon"><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg></span><span>مدیریت X</span></div>
         </a>
         {% endif %}
 
@@ -226,7 +228,7 @@
 
         {% if user.is_staff or user.is_superuser %}
         <!-- لینک پنل مدیریت و اسکرپر برای ادمین -->
-        <a href="{% url 'manage:dashboard' %}" class="sidebar-link" style="color: #10B981; font-weight: 600;">
+        <a href="{% url 'manage:dashboard' %}" class="sidebar-link" >
           <div class="sidebar-link-content">
             <span class="sidebar-link-icon">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -235,17 +237,17 @@
                 <line x1="12" y1="17" x2="12" y2="21"></line>
               </svg>
             </span>
-            <span>پنل مدیریت و اسکرپر (/manage)</span>
+            <span>پنل مدیریت و اسکرپر</span>
           </div>
         </a>
-        <a href="{% url 'admin:index' %}" class="sidebar-link" style="color: #6366F1; font-weight: 600;">
+        <a href="{% url 'admin:index' %}" class="sidebar-link" >
           <div class="sidebar-link-content">
             <span class="sidebar-link-icon">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
               </svg>
             </span>
-            <span>ادمین جنگو (/admin)</span>
+            <span>ادمین جنگو</span>
           </div>
         </a>
         {% endif %}
@@ -420,5 +422,6 @@
       }
     })();
   </script>
+  <script src="{% static 'js/ui.js' %}?v=20261030_1" defer></script>
 </body>
 </html>

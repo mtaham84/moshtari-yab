@@ -163,7 +163,7 @@
     if (outreachText) {
       navigator.clipboard?.writeText(outreachText.textContent.trim()).then(() => {
         const originalText = copyBtn.innerHTML;
-        copyBtn.innerHTML = '<span>✓ کپی شد</span>';
+        copyBtn.innerHTML = '<span> کپی شد</span>';
         setTimeout(() => {
           copyBtn.innerHTML = originalText;
         }, 2000);
@@ -208,4 +208,19 @@
   };
   const go = () => ('requestIdleCallback' in window ? requestIdleCallback(start, { timeout: 2500 }) : setTimeout(start, 600));
   if (document.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
+})();
+
+// Landing: scroll progress (0..1) drives the hero zoom/fade, and the nav turns into glass after the first scroll.
+(() => {
+  const hero = document.querySelector('.hero-wrapper');
+  if (!hero) return;
+  let ticking = false;
+  const update = () => {
+    const p = Math.min(1, Math.max(0, window.scrollY / (window.innerHeight * 0.85)));
+    hero.style.setProperty('--hp', p.toFixed(3));
+    hero.classList.toggle('is-scrolled', window.scrollY > 24);
+    ticking = false;
+  };
+  window.addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+  update();
 })();

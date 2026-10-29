@@ -29,7 +29,7 @@
 <div class="p-card" style="padding: 24px; margin-bottom: 24px;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div>
-      <h2 style="margin:0;">📊 تاریخچه و آخرین زمان کرول کوئری‌های اینستاگرام</h2>
+      <h2 style="margin:0;"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> تاریخچه و آخرین زمان کرول کوئری‌های اینستاگرام</h2>
       <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.86rem;">
         زمان دقیق کرول به ساعت تهران و تاریخ شمسی و نتایج دریافت لیدهای مرتبط با کسب‌وکار شما
       </p>
@@ -60,11 +60,11 @@
           <td style="padding:10px 8px; text-align:center; font-weight:700; color:#16a34a;">{{ log.leads_found }}</td>
           <td style="padding:10px 8px;">
             {% if log.status == 'SUCCESS' %}
-              <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;">🟢 موفق</span>
+              <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;"><i class="dot dot-ok" aria-hidden="true"></i> موفق</span>
             {% elif log.status == 'NO_POSTS' %}
-              <span class="p-badge" style="background:#fff8e6; color:#b37400; padding:3px 8px; border-radius:4px; font-weight:600;">🟡 بدون پست جدید</span>
+              <span class="p-badge" style="background:#fff8e6; color:#b37400; padding:3px 8px; border-radius:4px; font-weight:600;"><i class="dot dot-warn" aria-hidden="true"></i> بدون پست جدید</span>
             {% else %}
-              <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;">🔴 {{ log.get_status_display }}</span>
+              <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;"><i class="dot dot-bad" aria-hidden="true"></i> {{ log.get_status_display }}</span>
             {% endif %}
           </td>
         </tr>

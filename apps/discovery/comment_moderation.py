@@ -126,8 +126,8 @@ def is_toxic_or_spam_comment(text: str) -> Tuple[bool, str]:
 # ---------------------------------------------------------------------------
 EMOJI_PATTERN = re.compile(
     "["
-    "\U00010000-\U0010ffff"   # Supplementary planes (99% of modern emojis: 🔥, 😍, 👏, 😂, etc.)
-    "\u2600-\u27bf"           # Miscellaneous Symbols, Dingbats (❤️, ✨, 🌸, etc.)
+    "\U00010000-\U0010ffff"   # Supplementary planes (99% of modern emojis:,,,, etc.)
+    "\u2600-\u27bf"           # Miscellaneous Symbols, Dingbats (,,, etc.)
     "\u2300-\u23ff"           # Miscellaneous Technical
     "\u2b50-\u2b55"           # Star and shape symbols
     "\u200d\ufe0e\ufe0f"       # Zero-width joiner & variation selectors

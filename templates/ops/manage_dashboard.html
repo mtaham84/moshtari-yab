@@ -233,21 +233,22 @@
 
 <div class="ops-head">
   <div>
-    <h1>🚀 مرکز پایش اسکرپرها، سرنخ‌ها و صورت‌حساب مالی مستأجرین</h1>
+    <h1><svg class="ico" aria-hidden="true"><use href="#i-rocket"/></svg> مرکز پایش اسکرپرها، سرنخ‌ها و صورت‌حساب مالی مستأجرین</h1>
     <p class="muted" style="margin:4px 0 0;">پایش بلادرنگ ربات اینستاگرام، تفکیک مصرف ۳ پلتفرم برای مستأجرین و تنظیمات نرخ ارز</p>
   </div>
   <div>
     <span class="pill" style="font-size:0.85rem; padding:6px 14px;">
-      🕒 به‌روزرسانی زنده: {{ now|date:"Y/m/d H:i:s" }}
+      <svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg> به‌روزرسانی زنده: {{ now|date:"Y/m/d H:i:s" }}
     </span>
   </div>
+</div>
 <!-- Account Status Alert Banner (Immediate notification on disconnect) -->
 {% if scrapers_challenged > 0 or scrapers_banned > 0 or scrapers_active == 0 %}
-<div style="background: linear-gradient(135deg, #fef2f2, #fee2e2); border: 2px solid #ef4444; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.18); animation: pulse 2s infinite;">
+<div class="alert-banner" style="background: linear-gradient(135deg, #fef2f2, #fee2e2); border: 2px solid #ef4444; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.18); animation: pulse 2s infinite;">
   <div style="display: flex; align-items: center; gap: 14px;">
-    <span style="font-size: 2.2rem;">🚨</span>
+    <span style="font-size: 2.2rem;"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg></span>
     <div>
-      <h3 style="margin: 0; color: #991b1b; font-size: 1.05rem; font-weight: 800;">⚠️ هشدار فوری: اتصال اکانت اینستاگرام قطع شده یا نیاز به تایید دارد!</h3>
+      <h3 style="margin: 0; color: #991b1b; font-size: 1.05rem; font-weight: 800;"><svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg> هشدار فوری: اتصال اکانت اینستاگرام قطع شده یا نیاز به تایید دارد!</h3>
       <p style="margin: 5px 0 0; color: #b91c1c; font-size: 0.85rem; line-height: 1.5;">
         {% if scrapers_active == 0 %}
           هیچ اکانت اسکرپر فعالی در سیستم وجود ندارد و عملیات استخراج متوقف است!
@@ -259,7 +260,7 @@
     </div>
   </div>
   <a href="#tab-accounts" onclick="switchTab('accounts')" class="p-btn" style="background: #dc2626; color: #fff; padding: 9px 20px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 0.88rem; flex-shrink: 0; border: none; box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);">
-    بررسی وضعیت اکانت ⬅
+    بررسی وضعیت اکانت 
   </a>
 </div>
 {% endif %}
@@ -267,7 +268,7 @@
 <!-- Live Scraper Activity Banner -->
 <div class="activity-banner">
   <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-    <span style="font-size:1.4rem;">🔄</span>
+    <span style="font-size:1.4rem;"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg></span>
     <div>
       <strong style="color:var(--text); font-size:0.95rem;">وضعیت چرخه خودکار اسکرپر (پس‌زمینه):</strong>
       <div class="muted" style="font-size:0.82rem; margin-top:2px;">
@@ -288,7 +289,7 @@
         {{ latest_lead_at|time_ago_fa|default:"—" }}
       </strong>
     </div>
-    <span class="badge-status active">🟢 سرویس فعال (هر ۱۵ دقیقه)</span>
+    <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> سرویس فعال (هر ۱۵ دقیقه)</span>
   </div>
 </div>
 
@@ -298,7 +299,7 @@
     {% csrf_token %}
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
       <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:1.15rem;">💵</span>
+        <span style="font-size:1.15rem;"><svg class="ico" aria-hidden="true"><use href="#i-cash"/></svg></span>
         <strong style="font-size:0.95rem;">تنظیمات نرخ روز ارز دلار و فرمول صورت‌حساب مستأجرین:</strong>
       </div>
       <div class="muted" style="font-size:0.8rem;">
@@ -318,7 +319,7 @@
       </div>
       <div>
         <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:700;">
-          💾 ذخیره و اعمال بلادرنگ محاسبات
+          <svg class="ico" aria-hidden="true"><use href="#i-save"/></svg> ذخیره و اعمال بلادرنگ محاسبات
         </button>
       </div>
     </div>
@@ -358,12 +359,12 @@
 
 <!-- Navigation Tabs -->
 <div class="manage-tabs">
-  <button class="tab-btn active" onclick="openTab('matrix', this)">📊 تفکیک لیدهای ۳ پلتفرم برای هر ۳ مستأجر</button>
-  <button class="tab-btn" onclick="openTab('billing', this)">💳 صورت‌حساب مالی و اعتباری مستأجرین ({{ financial_rows|length }})</button>
-  <button class="tab-btn" onclick="openTab('scrapers', this)">📸 مخزن اکانت‌های اینستاگرام ({{ scrapers_total }})</button>
-  <button class="tab-btn" onclick="openTab('twitter-scrapers', this)">🐦 مخزن اکانت‌ها و کرول‌های توییتر / X ({{ twitter_scrapers_total }})</button>
-  <button class="tab-btn" onclick="openTab('leads', this)">🎯 صف لیدهای پالایش‌شده اینستاگرام ({{ total_leads }})</button>
-  <button class="tab-btn" onclick="openTab('senders', this)">✉️ اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
+  <button class="tab-btn active" onclick="openTab('matrix', this)"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> تفکیک لیدهای ۳ پلتفرم برای هر ۳ مستأجر</button>
+  <button class="tab-btn" onclick="openTab('billing', this)"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg> صورت‌حساب مالی و اعتباری مستأجرین ({{ financial_rows|length }})</button>
+  <button class="tab-btn" onclick="openTab('scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> مخزن اکانت‌های اینستاگرام ({{ scrapers_total }})</button>
+  <button class="tab-btn" onclick="openTab('twitter-scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg> مخزن اکانت‌ها و کرول‌های توییتر / X ({{ twitter_scrapers_total }})</button>
+  <button class="tab-btn" onclick="openTab('leads', this)"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> صف لیدهای پالایش‌شده اینستاگرام ({{ total_leads }})</button>
+  <button class="tab-btn" onclick="openTab('senders', this)"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
 </div>
 
 <!-- TAB 1: 3-PLATFORMS X 3-TENANTS MATRIX -->
@@ -371,7 +372,7 @@
   <div class="card">
     <div class="ops-head">
       <div>
-        <h2>📊 ماتریس سرنخ‌ها و فرصت‌های کشف‌شده به تفکیک پلتفرم و مستأجر</h2>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> ماتریس سرنخ‌ها و فرصت‌های کشف‌شده به تفکیک پلتفرم و مستأجر</h2>
         <p class="muted" style="margin:2px 0 0;">آمار کامل فرصت‌های ایجادشده از تلگرام، اینستاگرام و توییتر/ایکس برای هر کسب‌وکار</p>
       </div>
       <div>
@@ -385,9 +386,9 @@
           <tr style="background:#f8fafc;">
             <th>شناسه</th>
             <th>کسب‌وکار / مستأجر (Tenant)</th>
-            <th style="color:#d946ef; font-weight:700;">📸 اینستاگرام</th>
-            <th style="color:#0284c7; font-weight:700;">✈️ تلگرام</th>
-            <th style="color:#0f172a; font-weight:700;">✖️ ایکس (توییتر)</th>
+            <th style="color:#d946ef; font-weight:700;"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> اینستاگرام</th>
+            <th style="color:#0284c7; font-weight:700;"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg> تلگرام</th>
+            <th style="color:#0f172a; font-weight:700;"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg> ایکس (توییتر)</th>
             <th style="font-weight:700;">مجموع کل سرنخ‌ها</th>
             <th>قصد خرید بالا (≥۸۰٪)</th>
             <th>دایرکت ارسالی</th>
@@ -443,7 +444,7 @@
   <div class="card">
     <div class="ops-head">
       <div>
-        <h2>💳 گزارش دقیق مالی مستأجرین: هزینه خام دلاری و تومانی در برابر مبلغ نهایی با ۱۵۰٪ کارمزد</h2>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg> گزارش دقیق مالی مستأجرین: هزینه خام دلاری و تومانی در برابر مبلغ نهایی با ۱۵۰٪ کارمزد</h2>
         <p class="muted" style="margin:2px 0 0;">
           دیدگاه اختصاصی مدیریت: شما هزینه خام دلاری، هزینه خام تومانی و کارمزد ۱۵۰٪ را می‌بینید؛ در پنل مشتری صرفاً مبلغ نهایی کسر می‌گردد.
         </p>
@@ -488,9 +489,9 @@
             </td>
             <td>
               {% if row.has_credit %}
-                <span class="badge-status active">🟢 دارای اعتبار کافی</span>
+                <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> دارای اعتبار کافی</span>
               {% else %}
-                <span class="badge-status banned">🔴 اعتبار پایان‌یافته</span>
+                <span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> اعتبار پایان‌یافته</span>
               {% endif %}
             </td>
           </tr>
@@ -522,7 +523,7 @@
 <!-- TAB 3: SCRAPERS MANAGEMENT -->
 <div id="tab-scrapers" class="tab-pane">
   <div class="account-form">
-    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ افزودن اکانت اسکرپر جدید به مخزن (Instagram Scraper Account)</h2>
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> افزودن اکانت اسکرپر جدید به مخزن (Instagram Scraper Account)</h2>
     <form id="form-add-scraper" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
       {% csrf_token %}
       <input type="hidden" name="role" value="SCRAPER">
@@ -567,8 +568,8 @@
           <tr>
             <th>شناسه</th>
             <th>اکانت اینستاگرام</th>
-            <th>📱 دیوایس شبیه‌سازی‌شده (Emulated Device)</th>
-            <th>🌐 کانفیگ و شبکه (Proxy & Network)</th>
+            <th><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg> دیوایس شبیه‌سازی‌شده (Emulated Device)</th>
+            <th><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> کانفیگ و شبکه (Proxy & Network)</th>
             <th>وضعیت اتصال و سشن</th>
             <th>عملیات امروز</th>
             <th>آخرین فعالیت</th>
@@ -593,7 +594,7 @@
               <div style="display:flex; flex-direction:column; gap:3px;">
                 {% if acc.device_settings.model == 'SM-S928B' %}
                   <div style="font-weight:700; color:#1d4ed8; display:flex; align-items:center; gap:5px;">
-                    <span style="font-size:1.1rem;">📱</span> <span>سامسونگ Galaxy S24 Ultra</span>
+                    <span style="font-size:1.1rem;"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span> <span>سامسونگ Galaxy S24 Ultra</span>
                   </div>
                   <div class="muted" style="font-size:0.76rem;" dir="ltr">
                     <code>SM-S928B (Snapdragon)</code> &bull; Android 14
@@ -603,7 +604,7 @@
                   </div>
                 {% elif acc.device_settings.model == 'Pixel 8 Pro' or acc.device_settings.model == 'husky' %}
                   <div style="font-weight:700; color:#15803d; display:flex; align-items:center; gap:5px;">
-                    <span style="font-size:1.1rem;">📱</span> <span>گوگل Pixel 8 Pro</span>
+                    <span style="font-size:1.1rem;"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span> <span>گوگل Pixel 8 Pro</span>
                   </div>
                   <div class="muted" style="font-size:0.76rem;" dir="ltr">
                     <code>husky (Google Tensor)</code> &bull; Android 14
@@ -613,14 +614,14 @@
                   </div>
                 {% elif acc.device_settings.model %}
                   <div style="font-weight:700; color:#0369a1; display:flex; align-items:center; gap:5px;">
-                    <span style="font-size:1.1rem;">📱</span> <span>{{ acc.device_settings.manufacturer|title }} {{ acc.device_settings.model }}</span>
+                    <span style="font-size:1.1rem;"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span> <span>{{ acc.device_settings.manufacturer|title }} {{ acc.device_settings.model }}</span>
                   </div>
                   <div class="muted" style="font-size:0.76rem;" dir="ltr">
                     <code>{{ acc.device_settings.device|default:acc.device_settings.model }}</code> &bull; Android {{ acc.device_settings.android_release|default:"13" }}
                   </div>
                 {% else %}
                   <div style="font-weight:700; color:#64748b; display:flex; align-items:center; gap:5px;">
-                    <span style="font-size:1.1rem;">📱</span> <span>دیوایس پیش‌فرض (Pixel 8 Pro)</span>
+                    <span style="font-size:1.1rem;"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span> <span>دیوایس پیش‌فرض (Pixel 8 Pro)</span>
                   </div>
                 {% endif %}
               </div>
@@ -629,7 +630,7 @@
               <div style="display:flex; flex-direction:column; gap:3px;">
                 {% if acc.proxy_url and 'xray' in acc.proxy_url or acc.proxy_url and '8080' in acc.proxy_url %}
                   <div style="font-weight:700; color:#7c3aed; display:flex; align-items:center; gap:5px;">
-                    <span>🌐</span> <span>تونل اختصاصی Xray</span>
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>تونل اختصاصی Xray</span>
                   </div>
                   <div class="muted" style="font-size:0.76rem;" dir="ltr">
                     <code>http://xray:8080</code> (IP: 155.117.120.230)
@@ -637,14 +638,14 @@
                   <span class="pill" style="font-size:0.68rem; background:#f3e8ff; color:#6b21a8; width:fit-content;">پروکسی آلمان / Shadowsocks</span>
                 {% elif acc.proxy_url %}
                   <div style="font-weight:700; color:#0369a1; display:flex; align-items:center; gap:5px;">
-                    <span>🌐</span> <span>پروکسی سفارشی</span>
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>پروکسی سفارشی</span>
                   </div>
                   <div class="muted" style="font-size:0.76rem;" dir="ltr">
                     <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:32 }}</code>
                   </div>
                 {% else %}
                   <div style="font-weight:700; color:#64748b; display:flex; align-items:center; gap:5px;">
-                    <span>⚡</span> <span>اتصال مستقیم سرور</span>
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg></span> <span>اتصال مستقیم سرور</span>
                   </div>
                   <div class="muted" style="font-size:0.76rem;" dir="ltr">
                     <code>Direct (IP: 155.117.120.230)</code>
@@ -654,13 +655,13 @@
             </td>
             <td>
               {% if acc.status == 'ACTIVE' %}
-                <span class="badge-status active" id="badge-{{ acc.id }}">🟢 متصل و فعال</span>
+                <span class="badge-status active" id="badge-{{ acc.id }}"><i class="dot dot-ok" aria-hidden="true"></i> متصل و فعال</span>
               {% elif acc.status == 'COOLDOWN' %}
-                <span class="badge-status cooldown" id="badge-{{ acc.id }}">🟡 استراحت ({{ acc.cooldown_until|time:"H:i" }})</span>
+                <span class="badge-status cooldown" id="badge-{{ acc.id }}"><i class="dot dot-warn" aria-hidden="true"></i> استراحت ({{ acc.cooldown_until|time:"H:i" }})</span>
               {% elif acc.status == 'CHALLENGED' %}
-                <span class="badge-status challenged" id="badge-{{ acc.id }}">🟠 چالش امنیتی (کد تایید)</span>
+                <span class="badge-status challenged" id="badge-{{ acc.id }}"><i class="dot dot-alert" aria-hidden="true"></i> چالش امنیتی (کد تایید)</span>
               {% else %}
-                <span class="badge-status banned" id="badge-{{ acc.id }}">🔴 مسدود شده</span>
+                <span class="badge-status banned" id="badge-{{ acc.id }}"><i class="dot dot-bad" aria-hidden="true"></i> مسدود شده</span>
               {% endif %}
               <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
               {% if acc.status_message %}<div class="muted" style="font-size:0.78rem; margin-top:6px; color:var(--down); max-width:260px; white-space:normal;">{{ acc.status_message }}</div>{% endif %}
@@ -676,13 +677,13 @@
             <td>
               <div style="display:flex; gap:6px; flex-wrap:wrap;">
                 <button class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-test-{{ acc.id }}" title="تست اتصال زنده و وضعیت سشن">
-                  ⚡ تست اتصال
+                  <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست اتصال
                 </button>
                 <button class="btn sm" onclick="openSessionModal({{ acc.id }}, '{{ acc.username }}')" title="تنظیم یا به‌روزرسانی کوکی sessionid بدون پسورد">
-                  🍪 ثبت sessionid
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت sessionid
                 </button>
                 <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" {% if acc.status == 'CHALLENGED' and acc.device_settings.challenge_hint %}data-autoopen="1"{% endif %} title="ثبت کد تایید ارسال شده">
-                  🔑 ثبت کد تایید
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت کد تایید
                 </button>
                 <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
                   {% csrf_token %}
@@ -706,7 +707,7 @@
   <div class="card" style="margin-top:24px;">
     <div class="ops-head" style="margin-bottom:12px;">
       <div>
-        <h2>📋 تاریخچه و آخرین وضعیت کرول کوئری‌ها بر اساس اکانت‌های اینستاگرام</h2>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> تاریخچه و آخرین وضعیت کرول کوئری‌ها بر اساس اکانت‌های اینستاگرام</h2>
         <span class="muted" style="font-size:0.82rem;">
           ثبت دقیق تاریخ شمسی و ساعت تهران، اکانت اسکرپر مجری، تعداد پست‌های بررسی شده و لیدهای یافت‌شده به تفکیک کوئری و مستأجر
         </span>
@@ -740,9 +741,9 @@
               {% if log.target_type == 'HASHTAG' %}
                 <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.75rem;">#️⃣ هشتگ</span>
               {% elif log.target_type == 'PAGE' %}
-                <span class="pill" style="background:#fef3c7; color:#92400e; font-size:0.75rem;">👤 صفحه رقیب</span>
+                <span class="pill" style="background:#fef3c7; color:#92400e; font-size:0.75rem;"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> صفحه رقیب</span>
               {% else %}
-                <span class="pill" style="background:#f1f5f9; color:#475569; font-size:0.75rem;">🔍 کلمه کلیدی</span>
+                <span class="pill" style="background:#f1f5f9; color:#475569; font-size:0.75rem;"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg> کلمه کلیدی</span>
               {% endif %}
             </td>
             <td>
@@ -764,13 +765,13 @@
             <td class="n" style="font-weight:700; color:var(--accent);">{{ log.leads_found }}</td>
             <td>
               {% if log.status == 'SUCCESS' %}
-                <span class="badge-status active">🟢 موفق</span>
+                <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> موفق</span>
               {% elif log.status == 'NO_POSTS' %}
-                <span class="badge-status cooldown">🟡 بدون پست جدید</span>
+                <span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> بدون پست جدید</span>
               {% elif log.status == 'THROTTLED' %}
-                <span class="badge-status challenged">🟠 محدودیت موقت</span>
+                <span class="badge-status challenged"><i class="dot dot-alert" aria-hidden="true"></i> محدودیت موقت</span>
               {% else %}
-                <span class="badge-status banned" title="{{ log.message }}">🔴 خطا</span>
+                <span class="badge-status banned" title="{{ log.message }}"><i class="dot dot-bad" aria-hidden="true"></i> خطا</span>
               {% endif %}
             </td>
           </tr>
@@ -787,7 +788,7 @@
 <!-- TAB: TWITTER SCRAPERS & CRAWL LOGS -->
 <div id="tab-twitter-scrapers" class="tab-pane">
   <div class="account-form">
-    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ افزودن اکانت اسکرپر توییتر / X (Twitter Scraper Account)</h2>
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> افزودن اکانت اسکرپر توییتر / X (Twitter Scraper Account)</h2>
     <form id="form-add-twitter-scraper" method="POST" action="{% url 'manage:twitter_account_add' %}" onsubmit="handleTwitterAccountAddForm(event, this)">
       {% csrf_token %}
       <div class="form-row">
@@ -839,7 +840,7 @@
           <tr>
             <th>شناسه</th>
             <th>اکانت توییتر / X</th>
-            <th>🌐 پروکسی و کانفیگ</th>
+            <th><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> پروکسی و کانفیگ</th>
             <th>وضعیت اتصال و سشن</th>
             <th>سرچ‌های امروز</th>
             <th>کل سرچ‌ها</th>
@@ -871,15 +872,15 @@
             <td>
               <div id="tw-status-badge-{{ acc.id }}">
                 {% if acc.status == 'ACTIVE' and acc.is_active %}
-                  <span class="badge-status active">🟢 فعال و متصل</span>
+                  <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> فعال و متصل</span>
                 {% elif acc.status == 'COOLDOWN' %}
-                  <span class="badge-status cooldown">🟡 استراحت موقت (Rate Limit)</span>
+                  <span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> استراحت موقت (Rate Limit)</span>
                 {% elif acc.status == 'CHALLENGED' %}
-                  <span class="badge-status challenged">🟠 نیازمند سشن معتبر</span>
+                  <span class="badge-status challenged"><i class="dot dot-alert" aria-hidden="true"></i> نیازمند سشن معتبر</span>
                 {% elif acc.status == 'BANNED' %}
-                  <span class="badge-status banned">🔴 مسدود شده</span>
+                  <span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> مسدود شده</span>
                 {% else %}
-                  <span class="badge-status" style="background:#f1f5f9; color:#64748b;">⚪ {{ acc.get_status_display }}</span>
+                  <span class="badge-status" style="background:#f1f5f9; color:#64748b;"><i class="dot dot-idle" aria-hidden="true"></i> {{ acc.get_status_display }}</span>
                 {% endif %}
               </div>
               <div id="tw-status-msg-{{ acc.id }}" class="test-feedback muted" style="font-size:0.75rem; margin-top:3px;">
@@ -899,10 +900,10 @@
             <td>
               <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
                 <button type="button" class="btn sm" onclick="testTwitterAccount({{ acc.id }}, this)" style="background:#0284c7; color:#fff;" title="تست زنده اتصال اکانت">
-                  ⚡ تست اتصال
+                  <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست اتصال
                 </button>
                 <button type="button" class="btn sm" onclick="openTwitterSessionModal({{ acc.id }}, '{{ acc.username }}', '{{ acc.auth_token }}', '{{ acc.ct0 }}')" style="background:#f8fafc; border:1px solid #cbd5e1; color:#334155;" title="ویرایش یا ثبت کوکی سشن">
-                  🍪 ویرایش سشن
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ویرایش سشن
                 </button>
                 <button type="button" class="btn sm" onclick="toggleTwitterAccount({{ acc.id }}, this)" style="background:#f1f5f9; border:1px solid #cbd5e1;" title="فعال یا غیرفعال کردن اکانت">
                   {% if acc.is_active %}غیرفعال{% else %}فعال{% endif %}
@@ -910,7 +911,7 @@
                 <form method="POST" action="{% url 'manage:twitter_account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟')" style="display:inline;">
                   {% csrf_token %}
                   <button type="submit" class="btn sm" style="background:#fee2e2; color:#b91c1c; border:none;" title="حذف اکانت">
-                    🗑️
+                    <svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg>
                   </button>
                 </form>
               </div>
@@ -929,7 +930,7 @@
   <div class="card">
     <div class="ops-head" style="margin-bottom:12px;">
       <div>
-        <h2>📊 گزارش جامع کرول‌ها و سرچ‌های توییتر / X (Twitter Search Runs)</h2>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> گزارش جامع کرول‌ها و سرچ‌های توییتر / X (Twitter Search Runs)</h2>
         <span class="muted" style="font-size:0.8rem;">تاریخچه زنده جستجوهای مشتریان انجام‌شده در توییتر و نتایج یافته‌شده</span>
       </div>
     </div>
@@ -978,17 +979,17 @@
   <div class="card">
     <div class="ops-head">
       <div>
-        <h2>🎯 صف سرنخ‌های پالایش‌شده اینستاگرام بر اساس بالاترین احتمال خرید</h2>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> صف سرنخ‌های پالایش‌شده اینستاگرام بر اساس بالاترین احتمال خرید</h2>
         <p class="muted" style="font-size:0.8rem; margin:2px 0 0;">
           کامنت‌های حاوی توهین و دیس کاملاً مسدود شده‌اند؛ کامنت‌های CTA مستقیم بدون هزینه و سایر کامنت‌ها توسط هوش مصنوعی Luna GPT-6 ارزیابی شده‌اند.
         </p>
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <a href="{% url 'manage:leads_export_csv' %}" class="btn sm" style="background:#059669; color:#fff;" title="دانلود کل دیتاست با فرمت اکسل">
-          📥 خروجی اکسل (CSV)
+          <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg> خروجی اکسل (CSV)
         </a>
         <a href="{% url 'manage:leads_export_json' %}" class="btn sm" style="background:#0284c7; color:#fff;" title="دانلود دیتاست استاندارد JSON">
-          📦 خروجی JSON
+          <svg class="ico" aria-hidden="true"><use href="#i-box"/></svg> خروجی JSON
         </a>
         <span class="pill" style="font-weight:700;">{{ total_leads }} کل لیدها</span>
       </div>
@@ -1013,11 +1014,11 @@
           <tr>
             <td>
               {% if l.intent_score >= 0.95 %}
-                <span class="intent-badge intent-very-high">🔥 {{ l.intent_score|floatformat:2 }} (بسیار بالا)</span>
+                <span class="intent-badge intent-very-high"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> {{ l.intent_score|floatformat:2 }} (بسیار بالا)</span>
               {% elif l.intent_score >= 0.88 %}
-                <span class="intent-badge intent-high">⚡ {{ l.intent_score|floatformat:2 }} (بالا)</span>
+                <span class="intent-badge intent-high"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> {{ l.intent_score|floatformat:2 }} (بالا)</span>
               {% else %}
-                <span class="intent-badge intent-mid">✨ {{ l.intent_score|floatformat:2 }} (عادی)</span>
+                <span class="intent-badge intent-mid"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> {{ l.intent_score|floatformat:2 }} (عادی)</span>
               {% endif %}
             </td>
             <td>
@@ -1035,12 +1036,12 @@
             <td style="max-width:280px;">
               {% if l.source_post_url %}
                 <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.8rem; font-weight:700; color:#0284c7; display:inline-flex; align-items:center; gap:4px; margin-bottom:4px;">
-                  <span>🔗 مشاهده پست در اینستاگرام</span> ↗
+                  <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست در اینستاگرام</span> ↗
                 </a>
               {% endif %}
               {% if l.post_caption_snippet %}
                 <details style="margin-top:2px;">
-                  <summary style="font-size:0.74rem; color:var(--muted); cursor:pointer;">📄 پیش‌نمایش کپشن پست</summary>
+                  <summary style="font-size:0.74rem; color:var(--muted); cursor:pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> پیش‌نمایش کپشن پست</summary>
                   <div style="font-size:0.74rem; background:#fff; padding:6px; border-radius:4px; margin-top:4px; border:1px solid #cbd5e1; line-height:1.4; max-height:90px; overflow-y:auto;">
                     {{ l.post_caption_snippet }}
                   </div>
@@ -1050,9 +1051,9 @@
             <td>
               {% if l.matched_cta %}
                 {% if 'cta' in l.matched_cta or 'direct' in l.matched_cta %}
-                  <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.74rem;">⚡ CTA مستقیم (رایگان)</span>
+                  <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.74rem;"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> CTA مستقیم (رایگان)</span>
                 {% else %}
-                  <span class="pill" style="background:#fce7f3; color:#be185d; font-size:0.74rem;">🤖 ارزیابی Luna GPT-6</span>
+                  <span class="pill" style="background:#fce7f3; color:#be185d; font-size:0.74rem;"><svg class="ico" aria-hidden="true"><use href="#i-cpu"/></svg> ارزیابی Luna GPT-6</span>
                 {% endif %}
                 <div style="font-size:0.72rem; margin-top:3px; color:var(--muted);">{{ l.matched_cta|truncatechars:25 }}</div>
               {% else %}
@@ -1061,9 +1062,9 @@
             </td>
             <td>
               {% if l.status == 'DM_SENT' %}
-                <span class="badge-status active">✅ ارسال شد</span>
+                <span class="badge-status active"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> ارسال شد</span>
               {% elif l.status == 'NEW' %}
-                <span class="badge-status cooldown">⏳ در صف ارسال</span>
+                <span class="badge-status cooldown"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg> در صف ارسال</span>
               {% elif l.status == 'SKIPPED' %}
                 <span class="badge-status" style="background:#f1f5f9; color:#64748b;">رد شده</span>
               {% else %}
@@ -1085,7 +1086,7 @@
 <!-- TAB 5: SENDERS MANAGEMENT -->
 <div id="tab-senders" class="tab-pane">
   <div class="account-form">
-    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;">➕ ثبت اکانت فرستنده و پاسخگوی پیام (Sender Account)</h2>
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> ثبت اکانت فرستنده و پاسخگوی پیام (Sender Account)</h2>
     <form id="form-add-sender" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
       {% csrf_token %}
       <input type="hidden" name="role" value="SENDER">
@@ -1142,13 +1143,13 @@
             <td><span class="pill">{{ s.tenant_id }}</span></td>
             <td>
               {% if s.status == 'ACTIVE' %}
-                <span class="badge-status active" id="badge-{{ s.id }}">🟢 فعال و آماده</span>
+                <span class="badge-status active" id="badge-{{ s.id }}"><i class="dot dot-ok" aria-hidden="true"></i> فعال و آماده</span>
               {% elif s.status == 'COOLDOWN' %}
-                <span class="badge-status cooldown" id="badge-{{ s.id }}">🟡 استراحت تا {{ s.cooldown_until|time:"H:i" }}</span>
+                <span class="badge-status cooldown" id="badge-{{ s.id }}"><i class="dot dot-warn" aria-hidden="true"></i> استراحت تا {{ s.cooldown_until|time:"H:i" }}</span>
               {% elif s.status == 'CHALLENGED' %}
-                <span class="badge-status challenged" id="badge-{{ s.id }}">🟠 چالش امنیتی (کد تایید)</span>
+                <span class="badge-status challenged" id="badge-{{ s.id }}"><i class="dot dot-alert" aria-hidden="true"></i> چالش امنیتی (کد تایید)</span>
               {% else %}
-                <span class="badge-status banned" id="badge-{{ s.id }}">🔴 مسدود شده</span>
+                <span class="badge-status banned" id="badge-{{ s.id }}"><i class="dot dot-bad" aria-hidden="true"></i> مسدود شده</span>
               {% endif %}
               <span class="test-feedback" id="feedback-{{ s.id }}"></span>
             </td>
@@ -1156,8 +1157,8 @@
             <td class="jalali-time-cell">{% if s.last_action_at %}{{ s.last_action_at|time_ago_fa }}{% else %}—{% endif %}</td>
             <td>
               <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)" id="btn-test-{{ s.id }}">⚡ تست</button>
-                <button class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ s.id }}, '{{ s.username }}')" id="btn-challenge-{{ s.id }}">🔑 ثبت کد</button>
+                <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)" id="btn-test-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست</button>
+                <button class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ s.id }}, '{{ s.username }}')" id="btn-challenge-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت کد</button>
                 <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline;">
                   {% csrf_token %}
                   <button type="submit" class="btn sm danger">حذف</button>
@@ -1179,7 +1180,7 @@
 <div id="challengeModal" style="display:none; position:fixed; z-index:9999; inset:0; background:rgba(0,0,0,0.55); backdrop-filter:blur(3px); align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:12px; padding:24px; max-width:440px; width:90%; box-shadow:0 12px 30px rgba(0,0,0,0.25); direction:rtl; text-align:right;">
     <h3 style="margin-top:0; color:#c2410c; display:flex; align-items:center; gap:8px;">
-      <span>🔐</span>
+      <span><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span>
       <span>ثبت کد تایید امنیتی اینستاگرام</span>
     </h3>
     <p class="muted" id="modalAccountHint" style="font-size:0.88rem; line-height:1.6; margin:8px 0 16px;">
@@ -1202,7 +1203,7 @@
 <div id="sessionModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
   <div style="background:var(--card-bg, #fff); border-radius:12px; padding:24px; width:92%; max-width:500px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.3); border:1px solid var(--border);">
     <h3 style="margin-top:0; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-      <span>🍪 ثبت کوکی نشست (sessionid)</span>
+      <span><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت کوکی نشست (sessionid)</span>
     </h3>
     <p class="muted" id="modalSessionAccountHint" style="font-size:0.85rem; line-height:1.6; margin:8px 0 16px;">
       کوکی sessionid اکانت اینستاگرام را از مرورگر کپی و وارد نمایید تا سشن ۱۰۰٪ بدون چالش پسورد فعال شود:
@@ -1227,7 +1228,7 @@
 <div id="twitterSessionModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
   <div style="background:var(--card-bg, #fff); border-radius:12px; padding:24px; width:92%; max-width:520px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.3); border:1px solid var(--border); direction:rtl; text-align:right;">
     <h3 style="margin-top:0; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-      <span>🐦 ثبت و ویرایش سشن توییتر / X</span>
+      <span><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg> ثبت و ویرایش سشن توییتر / X</span>
     </h3>
     <p class="muted" id="modalTwitterSessionAccountHint" style="font-size:0.85rem; line-height:1.6; margin:8px 0 16px;">
       کوکی‌های نشست (auth_token و ct0) مربوط به اکانت را وارد نمایید تا سشن فعال و معتبر شود:
@@ -1289,7 +1290,7 @@
     e.preventDefault();
     const submitBtn = form.querySelector('button[type="submit"]');
     const origText = submitBtn.innerText;
-    submitBtn.innerText = '⏳ در حال ورود و احراز هویت در اینستاگرام...';
+    submitBtn.innerText = ' در حال ورود و احراز هویت در اینستاگرام...';
     submitBtn.disabled = true;
 
     const formData = new FormData(form);
@@ -1306,7 +1307,7 @@
       submitBtn.innerText = origText;
       submitBtn.disabled = false;
       if (data.success) {
-        alert('✅ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else if (data.requires_code) {
         openChallengeModal(data.account_id, data.username);
@@ -1314,7 +1315,7 @@
           document.getElementById('modalAccountHint').innerText = data.message;
         }
       } else {
-        alert('❌ ' + (data.message || 'خطا در ثبت اکانت'));
+        alert(' ' + (data.message || 'خطا در ثبت اکانت'));
       }
     })
     .catch(err => {
@@ -1360,7 +1361,7 @@
 
     errorEl.style.display = 'none';
     const origText = submitBtn.innerText;
-    submitBtn.innerText = '⏳ در حال تایید و ثبت سشن...';
+    submitBtn.innerText = ' در حال تایید و ثبت سشن...';
     submitBtn.disabled = true;
 
     fetch(`/manage/accounts/${accId}/code/`, {
@@ -1378,7 +1379,7 @@
       submitBtn.disabled = false;
       if (data.success) {
         closeChallengeModal();
-        alert('✅ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت کد تایید.';
@@ -1423,7 +1424,7 @@
 
     errorEl.style.display = 'none';
     const origText = submitBtn.innerText;
-    submitBtn.innerText = '⏳ در حال اتصال و ثبت سشن...';
+    submitBtn.innerText = ' در حال اتصال و ثبت سشن...';
     submitBtn.disabled = true;
 
     const formData = new FormData();
@@ -1443,10 +1444,10 @@
       submitBtn.disabled = false;
       if (data.success) {
         closeSessionModal();
-        alert('✅ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else if (data.deleted) {
-        alert('🗑️ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت سشن.';
@@ -1463,7 +1464,7 @@
 
   function testAccountLive(accId, btn) {
     const originalText = btn.innerText;
-    btn.innerText = "⏳ تست...";
+    btn.innerText = " تست...";
     btn.disabled = true;
 
     const feedback = document.getElementById('feedback-' + accId);
@@ -1489,16 +1490,16 @@
       if (badge && data.status) {
         badge.className = 'badge-status ' + data.status.toLowerCase();
         if (data.status === 'ACTIVE') {
-          badge.innerText = '🟢 متصل و فعال';
+          badge.innerText = ' متصل و فعال';
           if (challengeBtn) challengeBtn.style.display = 'none';
         } else if (data.status === 'COOLDOWN') {
-          badge.innerText = '🟡 استراحت';
+          badge.innerText = ' استراحت';
           if (challengeBtn) challengeBtn.style.display = 'none';
         } else if (data.status === 'CHALLENGED') {
-          badge.innerText = '🟠 چالش امنیتی (کد تایید)';
+          badge.innerText = ' چالش امنیتی (کد تایید)';
           if (challengeBtn) challengeBtn.style.display = 'inline-block';
         } else {
-          badge.innerText = '🔴 مسدود شده';
+          badge.innerText = ' مسدود شده';
           if (challengeBtn) challengeBtn.style.display = 'none';
         }
       }
@@ -1521,7 +1522,7 @@
     e.preventDefault();
     const submitBtn = form.querySelector('button[type="submit"]');
     const origText = submitBtn.innerText;
-    submitBtn.innerText = '⏳ در حال تست و ثبت اکانت...';
+    submitBtn.innerText = ' در حال تست و ثبت اکانت...';
     submitBtn.disabled = true;
 
     const formData = new FormData(form);
@@ -1538,10 +1539,10 @@
       submitBtn.innerText = origText;
       submitBtn.disabled = false;
       if (data.success) {
-        alert('✅ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else {
-        alert((data.success === false && data.account_id ? '⚠️ ' : '❌ ') + (data.message || 'خطا در ثبت اکانت'));
+        alert((data.success === false && data.account_id ? ' ' : ' ') + (data.message || 'خطا در ثبت اکانت'));
         window.location.reload();
       }
     })
@@ -1586,7 +1587,7 @@
 
     errorEl.style.display = 'none';
     const origText = submitBtn.innerText;
-    submitBtn.innerText = '⏳ در حال اتصال و اعتبارسنجی سشن...';
+    submitBtn.innerText = ' در حال اتصال و اعتبارسنجی سشن...';
     submitBtn.disabled = true;
 
     const formData = new FormData();
@@ -1608,10 +1609,10 @@
       submitBtn.disabled = false;
       if (data.success) {
         closeTwitterSessionModal();
-        alert('✅ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else if (data.deleted) {
-        alert('🗑️ ' + data.message);
+        alert(' ' + data.message);
         window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت سشن.';
@@ -1628,7 +1629,7 @@
 
   function testTwitterAccount(accId, btn) {
     const originalText = btn.innerText;
-    btn.innerText = "⏳ تست...";
+    btn.innerText = " تست...";
     btn.disabled = true;
 
     const msgEl = document.getElementById('tw-status-msg-' + accId);
@@ -1652,15 +1653,15 @@
 
       if (badge && data.status) {
         if (data.status === 'ACTIVE') {
-          badge.innerHTML = '<span class="badge-status active">🟢 فعال و متصل</span>';
+          badge.innerHTML = '<span class="badge-status active"> فعال و متصل</span>';
         } else if (data.status === 'COOLDOWN') {
-          badge.innerHTML = '<span class="badge-status cooldown">🟡 استراحت موقت (Rate Limit)</span>';
+          badge.innerHTML = '<span class="badge-status cooldown"> استراحت موقت (Rate Limit)</span>';
         } else if (data.status === 'CHALLENGED') {
-          badge.innerHTML = '<span class="badge-status challenged">🟠 نیازمند سشن معتبر</span>';
+          badge.innerHTML = '<span class="badge-status challenged"> نیازمند سشن معتبر</span>';
         } else if (data.status === 'BANNED') {
-          badge.innerHTML = '<span class="badge-status banned">🔴 مسدود شده</span>';
+          badge.innerHTML = '<span class="badge-status banned"> مسدود شده</span>';
         } else {
-          badge.innerHTML = `<span class="badge-status" style="background:#f1f5f9; color:#64748b;">⚪ ${data.status_display || data.status}</span>`;
+          badge.innerHTML = `<span class="badge-status" style="background:#f1f5f9; color:#64748b;"> ${data.status_display || data.status}</span>`;
         }
       }
       if (msgEl) {

@@ -9,7 +9,6 @@
   <div class="hero-fallback" aria-hidden="true"><i></i><i></i><i></i></div>
   <video class="hero-video" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture
          data-src="{% static 'images/coverr-50-sale-sign-on-the-street-5893-1080p.mp4' %}"></video>
-  <div class="hero-video-scrim" aria-hidden="true"></div>
 
   <!-- Navigation Bar -->
   <nav class="navbar" aria-label="ناوبری اصلی">
@@ -107,13 +106,7 @@
               <span aria-hidden="true">←</span>
             </a>
           </div>
-
-            <div style="margin-top: 10px; background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 10px; padding: 10px 12px; text-align: center;">
-              <p style="margin: 0; font-size: 0.78rem; color: #e2e8f0; line-height: 1.6;">
-                💡 جهت مشاهده اکانت های تست برای مشاهده نتایج میتوانید از قسمت ورود وارد شوید و اکانت های از پیش ساخته را مشاهده کنید یا ثبت نام کنید و خودتان کالا یا خدمات اضافه کنید.
-              </p>
-            </div>
-        {% endif %}
+{% endif %}
       </li>
     </ul>
 
@@ -152,93 +145,17 @@
     </div>
   </nav>
 
-  <!-- Test Accounts & Evaluation Notice (Directly under navbar/login section) -->
-  <div class="landing-eval-banner" style="max-width: 1320px; width: 100%; margin: -6px auto 20px auto; padding: 0 32px; box-sizing: border-box; position: relative; z-index: 15;">
-    <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 14px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; backdrop-filter: blur(12px); box-shadow: 0 4px 24px rgba(168, 85, 247, 0.18);">
-      <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 260px;">
-        <span style="font-size: 1.2rem; line-height: 1;">💡</span>
-        <span style="font-size: 0.86rem; color: #f1f5f9; line-height: 1.6; font-weight: 500;">
-          جهت مشاهده اکانت های تست برای مشاهده نتایج میتوانید از <a href="{% url 'accounts:login' %}" style="color: #c084fc; font-weight: 700; text-decoration: underline;">قسمت ورود</a> وارد شوید و اکانت های از پیش ساخته را مشاهده کنید یا <a href="{% url 'accounts:signup' %}" style="color: #38bdf8; font-weight: 700; text-decoration: underline;">ثبت نام</a> کنید و خودتان کالا یا خدمات اضافه کنید.
-        </span>
-      </div>
-      <a href="{% url 'accounts:login' %}" style="background: rgba(168, 85, 247, 0.28); color: #f3e8ff; border: 1px solid rgba(168, 85, 247, 0.5); padding: 8px 16px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
-        <span>ورود به اکانت‌های تست</span>
-        <span aria-hidden="true">←</span>
-      </a>
-    </div>
-  </div>
-
-
-  <!-- Hero Content Body -->
+  <!-- Hero: raw video + the headline only -->
   <div class="hero-body">
-    <div class="hero-copy">
-      <div class="hero-badge">
-        <span class="console-pulse-beacon" style="display: inline-block; width: 7px; height: 7px;"></span>
-        <span>هوش مصنوعی کشف تقاضا در گفتگوهای آنلاین</span>
-      </div>
-
-      <h1 class="hero-title">
-        همین الان مشتری بالقوه‌ات رو<br>
-        <span class="gradient-text">به خریدار تبدیل کن با «پیدا»!</span>
-      </h1>
-
-      <p class="hero-desc">
-        کسب‌وکارت و محصولت رو معرفی کن؛ ایجنت هوشمند ما بین گفتگوهای آنلاین در شبکه‌های اجتماعی دنبال افرادی می‌گرده که واقعاً به چیزی که می‌فروشی نیاز دارن.
-      </p>
-
-      <!-- Capsule Search / Action Bar (Directly Inspired by Reference Image) -->
-      <form class="hero-search-capsule" id="hero-search-form" action="#فرصت-ها">
-        <div class="search-input-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-        </div>
-        <input 
-          type="text" 
-          class="hero-search-input" 
-          id="hero-product-input" 
-          placeholder="مثلاً: مانتو تابستانی یا جاروبرقی" 
-          aria-label="نام یا شرح محصول شما">
-        <button type="submit" class="hero-search-btn">
-          <span>پیدا کردن مشتری</span>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        </button>
-      </form>
-
-      <div class="hero-aux-actions">
-        <a class="hero-link-btn" href="#روش-کار">
-          <span>ببین چطور کار می‌کنه</span>
-          <span aria-hidden="true">↓</span>
-        </a>
-        <div class="hero-metric-pill">
-          <span class="metric-dot"></span>
-          <span>۹۴٪ دقت در سنجش قصد خرید | بدون جستجوی دستی</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Hero Visual Area: live signal card floating over the video -->
-    <div class="hero-visual" aria-hidden="true">
-      <!-- Live Signal Bubble -->
-      <aside class="live-signal-bubble">
-        <div class="bubble-header">
-          <span>سیگنال خرید جدید · تلگرام</span>
-          <span>همین الان</span>
-        </div>
-        <p class="bubble-text">
-          «کسی دوره پروژه محور پایتون با پشتیبانی فعال سراغ داره؟ می‌خوام سریع شروع کنم.»
-        </p>
-      </aside>
-    </div>
+    <h1 class="hero-title" id="hero-title">
+      <span class="hero-line">همین الان مشتری بالقوه‌ات رو</span>
+      <span class="hero-line hero-line-2">به خریدار تبدیل کن با «پیدا»!</span>
+    </h1>
   </div>
+  <a class="hero-scroll-cue" href="#روش-کار" aria-label="رفتن به ادامه صفحه">
+    <svg class="ico" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+  </a>
 
-  <!-- Organic Wave Divider to Content -->
-  <div class="hero-wave-divider" aria-hidden="true">
-    <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
-      <path d="M0,32L60,42.7C120,53,240,75,360,74.7C480,75,600,53,720,48C840,43,960,53,1080,64C1200,75,1320,85,1380,90.7L1440,96L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"></path>
-    </svg>
-  </div>
 </header>
 
 <main>

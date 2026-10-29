@@ -18,10 +18,12 @@
       } catch (_) {}
     })();
   </script>
-  <link rel="stylesheet" href="{% static 'css/site.css' %}?v=20261029_2">
-  <script src="{% static 'js/site.js' %}?v=20261010_1545" defer></script>
+  <link rel="stylesheet" href="{% static 'css/site.css' %}?v=20261030_1">
+  <script src="{% static 'js/site.js' %}?v=20261030_1" defer></script>
+  <link rel="stylesheet" href="{% static 'css/ui.css' %}?v=20261030_1">
 </head>
 <body>
+  {% include 'partials/icons.html' %}
   {% block body %}{% endblock %}
 </body>
 </html>

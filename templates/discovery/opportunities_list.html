@@ -39,12 +39,13 @@
       <span>خروجی اکسل (Excel .csv)</span>
       <span style="background: rgba(16, 185, 129, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">{{ stats.filtered_count }} ردیف</span>
     </a>
+  </div>
 </div>
 
 {% if all_businesses %}
 <div class="p-card" style="padding: 14px 20px; margin-bottom: 20px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
   <div style="display: flex; align-items: center; gap: 10px;">
-    <span style="font-size: 1.2rem;">🏢</span>
+    <span style="font-size: 1.2rem;"><svg class="ico" aria-hidden="true"><use href="#i-building"/></svg></span>
     <div>
       <strong style="font-size: 0.95rem; color: var(--panel-text-main);">دیدگاه مدیر کل سیستم — فیلتر تفکیک فرصت‌های هر کسب‌وکار (Tenants):</strong>
       <div style="font-size: 0.8rem; color: var(--stone-text-muted);">کسب‌وکار فعال کنونی: <strong style="color: var(--brand-purple);">{{ selected_business.name }}</strong> (شناسه #{{ selected_business.id }})</div>
@@ -85,7 +86,7 @@
       <span style="font-size: 0.78rem; color: var(--stone-text-muted); display: block;">فرصت‌های طلایی (نیت ≥ ۹۰٪)</span>
       <strong style="font-size: 1.4rem; color: #ca8a04; font-weight: 700;">{{ stats.high_intent }}</strong>
       {% if selected_min_intent == '90' %}
-        <span style="font-size: 0.7rem; color: #ca8a04; font-weight: 600; display: block;">(فیلتر فعال است ✕)</span>
+        <span style="font-size: 0.7rem; color: #ca8a04; font-weight: 600; display: block;">(فیلتر فعال است <svg class="ico" aria-hidden="true"><use href="#i-x"/></svg>)</span>
       {% endif %}
     </div>
   </a>
@@ -167,7 +168,7 @@
       <!-- Catalog Product Filter (Target Product) -->
       <div>
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
-          🎯 فیلتر بر اساس کالای پیشنهادی کاتالوگ:
+          <svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> فیلتر بر اساس کالای پیشنهادی کاتالوگ:
         </label>
         <select id="product-filter-select" name="product_id" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
           <option value="">همه کالاها و خدمات کاتالوگ (همه خریداران)</option>
@@ -182,14 +183,14 @@
       <!-- Sorting Selector -->
       <div>
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
-          ⚡️ مرتب‌سازی نتایج:
+          <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> مرتب‌سازی نتایج:
         </label>
         <select id="sort-select" name="sort" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
           <option value="source_newest" {% if selected_sort == 'source_newest' %}selected{% endif %}>جدیدترین پست منبع</option>
-          <option value="intent_desc" {% if selected_sort == 'intent_desc' %}selected{% endif %}>بیشترین احتمال خرید (نیت مشتری) ⚡️</option>
+          <option value="intent_desc" {% if selected_sort == 'intent_desc' %}selected{% endif %}>بیشترین احتمال خرید (نیت مشتری) <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg></option>
           <option value="newest" {% if selected_sort == 'newest' %}selected{% endif %}>جدیدترین زمان (تقویم شمسی) ⏱</option>
           <option value="oldest" {% if selected_sort == 'oldest' %}selected{% endif %}>قدیمی‌ترین زمان (تقویم شمسی)</option>
-          <option value="fit_desc" {% if selected_sort == 'fit_desc' %}selected{% endif %}>بیشترین انطباق با کاتالوگ 🎯</option>
+          <option value="fit_desc" {% if selected_sort == 'fit_desc' %}selected{% endif %}>بیشترین انطباق با کاتالوگ <svg class="ico" aria-hidden="true"><use href="#i-target"/></svg></option>
           <option value="cost_desc" {% if selected_sort == 'cost_desc' %}selected{% endif %}>بیشترین هزینه پردازش AI (تومان)</option>
           <option value="intent_asc" {% if selected_sort == 'intent_asc' %}selected{% endif %}>کمترین احتمال خرید</option>
         </select>
@@ -198,7 +199,7 @@
       <!-- Jalali Date Range: From -->
       <div>
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
-          📅 از تاریخ شمسی:
+          <svg class="ico" aria-hidden="true"><use href="#i-calendar"/></svg> از تاریخ شمسی:
         </label>
         <input type="text" name="date_from" value="{{ date_from|default:'' }}" placeholder="سال/ماه/روز" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
       </div>
@@ -206,7 +207,7 @@
       <!-- Jalali Date Range: To -->
       <div>
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
-          📅 تا تاریخ شمسی:
+          <svg class="ico" aria-hidden="true"><use href="#i-calendar"/></svg> تا تاریخ شمسی:
         </label>
         <input type="text" name="date_to" value="{{ date_to|default:'' }}" placeholder="سال/ماه/روز" class="form-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right;">
       </div>
@@ -214,11 +215,11 @@
       <!-- Min Intent / Purchase Probability Filter -->
       <div>
         <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
-          🌟 نیت خرید (احتمال خرید):
+          <svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> نیت خرید (احتمال خرید):
         </label>
         <select name="min_intent" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
           <option value="">همه سطوح نیت</option>
-          <option value="90" {% if selected_min_intent == '90' %}selected{% endif %}>🌟 فقط فرصت‌های طلایی (≥ ۹۰٪)</option>
+          <option value="90" {% if selected_min_intent == '90' %}selected{% endif %}><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> فقط فرصت‌های طلایی (≥ ۹۰٪)</option>
           <option value="80" {% if selected_min_intent == '80' %}selected{% endif %}>نیت خرید بالا (≥ ۸۰٪)</option>
           <option value="70" {% if selected_min_intent == '70' %}selected{% endif %}>نیت متوسط به بالا (≥ ۷۰٪)</option>
         </select>
@@ -281,7 +282,7 @@
       <!-- Active Filter Banner Hint -->
       {% if selected_product_id %}
         <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.25); padding: 6px 12px; border-radius: 8px; font-size: 0.78rem; color: var(--brand-purple); display: flex; align-items: center; gap: 6px;">
-          <span>✓ فیلتر کالا فعال است: خریداران به ترتیب بیشترین احتمال خرید چیده شده‌اند.</span>
+          <span><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> فیلتر کالا فعال است: خریداران به ترتیب بیشترین احتمال خرید چیده شده‌اند.</span>
         </div>
       {% endif %}
     </div>
@@ -356,7 +357,7 @@
           </div>
           <div class="opp-metrics">
             {% if opp.intent_score_percentage >= 90 %}
-              <span class="opp-chip" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;">🌟 فرصت طلایی</span>
+              <span class="opp-chip" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> فرصت طلایی</span>
             {% endif %}
             <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">
               احتمال خرید <b>{{ opp.intent_score_percentage }}٪</b>
@@ -381,18 +382,18 @@
             <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
               {% if opp.instagram_post_url %}
                 <a href="{{ opp.instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #0284c7; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                  <span>🔗 مشاهده پست مبدأ</span> ↗
+                  <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست مبدأ</span> ↗
                 </a>
               {% endif %}
               {% if opp.customer_profile_url %}
                 <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #e1306c; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                  <span>👤 پروفایل خریدار (ارسال دایرکت)</span> ↗
+                  <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> پروفایل خریدار (ارسال دایرکت)</span> ↗
                 </a>
               {% endif %}
             </div>
             {% if opp.instagram_post_caption %}
               <details style="margin-top: 4px;">
-                <summary style="font-size: 0.73rem; color: var(--stone-text-muted); cursor: pointer;">📄 پیش‌نمایش کپشن پست</summary>
+                <summary style="font-size: 0.73rem; color: var(--stone-text-muted); cursor: pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> پیش‌نمایش کپشن پست</summary>
                 <p style="font-size: 0.74rem; background: var(--stone-surface-sunken); padding: 6px 8px; border-radius: 6px; margin-top: 4px; line-height: 1.4; color: var(--panel-text-main);">
                   {{ opp.instagram_post_caption|truncatechars:180 }}
                 </p>
@@ -403,12 +404,12 @@
               {% if opp.x_post_url %}
                 <a href="{{ opp.x_post_url }}" target="_blank" rel="noopener noreferrer" style="color: #1DA1F2; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                  <span>🔗 مشاهده توییت اصلی در X</span> ↗
+                  <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده توییت اصلی در X</span> ↗
                 </a>
               {% endif %}
               {% if opp.customer.source_username %}
                 <a href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                  <span>👤 پروفایل نویسنده (@{{ opp.customer.source_username|cut:'@' }})</span> ↗
+                  <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> پروفایل نویسنده (@{{ opp.customer.source_username|cut:'@' }})</span> ↗
                 </a>
               {% endif %}
             </div>
@@ -512,15 +513,15 @@
             {% if opp.source_platform == 'x' %}
               <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer" class="p-btn p-btn-sm p-btn-ghost" style="padding: 2px 8px; font-size: 0.74rem; color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.35); border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
                 <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                <span>👤 پروفایل نویسنده (@{{ opp.customer.source_username|cut:'@' }})</span> ↗
+                <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> پروفایل نویسنده (@{{ opp.customer.source_username|cut:'@' }})</span> ↗
               </a>
             {% elif opp.source_platform == 'instagram' %}
               <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" class="p-btn p-btn-sm p-btn-ghost" style="padding: 2px 8px; font-size: 0.74rem; color: #e1306c; border: 1px solid rgba(225, 48, 108, 0.3); border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
-                <span>👤 مشاهده پروفایل (ارسال دایرکت)</span> ↗
+                <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> مشاهده پروفایل (ارسال دایرکت)</span> ↗
               </a>
             {% else %}
               <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer" class="p-btn p-btn-sm p-btn-ghost" style="padding: 2px 8px; font-size: 0.74rem; color: #0088cc; border: 1px solid rgba(0, 136, 204, 0.3); border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
-                <span>👤 مشاهده پروفایل</span> ↗
+                <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> مشاهده پروفایل</span> ↗
               </a>
             {% endif %}
           {% endif %}
@@ -540,7 +541,7 @@
 
         <div style="display: flex; align-items: center; gap: 10px;">
           {% if opp.intent_score_percentage >= 90 %}
-            <span class="p-badge" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;">🌟 فرصت طلایی</span>
+            <span class="p-badge" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> فرصت طلایی</span>
           {% endif %}
           <div style="display: flex; align-items: center; gap: 6px; background: rgba(168, 85, 247, 0.1); padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.25);">
             <span style="font-size: 0.74rem; color: var(--brand-purple);">نیت خرید:</span>
@@ -581,11 +582,11 @@
         {% if opp.source_platform == 'instagram' and opp.instagram_post_url %}
           <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <a href="{{ opp.instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #0284c7; font-weight: 700; text-decoration: none;">
-              🔗 مشاهده پست در اینستاگرام ↗
+              <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست در اینستاگرام ↗
             </a>
             {% if opp.instagram_post_caption %}
               <details>
-                <summary style="font-size: 0.74rem; color: var(--stone-text-muted); cursor: pointer;">📄 پیش‌نمایش کپشن</summary>
+                <summary style="font-size: 0.74rem; color: var(--stone-text-muted); cursor: pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> پیش‌نمایش کپشن</summary>
                 <div style="font-size: 0.75rem; background: #fff; padding: 6px; border-radius: 6px; margin-top: 4px; border: 1px solid var(--panel-border-subtle); line-height: 1.4; max-width: 380px;">
                   {{ opp.instagram_post_caption|truncatechars:180 }}
                 </div>
@@ -596,7 +597,7 @@
           <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <a href="{{ opp.x_post_url }}" target="_blank" rel="noopener noreferrer" style="color: #1DA1F2; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-              <span>🔗 مشاهده توییت اصلی در X (توییتر) ↗</span>
+              <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده توییت اصلی در X (توییتر) ↗</span>
             </a>
           </div>
         {% endif %}
@@ -737,7 +738,7 @@
       const text = el.textContent.trim();
       navigator.clipboard.writeText(text).then(() => {
         const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<span>✓ کپی شد!</span>';
+        btn.innerHTML = '<span> کپی شد!</span>';
         btn.style.color = '#10B981';
         btn.style.borderColor = '#10B981';
         setTimeout(() => {

@@ -71,8 +71,6 @@ body{background:radial-gradient(ellipse at 85% 0%,rgba(232,38,142,.22),transpare
 .card{border-inline-start:3px solid #e8268e}
 img,video,svg,canvas{max-width:100%;height:auto}
 .ops-main,.ops-content{min-width:0}
-@media (max-width:860px){.grid,.cards,.kpis{grid-template-columns:1fr 1fr!important}}
-@media (max-width:480px){.grid,.cards,.kpis{grid-template-columns:1fr!important}}
 
 /* /manage/ tables → stacked cards on phones (labels filled from <thead> by manage_dashboard.html) */
 @media (max-width:720px){

@@ -157,7 +157,7 @@
             <div>
               <a href="{{ opportunity.x_post_url }}" target="_blank" rel="noopener noreferrer" class="p-btn p-btn-sm" style="background: rgba(29, 161, 242, 0.12); color: #1DA1F2; border: 1px solid rgba(29, 161, 242, 0.35); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                <span>🔗 مشاهده مستقیم توییت در X (توییتر)</span> ↗
+                <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده مستقیم توییت در X (توییتر)</span> ↗
               </a>
             </div>
           </div>
@@ -170,12 +170,12 @@
           <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--panel-border-subtle); display: flex; flex-direction: column; gap: 8px;">
             <div>
               <a href="{{ opportunity.instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow" class="p-btn p-btn-sm" style="background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <span>🔗 مشاهده مستقیم این پست در اینستاگرام</span> ↗
+                <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده مستقیم این پست در اینستاگرام</span> ↗
               </a>
             </div>
             {% if opportunity.instagram_post_caption %}
               <details style="width: 100%; margin-top: 4px;">
-                <summary style="font-size: 0.8rem; color: var(--stone-text-muted); cursor: pointer;">📄 مشاهده کامل متن کپشن پست مبدأ</summary>
+                <summary style="font-size: 0.8rem; color: var(--stone-text-muted); cursor: pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> مشاهده کامل متن کپشن پست مبدأ</summary>
                 <div style="font-size: 0.82rem; line-height: 1.6; background: rgba(255, 255, 255, 0.8); padding: 10px 14px; border-radius: 8px; margin-top: 6px; border: 1px solid var(--panel-border-subtle); max-height: 220px; overflow-y: auto;">
                   {{ opportunity.instagram_post_caption }}
                 </div>
@@ -443,7 +443,7 @@
       </button>
 
       <div id="status-toast" style="display: none; margin-top: 10px; font-size: 0.76rem; color: #10B981; text-align: center;">
-        ✓ وضعیت با موفقیت ذخیره شد.
+        <svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> وضعیت با موفقیت ذخیره شد.
       </div>
     </div>
 
@@ -567,7 +567,7 @@ document.addEventListener("DOMContentLoaded", function() {
   copyBtn.addEventListener("click", function() {
     navigator.clipboard.writeText(replyBox.value).then(function() {
       const orig = copyBtnText.textContent;
-      copyBtnText.textContent = "✓ کپی شد!";
+      copyBtnText.textContent = " کپی شد!";
       copyBtn.style.background = "#10B981";
       setTimeout(function() {
         copyBtnText.textContent = orig;

@@ -7,25 +7,27 @@
   <link rel="preload" href="{% static 'fonts/Vazirmatn-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
   <link rel="stylesheet" href="{% static 'css/ops.css' %}">
+  <link rel="stylesheet" href="{% static 'css/ui.css' %}?v=20261030_1">
 </head>
 <body>
+{% include 'partials/icons.html' %}
 <div class="ops-layout">
   <aside class="ops-side">
     <div class="ops-brand">مشتری‌یاب<small>پنل مدیریت</small></div>
     <div class="ops-side-nav">
-      <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' %}on{% endif %}">🤖 اسکرپر و لیدهای اینستاگرام</a>
-      <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}">داشبورد و وضعیت سرویس‌ها</a>
-      <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}">هزینه‌ها</a>
-      <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}">قیف و کیفیت سرنخ</a>
-      <a href="{% url 'ops:providers' %}" class="{% if nav == 'providers' %}on{% endif %}">سرویس‌دهنده‌ها و مدل‌ها</a>
-      <a href="{% url 'ops:wallets' %}" class="{% if nav == 'wallets' %}on{% endif %}">کیف پول فروشنده‌ها</a>
-      <a href="{% url 'ops:communities' %}" class="{% if nav == 'communities' %}on{% endif %}">گروه‌های تلگرام</a>
-      <a href="{% url 'ops:x' %}" class="{% if nav == 'x' %}on{% endif %}">ایکس (توییتر)</a>
-      <a href="{% url 'ops:settings' %}" class="{% if nav == 'settings' %}on{% endif %}">تنظیمات پرداخت</a>
+      <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-cpu"/></svg> اسکرپر و لیدهای اینستاگرام</a>
+      <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg> داشبورد و وضعیت سرویس‌ها</a>
+      <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-cash"/></svg> هزینه‌ها</a>
+      <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> قیف و کیفیت سرنخ</a>
+      <a href="{% url 'ops:providers' %}" class="{% if nav == 'providers' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg> سرویس‌دهنده‌ها و مدل‌ها</a>
+      <a href="{% url 'ops:wallets' %}" class="{% if nav == 'wallets' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg> کیف پول فروشنده‌ها</a>
+      <a href="{% url 'ops:communities' %}" class="{% if nav == 'communities' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> گروه‌های تلگرام</a>
+      <a href="{% url 'ops:x' %}" class="{% if nav == 'x' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg> ایکس (توییتر)</a>
+      <a href="{% url 'ops:settings' %}" class="{% if nav == 'settings' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg> تنظیمات پرداخت</a>
       <hr>
-      <a href="{% url 'admin:index' %}">ادمین جنگو</a>
-      <a href="{% url 'accounts:dashboard' %}">پنل فروشنده</a>
-      <a href="{% url 'accounts:logout' %}">خروج</a>
+      <a href="{% url 'admin:index' %}"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg> ادمین جنگو</a>
+      <a href="{% url 'accounts:dashboard' %}"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg> پنل فروشنده</a>
+      <a href="{% url 'accounts:logout' %}"><svg class="ico" aria-hidden="true"><use href="#i-logout"/></svg> خروج</a>
     </div>
   </aside>
   <main class="ops-main">
@@ -33,5 +35,6 @@
     {% block content %}{% endblock %}
   </main>
 </div>
+  <script src="{% static 'js/ui.js' %}?v=20261030_1" defer></script>
 </body>
 </html>

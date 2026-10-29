@@ -130,7 +130,7 @@ BUY_CUES_PATTERN = re.compile(
 def is_generic_compliment_comment(comment_text: str) -> bool:
     """
     Identifies pure compliments, emoji-only, or nostalgic remarks that have
-    ZERO buying intent (e.g. 'چقد زیبا😍👏', 'عالیه داداش', 'خسته نباشید مهندس').
+    ZERO buying intent (e.g. 'چقد زیبا', 'عالیه داداش', 'خسته نباشید مهندس').
     Filtering these early burns ZERO LLM tokens!
     """
     if not comment_text or not comment_text.strip():
