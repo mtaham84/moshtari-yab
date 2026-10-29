@@ -71,41 +71,43 @@ from xray.multi_proxy_manager import (
 )
 
 
-def get_proxy_dict() -> dict[str, str] | None:
-    """Returns requests-compatible proxy dict using local Xray proxy."""
-    # Check if inside container or on host
-    proxy_candidates = [
-        os.environ.get("TG_BOT_PROXY"),
-        "socks5h://127.0.0.1:1080",
-        "http://127.0.0.1:8080",
-        "socks5h://xray:1080",
-        "http://xray:8080",
-    ]
-    for p in proxy_candidates:
-        if p:
-            return {"http": p, "https": p}
-    return None
+def get_proxy_candidates() -> list[str]:
+    """Returns list of proxy candidates to try for Telegram API."""
+    candidates = []
+    if os.environ.get("TG_BOT_PROXY"):
+        candidates.append(os.environ["TG_BOT_PROXY"].strip())
+    if Path("/.dockerenv").exists():
+        candidates.extend(["socks5h://xray:1080", "http://xray:8080"])
+    else:
+        candidates.extend(["socks5h://127.0.0.1:1080", "http://127.0.0.1:8080"])
+    return candidates
 
 
 def tg_request(method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any] | None:
-    """Sends a request to Telegram Bot API via requests library using proxy."""
+    """Sends a request to Telegram Bot API via requests library using local proxy."""
     import requests
     url = f"{TG_API_BASE}/{method}"
-    proxies = get_proxy_dict()
+    candidates = get_proxy_candidates()
 
-    try:
-        if payload:
-            resp = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
-        else:
-            resp = requests.get(url, proxies=proxies, timeout=timeout)
+    last_exc = None
+    for proxy_url in candidates:
+        proxies = {"http": proxy_url, "https": proxy_url}
+        try:
+            if payload:
+                resp = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
+            else:
+                resp = requests.get(url, proxies=proxies, timeout=timeout)
 
-        data = resp.json()
-        if not data.get("ok"):
-            log.warning("Telegram API error (%s): %s", method, data)
-        return data
-    except Exception as exc:
-        log.warning("Telegram request failed (%s): %s", method, exc)
-        return None
+            data = resp.json()
+            if not data.get("ok"):
+                log.warning("Telegram API error (%s): %s", method, data)
+            return data
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    log.warning("Telegram request failed (%s) across all proxy candidates: %s", method, last_exc)
+    return None
 
 
 def send_message(chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None, parse_mode: str = "HTML") -> None:

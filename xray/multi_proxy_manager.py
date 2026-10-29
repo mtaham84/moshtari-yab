@@ -24,10 +24,19 @@ from typing import Any
 
 log = logging.getLogger("multi_proxy_manager")
 
-BASE_DIR = Path(os.environ.get("XRAY_DIR", "/root/moshtari-yab/xray"))
-if not BASE_DIR.exists():
-    BASE_DIR = Path(__file__).resolve().parent
+def _get_base_dir() -> Path:
+    env_dir = os.environ.get("XRAY_DIR")
+    if env_dir:
+        return Path(env_dir)
+    try:
+        p = Path("/root/moshtari-yab/xray")
+        if p.is_dir():
+            return p
+    except Exception:
+        pass
+    return Path(__file__).resolve().parent
 
+BASE_DIR = _get_base_dir()
 CONFIG_FILE = BASE_DIR / "config.json"
 XRAY_BIN = Path("/usr/local/bin/xray")
 if not XRAY_BIN.exists():
@@ -36,6 +45,22 @@ if not XRAY_BIN.exists():
 PROBE_URL = os.environ.get("PROBE_URL", "https://api.telegram.org")
 BASE_LOCAL_PORT = 1081
 
+# Permanent fallback tunnel to ensure Iran server never loses access to Telegram/external APIs
+DEFAULT_BACKUP_TUNNEL = {
+    "tag": "default_proxy",
+    "protocol": "shadowsocks",
+    "settings": {
+        "servers": [
+            {
+                "address": "87.107.104.4",
+                "port": 2083,
+                "method": "chacha20-ietf-poly1305",
+                "password": "ayC61MsT3ztDAgq5YgiMAg"
+            }
+        ]
+    }
+}
+
 
 def _ensure_django() -> None:
     import sys
@@ -43,14 +68,17 @@ def _ensure_django() -> None:
     if not os.environ.get("DJANGO_SETTINGS_MODULE"):
         sys.path.insert(0, "/root/moshtari-yab")
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        for env_candidate in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().parent.parent / ".env"]:
-            if env_candidate.exists():
-                with open(env_candidate, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, v = line.split("=", 1)
-                            os.environ.setdefault(k.strip(), v.strip())
+        for env_candidate in [Path(__file__).resolve().parent.parent / ".env", Path("/root/moshtari-yab/.env")]:
+            try:
+                if env_candidate.is_file():
+                    with open(env_candidate, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#") and "=" in line:
+                                k, v = line.split("=", 1)
+                                os.environ.setdefault(k.strip(), v.strip())
+            except Exception:
+                pass
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
         if not Path("/.dockerenv").exists():
             if os.environ.get("POSTGRES_HOST") in (None, "db", "172.18.0.3"):
@@ -475,6 +503,10 @@ def rebuild_xray_config_file() -> bool:
         default_ob = dict(outbounds[0])
         default_ob["tag"] = "default_proxy"
         outbounds.insert(0, default_ob)
+    else:
+        # DB has 0 active proxies: inject the permanent fallback tunnel as default_proxy
+        # so Xray and the Telegram bot never lose outbound connectivity to filtered services.
+        outbounds.insert(0, dict(DEFAULT_BACKUP_TUNNEL))
 
     # Tags must be unique or Xray refuses to start ("existing tag found")
     if not any(o.get("tag") == "direct" for o in outbounds):
