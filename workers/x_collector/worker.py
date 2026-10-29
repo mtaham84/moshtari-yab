@@ -516,6 +516,12 @@ def collect_forever(collector: XCollector, queries: list[str] | Callable[[], lis
             if mock_records is None:
                 charge_searches(getattr(collector, "searches", []))
                 record_searches(getattr(collector, "searches", []))
+                try:
+                    from workers.x_collector.proqe import sync_bandit_feedback
+                    if collector.state:
+                        sync_bandit_feedback(collector.state)
+                except Exception as exc:
+                    log.error("Bandit feedback sync failed: %s", exc)
         if result["status"] == "RATE_LIMITED":
             log.warning("X rate limited; sleeping for 15 minutes before retry...")
             time.sleep(900)

@@ -19,8 +19,15 @@ class SeenStore:
             db.execute("CREATE TABLE IF NOT EXISTS daily_counts (platform TEXT NOT NULL, day TEXT NOT NULL, collected INTEGER NOT NULL, PRIMARY KEY(platform,day))")
             db.execute("CREATE TABLE IF NOT EXISTS collector_settings (platform TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(platform,key))")
             db.execute("CREATE TABLE IF NOT EXISTS query_runs (query TEXT NOT NULL, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, platform TEXT NOT NULL DEFAULT 'x', PRIMARY KEY(platform,query))")
-            if "last_ok_at" not in {row[1] for row in db.execute("PRAGMA table_info(query_runs)")}:
+            q_cols = {row[1] for row in db.execute("PRAGMA table_info(query_runs)")}
+            if "last_ok_at" not in q_cols:
                 db.execute("ALTER TABLE query_runs ADD COLUMN last_ok_at TEXT")
+            if "alpha" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN alpha REAL NOT NULL DEFAULT 1.0")
+            if "beta" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN beta REAL NOT NULL DEFAULT 1.0")
+            if "leads_count" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN leads_count INTEGER NOT NULL DEFAULT 0")
             db.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS seed_progress (seed TEXT NOT NULL, last_seen_at TEXT, updated_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,seed))")
             db.execute("CREATE TABLE IF NOT EXISTS comments_fetched (post_shortcode TEXT NOT NULL, fetched_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,post_shortcode))")
@@ -224,24 +231,54 @@ class SeenStore:
             db.commit()
 
     def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+        import random
         now = datetime.now(timezone.utc)
         with closing(sqlite3.connect(self.path)) as db:
             for item in queries:
                 db.execute("INSERT INTO query_runs(query,kind,priority,platform) VALUES(?,?,?,?) ON CONFLICT(platform,query) DO UPDATE SET kind=excluded.kind,priority=excluded.priority",
                            (item["query"], item.get("kind", "product"), item.get("priority", 1.0), self.platform))
-            rows = db.execute("SELECT query,kind,priority,last_run_at,runs FROM query_runs WHERE platform=? AND query IN (%s)" % ",".join("?" for _ in queries),
+            rows = db.execute("SELECT query,kind,priority,last_run_at,runs,alpha,beta,leads_count FROM query_runs WHERE platform=? AND query IN (%s)" % ",".join("?" for _ in queries),
                               [self.platform, *[item["query"] for item in queries]]).fetchall() if queries else []
             by_query = {row[0]: row for row in rows}
 
             def score(item):
                 row = by_query[item["query"]]
                 last, kind = row[3], row[1]
-                stale = 1e12 if not last else max(1.0, (now - datetime.fromisoformat(last)).total_seconds())
-                return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 1.0)), item["query"]
+                priority = float(row[2])
+                kind_wt = {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 0.8)
+                if not last or row[4] == 0:
+                    return -(1e12 * priority * kind_wt), item["query"]
+                stale = max(1.0, (now - datetime.fromisoformat(last)).total_seconds())
+                alpha = max(0.1, float(row[5] if row[5] is not None else 1.0))
+                beta = max(0.1, float(row[6] if row[6] is not None else 1.0))
+                # Thompson Sampling from Beta(alpha, beta)
+                theta = random.betavariate(alpha, beta)
+                return -(stale * priority * kind_wt * (0.2 + 0.8 * theta)), item["query"]
 
             selected = sorted(queries, key=score)[:max(0, budget)]
             db.commit()
             return selected
+
+    def record_feedback(self, query: str, success: bool, weight: float = 1.0) -> None:
+        """Bandit reinforcement: success increases alpha (reward), failure increases beta (penalty)."""
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("INSERT INTO query_runs(platform, query, kind, alpha, beta, leads_count) VALUES(?, ?, 'product', 1.0, 1.0, 0) ON CONFLICT(platform, query) DO NOTHING",
+                       (self.platform, query))
+            if success:
+                db.execute("UPDATE query_runs SET alpha = alpha + ?, leads_count = leads_count + 1 WHERE platform=? AND query=?",
+                           (weight, self.platform, query))
+            else:
+                db.execute("UPDATE query_runs SET beta = beta + ? WHERE platform=? AND query=?",
+                           (weight, self.platform, query))
+            db.commit()
+
+    def get_query_bandit_stats(self, query: str) -> dict[str, Any]:
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT alpha, beta, leads_count, runs, fetched FROM query_runs WHERE platform=? AND query=?",
+                             (self.platform, query)).fetchone()
+            if row:
+                return {"alpha": row[0], "beta": row[1], "leads": row[2], "runs": row[3], "fetched": row[4]}
+            return {"alpha": 1.0, "beta": 1.0, "leads": 0, "runs": 0, "fetched": 0}
 
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:

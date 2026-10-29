@@ -68,9 +68,22 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
         try:
             from need_engine.llm import LLMClient
             from workers.x_collector.llm_terms import llm_terms
+            from workers.x_collector.proqe import expand_queries_with_proqe, ExemplarStore
 
-            terms = llm_terms(products, cards, store, LLMClient(config, store), config.extract_model,
+            llm_inst = LLMClient(config, store)
+            terms = llm_terms(products, cards, store, llm_inst, config.extract_model,
                               batch_size=int(os.getenv("X_QUERY_LLM_BATCH", "15")))
+
+            state_file = os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3")
+            exemplar_store = ExemplarStore(state_file)
+            for product in products:
+                pid = str(getattr(product, "product_id", ""))
+                cat = str(getattr(product, "category_path", "") or "")
+                if exemplar_store.get_exemplars(pid, cat, limit=1) and not exemplar_store.get_expanded_queries(pid):
+                    try:
+                        expand_queries_with_proqe(product, exemplar_store, llm=llm_inst, model=config.extract_model)
+                    except Exception as p_exc:
+                        log.debug("ProQE expansion skipped for product %s: %s", pid, p_exc)
         except Exception as exc:
             log.warning("LLM X query terms unavailable, using deterministic queries: %s", exc)
     try:

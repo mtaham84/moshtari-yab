@@ -285,6 +285,19 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
         values.append((f"{_quote(model)} ({' OR '.join(PRODUCT_CUES)}) {tail_ops}".strip(), "product"))
 
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
+
+    # ProQE: Include customer-evolved queries
+    try:
+        from workers.x_collector.proqe import load_proqe_queries
+        for pq in load_proqe_queries(pid):
+            q_text = pq.get("query", "").strip()
+            q_kind = pq.get("kind", "problem")
+            if q_text:
+                full_q = f"{q_text} {tail_ops}".strip()
+                values.append((full_q, q_kind))
+    except Exception:
+        pass
+
     raw_candidates, seen = [], set()
     for query, kind in values:
         query = " ".join(query.split())
