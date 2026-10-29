@@ -41,17 +41,20 @@ class SessionReplacementTests(TestCase):
         self.assertEqual((acc.status, acc.status_message), ("ACTIVE", ""))
         self.assertEqual(acc.session_json["cookies"]["sessionid"], "new")
 
-    def test_ig_rejected_session_deletes_account(self):
+    def test_ig_rejected_session_keeps_account_as_challenged(self):
         acc = self._ig()
         out = self._post_ig(acc, LoginRequired("login_required"))
-        self.assertTrue(out["deleted"])
-        self.assertFalse(InstagramEngineAccount.objects.filter(pk=acc.pk).exists())
+        self.assertFalse(out["success"])
+        self.assertFalse(out["deleted"])
+        self.assertTrue(InstagramEngineAccount.objects.filter(pk=acc.pk).exists())
+        acc.refresh_from_db()
+        self.assertEqual(acc.status, "CHALLENGED")
 
     def test_ig_network_error_keeps_account(self):
         acc = self._ig()
         out = self._post_ig(acc, ClientConnectionError("timed out"))
         self.assertFalse(out["success"])
-        self.assertNotIn("deleted", out)
+        self.assertFalse(out["deleted"])
         self.assertTrue(InstagramEngineAccount.objects.filter(pk=acc.pk).exists())
 
     def _x_post(self, acc, status_message, ok):
@@ -61,11 +64,14 @@ class SessionReplacementTests(TestCase):
         with mock.patch("apps.billing.manage_views._test_twitter_account_connection", side_effect=fake_test):
             return self.client.post(f"/manage/twitter-accounts/{acc.pk}/session/", {"auth_token": "t" * 40, "ct0": "c" * 32}).json()
 
-    def test_x_rejected_session_deletes_account(self):
+    def test_x_rejected_session_keeps_account_as_challenged(self):
         acc = TwitterEngineAccount.objects.create(username="x_a", auth_token="old", ct0="c")
         out = self._x_post(acc, "سشن نامعتبر (HTTP 401)", False)
-        self.assertTrue(out["deleted"])
-        self.assertFalse(TwitterEngineAccount.objects.filter(pk=acc.pk).exists())
+        self.assertFalse(out["success"])
+        self.assertFalse(out["deleted"])
+        self.assertTrue(TwitterEngineAccount.objects.filter(pk=acc.pk).exists())
+        acc.refresh_from_db()
+        self.assertEqual(acc.status, "CHALLENGED")
 
     def test_x_valid_session_is_kept(self):
         acc = TwitterEngineAccount.objects.create(username="x_b", auth_token="old", ct0="c")
