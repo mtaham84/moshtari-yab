@@ -136,36 +136,49 @@ class Command(BaseCommand):
                             terms.add(st)
                             tags.add(st.replace(" ", "_"))
                     if "دندان" in name_and_domain:
-                        core_dental_terms = ["دندانپزشکی", "دندان‌پزشکی", "ایمپلنت دندان", "کامپوزیت دندان", "لمینت دندان", "ارتودنسی"]
+                        core_dental_terms = ["دندانپزشکی", "دندان‌پزشکی", "لمینت", "ارتودنسی", "عصب کشی", "ایمپلنت", "روکش دندان", "کامپوزیت دندان"]
                         for dt in core_dental_terms:
                             terms.add(dt)
                             tags.add(dt.replace(" ", "_"))
                     if "لپ" in name_and_domain or "استوک" in name_and_domain:
-                        core_laptop_terms = ["لپ‌تاپ استوک", "لپ تاپ مهندسی", "لپ تاپ استوک", "تینکپد"]
+                        core_laptop_terms = ["لپ‌تاپ استوک", "لپ تاپ استوک", "لپ تاپ گیمینگ", "تینکپد", "لپ تاپ لنوو", "مک بوک استوک"]
                         for lt in core_laptop_terms:
                             terms.add(lt)
                             tags.add(lt.replace(" ", "_").replace("‌", "_"))
                     if "کنکور" in name_and_domain:
-                        core_konkur_terms = ["کنکور تجربی", "مشاوره کنکور", "کنکور"]
+                        core_konkur_terms = ["مشاوره کنکور", "کنکور تجربی", "زیست کنکور", "آزمون آزمایشی کنکور"]
                         for kt in core_konkur_terms:
                             terms.add(kt)
                             tags.add(kt.replace(" ", "_"))
+
+                    # Strict Fluff Blacklist: drop buzzwords like 'طرح لبخند' or cosmetic slogans
+                    FLUFF_BLACKLIST = {"طرح لبخند", "طرح_لبخند", "لبخند هالیوودی", "لبخند_هالیوودی", "زیبایی دندان", "کیفیت عالی", "تخفیف ویژه"}
 
                     # Sanitize tags: keep only clean, valid Instagram hashtags (no long sentences, no commas/punctuation)
                     clean_tags = []
                     for t in tags:
                         clean = str(t).strip().lstrip("#")
+                        if any(fluff in clean for fluff in FLUFF_BLACKLIST):
+                            continue
                         if 2 <= len(clean) <= 30 and not any(ch in clean for ch in "،,.:;!?()[]{}«»*&^%$#@!~`+=\\/"):
                             clean_tags.append(clean)
 
-                    if clean_tags or terms:
+                    clean_terms = []
+                    for tm in terms:
+                        tm_str = str(tm).strip()
+                        if any(fluff in tm_str for fluff in FLUFF_BLACKLIST):
+                            continue
+                        if 2 <= len(tm_str) <= 40 and not any(ch in tm_str for ch in "،,.:;!?()[]{}«»*&^%$#@!~`+=\\/"):
+                            clean_terms.append(tm_str)
+
+                    if clean_tags or clean_terms:
                         targets.append({
                             "tenant_id": f"tenant_{b.id}",
                             "business": b,
                             "name": b.name,
                             "hashtags": sorted(set(clean_tags)),
-                            "terms": list(terms),
-                            "query": list(terms)[0] if terms else (clean_tags[0] if clean_tags else b.name),
+                            "terms": sorted(set(clean_terms)),
+                            "query": list(clean_terms)[0] if clean_terms else (clean_tags[0] if clean_tags else b.name),
                         })
             else:
                 default_tenant = tenant_id or "tenant_default"

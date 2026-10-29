@@ -470,7 +470,13 @@
         </div>
         <div class="field">
           <label>رمز عبور اکانت</label>
-          <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" required dir="ltr">
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" dir="ltr">
+          <span class="help">در صورت ورود با sessionid، می‌توانید رمز عبور را اختیاری بگذارید.</span>
+        </div>
+        <div class="field">
+          <label>کوکی sessionid (اختیاری - بدون چالش امنیتی)</label>
+          <input type="text" name="sessionid" class="ops-input" placeholder="مثال: 61533556495%3AYzR..." dir="ltr">
+          <span class="help">ورود امن و فوری با کوکی مرورگر بدون نیاز به پسورد و بدون ریسک بلاک.</span>
         </div>
         <div class="field">
           <label>پروکسی اختصاصی (اختیاری)</label>
@@ -547,6 +553,9 @@
               <div style="display:flex; gap:6px; flex-wrap:wrap;">
                 <button class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-test-{{ acc.id }}" title="تست اتصال زنده و وضعیت سشن">
                   ⚡ تست اتصال
+                </button>
+                <button class="btn sm" onclick="openSessionModal({{ acc.id }}, '{{ acc.username }}')" title="تنظیم یا به‌روزرسانی کوکی sessionid بدون پسورد">
+                  🍪 ثبت sessionid
                 </button>
                 <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" title="ثبت کد تایید ارسال شده">
                   🔑 ثبت کد تایید
@@ -876,6 +885,31 @@
   </div>
 </div>
 
+<!-- Modal: Direct Sessionid Injection -->
+<div id="sessionModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:var(--card-bg, #fff); border-radius:12px; padding:24px; width:92%; max-width:500px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.3); border:1px solid var(--border);">
+    <h3 style="margin-top:0; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+      <span>🍪 ثبت کوکی نشست (sessionid)</span>
+    </h3>
+    <p class="muted" id="modalSessionAccountHint" style="font-size:0.85rem; line-height:1.6; margin:8px 0 16px;">
+      کوکی sessionid اکانت اینستاگرام را از مرورگر کپی و وارد نمایید تا سشن ۱۰۰٪ بدون چالش پسورد فعال شود:
+    </p>
+    <input type="hidden" id="modalSessionAccountId">
+    <div style="margin-bottom:16px;">
+      <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:6px;">مقدار کوکی sessionid:</label>
+      <input type="text" id="modalSessionInput" class="ops-input" placeholder="مثال: 61533556495%3AYzR..." dir="ltr" style="font-family:monospace; font-size:0.85rem; width:100%;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitSessionId();}">
+      <span class="help" style="font-size:0.75rem; color:var(--muted); display:block; margin-top:4px;">
+        نحوه دریافت: در مرورگر کامپیوتر وارد instagram.com شوید > کلید F12 را بزنید > به تب Application (یا Storage) > Cookies رفته و مقدار sessionid را کپی کنید.
+      </span>
+    </div>
+    <div id="modalSessionError" style="color:var(--down); font-size:0.85rem; margin-bottom:12px; display:none;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" class="btn" onclick="closeSessionModal()">انصراف</button>
+      <button type="button" class="btn primary" id="btnSubmitSession" onclick="submitSessionId()">تایید و اتصال سشن</button>
+    </div>
+  </div>
+</div>
+
 <!-- Client-side Scripts -->
 <script>
   function openTab(tabName, btn) {
@@ -998,6 +1032,71 @@
         window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت کد تایید.';
+        errorEl.style.display = 'block';
+      }
+    })
+    .catch(err => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      errorEl.innerText = 'خطای ارتباط با سرور: ' + err;
+      errorEl.style.display = 'block';
+    });
+  }
+
+  function openSessionModal(accId, username) {
+    document.getElementById('modalSessionAccountId').value = accId;
+    document.getElementById('modalSessionAccountHint').innerText = `کوکی sessionid مربوط به اکانت @${username} را از مرورگر کپی و وارد نمایید تا سشن فعال شود (بدون نیاز به پسورد و بدون چالش امنیتی):`;
+    document.getElementById('modalSessionInput').value = '';
+    document.getElementById('modalSessionError').style.display = 'none';
+    document.getElementById('modalSessionError').innerText = '';
+    document.getElementById('sessionModal').style.display = 'flex';
+    setTimeout(() => {
+      document.getElementById('modalSessionInput').focus();
+    }, 100);
+  }
+
+  function closeSessionModal() {
+    document.getElementById('sessionModal').style.display = 'none';
+  }
+
+  function submitSessionId() {
+    const accId = document.getElementById('modalSessionAccountId').value;
+    const sessionid = document.getElementById('modalSessionInput').value.trim();
+    const errorEl = document.getElementById('modalSessionError');
+    const submitBtn = document.getElementById('btnSubmitSession');
+
+    if (!sessionid) {
+      errorEl.innerText = 'لطفاً مقدار کوکی sessionid را وارد نمایید.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    errorEl.style.display = 'none';
+    const origText = submitBtn.innerText;
+    submitBtn.innerText = '⏳ در حال اتصال و ثبت سشن...';
+    submitBtn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('sessionid', sessionid);
+
+    fetch(`/manage/accounts/${accId}/session/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      submitBtn.innerText = origText;
+      submitBtn.disabled = false;
+      if (data.success) {
+        closeSessionModal();
+        alert('✅ ' + data.message);
+        window.location.reload();
+      } else {
+        errorEl.innerText = data.message || 'خطا در ثبت سشن.';
         errorEl.style.display = 'block';
       }
     })

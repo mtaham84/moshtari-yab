@@ -15,24 +15,28 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 KV_PREFIX = "x_qterms:"
-X_QUERY_TERMS_SYSTEM = """You write X (Twitter) search terms that find Persian posts of people who want to buy ONE specific product
-(or ask where to get it, ask for a recommendation, or ask a seller «موجود دارین؟» under an ad). X matches words literally:
+X_QUERY_TERMS_SYSTEM = """You write X (Twitter) and social search terms that find Persian posts of real people who want to buy ONE specific product or service
+(or ask where to get it, ask for a recommendation, or ask a seller under an ad). X matches words literally:
 a query is (any name) AND (any cue). Return for each product:
-- names: 3-8 ways ordinary Iranians write this product on X, 1-3 words each: Persian, English and Finglish spellings
-  (e.g. «نوشن», «notion», «notion ai», «اکانت نوشن»; «هندزفری», «ایرفون»). Include the brand when people search the
-  product by brand. Each name must be specific to this product: never a generic word alone (اشتراک، اکانت، خرید، قیمت).
+- names: 3-8 ways ordinary Iranians write this core product on social platforms, 1-3 words each (Persian and English).
+  CRITICAL RULES FOR NAMES:
+  1. Use CORE, ESSENTIAL service and product names that real buyers search for. For example, in dental services, use:
+     «دندانپزشکی», «لمینت», «ارتودنسی», «عصب کشی», «ایمپلنت», «روکش دندان», «کامپوزیت دندان», «جراحی دندان عقل».
+  2. STRICTLY FORBID marketing fluff, decorative buzzwords, cosmetic slogans, or vague phrases (e.g. NEVER use «طرح لبخند», «لبخند هالیوودی», «زیبایی», «حس خوب», «کیفیت برتر», «تخفیف ویژه»).
+  3. Ensure high semantic diversity: do not return near-duplicate synonyms. Each name should cover a distinct angle or major keyword of the product line.
+  4. Each name must be specific to this product/service: never generic words alone (اشتراک، اکانت، خرید، قیمت).
 - cues: 4-10 short words/phrases (1-3 words) a BUYER writes next to the name, specific to this kind of product
-  (subscriptions: «پرمیوم», «پولی», «اکانت», «موجود دارین», «از کجا», «بخرم»; physical goods: «بخرم», «چی بگیرم»,
-  «پیشنهاد», «کدوم بهتره»). No words that sellers' ads use.
+  (subscriptions: «پرمیوم», «پولی», «اکانت», «موجود دارین», «از کجا», «بخرم»; physical goods/services: «بخرم», «چی بگیرم»,
+  «پیشنهاد», «کدوم بهتره», «هزینه», «قیمت», «دکتر خوب», «معرفی»). No words that sellers' ads use.
 - negatives: 0-5 words that appear in SELLERS' ads for this product and that a buyer would not write
-  (e.g. «تخفیف», «کد تخفیف», «فعالسازی فوری», «تحویل آنی»).
+  (e.g. «تخفیف», «کد تخفیف», «فعالسازی فوری», «تحویل آنی», «طرح لبخند»).
 - problems: 2-5 short phrases (2-4 words) a person literally writes when they have the problem this product solves,
-  colloquial first person. Only problems this product really solves.
-- alternatives: 1-3 short phrases (2-4 words) asking for an alternative or comparison (e.g. «جایگزین نوشن», «به جای notion»).
-- complaints: 1-3 short phrases (2-4 words) expressing dissatisfaction with current or competitor tools (e.g. «خسته شدم از», «نرم‌افزار کند شده»).
-- model: brand + model the way people write it (e.g. "Airfly M7"), or null.
+  colloquial first person (e.g. «دندونم درد میکنه», «دندون عقل درد», «لپ تاپم بالا نمیاد»). Only genuine problems this product really solves.
+- alternatives: 1-3 short phrases (2-4 words) asking for an alternative or comparison.
+- complaints: 1-3 short phrases (2-4 words) expressing dissatisfaction with current or competitor tools.
+- model: brand + model the way people write it (e.g. "ThinkPad T480", "Legion 5"), or null.
 Return JSON: {"items":[{"product_id":"...","names":[...],"cues":[...],"negatives":[...],"problems":[...],"alternatives":[...],"complaints":[...],"model":null}]}"""
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
