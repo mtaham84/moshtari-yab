@@ -630,17 +630,10 @@ class Command(BaseCommand):
             try:
                 top_medias = cl.hashtag_medias_top(tag, amount=max_posts)
             except Exception as top_exc:
-                if "login_required" in str(top_exc).lower() and self._handle_login_required(cl, account):
-                    try:
-                        top_medias = cl.hashtag_medias_top(tag, amount=max_posts)
-                    except Exception:
-                        top_medias = []
-                else:
-                    try:
-                        top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
-                    except Exception as exc:
-                        top_medias = []
-                        self.stderr.write(f"    Notice: hashtag_medias_top warning for #{tag}: {exc}")
+                try:
+                    top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
+                except Exception:
+                    top_medias = []
             for m in top_medias:
                 if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
                     tag_medias.append(m)
@@ -653,9 +646,8 @@ class Command(BaseCommand):
             except Exception:
                 try:
                     recent_medias = cl.hashtag_medias_recent_v1(tag, amount=max_posts)
-                except Exception as exc:
+                except Exception:
                     recent_medias = []
-                    self.stderr.write(f"    Notice: hashtag_medias_recent warning for #{tag}: {exc}")
             for m in recent_medias:
                 if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
                     tag_medias.append(m)
@@ -670,9 +662,9 @@ class Command(BaseCommand):
                         if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
                             tag_medias.append(m)
                     if gql_medias:
-                        self.stdout.write(f"    Retrieved {len(gql_medias)} posts via GraphQL for #{tag}.")
-                except Exception as exc:
-                    self.stderr.write(f"    Notice: hashtag_medias_paginated_gql warning for #{tag}: {exc}")
+                        self.stdout.write(f"    Retrieved {len(gql_medias)} GQL posts for #{tag}.")
+                except Exception as gql_exc:
+                    self.stderr.write(f"    Notice: hashtag_medias_paginated_gql warning for #{tag}: {gql_exc}")
 
             p_insp, p_qual, l_saved = self._inspect_and_process_medias(
                 cl=cl,
