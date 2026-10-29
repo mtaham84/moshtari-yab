@@ -151,3 +151,77 @@ def test_product_queries_includes_proqe_queries(tmp_path, monkeypatch):
     queries = product_queries(product, terms={"names": ["نانو سنگ"]})
     queries_text = [q["query"] for q in queries]
     assert any("شوره زدن سنگ نما در زمستان" in q for q in queries_text)
+
+
+def test_negatives_reach_the_prompt_and_rank_by_similarity(tmp_path):
+    store = ExemplarStore(tmp_path / "neg.sqlite3")
+    store.add_exemplar("1", "p1", "سنگ نما شوره زده چیکار کنم", query="q1", category="سنگ")
+    store.add_exemplar("2", "p9", "لپ تاپ هنگ میکنه", query="q2", category="لپ تاپ")
+    store.add_negative("3", "p1", "خبر: قیمت سنگ در بازار جهانی", query="q1")
+    top = store.get_exemplars("p1", "سنگ", limit=1, context="ضد شوره سنگ نما")
+    assert top[0]["tweet_id"] == "1"
+
+    product = SimpleNamespace(product_id="p1", title="ضد شوره سنگ", category_path="سنگ")
+    llm = MagicMock()
+    llm.complete_json.return_value = ({"expanded_queries": []}, {})
+    expand_queries_with_proqe(product, store, llm=llm)
+    prompt = llm.complete_json.call_args[0][3]
+    assert "Rejected Tweets" in prompt and "قیمت سنگ در بازار جهانی" in prompt
+
+
+def test_expansion_due_needs_new_evidence(tmp_path):
+    store = ExemplarStore(tmp_path / "due.sqlite3")
+    assert store.expansion_due("p1") is False
+    store.add_exemplar("1", "p1", "متن اول")
+    assert store.expansion_due("p1") is True
+    store.mark_expanded("p1")
+    store.add_exemplar("2", "p1", "متن دوم")
+    assert store.expansion_due("p1", min_interval_hours=0) is False  # only 1 new exemplar
+    store.add_exemplar("3", "p1", "متن سوم")
+    assert store.expansion_due("p1", min_interval_hours=0) is True
+
+
+def test_prune_drops_losers_and_keeps_untested(tmp_path):
+    state = tmp_path / "prune.sqlite3"
+    seen = SeenStore(state, platform="x")
+    store = ExemplarStore(state)
+    store.add_expanded_queries("p1", [{"query": "بد", "kind": "problem"}, {"query": "خوب", "kind": "problem"},
+                                      {"query": "نو", "kind": "problem"}])
+    for _ in range(10):
+        seen.record_feedback("بد lang:fa", success=False, weight=0.5)
+    for _ in range(3):
+        seen.record_feedback("خوب lang:fa", success=True)
+    assert store.prune_expanded_queries(seen, "p1") == 1
+    left = {q["query"] for q in store.get_expanded_queries("p1")}
+    assert left == {"خوب", "نو"}
+
+
+def test_product_queries_cover_three_formats_with_sane_count():
+    terms = {
+        "names": ["سنگ نما", "سنگ تراورتن"],
+        "pain_symptoms": ["سنگ نما شوره زده", "سنگ کف ترک خورده", "دیوار لابی شوره زده", "نمای ساختمون کثیف شده", "سنگ پله لیز شده"],
+        "advice_requests": ["کسی راهی بلده برای شوره سنگ", "چی پیشنهاد میدین برای ترک سنگ", "تجربه دارین دربارهٔ سنگ نما",
+                            "برای سنگ کثیف چیکار کنم", "کدوم سنگ برای نما بهتره"],
+        "implicit_solutions": ["راهکار رفع شوره سنگ", "روش جلوگیری از ترک سنگ", "دنبال سنگبر خوب", "ترمیم سنگ نمای قدیمی", "تمیز کردن سنگ نما"],
+    }
+    product = SimpleNamespace(product_id="s1", business_id="b", title="سنگ نما", category_path="مصالح / سنگ",
+                              category_keywords=["سنگ"], discovery_priority=1, x_search_enabled=True)
+    qs = product_queries(product, terms=terms)
+    kinds = {q["kind"] for q in qs}
+    assert 9 <= len(qs) <= 12
+    assert {"problem", "alternative", "solution"} <= kinds
+    assert all(q["query"].count(" OR ") <= 4 for q in qs)  # no giant OR blobs
+
+
+def test_ig_term_scoring_demotes_empty_terms_and_keeps_explorers():
+    import random
+    from apps.discovery.ig_query_scoring import pick, score
+
+    hist = {"بد": {"runs": 8, "leads": 0, "penalty": 4.0}, "خوب": {"runs": 5, "leads": 4, "penalty": 0.5}}
+    rng = random.Random(7)
+    wins = sum(pick(["بد", "خوب", "تازه"], 1, hist, rng=rng) == ["خوب"] for _ in range(300))
+    assert wins > 180
+    # never-seen term is still explored sometimes, the empty term almost never
+    rng = random.Random(3)
+    firsts = [pick(["بد", "تازه"], 1, hist, rng=rng)[0] for _ in range(300)]
+    assert firsts.count("تازه") > 240 and score(None, rng) > 0

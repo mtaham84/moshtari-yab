@@ -136,7 +136,7 @@ def test_collector_advances_window_only_after_success(tmp_path):
         def __init__(self):
             self.calls = []
 
-        def search(self, query, limit):
+        def search(self, query, limit, account=None):
             self.calls.append(query)
             return []
 
@@ -168,7 +168,7 @@ def test_product_queries_belong_to_one_product_and_keep_latin_names():
     queries = product_queries(product, terms)
     assert all(q["product_ids"] == ["9"] and q["business_ids"] == ["3"] and q["priority"] == 2.0 for q in queries)
     intent = next(q["query"] for q in queries if q["kind"] == "intent")
-    assert intent.startswith('(نوشن OR notion OR "Notion AI" OR "اکانت نوشن"')
+    assert intent.startswith('(نوشن OR notion)')   # at most 2 names per query keeps each query focused
     assert ' اشتراک ' not in intent.split(")")[0]                      # generic word alone is not a name
     assert '(پرمیوم OR "موجود دارین" OR "از کجا")' in intent
     assert '-"تحویل آنی"' in intent and "-تخفیف" in intent and intent.endswith("lang:fa")
@@ -180,7 +180,8 @@ def test_product_queries_without_llm_use_default_cues():
 
     queries = product_queries(Product(product_id="1", title="هندزفری بلوتوثی", product_type="هندزفری"))
     assert queries and all(q["product_ids"] == ["1"] for q in queries)
-    assert all(c in queries[0]["query"] for c in ("بخرم", "موجود", '"از کجا"'))
+    intent = next(q["query"] for q in queries if q["kind"] == "intent")
+    assert all(c in intent for c in ("بخرم", "موجود", '"از کجا"'))
     assert len(PRODUCT_MODE_CUES) >= 10
 
 

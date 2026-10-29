@@ -15,37 +15,30 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "4"
+PROMPT_VERSION = "5"
 KV_PREFIX = "x_qterms:"
-X_QUERY_TERMS_SYSTEM = """You are an expert search query engineer implementing the MP-CABS (Entity-Blind Need Triplet) framework for Twitter/X Persian opportunity discovery.
-Unlike Instagram (where users look for explicit service/product keywords and hashtags), real Persian users on Twitter/X NEVER tweet catalog or marketplace names (like "سنگ اسلب چینی ازنا", "تراورتن آبگرم", "لپ تاپ تینکپد تی ۴۸۰").
-Instead, Twitter users post about their personal symptoms, situational triggers, and daily pains, or ask for informal advice or implicit solutions WITHOUT naming the product.
+X_QUERY_TERMS_SYSTEM = """You are an expert search query engineer for Persian Twitter/X buyer discovery.
+Real Persian users on X almost never write catalog or marketplace names. They describe a problem, ask people for advice, or say what they want, in colloquial first-person Persian.
 
-For each product provided, generate:
-1. triplets: 1-3 Entity-Blind Need Triplets:
-   [{"persona": "...", "trigger": "...", "pain": "..."}]
-   - persona: The person's context/role (e.g. "سازنده ساختمان / معمار", "برنامه‌نویس / گرافیست", "داوطلب کنکور", "بیمار با دندان درد"). NO product or brand name!
-   - trigger: The triggering situation/activity (e.g. "سرما و یخبندان زمستان", "کامپایل و رندر سنگین", "نزدیک شدن آزمون آزمایشی", "غذا خوردن و آب سرد").
-   - pain: The pain, symptom, or friction (e.g. "شوره زدن و ترک خوردن سنگ نما", "هنگ کردن سیستم و پر شدن رم", "افت تراز و فراموشی زیست", "تیر کشیدن شدید دندان").
+For EACH product write search phrases in exactly THREE formats. Every phrase is 2-5 words, colloquial Persian, entity-blind (no brand or product name) and must be something a real person would literally tweet:
 
-2. The 4 MP-CABS Query Angles:
-   - pain_symptoms: 3-6 short first-person conversational symptom phrases (2-4 words each) in colloquial Persian describing the physical/practical problem.
-     (e.g. «دندونم تیر میکشه», «لپ تاپم بالا نمیاد», «سنگ نما شوره زده», «ترک خوردن سنگ کف», «ترازم افت کرده»).
-   - dissatisfactions: 2-4 colloquial phrases expressing frustration with current setup or workarounds (2-4 words each).
-     (e.g. «دیگه جواب نمیده», «خسته شدم از تمیز کردن», «این لپ تاپ دیگه نمیکشه», «این مسکن هم جواب نمیده»).
-   - advice_requests: 3-5 informal colloquial advice questions without naming the product (2-5 words each).
-     (e.g. «کسی راهی بلده برای», «چی پیشنهاد میدین برای», «تجربه دارین برای حل», «برای این مشکل چیکار کنم»).
-   - implicit_solutions: 2-4 implicit outcome-oriented solution phrases (2-4 words each).
-     (e.g. «راهکار رفع شوره», «جلوگیری از ترک در سرما», «روش افزایش سرعت سیستم», «تسکین سریع دندان درد»).
+FORMAT 1 - pain_symptoms: the person's own problem, symptom or frustration with their current situation.
+   e.g. «دندونم تیر میکشه», «سنگ نما شوره زده», «لپ تاپم هنگ میکنه», «دیگه جواب نمیده», «خسته شدم از»
+FORMAT 2 - advice_requests: the person asks others for help, a recommendation or experience, mentioning the topic.
+   e.g. «کسی راهی بلده برای شوره سنگ», «چی پیشنهاد میدین برای درد دندون», «تجربه دارین دربارهٔ لپ تاپ استوک»
+FORMAT 3 - implicit_solutions: the person wants an outcome or a solution, or states a direct need to get/find/buy something in this area.
+   e.g. «راهکار رفع شوره سنگ», «روش افزایش سرعت سیستم», «دنبال دندونپزشک خوب»
 
-3. Secondary / Core terms:
-   - names: 2-4 minimal essential core product/service keywords (Persian and English, 1-3 words each, e.g. «سنگ نما», «سنگ تراورتن», «دندانپزشکی», «لمینت»). NEVER marketing slogans, never cosmetic fluff (NO «طرح لبخند», «کیفیت برتر», «تخفیف ویژه»).
-   - cues: 3-8 buying/seeking cues (1-3 words) buyers write next to names (e.g. «بخرم», «قیمت», «پیشنهاد», «دکتر خوب», «معرفی»).
-   - negatives: 0-4 words that appear in seller ads (e.g. «تخفیف», «کد تخفیف», «فروش ویژه»).
-   - model: brand + model if hardware/gadget (e.g. "ThinkPad T480"), else null.
+QUANTITY RULE: give 5 to 8 phrases per format. Fewer than 5 finds nothing; more than 8 adds duplicates and noise. Each phrase must be clearly different in wording from the others, and none may be a slogan, generic filler («کیفیت عالی», «تخفیف ویژه») or a single generic word.
+
+Also give:
+   - names: 2-4 core product/service keywords (1-3 words, Persian or English, e.g. «سنگ نما», «لمینت», «notion ai»).
+   - cues: 3-8 buying/seeking cues (1-3 words) written next to names (e.g. «بخرم», «قیمت», «پیشنهاد», «معرفی»).
+   - negatives: 0-4 words typical of seller ads (e.g. «تخفیف», «کد تخفیف»).
+   - model: brand + model for hardware/gadgets, else null.
 
 Return JSON:
-{"items":[{"product_id":"...","triplets":[{"persona":"...","trigger":"...","pain":"..."}],"pain_symptoms":[...],"dissatisfactions":[...],"advice_requests":[...],"implicit_solutions":[...],"names":[...],"cues":[...],"negatives":[...],"model":null}]}"""
+{"items":[{"product_id":"...","pain_symptoms":[...],"advice_requests":[...],"implicit_solutions":[...],"names":[...],"cues":[...],"negatives":[...],"model":null}]}"""
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
@@ -94,11 +87,11 @@ def sanitize(raw: Any) -> dict[str, Any]:
     if not dissatisfactions and "complaints" in raw:
         dissatisfactions = terms(raw.get("complaints"), 2, 5, 6)
 
-    advice_requests = terms(raw.get("advice_requests"), 2, 6, 6)
+    advice_requests = terms(raw.get("advice_requests"), 2, 6, 8)
     if not advice_requests and "alternatives" in raw:
         advice_requests = terms(raw.get("alternatives"), 2, 6, 6)
 
-    implicit_solutions = terms(raw.get("implicit_solutions"), 2, 5, 6)
+    implicit_solutions = terms(raw.get("implicit_solutions"), 2, 6, 8)
 
     res = {
         "triplets": triplets[:3],

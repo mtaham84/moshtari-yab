@@ -9,6 +9,9 @@
   exemplars. Non-customer outcomes receive penalties (beta += 0.5).
 - expand_queries_with_proqe: Progressively expands queries using LLM with in-context RAG exemplars.
 - load_proqe_queries: Returns cached expanded queries for a product.
+- Negative exemplars (tweets judged not_customer) steer the LLM away from noisy phrasing; exemplars are ranked by
+  lexical similarity to the product (not just recency); weak expanded queries are pruned by their bandit stats;
+  re-expansion is triggered by new evidence; per-source precision is tracked in proqe_query_outcomes.
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any
 
-from need_engine.text import norm
+from need_engine.text import norm, tokens
 
 log = logging.getLogger("x_collector.proqe")
 
@@ -33,17 +36,20 @@ Guidelines:
 2. Observe the provided "Real Customer Exemplars" (real converting tweets) to learn:
    - Specific Persian verbs and colloquial expressions (e.g., «دندونم تیر میکشه», «لپ تاپم بالا نمیاد», «سنگ نما شوره زده»).
    - How real people ask questions or complain without mentioning brands.
-3. Generate 3 to 6 NEW diverse, entity-blind search queries specifically targeting high-intent leads across 4 angles:
-   - problem: Pain symptoms or situational frustrations (e.g., "دیوار لابی شوره زده", "هنگ کردن لپ تاپ حین رندر")
-   - complaint: Dissatisfaction with current setup (e.g., "خسته شدم از مسکن", "دیگه نمیکشه لپ تاپم")
-   - alternative: Informal advice seeking (e.g., "کسی راهی بلده برای ترمیم سنگ", "برای این درد دندون چی پیشنهاد میدین")
-   - solution: Implicit solution expressions (e.g., "روش جلوگیری از نفوذ آب به سنگ", "راهکار بالا بردن سرعت سیستم")
+3. Generate 4 to 6 NEW diverse, entity-blind search queries, covering the same THREE formats as the base queries:
+   - problem: the person's own pain, symptom or frustration (e.g. "دیوار لابی شوره زده", "خسته شدم از مسکن")
+   - alternative: asking others for advice or experience (e.g. "کسی راهی بلده برای ترمیم سنگ")
+   - solution: wanting an outcome / a direct need (e.g. "روش جلوگیری از نفوذ آب به سنگ", "دنبال دندونپزشک خوب")
+   Fewer than 4 finds nothing, more than 6 is noise. Every query is 2-5 words and must not duplicate an existing one.
+
+4. If "Rejected Tweets" are listed, those are posts a query surfaced that were NOT buyers. Do not generate queries that
+   would match that kind of phrasing (news, jokes, politics, sellers advertising, generic chatter).
+5. If "Best performing queries" are listed, produce variations in their spirit, not copies.
 
 Return strictly JSON:
 {
   "expanded_queries": [
     {"query": "...", "kind": "problem"},
-    {"query": "...", "kind": "complaint"},
     {"query": "...", "kind": "alternative"},
     {"query": "...", "kind": "solution"}
   ]
@@ -52,7 +58,8 @@ Return strictly JSON:
 
 
 def _format_expansion_prompt(product_title: str, category: str, existing_queries: list[str],
-                             exemplars: list[dict[str, Any]]) -> str:
+                             exemplars: list[dict[str, Any]], negatives: list[dict[str, Any]] | None = None,
+                             winners: list[str] | None = None) -> str:
     lines = [
         f"Product/Service: {product_title}",
         f"Category: {category}",
@@ -72,7 +79,16 @@ def _format_expansion_prompt(product_title: str, category: str, existing_queries
     else:
         lines.append("\nNo confirmed customer exemplars yet. Generate initial conversational expansion based on likely user pain and informal requests.")
 
-    lines.append("\nGenerate 3-6 NEW high-converting Persian Twitter search queries (no duplicates of existing).")
+    if negatives:
+        lines.append("\nRejected Tweets (surfaced by our queries but NOT real buyers):")
+        for i, ex in enumerate(negatives, 1):
+            lines.append(f"Rejected {i}: \"{ex['tweet_text']}\"")
+    if winners:
+        lines.append("\nBest performing queries so far:")
+        for q in winners:
+            lines.append(f"- {q}")
+
+    lines.append("\nGenerate 4-6 NEW high-converting Persian Twitter search queries (no duplicates of existing).")
     return "\n".join(lines)
 
 
@@ -107,6 +123,24 @@ class ExemplarStore:
                 )
             """)
             db.execute("""
+                CREATE TABLE IF NOT EXISTS proqe_expansion_state (
+                    product_id TEXT PRIMARY KEY,
+                    last_at TEXT NOT NULL,
+                    exemplar_count INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS proqe_query_outcomes (
+                    query TEXT PRIMARY KEY,
+                    is_proqe INTEGER NOT NULL DEFAULT 0,
+                    customers INTEGER NOT NULL DEFAULT 0,
+                    total INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            cols = {r[1] for r in db.execute("PRAGMA table_info(proqe_exemplars)")}
+            if "label" not in cols:
+                db.execute("ALTER TABLE proqe_exemplars ADD COLUMN label TEXT NOT NULL DEFAULT 'customer'")
+            db.execute("""
                 CREATE TABLE IF NOT EXISTS proqe_synced_decisions (
                     chat_id TEXT NOT NULL,
                     message_id INTEGER NOT NULL,
@@ -116,68 +150,165 @@ class ExemplarStore:
             """)
             db.commit()
 
+    NEGATIVE_CAP = 200  # per product; oldest rejected tweets are dropped first
+
     def add_exemplar(self, tweet_id: str | int, product_id: str, tweet_text: str,
-                     query: str = "", category: str = "", reason: str = "") -> bool:
+                     query: str = "", category: str = "", reason: str = "", label: str = "customer") -> bool:
         if not tweet_text or not str(tweet_id).strip():
             return False
+        label = "negative" if label == "negative" else "customer"
         with closing(sqlite3.connect(self.path)) as db:
             db.execute("""
-                INSERT INTO proqe_exemplars (tweet_id, product_id, category, query, tweet_text, reason)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO proqe_exemplars (tweet_id, product_id, category, query, tweet_text, reason, label)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tweet_id, product_id) DO UPDATE SET
                     category=excluded.category,
                     query=excluded.query,
                     tweet_text=excluded.tweet_text,
-                    reason=excluded.reason
+                    reason=excluded.reason,
+                    label=excluded.label
             """, (str(tweet_id).strip(), str(product_id).strip(), str(category or "").strip(),
-                  str(query or "").strip(), str(tweet_text).strip(), str(reason or "").strip()))
+                  str(query or "").strip(), str(tweet_text).strip(), str(reason or "").strip(), label))
+            if label == "negative":
+                db.execute("""
+                    DELETE FROM proqe_exemplars WHERE product_id = ? AND label = 'negative' AND rowid NOT IN (
+                        SELECT rowid FROM proqe_exemplars WHERE product_id = ? AND label = 'negative'
+                        ORDER BY created_at DESC, rowid DESC LIMIT ?)
+                """, (str(product_id), str(product_id), self.NEGATIVE_CAP))
             db.commit()
             return True
 
-    def get_exemplars(self, product_id: str | None = None, category: str = "", limit: int = 3) -> list[dict[str, Any]]:
+    def add_negative(self, tweet_id: str | int, product_id: str, tweet_text: str,
+                     query: str = "", category: str = "", reason: str = "") -> bool:
+        return self.add_exemplar(tweet_id, product_id, tweet_text, query, category, reason, label="negative")
+
+    @staticmethod
+    def _sim(a: set[str], b: set[str]) -> float:
+        return len(a & b) / len(a | b) if a and b else 0.0
+
+    def _ranked(self, label: str, product_id: str | None, category: str, limit: int,
+                context: str = "") -> list[dict[str, Any]]:
+        """Ranks stored tweets by: same product > similarity to the product context > same category > recency."""
         with closing(sqlite3.connect(self.path)) as db:
-            results = []
-            seen_ids = set()
-            # 1. Product-specific exemplars
-            if product_id:
-                rows = db.execute(
-                    "SELECT tweet_id, product_id, category, query, tweet_text, reason, created_at "
-                    "FROM proqe_exemplars WHERE product_id = ? ORDER BY created_at DESC LIMIT ?",
-                    (str(product_id), limit)
-                ).fetchall()
-                for r in rows:
-                    seen_ids.add(r[0])
-                    results.append({"tweet_id": r[0], "product_id": r[1], "category": r[2], "query": r[3], "tweet_text": r[4], "reason": r[5]})
+            rows = db.execute(
+                "SELECT tweet_id, product_id, category, query, tweet_text, reason FROM proqe_exemplars "
+                "WHERE label = ? ORDER BY created_at DESC, rowid DESC LIMIT 300", (label,)
+            ).fetchall()
+        cat_tokens = [t.strip() for t in (category or "").split("/") if len(t.strip()) >= 2]
+        ctx = set(tokens(context or category))
+        scored = []
+        for idx, r in enumerate(rows):
+            score = 0.5 / (1 + idx)
+            if product_id and r[1] == str(product_id):
+                score += 3.0
+            if cat_tokens and any(t in (r[2] or "") for t in cat_tokens):
+                score += 1.0
+            score += 2.0 * self._sim(ctx, set(tokens(f"{r[4]} {r[3]} {r[2]}")))
+            scored.append((score, r))
+        scored.sort(key=lambda x: -x[0])
+        return [{"tweet_id": r[0], "product_id": r[1], "category": r[2], "query": r[3],
+                 "tweet_text": r[4], "reason": r[5]} for _, r in scored[:limit]]
 
-            # 2. Category-matching exemplars
-            if len(results) < limit and category:
-                cat_tokens = [t.strip() for t in category.split("/") if len(t.strip()) >= 2]
-                for cat_token in cat_tokens:
-                    if len(results) >= limit:
-                        break
-                    rows = db.execute(
-                        "SELECT tweet_id, product_id, category, query, tweet_text, reason, created_at "
-                        "FROM proqe_exemplars WHERE category LIKE ? ORDER BY created_at DESC LIMIT ?",
-                        (f"%{cat_token}%", limit - len(results))
-                    ).fetchall()
-                    for r in rows:
-                        if r[0] not in seen_ids:
-                            seen_ids.add(r[0])
-                            results.append({"tweet_id": r[0], "product_id": r[1], "category": r[2], "query": r[3], "tweet_text": r[4], "reason": r[5]})
+    def get_exemplars(self, product_id: str | None = None, category: str = "", limit: int = 3,
+                      context: str = "") -> list[dict[str, Any]]:
+        return self._ranked("customer", product_id, category, limit, context)
 
-            # 3. Fallback to any recent confirmed customer exemplars
-            if len(results) < limit:
-                rows = db.execute(
-                    "SELECT tweet_id, product_id, category, query, tweet_text, reason, created_at "
-                    "FROM proqe_exemplars ORDER BY created_at DESC LIMIT ?",
-                    (limit - len(results),)
-                ).fetchall()
-                for r in rows:
-                    if r[0] not in seen_ids:
-                        seen_ids.add(r[0])
-                        results.append({"tweet_id": r[0], "product_id": r[1], "category": r[2], "query": r[3], "tweet_text": r[4], "reason": r[5]})
+    def get_negatives(self, product_id: str | None = None, category: str = "", limit: int = 3,
+                      context: str = "") -> list[dict[str, Any]]:
+        return self._ranked("negative", product_id, category, limit, context)
 
-            return results
+    def count_exemplars(self, product_id: str) -> int:
+        with closing(sqlite3.connect(self.path)) as db:
+            return db.execute("SELECT count(*) FROM proqe_exemplars WHERE product_id = ? AND label = 'customer'",
+                              (str(product_id),)).fetchone()[0]
+
+    def winning_queries(self, product_id: str, limit: int = 5) -> list[str]:
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = db.execute(
+                "SELECT query, count(*) c FROM proqe_exemplars WHERE product_id = ? AND label = 'customer' "
+                "AND query != '' GROUP BY query ORDER BY c DESC, max(created_at) DESC LIMIT ?",
+                (str(product_id), limit)).fetchall()
+        return [r[0] for r in rows]
+
+    # --- expansion scheduling -------------------------------------------------
+    def expansion_due(self, product_id: str, min_new: int = 2, min_interval_hours: float = 6.0) -> bool:
+        """True when there is evidence and either no expansion ever ran, or enough new exemplars arrived since."""
+        count = self.count_exemplars(product_id)
+        if count == 0:
+            return False
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT last_at, exemplar_count FROM proqe_expansion_state WHERE product_id = ?",
+                             (str(product_id),)).fetchone()
+        if not row:
+            return True
+        try:
+            age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(row[0])).total_seconds() / 3600
+        except ValueError:
+            return True
+        return age_h >= min_interval_hours and count - int(row[1]) >= min_new
+
+    def mark_expanded(self, product_id: str) -> None:
+        count = self.count_exemplars(product_id)
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("INSERT INTO proqe_expansion_state (product_id, last_at, exemplar_count) VALUES (?, ?, ?) "
+                       "ON CONFLICT(product_id) DO UPDATE SET last_at=excluded.last_at, exemplar_count=excluded.exemplar_count",
+                       (str(product_id), datetime.now(timezone.utc).isoformat(), count))
+            db.commit()
+
+    # --- pruning & metrics ----------------------------------------------------
+    def prune_expanded_queries(self, seen_store: Any, product_id: str, max_keep: int = 30,
+                               min_trials: float = 8.0, min_rate: float = 0.10) -> int:
+        """Drops expanded queries that were tried enough and almost never produced a buyer, then caps the list."""
+        platform = getattr(seen_store, "platform", "x")
+        removed = 0
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = db.execute("SELECT query, created_at FROM proqe_expanded_queries WHERE product_id = ?",
+                              (str(product_id),)).fetchall()
+            try:
+                runs = db.execute("SELECT query, alpha, beta FROM query_runs WHERE platform = ?", (platform,)).fetchall()
+            except sqlite3.OperationalError:  # query_runs not created yet
+                runs = []
+            scored = []
+            for query, created in rows:
+                stats = (sum(r[1] - 1 for r in runs if r[0].startswith(query)),
+                         sum(r[2] - 1 for r in runs if r[0].startswith(query)))
+                pos, neg = float(stats[0]), float(stats[1]) / 0.5
+                trials = pos + neg
+                rate = pos / trials if trials else None
+                scored.append((query, created, trials, rate))
+            doomed = {q for q, _, t, r in scored if t >= min_trials and r is not None and r < min_rate}
+            survivors = [x for x in scored if x[0] not in doomed]
+            if len(survivors) > max_keep:
+                # keep proven and untested ones; evict the weakest rate, then oldest
+                survivors.sort(key=lambda x: (x[3] if x[3] is not None else 0.5, x[1]), reverse=True)
+                doomed |= {x[0] for x in survivors[max_keep:]}
+            for q in doomed:
+                db.execute("DELETE FROM proqe_expanded_queries WHERE product_id = ? AND query = ?", (str(product_id), q))
+                removed += 1
+            db.commit()
+        if removed:
+            log.info("ProQE pruned %d weak expanded queries for product %s", removed, product_id)
+        return removed
+
+    def record_outcome(self, query: str, is_proqe: bool, customer: bool) -> None:
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("INSERT INTO proqe_query_outcomes (query, is_proqe, customers, total) VALUES (?, ?, ?, 1) "
+                       "ON CONFLICT(query) DO UPDATE SET customers = customers + ?, total = total + 1, is_proqe = ?",
+                       (query, int(is_proqe), int(customer), int(customer), int(is_proqe)))
+            db.commit()
+
+    def metrics(self) -> dict[str, Any]:
+        """Buyer precision of ProQE-expanded queries versus the baseline queries (the number that proves it works)."""
+        with closing(sqlite3.connect(self.path)) as db:
+            out: dict[str, Any] = {}
+            for name, flag in (("proqe", 1), ("baseline", 0)):
+                c, t = db.execute("SELECT coalesce(sum(customers),0), coalesce(sum(total),0) FROM proqe_query_outcomes "
+                                  "WHERE is_proqe = ?", (flag,)).fetchone()
+                out[name] = {"customers": c, "judged": t, "precision": round(c / t, 4) if t else None}
+            out["exemplars"] = db.execute("SELECT count(*) FROM proqe_exemplars WHERE label='customer'").fetchone()[0]
+            out["negatives"] = db.execute("SELECT count(*) FROM proqe_exemplars WHERE label='negative'").fetchone()[0]
+            out["expanded_queries"] = db.execute("SELECT count(*) FROM proqe_expanded_queries").fetchone()[0]
+        return out
 
     def add_expanded_queries(self, product_id: str, queries: list[dict[str, str]]) -> int:
         count = 0
@@ -227,7 +358,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
     and extract real customer exemplars.
     Returns: {"rewarded": count, "penalized": count, "exemplars_added": count}
     """
-    stats = {"rewarded": 0, "penalized": 0, "exemplars_added": 0}
+    stats = {"rewarded": 0, "penalized": 0, "exemplars_added": 0, "negatives_added": 0}
     if seen_store is None or not getattr(seen_store, "path", None):
         return stats
 
@@ -263,40 +394,60 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                   ON ('x:p:' || h.product_id) = r.chat_id AND h.tweet_id = r.message_id
                 JOIN {crawler_schema}.x_posts p
                   ON p.tweet_id = r.message_id
-                ORDER BY r.decided_at DESC
-                LIMIT 500
+                ORDER BY r.decided_at DESC, r.message_id DESC
+                LIMIT %s OFFSET %s
             """
-            rows = conn.execute(query_sql).fetchall()
+            # Page through the history so a burst of >500 decisions between cycles is never skipped.
+            page_size, max_pages = 500, 20
+            proqe_cache: dict[str, list[str]] = {}
+            for page in range(max_pages):
+                rows = conn.execute(query_sql, (page_size, page * page_size)).fetchall()
+                if not rows:
+                    break
+                fresh = 0
+                for chat_id, message_id, outcome, reason, search_query, product_id, tweet_text in rows:
+                    if exemplar_store.is_decision_synced(chat_id, int(message_id)):
+                        continue
+                    fresh += 1
+                    pid = str(product_id)
+                    if pid not in proqe_cache:
+                        proqe_cache[pid] = [e["query"] for e in exemplar_store.get_expanded_queries(pid)]
+                    is_proqe = any(search_query.startswith(q) for q in proqe_cache[pid])
 
-            for chat_id, message_id, outcome, reason, search_query, product_id, tweet_text in rows:
-                if exemplar_store.is_decision_synced(chat_id, int(message_id)):
-                    continue
+                    if outcome == "customer":
+                        seen_store.record_feedback(search_query, success=True, weight=1.0)
+                        stats["rewarded"] += 1
+                        exemplar_store.record_outcome(search_query, is_proqe, True)
+                        if exemplar_store.add_exemplar(
+                            tweet_id=message_id, product_id=product_id, tweet_text=tweet_text,
+                            query=search_query, reason=reason
+                        ):
+                            stats["exemplars_added"] += 1
 
-                if outcome == "customer":
-                    seen_store.record_feedback(search_query, success=True, weight=1.0)
-                    stats["rewarded"] += 1
+                    elif outcome == "not_customer":
+                        seen_store.record_feedback(search_query, success=False, weight=0.5)
+                        stats["penalized"] += 1
+                        exemplar_store.record_outcome(search_query, is_proqe, False)
+                        if exemplar_store.add_negative(message_id, product_id, tweet_text, query=search_query, reason=reason):
+                            stats["negatives_added"] = stats.get("negatives_added", 0) + 1
 
-                    if exemplar_store.add_exemplar(
-                        tweet_id=message_id,
-                        product_id=product_id,
-                        tweet_text=tweet_text,
-                        query=search_query,
-                        reason=reason
-                    ):
-                        stats["exemplars_added"] += 1
+                    # "not_fit" says the person is a buyer of something else, not that the query is bad:
+                    # it is marked synced below but neither rewards nor penalizes the query.
 
-                elif outcome in ("not_customer", "not_fit"):
-                    seen_store.record_feedback(search_query, success=False, weight=0.5)
-                    stats["penalized"] += 1
+                    exemplar_store.mark_decision_synced(chat_id, int(message_id), outcome)
+                if fresh == 0 and page > 0:
+                    break  # a whole page already synced: older history is done too
 
-                exemplar_store.mark_decision_synced(chat_id, int(message_id), outcome)
+            for pid in proqe_cache:
+                exemplar_store.prune_expanded_queries(seen_store, pid)
 
     except Exception as exc:
         log.warning("sync_bandit_feedback encountered an issue: %s", exc)
 
     if stats["rewarded"] or stats["penalized"]:
-        log.info("ProQE Bandit Feedback Sync: +%d rewards, +%d penalties, +%d exemplars",
-                 stats["rewarded"], stats["penalized"], stats["exemplars_added"])
+        log.info("ProQE Bandit Feedback Sync: +%d rewards, +%d penalties, +%d exemplars, +%d negatives | metrics=%s",
+                 stats["rewarded"], stats["penalized"], stats["exemplars_added"], stats["negatives_added"],
+                 exemplar_store.metrics())
     return stats
 
 
@@ -320,12 +471,15 @@ def expand_queries_with_proqe(
     title = str(getattr(product, "title", "") or "")
     existing = existing_queries or []
 
-    exemplars = exemplar_store.get_exemplars(product_id=pid, category=cat, limit=3)
+    context = f"{title} {cat}"
+    exemplars = exemplar_store.get_exemplars(product_id=pid, category=cat, limit=5, context=context)
+    negatives = exemplar_store.get_negatives(product_id=pid, category=cat, limit=3, context=context)
+    winners = exemplar_store.winning_queries(pid)
 
     if llm is None:
         return exemplar_store.get_expanded_queries(pid)
 
-    user_prompt = _format_expansion_prompt(title, cat, existing, exemplars)
+    user_prompt = _format_expansion_prompt(title, cat, existing, exemplars, negatives, winners)
     try:
         data, _ = llm.complete_json(
             "x_query_expand",
@@ -351,6 +505,7 @@ def expand_queries_with_proqe(
             if len(q.split()) >= 2 and _FA.search(q):
                 expanded.append({"query": q, "kind": k})
 
+    exemplar_store.mark_expanded(pid)
     if expanded:
         exemplar_store.add_expanded_queries(pid, expanded)
         log.info("ProQE expanded %d new queries for product %s", len(expanded), pid)

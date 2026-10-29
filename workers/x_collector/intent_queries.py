@@ -114,8 +114,8 @@ def operators() -> str:
     return " ".join(x for x in (ops, suffix) if x)
 
 
-def or_queries(terms: list[str], tail: str, max_chars: int) -> list[str]:
-    """Pack terms into ``(a OR "b c" …) <tail>`` queries no longer than ``max_chars``."""
+def or_queries(terms: list[str], tail: str, max_chars: int, max_terms: int | None = None) -> list[str]:
+    """Pack terms into ``(a OR "b c" …) <tail>`` queries no longer than ``max_chars`` (and ``max_terms`` terms)."""
     out, group = [], []
 
     def render(items: list[str]) -> str:
@@ -123,7 +123,7 @@ def or_queries(terms: list[str], tail: str, max_chars: int) -> list[str]:
         return f"{head} {tail}".strip()
 
     for term in terms:
-        if group and len(render(group + [term])) > max_chars:
+        if group and (len(render(group + [term])) > max_chars or (max_terms and len(group) >= max_terms)):
             out.append(render(group))
             group = []
         if len(render([term])) <= max_chars:
@@ -232,12 +232,38 @@ def _short_terms(values: Any, cap: int, max_words: int = 3) -> list[str]:
     return out[:cap]
 
 
+
+# kind -> prompt format. A: pain & frustration, B: advice seeking, C: demand / solution / direct intent
+QUERY_FORMAT = {"problem": "A", "complaint": "A", "alternative": "B", "solution": "C", "intent": "C", "product": "C"}
+
+
+def balanced_pick(candidates: list[dict[str, Any]], reference: str, total: int, per_format: int) -> list[dict[str, Any]]:
+    """Up to ``per_format`` MMR-diverse queries from each of the three formats, topped up to ``total``."""
+    from shared.mmr import select_by_mmr
+    buckets: dict[str, list[dict[str, Any]]] = {"A": [], "B": [], "C": []}
+    for item in candidates:
+        buckets[QUERY_FORMAT.get(item.get("kind"), "C")].append(item)
+
+    def mmr(items: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
+        return select_by_mmr(items, lambda i: i["query"], reference_context=reference, top_k=k, lambda_param=0.65) if items and k > 0 else []
+
+    picked: list[dict[str, Any]] = []
+    for fmt in ("A", "B", "C"):
+        picked += mmr(buckets[fmt], per_format)
+    taken = {id(x) for x in picked}
+    rest = [c for c in candidates if id(c) not in taken]
+    picked += mmr(rest, total - len(picked))
+    return picked[:total]
+
+
 def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any = None) -> list[dict[str, Any]]:
     """Queries of ONE product with MP-CABS Entity-Blind 4-angle queries + MMR diversification.
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "6"))
+    max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "12"))
+    per_format = int(os.getenv("X_QUERY_PER_FORMAT", "4"))
+    group_size = int(os.getenv("X_QUERY_TERMS_PER_QUERY", "2"))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
@@ -252,33 +278,33 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     # Angle 1: Core Intent (Names + buying cues)
     if names:
         intent_tail = " ".join(x for x in ("(" + " OR ".join(_quote(c) for c in cues) + ")", tail_ops) if x)
-        values += [(q, "intent") for q in or_queries(names, intent_tail, max_chars)]
+        values += [(q, "intent") for q in or_queries(names, intent_tail, max_chars, group_size)]
 
     # MP-CABS Angle 2: Pain / Symptom Expression
     pain_symptoms = _dedupe_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or []), 2, 5)
     if pain_symptoms:
-        values += [(q, "problem") for q in or_queries(pain_symptoms, tail_ops, max_chars)]
+        values += [(q, "problem") for q in or_queries(pain_symptoms, tail_ops, max_chars, group_size)]
 
     # MP-CABS Angle 3: Dissatisfaction with current setup / workarounds
     dissatisfactions = _dedupe_terms(list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 2, 5)
     if dissatisfactions:
-        values += [(q, "complaint") for q in or_queries(dissatisfactions, tail_ops, max_chars)]
+        values += [(q, "complaint") for q in or_queries(dissatisfactions, tail_ops, max_chars, group_size)]
     elif names:
         cmp_tail = " ".join(x for x in ("(" + " OR ".join(COMPLAINT_CUES) + ")", tail_ops) if x)
-        values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars)]
+        values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars, group_size)]
 
     # MP-CABS Angle 4: Informal Advice / Seeking Recommendation
     advice_requests = _dedupe_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 2, 6)
     if advice_requests:
-        values += [(q, "alternative") for q in or_queries(advice_requests, tail_ops, max_chars)]
+        values += [(q, "alternative") for q in or_queries(advice_requests, tail_ops, max_chars, group_size)]
     elif names:
         alt_tail = " ".join(x for x in ("(" + " OR ".join(ALTERNATIVE_CUES) + ")", tail_ops) if x)
-        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
+        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars, group_size)]
 
     # MP-CABS Angle 5: Implicit Solution Seeking
     implicit_solutions = _dedupe_terms(list(terms.get("implicit_solutions") or []), 2, 5)
     if implicit_solutions:
-        values += [(q, "problem") for q in or_queries(implicit_solutions, tail_ops, max_chars)]
+        values += [(q, "solution") for q in or_queries(implicit_solutions, tail_ops, max_chars, group_size)]
 
     # Specific model/brand if hardware
     if model and len(model) >= 3:
@@ -310,14 +336,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
             "priority": float(getattr(product, "discovery_priority", 1) or 1)
         })
 
-    # MMR-driven diverse query selection
-    from shared.mmr import select_by_mmr
+    # Three formats (A: pain/frustration, B: asking for advice, C: demand/solution/intent). Each gets its own quota so
+    # one format can never crowd out the others, then any leftover slots go to the most relevant remaining queries.
     target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
-    return select_by_mmr(
-        raw_candidates,
-        lambda item: item["query"],
-        reference_context=target_ref,
-        top_k=max_count,
-        lambda_param=0.65,
-    )
-
+    return balanced_pick(raw_candidates, target_ref, max_count, per_format)

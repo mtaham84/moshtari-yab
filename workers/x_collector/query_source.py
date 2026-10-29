@@ -78,8 +78,7 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
             exemplar_store = ExemplarStore(state_file)
             for product in products:
                 pid = str(getattr(product, "product_id", ""))
-                cat = str(getattr(product, "category_path", "") or "")
-                if exemplar_store.get_exemplars(pid, cat, limit=1) and not exemplar_store.get_expanded_queries(pid):
+                if exemplar_store.expansion_due(pid):
                     try:
                         expand_queries_with_proqe(product, exemplar_store, llm=llm_inst, model=config.extract_model)
                     except Exception as p_exc:
