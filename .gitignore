@@ -48,3 +48,4 @@ backups/
 
 .worktrees/
 instagram_sessions/
+!apps/discovery/ig_session.py
