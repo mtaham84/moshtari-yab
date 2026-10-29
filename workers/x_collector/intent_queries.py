@@ -21,6 +21,8 @@ INTENT_TEMPLATES = (
 INTENT_WORDS = ("بخرم", "بگیرم", "میخوام", "می‌خوام", "پیشنهاد", "سراغ", "معرفی", "دنبال", "خوبه")
 ALTERNATIVE_CUES = ("جایگزین", "\"به جای\"", "\"بهتر از\"", "\"سوییچ به\"", "\"کوچ به\"")
 COMPLAINT_CUES = ("\"خسته شدم از\"", "افتضاحه", "\"کار نمیکنه\"", "\"دیگه نمیکشه\"", "پشیمونم", "\"کند شده\"")
+ADVICE_CUES = ("\"کسی راهی بلده\"", "\"چی پیشنهاد میدین\"", "\"تجربه دارین\"", "\"راهکاری هست\"", "\"چیکار کنم\"", "\"راه حل\"")
+DISSATISFACTION_CUES = ("\"خسته شدم از\"", "\"دیگه نمیکشه\"", "\"جواب نمیده\"", "\"فایده نداره\"", "افتضاحه", "\"کار نمیکنه\"", "پشیمونم")
 KIND_WEIGHTS = {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}
 DEFAULT_NEGATIVES = ("تخفیف", "\"ارسال رایگان\"", "\"کد تخفیف\"", "\"فروش ویژه\"")
 _FA = re.compile(r"[آ-ی]")
@@ -148,20 +150,23 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
     intent_tail = "(" + " OR ".join(INTENT_WORDS) + ") " + ops
     names = _dedupe_terms(list(terms.get("names") or []) + core_terms(product, card), 1, 4)
     values: list[tuple[str, str]] = [(q, "intent") for q in or_queries(names, intent_tail, max_chars)]
-    problems = _dedupe_terms(list(terms.get("problems") or []), 2, 5)
-    values += [(q, "problem") for q in or_queries(problems, ops, max_chars)]
-    alternatives = _dedupe_terms(list(terms.get("alternatives") or []), 2, 5)
-    if alternatives:
-        values += [(q, "alternative") for q in or_queries(alternatives, ops, max_chars)]
-    elif names:
-        alt_tail = "(" + " OR ".join(ALTERNATIVE_CUES) + ") " + ops
-        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
-    complaints = _dedupe_terms(list(terms.get("complaints") or []), 2, 5)
-    if complaints:
-        values += [(q, "complaint") for q in or_queries(complaints, ops, max_chars)]
+    pain_symptoms = _dedupe_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or []), 2, 5)
+    values += [(q, "problem") for q in or_queries(pain_symptoms, ops, max_chars)]
+    dissatisfactions = _dedupe_terms(list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 2, 5)
+    if dissatisfactions:
+        values += [(q, "complaint") for q in or_queries(dissatisfactions, ops, max_chars)]
     elif names:
         cmp_tail = "(" + " OR ".join(COMPLAINT_CUES) + ") " + ops
         values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars)]
+    advice_requests = _dedupe_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 2, 6)
+    if advice_requests:
+        values += [(q, "alternative") for q in or_queries(advice_requests, ops, max_chars)]
+    elif names:
+        alt_tail = "(" + " OR ".join(ALTERNATIVE_CUES) + ") " + ops
+        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
+    implicit_solutions = _dedupe_terms(list(terms.get("implicit_solutions") or []), 2, 5)
+    if implicit_solutions:
+        values += [(q, "solution") for q in or_queries(implicit_solutions, ops, max_chars)]
     if mode == "both":
         model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
         if model and len(model) >= 3:
@@ -228,11 +233,11 @@ def _short_terms(values: Any, cap: int, max_words: int = 3) -> list[str]:
 
 
 def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any = None) -> list[dict[str, Any]]:
-    """Queries of ONE product: ``(names) (buying cues) -seller-ad-words lang:fa``, problem phrases and brand/model.
+    """Queries of ONE product with MP-CABS Entity-Blind 4-angle queries + MMR diversification.
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "4"))
+    max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "6"))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
@@ -240,22 +245,45 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     cues = _short_terms(terms.get("cues"), 10) or list(PRODUCT_MODE_CUES)
     negatives = _short_terms(list(terms.get("negatives") or []) + list(PRODUCT_MODE_NEGATIVES), 6)
     neg_ops = " ".join(f"-{_quote(n)}" for n in negatives)
-    tail = " ".join(x for x in ("(" + " OR ".join(_quote(c) for c in cues) + ")", neg_ops, ops) if x)
-    values = [(q, "intent") for q in or_queries(names, tail, max_chars)]
-    problems = _dedupe_terms(list(terms.get("problems") or []), 2, 5)
-    values += [(q, "problem") for q in or_queries(problems, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
-    alternatives = _dedupe_terms(list(terms.get("alternatives") or []), 2, 5)
-    if alternatives:
-        values += [(q, "alternative") for q in or_queries(alternatives, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
+    tail_ops = " ".join(x for x in (neg_ops, ops) if x)
+
+    values: list[tuple[str, str]] = []
+
+    # Angle 1: Core Intent (Names + buying cues)
+    if names:
+        intent_tail = " ".join(x for x in ("(" + " OR ".join(_quote(c) for c in cues) + ")", tail_ops) if x)
+        values += [(q, "intent") for q in or_queries(names, intent_tail, max_chars)]
+
+    # MP-CABS Angle 2: Pain / Symptom Expression
+    pain_symptoms = _dedupe_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or []), 2, 5)
+    if pain_symptoms:
+        values += [(q, "problem") for q in or_queries(pain_symptoms, tail_ops, max_chars)]
+
+    # MP-CABS Angle 3: Dissatisfaction with current setup / workarounds
+    dissatisfactions = _dedupe_terms(list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 2, 5)
+    if dissatisfactions:
+        values += [(q, "complaint") for q in or_queries(dissatisfactions, tail_ops, max_chars)]
     elif names:
-        alt_tail = " ".join(x for x in ("(" + " OR ".join(ALTERNATIVE_CUES) + ")", neg_ops, ops) if x)
-        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
-    complaints = _dedupe_terms(list(terms.get("complaints") or []), 2, 5)
-    if complaints:
-        values += [(q, "complaint") for q in or_queries(complaints, " ".join(x for x in (neg_ops, ops) if x), max_chars)]
-    elif names:
-        cmp_tail = " ".join(x for x in ("(" + " OR ".join(COMPLAINT_CUES) + ")", neg_ops, ops) if x)
+        cmp_tail = " ".join(x for x in ("(" + " OR ".join(COMPLAINT_CUES) + ")", tail_ops) if x)
         values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars)]
+
+    # MP-CABS Angle 4: Informal Advice / Seeking Recommendation
+    advice_requests = _dedupe_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 2, 6)
+    if advice_requests:
+        values += [(q, "alternative") for q in or_queries(advice_requests, tail_ops, max_chars)]
+    elif names:
+        alt_tail = " ".join(x for x in ("(" + " OR ".join(ALTERNATIVE_CUES) + ")", tail_ops) if x)
+        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
+
+    # MP-CABS Angle 5: Implicit Solution Seeking
+    implicit_solutions = _dedupe_terms(list(terms.get("implicit_solutions") or []), 2, 5)
+    if implicit_solutions:
+        values += [(q, "problem") for q in or_queries(implicit_solutions, tail_ops, max_chars)]
+
+    # Specific model/brand if hardware
+    if model and len(model) >= 3:
+        values.append((f"{_quote(model)} ({' OR '.join(PRODUCT_CUES)}) {tail_ops}".strip(), "product"))
+
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
     raw_candidates, seen = [], set()
     for query, kind in values:

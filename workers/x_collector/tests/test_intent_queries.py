@@ -94,7 +94,10 @@ def test_llm_terms_are_sanitized_cached_and_regenerated_on_change():
     store, llm = FakeStore(), FakeLLM()
     product = Product(product_id="7", title="ایرفون بلوتوثی")
     first = llm_terms([product], {}, store, llm, "m")
-    assert first["7"] == {"names": ["هندزفری"], "cues": [], "negatives": [], "problems": ["صدام قطع میشه"], "model": None}
+    assert first["7"]["names"] == ["هندزفری"]
+    assert first["7"]["problems"] == ["صدام قطع میشه"]
+    assert first["7"]["pain_symptoms"] == ["صدام قطع میشه"]
+    assert first["7"]["model"] is None
     assert llm_terms([product], {}, store, llm, "m") == first and llm.calls == 1
     llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
     assert llm.calls == 2
@@ -115,13 +118,13 @@ def test_time_window_first_run_lookback_then_since_last_success(monkeypatch):
     monkeypatch.delenv("X_QUERY_TIME_FILTER", raising=False)
     monkeypatch.delenv("X_QUERY_FIRST_LOOKBACK_HOURS", raising=False)
     now = datetime(2025, 6, 10, 12, 0, tzinfo=timezone.utc)
-    assert time_window("q", None, now) == f"q since_time:{int((now - timedelta(days=7)).timestamp())}"
+    assert time_window("q", None, now) == f"q since_time:{int((now - timedelta(days=10)).timestamp())}"
     last = now - timedelta(hours=1)
     assert time_window("q", last, now) == f"q since_time:{int((last - timedelta(minutes=10)).timestamp())}"
-    assert time_window("q", now - timedelta(days=30), now) == f"q since_time:{int((now - timedelta(days=7)).timestamp())}"
+    assert time_window("q", now - timedelta(days=30), now) == f"q since_time:{int((now - timedelta(days=10)).timestamp())}"
     assert time_window("q since:2025-01-01", None, now) == "q since:2025-01-01"
     monkeypatch.setenv("X_QUERY_TIME_FILTER", "since")
-    assert time_window("q", None, now) == "q since:2025-06-03"
+    assert time_window("q", None, now) == "q since:2025-05-31"
     monkeypatch.setenv("X_QUERY_TIME_FILTER", "off")
     assert time_window("q", None, now) == "q"
 

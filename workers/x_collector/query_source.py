@@ -64,7 +64,7 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
         log.warning("Could not read product cards: %s", exc)
         cards = {}
     terms: dict = {}
-    if os.getenv("X_QUERY_LLM", "false").strip().lower() in {"1", "true", "yes", "on"}:
+    if os.getenv("X_QUERY_LLM", "true").strip().lower() in {"1", "true", "yes", "on"}:
         try:
             from need_engine.llm import LLMClient
             from workers.x_collector.llm_terms import llm_terms
