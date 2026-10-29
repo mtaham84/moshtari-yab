@@ -1445,6 +1445,9 @@
         closeSessionModal();
         alert('✅ ' + data.message);
         window.location.reload();
+      } else if (data.deleted) {
+        alert('🗑️ ' + data.message);
+        window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت سشن.';
         errorEl.style.display = 'block';
@@ -1606,6 +1609,9 @@
       if (data.success) {
         closeTwitterSessionModal();
         alert('✅ ' + data.message);
+        window.location.reload();
+      } else if (data.deleted) {
+        alert('🗑️ ' + data.message);
         window.location.reload();
       } else {
         errorEl.innerText = data.message || 'خطا در ثبت سشن.';

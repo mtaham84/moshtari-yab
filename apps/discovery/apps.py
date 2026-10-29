@@ -7,6 +7,9 @@ class DiscoveryConfig(AppConfig):
     verbose_name = "پایش و کشف هوشمند مشتریان"
 
     def ready(self):
+        import sys
+        if "test" in sys.argv[1:2] or "pytest" in sys.modules:   # tests must never rewrite the real pool file
+            return
         from django.db import transaction
         from django.db.models.signals import post_delete, post_save
 

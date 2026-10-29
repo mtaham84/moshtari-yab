@@ -600,13 +600,25 @@ def manage_account_set_session(request, pk):
         if not (account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings):
             account.device_settings = {"model": cl.device_settings.get("model", "Pixel 8 Pro")}
         account.status = "ACTIVE"
-        account.save(update_fields=["session_json", "device_settings", "status"])
+        account.status_message = ""
+        account.cooldown_until = None
+        account.save(update_fields=["session_json", "device_settings", "status", "status_message", "cooldown_until"])
         return JsonResponse({
             "success": True,
             "status": "ACTIVE",
             "message": f"سشن اکانت @{account.username} با موفقیت ثبت شد و اکانت فعال گردید (بدون چالش پسورد).",
         })
     except Exception as exc:
+        from apps.discovery.ig_session import ErrorKind, classify, redact
+        # Only a definitive rejection removes the account; limits, network trouble and challenges keep it.
+        if classify(exc) in (ErrorKind.LOGIN_REQUIRED, ErrorKind.BAD_CREDENTIALS, ErrorKind.OTHER):
+            uname = account.username
+            logger.warning("Deleting Instagram account id=%s: new sessionid rejected (%s)", account.pk, redact(exc, 120))
+            account.delete()
+            return JsonResponse({
+                "success": False, "deleted": True,
+                "message": f"سشن جدید برای @{uname} معتبر نبود و اکانت از سیستم حذف شد. دلیل: {redact(exc, 160)}",
+            })
         return JsonResponse({
             "success": False,
             "status": account.status,
@@ -1024,7 +1036,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             return True, "ACTIVE", f"اتصال به اکانت @{uname} تایید شد."
         elif r.status_code == 401 or "Could not authenticate" in r.text:
             account.status = "CHALLENGED"
-            account.status_message = "سشن نامعتبر یا منقضی شده است (HTTP 401)"
+            account.status_message = "سشن نامعتبر یا منقضی شده است (HTTP 401) — auth_token/ct0 جدید ثبت کنید"
             account.save(update_fields=["status", "status_message"])
             return False, "CHALLENGED", "سشن منقضی یا نامعتبر است (HTTP 401). لطفاً سشن جدید را وارد نمایید."
         elif r.status_code == 429:
@@ -1075,6 +1087,13 @@ def manage_twitter_account_add(request):
     )
 
     ok, st, msg = _test_twitter_account_connection(account) if auth_token else (False, "CHALLENGED", "اکانت ثبت شد ولی سشن وارد نشده است.")
+    if auth_token and not ok and "HTTP 401" in (account.status_message or ""):
+        account.delete()
+        err = f"سشن واردشده برای @{username} معتبر نبود (HTTP 401) و اکانت اضافه نشد."
+        if is_ajax:
+            return JsonResponse({"success": False, "deleted": True, "message": err})
+        messages.error(request, err)
+        return redirect("manage:dashboard")
 
     succ_msg = f"اکانت توییتر @{username} با موفقیت ثبت شد. ({msg})"
     if is_ajax:
@@ -1122,6 +1141,14 @@ def manage_twitter_account_set_session(request, pk):
         account.ct0 = ct0
 
     ok, status, message = _test_twitter_account_connection(account)
+    if not ok and "HTTP 401" in (account.status_message or "") and auth_token:
+        uname = account.username
+        logger.warning("Deleting X account id=%s: new session rejected (HTTP 401)", account.pk)
+        account.delete()
+        return JsonResponse({
+            "success": False, "deleted": True,
+            "message": f"سشن جدید برای @{uname} معتبر نبود (HTTP 401) و اکانت از سیستم حذف شد.",
+        })
     account.save()
     return JsonResponse({
         "success": ok,
