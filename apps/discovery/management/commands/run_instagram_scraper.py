@@ -257,11 +257,16 @@ class Command(BaseCommand):
         cl = Client()
         cl.delay_range = [2, 5]
 
-        if account.device_settings:
-            try:
-                cl.set_device(account.device_settings, reset=False)
-            except Exception:
-                pass
+        # Apply realistic unique device emulation profile (Pixel 8 Pro, S24 Ultra, Xiaomi 14, etc.)
+        try:
+            from apps.discovery.device_emulator import apply_device_profile_to_client
+            apply_device_profile_to_client(cl, account)
+        except Exception as dev_err:
+            if account.device_settings:
+                try:
+                    cl.set_device(account.device_settings, reset=False)
+                except Exception:
+                    pass
 
         self._restore_from_mirror(account)
         if account.session_json:
@@ -345,6 +350,27 @@ class Command(BaseCommand):
                     self.stderr.write(f"    session_save_failed (file mirror) for account {account.id}")
         except Exception as exc:
             self.stderr.write(f"Notice: could not persist session for account {account.id}: {redact(exc)}")
+
+    def _maybe_human_like(self, cl, m_id, account) -> None:
+        """
+        Periodically performs human-like warm-up interactions (e.g. liking a post)
+        with controlled probability (~15%), natural jitter delay (3-8s), and strict daily limits (<= 15/day).
+        """
+        import random
+        if random.random() > 0.15:
+            return
+
+        if getattr(account, "daily_action_count", 0) >= 15:
+            return
+
+        try:
+            time.sleep(random.uniform(3.0, 7.5))
+            cl.media_like(m_id)
+            account.daily_action_count = getattr(account, "daily_action_count", 0) + 1
+            account.save(update_fields=["daily_action_count"])
+            self.stdout.write(self.style.SUCCESS(f"    ❤️ [HUMAN-LIKE INTERACTION] @{account.username} liked post {m_id} (Daily likes: {account.daily_action_count})"))
+        except Exception as e:
+            self.stdout.write(self.style.NOTICE(f"    Notice: human-like interaction skipped: {e}"))
 
     def _auto_renew_session(self, cl, account) -> bool:
         """
@@ -574,6 +600,9 @@ class Command(BaseCommand):
                     f"    🎯 [QUALIFYING POST for {query_label}] {source_post_url} | Comments: {comment_count} (>= {min_comments}) | Hash: {post_hash[:10]}"
                 )
             )
+
+            # Human-like interaction (organic like telemetry)
+            self._maybe_human_like(cl, m_id, account)
 
             cta_trigger = get_effective_caption_cta(caption_text)
             fetch_amount = min(comment_count, 100)

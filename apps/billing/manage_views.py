@@ -219,8 +219,21 @@ def manage_dashboard(request):
     except Exception as exc:
         logger.warning("Could not query x_search_runs: %s", exc)
 
+    # 8. Proxy Pool & Configs
+    try:
+        from apps.discovery.models import ProxyConfig
+        proxy_configs = ProxyConfig.objects.all().order_by("local_port")
+        proxy_configs_total = proxy_configs.count()
+        proxy_configs_active = proxy_configs.filter(status="ACTIVE").count()
+    except Exception:
+        proxy_configs = []
+        proxy_configs_total = proxy_configs_active = 0
+
     context = {
         "nav": "manage",
+        "proxy_configs": proxy_configs,
+        "proxy_configs_total": proxy_configs_total,
+        "proxy_configs_active": proxy_configs_active,
         "scrapers": scrapers,
         "scrapers_total": scrapers_total,
         "scrapers_active": scrapers_active,
@@ -380,6 +393,16 @@ def manage_account_add(request):
         )
 
         cl = Client()
+
+        # Apply unique realistic device profile (Pixel 8 Pro, S24 Ultra, Xiaomi 14, etc.)
+        try:
+            from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
+            dev_profile = ensure_account_device_profile(account)
+            apply_device_profile_to_client(cl, account)
+        except Exception as dev_err:
+            dev_profile = {}
+            logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
+
         if account.proxy_url:
             cl.set_proxy(account.proxy_url)
 
@@ -394,7 +417,7 @@ def manage_account_add(request):
                 cl.login_by_sessionid(sessionid)
                 settings = cl.get_settings()
                 account.session_json = settings
-                account.device_settings = {"settings": settings}
+                account.device_settings = dev_profile or {"settings": settings}
                 account.status = "ACTIVE"
                 account.save(update_fields=["session_json", "device_settings", "status"])
                 role_fa = "اسکرپر" if role == "SCRAPER" else "فرستنده / پاسخگو"
@@ -419,7 +442,7 @@ def manage_account_add(request):
             # Verified and logged in successfully
             settings = cl.get_settings()
             account.session_json = settings
-            account.device_settings = {"settings": settings}
+            account.device_settings = dev_profile or {"settings": settings}
             account.status = "ACTIVE"
             account.save(update_fields=["session_json", "device_settings", "status"])
 
@@ -587,18 +610,18 @@ def manage_account_set_session(request, pk):
         except Exception:
             pass
 
-    if account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings:
-        try:
-            cl.set_device(account.device_settings, reset=False)
-        except Exception:
-            pass
+    from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
+    dev_profile = ensure_account_device_profile(account)
+    try:
+        apply_device_profile_to_client(cl, account)
+    except Exception:
+        pass
 
     try:
         cl.login_by_sessionid(sessionid)
         settings = cl.get_settings()
         account.session_json = settings
-        if not (account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings):
-            account.device_settings = {"model": cl.device_settings.get("model", "Pixel 8 Pro")}
+        account.device_settings = dev_profile or {"settings": settings}
         account.status = "ACTIVE"
         account.status_message = ""
         account.cooldown_until = None
