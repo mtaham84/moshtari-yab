@@ -454,15 +454,26 @@ def rebuild_xray_config_file() -> bool:
         except Exception as exc:
             log.warning("Could not parse outbound for ProxyConfig #%s: %s", p.id, exc)
 
+    # No healthy proxy in the DB: never replace a hand-maintained config that still has a real upstream outbound
+    # (doing so used to leave Xray with only "direct" and cut every scraper/Telegram connection).
+    if not outbounds and CONFIG_FILE.exists():
+        try:
+            existing = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            if any(o.get("protocol") not in {"freedom", "blackhole", "dns"} for o in existing.get("outbounds", [])):
+                log.warning("No ACTIVE proxies in DB; keeping the existing Xray config (it has its own upstream outbound)")
+                return True
+        except Exception as exc:
+            log.warning("Could not inspect existing Xray config: %s", exc)
+
     # Fallback default outbound
     if outbounds:
         default_ob = dict(outbounds[0])
         default_ob["tag"] = "default_proxy"
         outbounds.insert(0, default_ob)
-    else:
-        outbounds.append({"tag": "direct", "protocol": "freedom"})
 
-    outbounds.append({"tag": "direct", "protocol": "freedom"})
+    # Tags must be unique or Xray refuses to start ("existing tag found")
+    if not any(o.get("tag") == "direct" for o in outbounds):
+        outbounds.append({"tag": "direct", "protocol": "freedom"})
 
     full_config = {
         "log": {"loglevel": "warning"},
@@ -476,6 +487,12 @@ def rebuild_xray_config_file() -> bool:
 
     try:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if CONFIG_FILE.exists():   # keep the previous config (last 10) so a bad regeneration is always reversible
+            import shutil
+            stamp = time.strftime("%Y%m%dT%H%M%S")
+            shutil.copy2(CONFIG_FILE, CONFIG_FILE.with_name(f"{CONFIG_FILE.name}.bak-{stamp}"))
+            for old_bak in sorted(CONFIG_FILE.parent.glob(f"{CONFIG_FILE.name}.bak-*"))[:-10]:
+                old_bak.unlink(missing_ok=True)
         tmp_path = CONFIG_FILE.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(full_config, f, indent=2, ensure_ascii=False)

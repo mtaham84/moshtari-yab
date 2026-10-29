@@ -54,3 +54,5 @@ instagram_sessions/
 data/accounts_pool.json
 data/accounts_pool.json.*.tmp
 backups/
+xray/config.json.bak-*
+xray/config.json.tmp
