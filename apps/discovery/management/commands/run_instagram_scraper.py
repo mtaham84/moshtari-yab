@@ -251,6 +251,8 @@ class Command(BaseCommand):
         return cl
 
     def _handle_login_required(self, cl, account) -> bool:
+        if getattr(self, "_relogin_failed_account_id", None) == account.id:
+            return False
         if not getattr(account, "password", None):
             return False
         self.stdout.write(self.style.WARNING(f"    🔄 [Session Expired]: Attempting automatic re-login for @{account.username}..."))
@@ -260,9 +262,21 @@ class Command(BaseCommand):
             account.status = "ACTIVE"
             account.save(update_fields=["session_json", "status"])
             self.stdout.write(self.style.SUCCESS(f"    ✅ [Auto Re-Login Successful]: @{account.username} session updated!"))
+            self._relogin_failed_account_id = None
             return True
         except Exception as exc:
+            self._relogin_failed_account_id = account.id
             self.stderr.write(f"    ❌ [Auto Re-Login Failed] for @{account.username}: {exc}")
+            from django.utils import timezone as dj_timezone
+            from datetime import timedelta
+            exc_str = str(exc).lower()
+            if "pleasewait" in exc_str or "429" in exc_str:
+                account.status = "COOLDOWN"
+                account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                account.save(update_fields=["status", "cooldown_until"])
+            else:
+                account.status = "CHALLENGED"
+                account.save(update_fields=["status"])
             return False
 
     def _inspect_and_process_medias(
