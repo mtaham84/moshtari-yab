@@ -205,10 +205,14 @@ class Command(BaseCommand):
                 self.stderr.write(f"Notice: 30-day TTL hash cleanup notice: {ttl_exc}")
 
             cycle_leads = 0
-            for idx, target in enumerate(targets):
-                account = scraper_accounts[idx % len(scraper_accounts)]
+            for target in targets:
+                # Sticky account assignment per business: keeps account steady without switching
+                b_obj = target.get("business")
+                b_id = getattr(b_obj, "id", 0) if b_obj else 0
+                account = scraper_accounts[b_id % len(scraper_accounts)]
+
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
-                cl = self._build_client(account)
+                cl = self._get_persistent_client(account)
                 try:
                     leads_found = self._scrape_target(cl, account, target, min_comments, max_posts)
                     cycle_leads += leads_found
@@ -223,6 +227,22 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.NOTICE(f"Sleeping for {interval_minutes} minutes before next cycle..."))
             time.sleep(interval_minutes * 60)
+
+    def _get_persistent_client(self, account):
+        """
+        Maintains a persistent, warm in-memory Client pool per account.
+        Never rebuilds the client from scratch if one already exists,
+        preventing repeated login/logout handshakes and connection churn.
+        """
+        if not hasattr(self, "_client_pool"):
+            self._client_pool = {}
+
+        if account.id in self._client_pool:
+            return self._client_pool[account.id]
+
+        cl = self._build_client(account)
+        self._client_pool[account.id] = cl
+        return cl
 
     def _build_client(self, account):
         from instagrapi import Client
@@ -272,54 +292,21 @@ class Command(BaseCommand):
         return cl
 
     def _handle_login_required(self, cl, account) -> bool:
-        if getattr(self, "_relogin_failed_account_id", None) == account.id:
-            return False
-
-        sess_id = (account.session_json or {}).get("cookies", {}).get("sessionid")
-        if sess_id:
-            try:
-                self.stdout.write(self.style.WARNING(f"    🔄 [Session Refresh]: Re-authorizing sessionid for @{account.username}..."))
-                if account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings:
-                    cl.set_device(account.device_settings, reset=False)
-                cl.login_by_sessionid(sess_id)
-                account.session_json = cl.get_settings()
-                account.status = "ACTIVE"
-                account.save(update_fields=["session_json", "status"])
-                self.stdout.write(self.style.SUCCESS(f"    ✅ [Session Re-Authorized]: @{account.username} updated!"))
-                self._relogin_failed_account_id = None
-                return True
-            except Exception as se:
-                self.stderr.write(f"    ❌ [Session Re-Authorization Failed] for @{account.username}: {se}")
-                self._relogin_failed_account_id = account.id
-                account.status = "CHALLENGED"
-                account.save(update_fields=["status"])
-                return False
-
-        if not getattr(account, "password", None):
-            return False
-        self.stdout.write(self.style.WARNING(f"    🔄 [Session Expired]: Attempting automatic re-login for @{account.username}..."))
-        try:
-            cl.login(account.username, account.password)
-            account.session_json = cl.get_settings()
-            account.status = "ACTIVE"
-            account.save(update_fields=["session_json", "status"])
-            self.stdout.write(self.style.SUCCESS(f"    ✅ [Auto Re-Login Successful]: @{account.username} session updated!"))
-            self._relogin_failed_account_id = None
-            return True
-        except Exception as exc:
-            self._relogin_failed_account_id = account.id
-            self.stderr.write(f"    ❌ [Auto Re-Login Failed] for @{account.username}: {exc}")
-            from django.utils import timezone as dj_timezone
-            from datetime import timedelta
-            exc_str = str(exc).lower()
-            if "pleasewait" in exc_str or "429" in exc_str:
-                account.status = "COOLDOWN"
-                account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                account.save(update_fields=["status", "cooldown_until"])
-            else:
-                account.status = "CHALLENGED"
-                account.save(update_fields=["status"])
-            return False
+        """
+        Strict Session Persistence:
+        NEVER attempt password login or CAA login when an account has a valid browser session!
+        Multiple logins from different protocols invalidate the web session and get accounts flagged.
+        If a read error occurs, respect the rate limit, set cooldown, and keep the session untouched.
+        """
+        self.stdout.write(self.style.WARNING(
+            f"    ⚠️ [Rate Limit / Rest Triggered] for @{account.username}. Keeping existing session intact without re-logging in."
+        ))
+        from django.utils import timezone as dj_timezone
+        from datetime import timedelta
+        account.status = "COOLDOWN"
+        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+        account.save(update_fields=["status", "cooldown_until"])
+        return False
 
     def _inspect_and_process_medias(
         self,

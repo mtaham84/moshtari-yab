@@ -5,92 +5,33 @@
 
 {% block content %}
 <style>
+  :root {
+    --card-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05);
+  }
   .manage-tabs {
     display: flex;
     gap: 8px;
     border-bottom: 2px solid var(--border);
     margin-bottom: 20px;
-    padding-bottom: 4px;
+    padding-bottom: 6px;
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
-  }
-  .table-responsive {
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    margin-bottom: 16px;
-    background: var(--card);
     scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
   }
-  .table-responsive::-webkit-scrollbar {
-    height: 6px;
+  .manage-tabs::-webkit-scrollbar {
+    height: 4px;
   }
-  .table-responsive::-webkit-scrollbar-thumb {
+  .manage-tabs::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 4px;
-  }
-  .table-responsive table {
-    width: 100%;
-    min-width: 680px;
-    border-collapse: collapse;
-  }
-  .table-responsive th, .table-responsive td {
-    padding: 10px 12px;
-    text-align: right;
-    direction: rtl;
-    vertical-align: middle;
-    font-family: 'Vazirmatn', Tahoma, sans-serif;
-  }
-  .table-responsive th {
-    white-space: nowrap;
-    background: #f8fafc;
-    font-size: 0.82rem;
-    font-weight: 700;
-  }
-  .jalali-time-cell {
-    font-size: 0.84rem;
-    white-space: nowrap;
-    direction: rtl !important;
-    text-align: right !important;
-    font-family: 'Vazirmatn', Tahoma, sans-serif !important;
-    font-feature-settings: 'ss01';
-  }
-  @media (max-width: 768px) {
-    .ops-main {
-      padding: 12px 8px;
-    }
-    .card {
-      padding: 14px 10px;
-      border-radius: 10px;
-    }
-    .ops-head {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .activity-banner {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .stat .value {
-      font-size: 1.25rem;
-    }
-    .table-responsive table {
-      min-width: 620px;
-      font-size: 0.8rem;
-    }
   }
   .tab-btn {
     background: transparent;
     border: none;
-    padding: 10px 18px;
+    padding: 10px 16px;
     font: inherit;
-    font-size: 0.92rem;
+    font-size: 0.9rem;
     font-weight: 600;
     color: var(--muted);
     cursor: pointer;
@@ -113,11 +54,57 @@
   .tab-pane.active {
     display: block;
   }
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+    background: var(--card);
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+  .table-responsive::-webkit-scrollbar {
+    height: 6px;
+  }
+  .table-responsive::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .table-responsive table {
+    width: 100%;
+    min-width: 740px;
+    border-collapse: collapse;
+  }
+  .table-responsive th, .table-responsive td {
+    padding: 10px 12px;
+    text-align: right;
+    direction: rtl;
+    vertical-align: middle;
+    font-family: 'Vazirmatn', Tahoma, sans-serif;
+  }
+  .table-responsive th {
+    white-space: nowrap;
+    background: #f8fafc;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #475569;
+    border-bottom: 2px solid var(--border);
+  }
+  .jalali-time-cell {
+    font-size: 0.84rem;
+    white-space: nowrap;
+    direction: rtl !important;
+    text-align: right !important;
+    font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+    font-feature-settings: 'ss01';
+  }
   .badge-status {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 10px;
+    padding: 4px 10px;
     border-radius: 99px;
     font-size: 0.8rem;
     font-weight: 600;
@@ -139,13 +126,13 @@
   .account-form {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 18px 20px;
     margin-bottom: 24px;
   }
   .form-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 14px;
     align-items: flex-end;
   }
@@ -165,6 +152,82 @@
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px;
+  }
+
+  /* Comprehensive Mobile & Tablet Responsive Rules */
+  @media (max-width: 1024px) {
+    .grid.g4 {
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 12px !important;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .ops-main {
+      padding: 12px 8px !important;
+    }
+    .ops-head {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 10px !important;
+    }
+    .ops-head h1 {
+      font-size: 1.15rem !important;
+    }
+    .activity-banner {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 10px !important;
+      padding: 12px 14px !important;
+    }
+    .card {
+      padding: 14px 12px !important;
+      border-radius: 12px !important;
+    }
+    .account-form {
+      padding: 14px 12px !important;
+    }
+    .form-row {
+      grid-template-columns: 1fr !important;
+      gap: 12px !important;
+    }
+    .tab-btn {
+      padding: 8px 12px !important;
+      font-size: 0.82rem !important;
+    }
+    .table-responsive table {
+      min-width: 680px !important;
+      font-size: 0.82rem !important;
+    }
+    .table-responsive th, .table-responsive td {
+      padding: 8px 10px !important;
+    }
+    .stat .value {
+      font-size: 1.25rem !important;
+    }
+    .btn {
+      font-size: 0.82rem !important;
+      padding: 7px 12px !important;
+    }
+  }
+
+  @media (max-width: 580px) {
+    .grid.g4 {
+      grid-template-columns: 1fr !important;
+      gap: 10px !important;
+    }
+    .manage-tabs {
+      gap: 4px !important;
+      padding-bottom: 4px !important;
+    }
+    .tab-btn {
+      padding: 7px 10px !important;
+      font-size: 0.78rem !important;
+    }
+    #challengeModal > div, #sessionModal > div {
+      width: 95% !important;
+      padding: 18px 14px !important;
+    }
   }
 </style>
 
@@ -503,8 +566,9 @@
           <tr>
             <th>شناسه</th>
             <th>اکانت اینستاگرام</th>
+            <th>📱 دیوایس شبیه‌سازی‌شده (Emulated Device)</th>
+            <th>🌐 کانفیگ و شبکه (Proxy & Network)</th>
             <th>وضعیت اتصال و سشن</th>
-            <th>پروکسی</th>
             <th>عملیات امروز</th>
             <th>آخرین فعالیت</th>
             <th>عملیات</th>
@@ -513,17 +577,79 @@
         <tbody>
           {% for acc in scrapers %}
           <tr id="row-acc-{{ acc.id }}">
-            <td>#{{ acc.id }}</td>
+            <td style="font-weight:700; color:var(--muted);">#{{ acc.id }}</td>
             <td>
-              <strong>@{{ acc.username }}</strong>
-              {% if acc.session_json %}
-                <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">دارای سشن ذخیره‌شده</span>
-              {% else %}
-                <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
-              {% endif %}
-              {% if acc.device_settings.model %}
-                <span class="pill" style="font-size:0.7rem; background:#eff6ff; color:#1d4ed8;" title="{{ acc.device_settings.manufacturer }} {{ acc.device_settings.model }}">📱 {{ acc.device_settings.model }}</span>
-              {% endif %}
+              <div style="font-weight:800; font-size:1rem; color:var(--text);" dir="ltr">@{{ acc.username }}</div>
+              <div style="margin-top:4px;">
+                {% if acc.session_json %}
+                  <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">دارای سشن ذخیره‌شده</span>
+                {% else %}
+                  <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div style="display:flex; flex-direction:column; gap:3px;">
+                {% if acc.device_settings.model == 'SM-S928B' %}
+                  <div style="font-weight:700; color:#1d4ed8; display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:1.1rem;">📱</span> <span>سامسونگ Galaxy S24 Ultra</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code>SM-S928B (Snapdragon)</code> &bull; Android 14
+                  </div>
+                  <div class="muted" style="font-size:0.72rem;">
+                    رزولوشن: ۳۱۲۰×۱۴۴۰ (500dpi)
+                  </div>
+                {% elif acc.device_settings.model == 'Pixel 8 Pro' or acc.device_settings.model == 'husky' %}
+                  <div style="font-weight:700; color:#15803d; display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:1.1rem;">📱</span> <span>گوگل Pixel 8 Pro</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code>husky (Google Tensor)</code> &bull; Android 14
+                  </div>
+                  <div class="muted" style="font-size:0.72rem;">
+                    رزولوشن: ۲۹۹۲×۱۳۴۴ (480dpi)
+                  </div>
+                {% elif acc.device_settings.model %}
+                  <div style="font-weight:700; color:#0369a1; display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:1.1rem;">📱</span> <span>{{ acc.device_settings.manufacturer|title }} {{ acc.device_settings.model }}</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code>{{ acc.device_settings.device|default:acc.device_settings.model }}</code> &bull; Android {{ acc.device_settings.android_release|default:"13" }}
+                  </div>
+                {% else %}
+                  <div style="font-weight:700; color:#64748b; display:flex; align-items:center; gap:5px;">
+                    <span style="font-size:1.1rem;">📱</span> <span>دیوایس پیش‌فرض (Pixel 8 Pro)</span>
+                  </div>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div style="display:flex; flex-direction:column; gap:3px;">
+                {% if acc.proxy_url and 'xray' in acc.proxy_url or acc.proxy_url and '8080' in acc.proxy_url %}
+                  <div style="font-weight:700; color:#7c3aed; display:flex; align-items:center; gap:5px;">
+                    <span>🌐</span> <span>تونل اختصاصی Xray</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code>http://xray:8080</code> (IP: 155.117.120.230)
+                  </div>
+                  <span class="pill" style="font-size:0.68rem; background:#f3e8ff; color:#6b21a8; width:fit-content;">پروکسی آلمان / Shadowsocks</span>
+                {% elif acc.proxy_url %}
+                  <div style="font-weight:700; color:#0369a1; display:flex; align-items:center; gap:5px;">
+                    <span>🌐</span> <span>پروکسی سفارشی</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:32 }}</code>
+                  </div>
+                {% else %}
+                  <div style="font-weight:700; color:#64748b; display:flex; align-items:center; gap:5px;">
+                    <span>⚡</span> <span>اتصال مستقیم سرور</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code>Direct (IP: 155.117.120.230)</code>
+                  </div>
+                {% endif %}
+              </div>
             </td>
             <td>
               {% if acc.status == 'ACTIVE' %}
@@ -537,14 +663,7 @@
               {% endif %}
               <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
             </td>
-            <td dir="ltr" style="text-align:right;">
-              {% if acc.proxy_url %}
-                <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:28 }}</code>
-              {% else %}
-                <span class="muted">اتصال مستقیم</span>
-              {% endif %}
-            </td>
-            <td class="n">{{ acc.daily_action_count }}</td>
+            <td class="n" style="font-weight:700; font-size:1rem;">{{ acc.daily_action_count }}</td>
             <td class="jalali-time-cell">
               {% if acc.last_action_at %}
                 {{ acc.last_action_at|time_ago_fa }}
