@@ -225,3 +225,13 @@ def test_ig_term_scoring_demotes_empty_terms_and_keeps_explorers():
     rng = random.Random(3)
     firsts = [pick(["بد", "تازه"], 1, hist, rng=rng)[0] for _ in range(300)]
     assert firsts.count("تازه") > 240 and score(None, rng) > 0
+
+
+def test_incomplete_llm_terms_are_not_cached():
+    from workers.x_collector.llm_terms import is_complete
+
+    full = {"pain_symptoms": ["الف ب", "پ ت", "ث ج"], "advice_requests": ["الف ب", "پ ت", "ث ج"],
+            "implicit_solutions": ["الف ب", "پ ت", "ث ج"]}
+    assert is_complete(full)
+    assert not is_complete({**full, "advice_requests": []})
+    assert not is_complete(None)

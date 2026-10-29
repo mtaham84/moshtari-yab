@@ -88,8 +88,11 @@ class FakeLLM:
                            "model": "null"} for i in ids]}, {}
 
 
-def test_llm_terms_are_sanitized_cached_and_regenerated_on_change():
+def test_llm_terms_are_sanitized_cached_and_regenerated_on_change(monkeypatch):
+    import workers.x_collector.llm_terms as lt
     from workers.x_collector.llm_terms import llm_terms
+
+    monkeypatch.setattr(lt, "MIN_PER_FORMAT", 0)   # this test's fake LLM returns a minimal answer
 
     store, llm = FakeStore(), FakeLLM()
     product = Product(product_id="7", title="ایرفون بلوتوثی")

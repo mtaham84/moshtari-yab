@@ -42,6 +42,15 @@ Return JSON:
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
+MIN_PER_FORMAT = 3
+
+
+def is_complete(terms: Any) -> bool:
+    """All three formats are filled enough to search with; partial answers (truncated output) are never cached."""
+    return isinstance(terms, dict) and all(len(terms.get(k) or []) >= MIN_PER_FORMAT
+                                           for k in ("pain_symptoms", "advice_requests", "implicit_solutions"))
+
+
 def _key(product: Any, card: Any) -> str:
     payload = [PROMPT_VERSION, product.content_hash(), card.model_dump(mode="json") if card is not None else None]
     return hashlib.sha1(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
@@ -130,7 +139,7 @@ def llm_terms(products: list[Any], cards: dict[str, Any], store: Any, llm: Any, 
     for product in products:
         key = _key(product, cards.get(product.product_id))
         hit = cached.get(KV_PREFIX + product.product_id)
-        if isinstance(hit, dict) and hit.get("h") == key:
+        if isinstance(hit, dict) and hit.get("h") == key and is_complete(hit.get("terms")):
             out[product.product_id] = hit["terms"]
         else:
             todo.append((product, key))
@@ -148,6 +157,11 @@ def llm_terms(products: list[Any], cards: dict[str, Any], store: Any, llm: Any, 
             if product.product_id not in items:
                 continue
             terms = sanitize(items[product.product_id])
-            store.set(KV_PREFIX + product.product_id, {"h": key, "terms": terms})
+            if is_complete(terms):
+                store.set(KV_PREFIX + product.product_id, {"h": key, "terms": terms})
+            else:
+                log.warning("X query terms for product %s incomplete (%d/%d/%d); not cached, retrying next cycle",
+                            product.product_id, len(terms["pain_symptoms"]), len(terms["advice_requests"]),
+                            len(terms["implicit_solutions"]))
             out[product.product_id] = terms
     return out
