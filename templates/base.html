@@ -8,9 +8,8 @@
   <meta name="description" content="مشتری‌یاب، دستیار هوشمند شما برای پیدا کردن مشتری‌های بالقوه در گفتگوهای آنلاین.">
   <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
   <title>{% block title %}مشتری‌یاب | دستیار هوشمند کشف مشتری در گفتگوهای آنلاین{% endblock %}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="preload" href="{% static 'fonts/Vazirmatn-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
   <script>
     (() => {
       try {
@@ -19,7 +18,7 @@
       } catch (_) {}
     })();
   </script>
-  <link rel="stylesheet" href="{% static 'css/site.css' %}?v=20261010_1545">
+  <link rel="stylesheet" href="{% static 'css/site.css' %}?v=20261029_2">
   <script src="{% static 'js/site.js' %}?v=20261010_1545" defer></script>
 </head>
 <body>

@@ -1,0 +1,16 @@
+/* Self-hosted Vazirmatn (variable 100-900): no dependency on Google Fonts, which is slow or blocked for many users. */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("../fonts/Vazirmatn-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root { --font-sans: "Vazirmatn", Tahoma, sans-serif; --font-vazir: "Vazirmatn", Tahoma, sans-serif; }
+
+html, body, button, input, select, textarea, optgroup, option, table, th, td, label, a, p, h1, h2, h3, h4, h5, h6, li, span, div {
+  font-family: "Vazirmatn", Tahoma, sans-serif;
+}
+/* Only literal code/IDs stay monospace */
+code, kbd, pre, samp, [style*="monospace"] { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }

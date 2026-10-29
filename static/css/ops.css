@@ -64,3 +64,12 @@ code{direction:ltr;unicode-bidi:embed;font-size:.82rem;background:var(--bg);padd
   .g2{grid-template-columns:1fr}
 }
 
+
+/* Glassmorphism + Rock layer for /manage/ and /ops/ dashboards */
+body{background:radial-gradient(ellipse at 85% 0%,rgba(232,38,142,.22),transparent 55%),radial-gradient(ellipse at 0% 100%,rgba(28,126,214,.22),transparent 55%),var(--bg);background-attachment:fixed}
+.card,.ops-side{background:color-mix(in srgb,var(--card) 62%,transparent);-webkit-backdrop-filter:blur(16px) saturate(150%);backdrop-filter:blur(16px) saturate(150%);border:1px solid color-mix(in srgb,var(--text) 12%,transparent);box-shadow:0 10px 34px rgba(20,10,60,.16),inset 0 1px 0 rgba(255,255,255,.12)}
+.card{border-inline-start:3px solid #e8268e}
+img,video,svg,canvas{max-width:100%;height:auto}
+.ops-main,.ops-content{min-width:0}
+@media (max-width:860px){.grid,.cards,.kpis{grid-template-columns:1fr 1fr!important}}
+@media (max-width:480px){.grid,.cards,.kpis{grid-template-columns:1fr!important}}

@@ -2668,3 +2668,70 @@ html[data-theme="light"] select {
 .panel-app-container input[dir="ltr"]:not(:placeholder-shown) {
   text-align: left;
 }
+
+/* ==========================================================================
+   Glassmorphism + Rock layer — frosted surfaces over a dark aurora canvas,
+   hard edges and heavy type for the "rock" feel. Loaded last so it wins.
+   ========================================================================== */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-strong: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-shadow: 0 10px 36px rgba(40, 30, 90, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --glass-blur: blur(18px) saturate(160%);
+  --rock-edge: #e8268e;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --glass-bg: rgba(20, 22, 40, 0.5);
+    --glass-bg-strong: rgba(24, 27, 48, 0.72);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --glass-shadow: 0 14px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+:root[data-theme="dark"] {
+  --glass-bg: rgba(20, 22, 40, 0.5);
+  --glass-bg-strong: rgba(24, 27, 48, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 14px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+body {
+  background:
+    radial-gradient(ellipse at 85% 0%, rgba(232, 38, 142, 0.28), transparent 55%),
+    radial-gradient(ellipse at 0% 100%, rgba(28, 126, 214, 0.28), transparent 55%),
+    var(--stone-canvas);
+  background-attachment: fixed;
+}
+
+.p-card, .p-card-sunken, .stone-stat-card, .inspector-card, .lead-item-card,
+.opp-list-card, .radar-opportunity-card, .business-profile-card, .factor-mini-card,
+.p-empty-state, .panel-sidebar, .panel-topbar, .stone-console-header, .panel-mobile-bottom-nav {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+.stone-chassis { background: transparent; border-color: var(--glass-border); }
+.p-card, .stone-stat-card, .radar-opportunity-card { border-radius: 14px; border-inline-start: 3px solid var(--rock-edge); }
+.p-page-header h1, .stat-card-figure { font-weight: 900; letter-spacing: -0.3px; }
+.sidebar-link { border-radius: 10px; font-weight: 700; }
+
+/* No backdrop-filter support or reduced transparency: fall back to solid surfaces */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .p-card, .p-card-sunken, .stone-stat-card, .inspector-card, .lead-item-card, .opp-list-card,
+  .radar-opportunity-card, .business-profile-card, .factor-mini-card, .p-empty-state,
+  .panel-sidebar, .panel-topbar, .stone-console-header, .panel-mobile-bottom-nav { background: var(--glass-bg-strong); }
+}
+
+/* Responsive safety net: nothing may push the page sideways */
+img, video, svg, canvas { max-width: 100%; height: auto; }
+.panel-content-area, .panel-main-area { min-width: 0; }
+table { max-width: 100%; }
+@media (max-width: 768px) {
+  .p-card table, .p-card-sunken table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .p-page-header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .stone-stat-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 420px) { .stone-stat-grid { grid-template-columns: 1fr; } }

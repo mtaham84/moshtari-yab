@@ -9,10 +9,9 @@
   <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
   <title>{% block title %}فضای کاری کشف مشتری | مشتری‌یاب{% endblock %}</title>
 
-  <!-- Persian Typography (Vazirmatn) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Persian Typography (self-hosted Vazirmatn) -->
+  <link rel="preload" href="{% static 'fonts/Vazirmatn-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
 
   <!-- Immediate Theme Check to avoid flash -->
   <script>

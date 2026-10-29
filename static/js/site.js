@@ -171,3 +171,41 @@
     }
   });
 })();
+
+// Hero video: start after the page is interactive, only on a decent connection, and fall back to the aurora
+// if it cannot buffer quickly or stalls. The page never waits for it.
+(() => {
+  const video = document.querySelector('.hero-video');
+  if (!video || !video.dataset.src) return;
+  const conn = navigator.connection || {};
+  const weak = conn.saveData || /(^|-)2g$|3g/.test(conn.effectiveType || '') ||
+    (typeof conn.downlink === 'number' && conn.downlink > 0 && conn.downlink < 1.5) ||
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (weak) return;
+
+  let done = false;
+  const giveUp = () => {
+    if (done) return;
+    done = true;
+    video.classList.remove('is-ready');
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  };
+  const start = () => {
+    video.src = video.dataset.src;
+    video.preload = 'auto';
+    const patience = setTimeout(() => { if (!video.classList.contains('is-ready')) giveUp(); }, 9000);
+    video.addEventListener('canplay', () => {
+      if (done) return;
+      clearTimeout(patience);
+      video.play().then(() => video.classList.add('is-ready')).catch(giveUp);
+    }, { once: true });
+    let stall;
+    video.addEventListener('waiting', () => { stall = setTimeout(giveUp, 5000); });
+    video.addEventListener('playing', () => clearTimeout(stall));
+    video.addEventListener('error', giveUp);
+  };
+  const go = () => ('requestIdleCallback' in window ? requestIdleCallback(start, { timeout: 2500 }) : setTimeout(start, 600));
+  if (document.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
+})();

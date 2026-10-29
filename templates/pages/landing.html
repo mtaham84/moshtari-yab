@@ -6,8 +6,10 @@
      Cosmic Hero Section (Matching Reference Image)
      ========================================================================== -->
 <header class="hero-wrapper" id="بالا">
-  <div class="hero-stars" aria-hidden="true"></div>
-  <div class="celestial-star" aria-hidden="true"></div>
+  <div class="hero-fallback" aria-hidden="true"><i></i><i></i><i></i></div>
+  <video class="hero-video" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture
+         data-src="{% static 'images/coverr-50-sale-sign-on-the-street-5893-1080p.mp4' %}"></video>
+  <div class="hero-video-scrim" aria-hidden="true"></div>
 
   <!-- Navigation Bar -->
   <nav class="navbar" aria-label="ناوبری اصلی">
@@ -176,8 +178,8 @@
       </div>
 
       <h1 class="hero-title">
-        مشتری‌های بالقوه‌ات رو<br>
-        <span class="gradient-text">پیدا کن.</span>
+        همین الان مشتری بالقوه‌ات رو<br>
+        <span class="gradient-text">به خریدار تبدیل کن با «پیدا»!</span>
       </h1>
 
       <p class="hero-desc">
@@ -216,13 +218,8 @@
       </div>
     </div>
 
-    <!-- Hero Visual Area: Floating Astronaut Reaching for the Celestial Star -->
+    <!-- Hero Visual Area: live signal card floating over the video -->
     <div class="hero-visual" aria-hidden="true">
-      <div class="signal-waves"></div>
-      <div class="floating-explorer">
-        <img src="{% static 'images/astronaut.svg' %}" alt="کاوشگر کیهانی کشف مشتری" width="440" height="480">
-      </div>
-
       <!-- Live Signal Bubble -->
       <aside class="live-signal-bubble">
         <div class="bubble-header">
