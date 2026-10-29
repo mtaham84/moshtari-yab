@@ -47,6 +47,11 @@ for env_candidate in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
+# When running on host, PostgreSQL is bound to localhost 127.0.0.1
+if not Path("/.dockerenv").exists():
+    if os.environ.get("POSTGRES_HOST") in (None, "db", "172.18.0.3"):
+        os.environ["POSTGRES_HOST"] = "127.0.0.1"
+
 try:
     import django
     django.setup()
@@ -154,66 +159,74 @@ def handle_help(chat_id: int | str) -> None:
 
 
 def handle_status(chat_id: int | str) -> None:
-    from apps.discovery.models import ProxyConfig
+    from apps.discovery.models import ProxyConfig, InstagramEngineAccount, TwitterEngineAccount
 
     proxies = list(ProxyConfig.objects.all().order_by("local_port"))
-    if not proxies:
-        send_message(
-            chat_id,
-            "📭 <b>هیچ کانفیگی در دیتابیس ثبت نشده است.</b>\nلطفاً چند کانفیگ معتبر ارسال کنید تا به سیستم اضافه شود.",
-            reply_markup=get_main_keyboard()
-        )
-        return
+    active_count = sum(1 for p in proxies if p.status == "ACTIVE" and p.ping_ms > 0)
 
-    active_count = sum(1 for p in proxies if p.status == "ACTIVE")
     msg_lines = [
-        f"📊 <b>وضعیت مخزن کانفیگ‌های سرور:</b>",
-        f"کل کانفیگ‌ها: <b>{len(proxies)}</b> | فعال و متصل: <b>{active_count}</b>\n"
+        "📊 <b>وضعیت جامع کانفیگ‌ها و سرور:</b>\n"
     ]
 
-    for i, p in enumerate(proxies, 1):
-        status_icon = "🟢" if p.status == "ACTIVE" and p.ping_ms > 0 else "🔴"
-        ping_str = f"{p.ping_ms:.0f}ms" if p.ping_ms > 0 else "قطع (-۱)"
-        assigned_str = f"👉 اختصاص به: <code>{p.assigned_to}</code>" if p.assigned_to else "آزاد (آماده اتصال)"
+    # Section 1: Proxy configs
+    if not proxies:
         msg_lines.append(
-            f"{i}. {status_icon} <b>{p.tag or p.server}</b>\n"
-            f"   پروتکل: <code>{p.protocol.upper()}</code> | پینگ: <b>{ping_str}</b>\n"
-            f"   پورت اختصاصی: <code>{p.local_port or '—'}</code> | {assigned_str}\n"
+            "🌐 <b>مخزن کانفیگ‌های اختصاصی:</b>\n"
+            "📭 <i>هنوز هیچ کانفیگ اختصاصی اضافه‌ای در دیتابیس ثبت نشده است.</i>\n"
+            "• اکانت‌ها در حال حاضر از پروکسی پیش‌فرض سیستم (<code>socks5h://xray:1080</code>) استفاده می‌کنند.\n"
+            "• جهت اختصاص آی‌پی‌های مجزا، کافیست لینک‌های کانفیگ سالم خود را همین‌جا ارسال کنید.\n"
+            "• ⚠️ <i>کانفیگ‌های قطع‌شده (پینگ -۱) خودکار رد یا پاکسازی می‌شوند تا هیچ کانفیگ خرابی در سیستم باقی نماند.</i>\n"
+        )
+    else:
+        msg_lines.append(
+            f"🌐 <b>مخزن کانفیگ‌های اختصاصی (تعداد: {len(proxies)} | سالم: {active_count}):</b>"
+        )
+        for i, p in enumerate(proxies, 1):
+            status_icon = "🟢" if p.status == "ACTIVE" and p.ping_ms > 0 else "🔴"
+            ping_str = f"{p.ping_ms:.0f}ms" if p.ping_ms > 0 else "قطع (-۱)"
+            assigned_str = f"👉 متصل به <code>@{p.assigned_to}</code>" if p.assigned_to else "آزاد (آماده انتساب)"
+            msg_lines.append(
+                f"{i}. {status_icon} <b>{p.tag or p.server}</b>\n"
+                f"   پروتکل: <code>{p.protocol.upper()}</code> | پینگ: <b>{ping_str}</b>\n"
+                f"   پورت اختصاصی: <code>{p.local_port or '—'}</code> | {assigned_str}"
+            )
+        msg_lines.append("")
+
+    # Section 2: Accounts and their connected proxies
+    ig_accs = list(InstagramEngineAccount.objects.all().order_by("id"))
+    x_accs = list(TwitterEngineAccount.objects.all().order_by("id"))
+
+    msg_lines.append("👥 <b>وضعیت اتصال اکانت‌ها به پروکسی و دیوایس:</b>")
+
+    msg_lines.append("\n📸 <b>اکانت‌های اینستاگرام:</b>")
+    if not ig_accs:
+        msg_lines.append("<i>هیچ اکانت اینستاگرامی ثبت نشده است.</i>")
+    for a in ig_accs:
+        st_icon = "🟢" if a.status == "ACTIVE" else "🟠"
+        dev_name = (a.device_settings or {}).get("device_name", "Sony Xperia 1 V / S24 Ultra")
+        proxy_display = a.proxy_url or "socks5h://xray:1080 (پیش‌فرض)"
+        msg_lines.append(
+            f"• {st_icon} <b>@{a.username}</b> ({a.get_status_display()})\n"
+            f"   📱 دیوایس: <code>{dev_name}</code>\n"
+            f"   🌐 پروکسی: <code>{proxy_display}</code>\n"
+        )
+
+    msg_lines.append("🐦 <b>اکانت‌های توییتر / X:</b>")
+    if not x_accs:
+        msg_lines.append("<i>هیچ اکانت توییتری ثبت نشده است.</i>")
+    for a in x_accs:
+        st_icon = "🟢" if a.status == "ACTIVE" else "🟡" if a.status == "COOLDOWN" else "🟠"
+        proxy_display = a.proxy_url or "socks5h://xray:1080 (پیش‌فرض)"
+        msg_lines.append(
+            f"• {st_icon} <b>@{a.username}</b> ({a.get_status_display()})\n"
+            f"   🌐 پروکسی: <code>{proxy_display}</code>\n"
         )
 
     send_message(chat_id, "\n".join(msg_lines), reply_markup=get_main_keyboard())
 
 
 def handle_accounts_status(chat_id: int | str) -> None:
-    from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
-
-    ig_accs = list(InstagramEngineAccount.objects.all().order_by("id"))
-    x_accs = list(TwitterEngineAccount.objects.filter(is_active=True).order_by("id"))
-
-    lines = ["👥 <b>وضعیت اختصاص پروکسی و دیوایس اکانت‌ها:</b>\n"]
-    lines.append("📸 <b>اکانت‌های اینستاگرام:</b>")
-    if not ig_accs:
-        lines.append("<i>هیچ اکانت اینستاگرامی ثبت نشده است.</i>")
-    for a in ig_accs:
-        st_icon = "🟢" if a.status == "ACTIVE" else "🟠"
-        dev_name = (a.device_settings or {}).get("device_name", "پیش‌فرض")
-        lines.append(
-            f"• {st_icon} <b>@{a.username}</b> ({a.get_status_display()})\n"
-            f"   📱 دیوایس: <code>{dev_name}</code>\n"
-            f"   🌐 پروکسی: <code>{a.proxy_url or 'اتصال مستقیم'}</code>\n"
-        )
-
-    lines.append("\n🐦 <b>اکانت‌های توییتر / X:</b>")
-    if not x_accs:
-        lines.append("<i>هیچ اکانت توییتری ثبت نشده است.</i>")
-    for a in x_accs:
-        st_icon = "🟢" if a.status == "ACTIVE" else "🟡" if a.status == "COOLDOWN" else "🟠"
-        lines.append(
-            f"• {st_icon} <b>@{a.username}</b> ({a.get_status_display()})\n"
-            f"   🌐 پروکسی: <code>{a.proxy_url or 'اتصال مستقیم'}</code>\n"
-        )
-
-    send_message(chat_id, "\n".join(lines), reply_markup=get_main_keyboard())
+    handle_status(chat_id)
 
 
 def handle_prune(chat_id: int | str) -> None:
@@ -329,18 +342,26 @@ def run_bot() -> None:
 
                 log.info("Received message from chat %s: '%s'", chat_id, text[:40])
 
-                if text == "/start":
-                    handle_start(chat_id)
-                elif text in ("/help", "❓ راهنمای ارسال کانفیگ"):
-                    handle_help(chat_id)
-                elif text in ("/status", "📊 وضعیت کانفیگ‌ها و سرور"):
-                    handle_status(chat_id)
-                elif text in ("/accounts", "👥 اکانت‌ها و پروکسی‌های متصل"):
-                    handle_accounts_status(chat_id)
-                elif text in ("/prune", "🔄 تست مجدد و پاکسازی خرابی‌ها"):
-                    handle_prune(chat_id)
-                else:
-                    handle_incoming_text(chat_id, text)
+                try:
+                    if text == "/start":
+                        handle_start(chat_id)
+                    elif text in ("/help", "❓ راهنمای ارسال کانفیگ"):
+                        handle_help(chat_id)
+                    elif text in ("/status", "📊 وضعیت کانفیگ‌ها و سرور"):
+                        handle_status(chat_id)
+                    elif text in ("/accounts", "👥 اکانت‌ها و پروکسی‌های متصل"):
+                        handle_accounts_status(chat_id)
+                    elif text in ("/prune", "🔄 تست مجدد و پاکسازی خرابی‌ها"):
+                        handle_prune(chat_id)
+                    else:
+                        handle_incoming_text(chat_id, text)
+                except Exception as handler_exc:
+                    log.error("Handler error for chat %s: %s", chat_id, handler_exc, exc_info=True)
+                    send_message(
+                        chat_id,
+                        f"⚠️ <b>خطایی در پردازش رخ داد:</b>\n<code>{handler_exc}</code>",
+                        reply_markup=get_main_keyboard()
+                    )
 
         except Exception as exc:
             log.warning("Bot polling loop error: %s", exc)

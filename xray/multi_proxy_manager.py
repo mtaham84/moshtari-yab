@@ -52,6 +52,9 @@ def _ensure_django() -> None:
                             k, v = line.split("=", 1)
                             os.environ.setdefault(k.strip(), v.strip())
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+        if not Path("/.dockerenv").exists():
+            if os.environ.get("POSTGRES_HOST") in (None, "db", "172.18.0.3"):
+                os.environ["POSTGRES_HOST"] = "127.0.0.1"
         django.setup()
 
 

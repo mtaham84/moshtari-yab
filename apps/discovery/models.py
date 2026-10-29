@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 from datetime import timedelta
 from django.db import models
 from django.utils import timezone as dj_timezone
@@ -773,10 +774,11 @@ class MonitoredCommunity(models.Model):
         verbose_name = "منبع پایش (گروه/کانال تلگرام)"
         verbose_name_plural = "منابع پایش (گروه‌ها و کانال‌های تلگرام)"
         ordering = ["-is_active", "-created_at"]
+        _cc_param = "condition" if "condition" in inspect.signature(models.CheckConstraint.__init__).parameters else "check"
         constraints = [
             models.CheckConstraint(
-                condition=(models.Q(scope=GLOBAL, business__isnull=True) | models.Q(scope=PRIVATE, business__isnull=False)),
                 name="community_scope_matches_owner",
+                **{_cc_param: (models.Q(scope=GLOBAL, business__isnull=True) | models.Q(scope=PRIVATE, business__isnull=False))},
             ),
         ]
 
