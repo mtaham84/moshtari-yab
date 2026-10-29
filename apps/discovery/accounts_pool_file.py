@@ -28,6 +28,34 @@ def pool_path() -> Path:
     return Path(os.environ.get("ACCOUNTS_POOL_FILE") or Path(settings.BASE_DIR) / "data" / "accounts_pool.json")
 
 
+def backup_dir() -> Path | None:
+    """Second location (a host bind mount in docker-compose) that survives volume loss; None if not mounted."""
+    raw = os.environ.get("ACCOUNTS_POOL_BACKUP_DIR", "/app/backups")
+    path = Path(raw)
+    return path if path.is_dir() else None
+
+
+HISTORY_KEEP = 20
+
+
+def _write_backup(data: dict) -> None:
+    """accounts_pool.json mirror + timestamped history (newest HISTORY_KEEP kept) so a bad overwrite is recoverable."""
+    from datetime import datetime, timezone
+
+    d = backup_dir()
+    if d is None:
+        return
+    save_atomic(d / "accounts_pool.json", data)
+    hist = d / "history"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    if save_atomic(hist / f"accounts_pool.{stamp}.json", data):
+        for old in sorted(hist.glob("accounts_pool.*.json"))[:-HISTORY_KEEP]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+
+
 def snapshot() -> dict:
     from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
 
@@ -44,7 +72,9 @@ def export_pool(force: bool = False) -> bool:
         digest = hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
         if digest == _last["hash"] and not force:
             return False
-        if save_atomic(pool_path(), data):
+        ok = save_atomic(pool_path(), data)
+        _write_backup(data)
+        if ok:
             _last["hash"] = digest
             return True
     except Exception as exc:  # the DB write that triggered us must never fail because of the backup file

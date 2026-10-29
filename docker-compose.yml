@@ -53,6 +53,7 @@ services:
     command: ["web"]
     volumes:
       - appdata:/app/data
+      - ./backups:/app/backups
       - media:/app/media
       - xdata:/app/output
       - ./apps:/app/apps
@@ -113,6 +114,7 @@ services:
     profiles: ["x"]
     volumes:
       - appdata:/app/data
+      - ./backups:/app/backups
       - xdata:/app/output
       - ./apps:/app/apps
       - ./workers:/app/workers
@@ -128,6 +130,7 @@ services:
         condition: service_healthy
     volumes:
       - appdata:/app/data
+      - ./backups:/app/backups
       - media:/app/media
       - ./apps:/app/apps
       - ./templates:/app/templates

@@ -24,6 +24,10 @@ case "$1" in
   web)
     wait_for_db
     python manage.py migrate --noinput
+    # restore accounts missing from the DB (fills empty fields only) before the first save rewrites the pool file
+    for f in /app/data/accounts_pool.json /app/backups/accounts_pool.json; do
+      if [ -s "$f" ]; then ACCOUNTS_POOL_FILE="$f" python manage.py accounts_pool import || true; break; fi
+    done
     if [ "${DJANGO_SEED_DEMO:-false}" = "true" ]; then
       python manage.py seed_products
     fi

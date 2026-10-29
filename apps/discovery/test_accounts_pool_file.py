@@ -39,3 +39,20 @@ class PoolFileTests(TestCase):
         root = Path(__file__).resolve().parents[2]
         out = subprocess.run(["git", "check-ignore", "data/accounts_pool.json"], cwd=root, capture_output=True)
         self.assertEqual(out.returncode, 0)
+
+
+class PoolBackupTests(TestCase):
+    def test_mirror_and_history_are_written_and_rotated(self):
+        from apps.discovery import accounts_pool_file as pool
+        from apps.discovery.models import TwitterEngineAccount
+
+        tmp = Path(tempfile.mkdtemp())
+        env = {"ACCOUNTS_POOL_FILE": str(tmp / "pool.json"), "ACCOUNTS_POOL_BACKUP_DIR": str(tmp)}
+        with mock.patch.dict(os.environ, env), mock.patch.object(pool, "HISTORY_KEEP", 3):
+            acc = TwitterEngineAccount.objects.create(username="x2", auth_token="t1", ct0="c")
+            for i in range(5):
+                acc.auth_token = f"t{i + 2}"
+                acc.save()
+                pool.export_pool()
+            self.assertEqual(json.loads((tmp / "accounts_pool.json").read_text())["twitter"][0]["auth_token"], "t6")
+            self.assertEqual(len(list((tmp / "history").glob("accounts_pool.*.json"))), 3)

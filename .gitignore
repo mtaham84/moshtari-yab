@@ -53,3 +53,4 @@ instagram_sessions/
 # account pool backup (credentials, cookies, sessions)
 data/accounts_pool.json
 data/accounts_pool.json.*.tmp
+backups/
