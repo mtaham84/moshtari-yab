@@ -471,7 +471,7 @@
       <div class="opp-empty">
         <h4>هیچ فرصتی با فیلترهای جاری پیدا نشد</h4>
         <p>فیلتر کالا، بازه‌ی زمانی یا حداقل امتیاز را تغییر دهید تا نتایج بیشتری ببینید.</p>
-        <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary p-btn-sm">پاک کردن فیلترها و نمایش همه</a>
+        <a href="{% url 'discovery:opportunity_list' %}{% if all_businesses and selected_business %}?business_id={{ selected_business.id }}{% endif %}" class="p-btn p-btn-secondary p-btn-sm">پاک کردن فیلترها و نمایش همه</a>
       </div>
     {% endfor %}
   </div>
@@ -640,7 +640,7 @@
       <p style="font-size: 0.84rem; color: var(--stone-text-muted); max-width: 480px; margin: 0 auto 20px;">
         فرصت‌های جدید به صورت خودکار از پیام‌های ورودی شبکه‌های اجتماعی استخراج و ارزیابی می‌شوند.
       </p>
-      <a href="{% url 'discovery:opportunity_list' %}" class="p-btn p-btn-secondary" style="padding: 8px 18px;">
+      <a href="{% url 'discovery:opportunity_list' %}{% if all_businesses and selected_business %}?business_id={{ selected_business.id }}{% endif %}" class="p-btn p-btn-secondary" style="padding: 8px 18px;">
         پاکسازی فیلترها و نمایش همه
       </a>
     </div>

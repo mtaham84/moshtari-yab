@@ -1254,6 +1254,62 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         return False, account.status, f"اکانت در دوره استراحت است ({rem_min} دقیقه باقی‌مانده)"
 
     ct0, was_generated = _get_or_generate_ct0(account.ct0)
+
+    import os
+    import shutil
+    import subprocess
+
+    executable = shutil.which("twitter") or shutil.which("twitter-cli") or ("/usr/local/bin/twitter" if os.path.exists("/usr/local/bin/twitter") else None)
+    if executable:
+        sub_env = os.environ.copy()
+        sub_env["TWITTER_AUTH_TOKEN"] = auth_token
+        sub_env["TWITTER_CT0"] = ct0
+        if account.proxy_url:
+            sub_env["TWITTER_PROXY"] = account.proxy_url
+        try:
+            completed = subprocess.run(
+                [executable, "search", "iran", "-t", "Latest", "--exclude", "retweets", "--max", "1", "--json"],
+                capture_output=True, text=True, encoding="utf-8", timeout=25, check=False, env=sub_env
+            )
+            try:
+                payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
+            except Exception:
+                payload = {}
+
+            if completed.returncode == 0 and payload.get("ok") is True:
+                account.status = "ACTIVE"
+                account.status_message = "متصل و فعال"
+                # Rule 4: Only persist a ct0 to the database when the result is VALID
+                account.ct0 = ct0
+                account.save(update_fields=["status", "status_message", "ct0"])
+                account._validation_result = XSessionValidationResult.VALID
+                return True, "ACTIVE", f"اتصال به اکانت @{account.username} تایید شد."
+            elif payload.get("ok") is False:
+                err = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+                code = str(err.get("code") or "")
+                if code == "rate_limited":
+                    account.status = "COOLDOWN"
+                    account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                    account.status_message = "محدودیت موقت نرخ درخواست (429)"
+                    account.save(update_fields=["status", "status_message", "cooldown_until"])
+                    account._validation_result = XSessionValidationResult.RATE_LIMITED
+                    return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
+                elif code in ("not_authenticated", "auth_failed"):
+                    account.status = "CHALLENGED"
+                    account.status_message = "سشن منقضی یا نامعتبر است (HTTP 401) — auth_token/ct0 جدید ثبت کنید"
+                    account.save(update_fields=["status", "status_message"])
+                    account._validation_result = XSessionValidationResult.INVALID
+                    return False, "CHALLENGED", "سشن منقضی یا نامعتبر است. لطفاً auth_token و ct0 جدید را وارد نمایید."
+                else:
+                    msg = err.get("message") or completed.stderr or "خطای اجرای ابزار توییتر"
+                    account._validation_result = XSessionValidationResult.ENDPOINT_ERROR
+                    return False, account.status, f"خطای تست توییتر: {msg}"
+        except subprocess.TimeoutExpired:
+            account._validation_result = XSessionValidationResult.NETWORK_ERROR
+            return False, account.status, "زمان پاسخ‌گویی موتور توییتر به پایان رسید (تایم‌اوت)."
+        except Exception:
+            pass
+
     response, exc = _call_twitter_settings_endpoint(auth_token, ct0, proxy_url=account.proxy_url)
     resp_ct0 = _extract_response_ct0(response)
     effective_ct0 = resp_ct0 or ct0

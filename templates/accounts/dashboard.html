@@ -296,9 +296,12 @@
 
     function fetchAnalytics(startDate, endDate) {
       let url = "/discovery/api/analytics/";
+      const urlParams = new URLSearchParams(window.location.search);
+      const bizId = urlParams.get("business_id");
       const params = new URLSearchParams();
       if (startDate) params.append("start_date", startDate);
       if (endDate) params.append("end_date", endDate);
+      if (bizId) params.append("business_id", bizId);
       if (params.toString()) url += "?" + params.toString();
 
       fetch(url)
@@ -327,6 +330,7 @@
               if (!res.data.products || res.data.products.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="7" style="padding: 24px; text-align: center; color: var(--stone-text-muted);">هنوز داده‌ای در دیتابیس ثبت نشده است.</td></tr>`;
               } else {
+                const oppsBizParam = bizId ? `&business_id=${bizId}` : "";
                 res.data.products.forEach(p => {
                   const tr = document.createElement("tr");
                   tr.style.borderBottom = "1px solid var(--panel-border-subtle)";
@@ -349,7 +353,7 @@
                     <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">${p.channels_display || ''}</td>
                     <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">${p.last_interaction_date}</td>
                     <td style="padding: 12px 14px; text-align: center;">
-                      <a href="/discovery/opportunities/?product_id=${p.id}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
+                      <a href="/discovery/opportunities/?product_id=${p.id}${oppsBizParam}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
                         <span>مشاهده فرصت‌ها</span>
                       </a>
                     </td>

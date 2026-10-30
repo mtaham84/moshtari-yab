@@ -38,6 +38,10 @@ class SessionReplacementTests(TestCase):
     def setUp(self):
         user = get_user_model().objects.create_user("boss", "b@x.ir", "pw", is_staff=True, is_superuser=True)
         self.client.force_login(user)
+        # Ensure HTTP layer tests do not attempt to invoke host twitter CLI executable
+        self._which_patcher = mock.patch("shutil.which", return_value=None)
+        self._which_patcher.start()
+        self.addCleanup(self._which_patcher.stop)
 
     def _ig(self):
         return InstagramEngineAccount.objects.create(username="ig_a", password="pw", status="CHALLENGED",
@@ -333,6 +337,39 @@ class SessionReplacementTests(TestCase):
                 TwitterEngineAccount.objects.filter(pk=acc.pk).exists(),
                 f"Account was deleted under outcome {uname}!",
             )
+
+    def test_twitter_cli_success_marks_active(self):
+        acc = self._x_acc(username="cli_ok", status="CHALLENGED")
+        completed = mock.MagicMock(returncode=0, stdout='{"ok": true}', stderr="")
+        with mock.patch("shutil.which", return_value="/usr/local/bin/twitter"), \
+             mock.patch("subprocess.run", return_value=completed):
+            ok, st, msg = _test_twitter_account_connection(acc)
+        self.assertTrue(ok)
+        self.assertEqual(st, "ACTIVE")
+        acc.refresh_from_db()
+        self.assertEqual(acc.status, "ACTIVE")
+
+    def test_twitter_cli_auth_failed_marks_challenged(self):
+        acc = self._x_acc(username="cli_fail", status="ACTIVE")
+        completed = mock.MagicMock(returncode=1, stdout='{"ok": false, "error": {"code": "not_authenticated"}}', stderr="")
+        with mock.patch("shutil.which", return_value="/usr/local/bin/twitter"), \
+             mock.patch("subprocess.run", return_value=completed):
+            ok, st, msg = _test_twitter_account_connection(acc)
+        self.assertFalse(ok)
+        self.assertEqual(st, "CHALLENGED")
+        acc.refresh_from_db()
+        self.assertEqual(acc.status, "CHALLENGED")
+
+    def test_twitter_cli_rate_limited_marks_cooldown(self):
+        acc = self._x_acc(username="cli_rate", status="ACTIVE")
+        completed = mock.MagicMock(returncode=1, stdout='{"ok": false, "error": {"code": "rate_limited"}}', stderr="")
+        with mock.patch("shutil.which", return_value="/usr/local/bin/twitter"), \
+             mock.patch("subprocess.run", return_value=completed):
+            ok, st, msg = _test_twitter_account_connection(acc)
+        self.assertTrue(ok)
+        self.assertEqual(st, "COOLDOWN")
+        acc.refresh_from_db()
+        self.assertEqual(acc.status, "COOLDOWN")
 
     # -------------------------------------------------------------------------
     # Unit Tests for Interpretation & Constants
