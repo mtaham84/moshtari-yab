@@ -39,7 +39,7 @@ from instagram_discovery.post_label_store import PostLabelStore, create_post_lab
 
 from shared.instagram import PageRefError, parse_page_ref
 from .models import (InstagramCategoryTarget, InstagramPage, InstagramCrawlExecution, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
-                    XNegativeTerm, XSearchQuery)
+                    XNegativeTerm, XSearchQuery, OpportunityProductMatch, InstagramReplySuggestion)
 from .services import get_performance_analytics
 from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
 
@@ -260,6 +260,24 @@ def opportunity_list_view(request):
                 handle = (opportunity.customer.source_username or "").lstrip("@").strip()
                 if handle:
                     opportunity.customer.source_profile_url = f"https://www.instagram.com/{handle}/"
+        opportunity.reply_card = None
+        if opportunity.source_platform in {"instagram", "x"}:
+            match = next(iter(opportunity.product_matches.all()), None)
+            if match:
+                saved = InstagramReplySuggestion.objects.filter(opportunity=opportunity, product=match.product).first() \
+                    if opportunity.source_platform == "instagram" else None
+                dm_url = (f"https://ig.me/m/{opportunity.customer.source_username.lstrip('@')}"
+                          if opportunity.source_platform == "instagram" and opportunity.customer.source_username else
+                          f"https://x.com/messages/compose?recipient_id={opportunity.customer.external_user_id}"
+                          if opportunity.source_platform == "x" and str(opportunity.customer.external_user_id).isdigit() else "")
+                opportunity.reply_card = {
+                    "match": match, "variants": match.reply_variants or {},
+                    "suggestion_url": reverse("discovery:opportunity_reply_suggestions", args=[opportunity.pk]),
+                    "sent": match.reply_sent or bool(saved and saved.sent),
+                    "sent_at": match.reply_sent_at or (saved.sent_at if saved else None),
+                    "profile_url": opportunity.customer_profile_url, "post_url": opportunity.source_post_url,
+                    "dm_url": dm_url,
+                }
 
 
     # Global summary stats
@@ -542,6 +560,31 @@ def opportunity_detail_view(request, pk):
                 "public_url": build_x_intent_url(base, tweet_id, variants.get("public", "")),
                 "short_url": build_x_intent_url(base, tweet_id, variants.get("short", "")),
             })
+    reply_cards = []
+    for match in context["product_matches"]:
+        variants = match.reply_variants or {}
+        saved = InstagramReplySuggestion.objects.filter(opportunity=opportunity, product=match.product).first() \
+            if opportunity.source_platform == "instagram" else None
+        reply_cards.append({
+            "match": match,
+            "variants": variants,
+            "suggestion_url": reverse("discovery:opportunity_reply_suggestions", args=[opportunity.pk]),
+            "sent": match.reply_sent or bool(saved and saved.sent),
+            "sent_at": match.reply_sent_at or (saved.sent_at if saved else None),
+            "profile_url": opportunity.customer_profile_url,
+            "post_url": opportunity.source_post_url,
+            "dm_url": (f"https://ig.me/m/{opportunity.customer.source_username.lstrip('@')}"
+                       if opportunity.source_platform == "instagram" and opportunity.customer.source_username else
+                       f"https://x.com/messages/compose?recipient_id={opportunity.customer.external_user_id}"
+                       if opportunity.source_platform == "x" and str(opportunity.customer.external_user_id).isdigit() else ""),
+        })
+    context["reply_cards"] = reply_cards
+    context["reply_dm_url"] = (
+        f"https://ig.me/m/{opportunity.customer.source_username.lstrip('@')}"
+        if opportunity.source_platform == "instagram" and opportunity.customer.source_username else
+        f"https://x.com/messages/compose?recipient_id={opportunity.customer.external_user_id}"
+        if opportunity.source_platform == "x" and str(opportunity.customer.external_user_id).isdigit() else ""
+    )
     return render(request, "discovery/opportunity_detail.html", context)
 
 
@@ -563,6 +606,67 @@ def opportunity_rewrite_view(request, pk):
     except AgentUnavailable as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=503)
     return JsonResponse({"status": "success", "product_id": match.product_id, "reply": text})
+
+
+@login_required
+@require_POST
+def opportunity_reply_suggestions_view(request, pk):
+    """Generate/regenerate, edit or mark a human-reviewed X/Instagram draft as sent. Never sends it."""
+    business = getattr(request.user, "business", None)
+    opportunity = get_object_or_404(Opportunity.objects.select_related("business", "customer", "ai_analysis"),
+                                    pk=pk, business=business)
+    raw_pid = (request.POST.get("product_id") or "").strip()
+    matches = opportunity.product_matches.select_related("product").order_by("rank")
+    match = matches.filter(product_id=raw_pid).first() if raw_pid.isdigit() else matches.first()
+    if match is None:
+        return JsonResponse({"status": "error", "message": "برای این فرصت محصولی ثبت نشده است."}, status=400)
+    action = request.POST.get("action", "generate")
+    if action in {"generate", "regenerate"}:
+        from .services import generate_opportunity_reply_suggestions
+        try:
+            result = generate_opportunity_reply_suggestions(
+                opportunity, match, instruction=request.POST.get("instruction", ""),
+                force=True,
+            )
+        except Exception as exc:
+            return JsonResponse({"status": "error", "message": str(exc)[:240]}, status=503)
+        if result is None:
+            return JsonResponse({"status": "error", "message": "اعتبار این کسب‌وکار برای تولید پیام کافی نیست."}, status=402)
+        return JsonResponse({"status": "success", "reply_variants": result, "product_id": match.product_id},
+                            json_dumps_params={"ensure_ascii": False})
+    if action == "edit":
+        tone = request.POST.get("tone", "")
+        text = request.POST.get("text", "").strip()
+        variants = dict(match.reply_variants or {})
+        rows = list(variants.get("variants") or [])
+        if tone not in {"short", "friendly", "consultative"} or not text or len(text) > 1000:
+            return JsonResponse({"status": "error", "message": "متن یا لحن پیام معتبر نیست."}, status=400)
+        found = False
+        for row in rows:
+            if row.get("tone") == tone:
+                row["text"], found = text, True
+        if not found:
+            rows.append({"tone": tone, "text": text})
+        variants["variants"] = rows
+        match.reply_variants = variants
+        match.save(update_fields=["reply_variants"])
+        if opportunity.source_platform == "instagram":
+            InstagramReplySuggestion.objects.update_or_create(opportunity=opportunity, product=match.product,
+                                                              defaults={"reply_variants": variants})
+        return JsonResponse({"status": "success", "reply_variants": variants}, json_dumps_params={"ensure_ascii": False})
+    if action == "sent":
+        sent = request.POST.get("sent") == "1"
+        match.reply_sent = sent
+        match.reply_sent_at = timezone.now() if sent else None
+        match.save(update_fields=["reply_sent", "reply_sent_at"])
+        if opportunity.source_platform == "instagram":
+            InstagramReplySuggestion.objects.update_or_create(
+                opportunity=opportunity, product=match.product,
+                defaults={"reply_variants": match.reply_variants or {}, "sent": sent,
+                          "sent_at": match.reply_sent_at},
+            )
+        return JsonResponse({"status": "success", "sent": sent})
+    return JsonResponse({"status": "error", "message": "عملیات نامعتبر است."}, status=400)
 
 
 @login_required
@@ -749,7 +853,8 @@ def instagram_pages_view(request):
         else:
             page.profile_url = f"https://www.instagram.com/{handle}/"
     status_labels = {"ok": "موفق", "queued": "در صف", "not_found": "صفحه پیدا نشد",
-                     "private": "خصوصی", "rate_limited": "محدودیت موقت", "error": "خطا"}
+                     "private": "خصوصی", "rate_limited": "محدودیت موقت", "error": "خطا",
+                     "candidate": "پیشنهادی", "approved": "تأییدشده", "rejected": "ردشده"}
     for page in pages:
         page.status_label = status_labels.get(page.last_status, page.last_status)
     products = Product.objects.filter(business=business, status="ACTIVE").order_by("name")
@@ -788,7 +893,7 @@ def instagram_pages_view(request):
                                  label=label, operator_id=request.user.pk)
                 messages.success(request, "برچسب انسانی ذخیره شد.")
             return redirect("discovery:instagram_pages")
-        if action in {"add", "remove", "save_category_target"} and not _instagram_change_allowed(request):
+        if action in {"add", "remove", "save_category_target", "approve_candidate", "deny_candidate"} and not _instagram_change_allowed(request):
             return render(request, "discovery/instagram_pages.html", {
                 **page_context, "throttled": True,
             }, status=429)
@@ -852,8 +957,24 @@ def instagram_pages_view(request):
         elif action == "toggle":
             page = get_object_or_404(pages, pk=request.POST.get("page_id"))
             page.is_active = not page.is_active
-            page.save(update_fields=["is_active"])
+            if page.is_active and page.discovered_family_id:
+                page.last_status = "approved"
+                page.save(update_fields=["is_active", "last_status"])
+            else:
+                page.save(update_fields=["is_active"])
             messages.success(request, "پایش صفحه فعال شد." if page.is_active else "پایش صفحه متوقف شد.")
+            return redirect("discovery:instagram_pages")
+        elif action == "approve_candidate":
+            page = get_object_or_404(pages, pk=request.POST.get("page_id"), discovered_family_id__gt="")
+            page.is_active, page.last_status = True, "approved"
+            page.save(update_fields=["is_active", "last_status"])
+            messages.success(request, f"صفحهٔ @{page.handle} تأیید و برای پایش فعال شد.")
+            return redirect("discovery:instagram_pages")
+        elif action == "deny_candidate":
+            page = get_object_or_404(pages, pk=request.POST.get("page_id"), discovered_family_id__gt="")
+            page.is_active, page.last_status = False, "rejected"
+            page.save(update_fields=["is_active", "last_status"])
+            messages.success(request, f"صفحهٔ پیشنهادی @{page.handle} رد شد.")
             return redirect("discovery:instagram_pages")
     return render(request, "discovery/instagram_pages.html", page_context)
 

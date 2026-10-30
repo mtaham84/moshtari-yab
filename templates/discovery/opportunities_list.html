@@ -465,6 +465,7 @@
             <span class="opp-cost" title="هزینه‌ی هوش مصنوعی برای این فرصت">هزینه‌ی هوش مصنوعی: {{ opp.cost_toman_display }} تومان</span>
           </div>
         </div>
+        {% if opp.reply_card %}{% include "discovery/partials/reply_suggestion_card.html" with opportunity=opp card=opp.reply_card %}{% endif %}
       </article>
     {% empty %}
       <div class="opp-empty">
@@ -604,6 +605,7 @@
       </div>
 
       <!-- Card footer -->
+      {% if opp.reply_card %}{% include "discovery/partials/reply_suggestion_card.html" with opportunity=opp card=opp.reply_card %}{% endif %}
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
         <div style="display: flex; align-items: center; gap: 10px;">
           {% with primary=opp.primary_product_match %}

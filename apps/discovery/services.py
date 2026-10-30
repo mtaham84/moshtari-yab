@@ -146,8 +146,18 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                 "name": lead.full_name or lead.username,
                 "source_username": lead.username,
                 "source_profile_url": lead.profile_url or f"https://www.instagram.com/{lead.username}/",
+                "metadata": {"bio": lead.profile_bio, "is_business": lead.commenter_is_business,
+                             "follower_count": lead.follower_count},
             }
         )
+        signals = dict(customer.metadata or {})
+        for key, value in (("bio", lead.profile_bio), ("is_business", lead.commenter_is_business),
+                           ("follower_count", lead.follower_count)):
+            if value is not None and value != "":
+                signals[key] = value
+        if signals != (customer.metadata or {}):
+            customer.metadata = signals
+            customer.save(update_fields=["metadata", "updated_at"])
         if lead.full_name and not customer.name:
             customer.name = lead.full_name
             customer.save(update_fields=["name"])
@@ -244,7 +254,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
         )
 
         if matched_product:
-            OpportunityProductMatch.objects.get_or_create(
+            match, _ = OpportunityProductMatch.objects.get_or_create(
                 opportunity=opp,
                 product=matched_product,
                 defaults={
@@ -253,6 +263,8 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                     "rank": 1,
                 }
             )
+        else:
+            match = None
 
         # Apply transaction debit for AI usage if cost incurred
         if final_toman > 0:
@@ -268,5 +280,198 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             except Exception as w_exc:
                 pass
 
+        if match and intent_flt >= 0.80:
+            from django.db import transaction
+            transaction.on_commit(lambda oid=opp.pk, mid=match.pk: _generate_suggestion_after_commit(oid, mid))
         return opp
+
+
+def _generate_suggestion_after_commit(opportunity_id: int, match_id: int):
+    from .models import Opportunity, OpportunityProductMatch
+    import logging
+    try:
+        opportunity = Opportunity.objects.select_related("business", "customer", "ai_analysis").get(pk=opportunity_id)
+        match = OpportunityProductMatch.objects.select_related("product").get(pk=match_id)
+        generate_opportunity_reply_suggestions(opportunity, match)
+    except Exception:
+        logging.getLogger(__name__).exception("Instagram reply suggestion generation failed for opportunity %s", opportunity_id)
+
+
+def _reply_context(opportunity, match) -> dict:
+    from apps.businesses.models import MessageStyle
+    from apps.products.models import Product
+
+    business, product = opportunity.business, match.product
+    customer = opportunity.customer
+    meta = opportunity.trace_metadata if isinstance(opportunity.trace_metadata, dict) else {}
+    ig_meta = meta.get("instagram", {}) if isinstance(meta.get("instagram", {}), dict) else {}
+    x_meta = meta.get("x", {}) if isinstance(meta.get("x", {}), dict) else {}
+    family_qs = Product.objects.filter(business=business, status="ACTIVE")
+    if product.category_id:
+        family_qs = family_qs.filter(category__full_path=product.category.full_path)
+    else:
+        family_qs = family_qs.filter(pk=product.pk)
+    family_products = list(family_qs.order_by("name")[:10])
+    context = {
+        "person": {
+            "comment_or_tweet": opportunity.source_raw_message[:1800],
+            "post_or_tweet_context": (ig_meta.get("post_caption") or x_meta.get("text") or "")[:1800],
+            "source_url": opportunity.source_post_url,
+            "username": customer.source_username,
+            "display_name": customer.name,
+            "bio_if_already_fetched": str((customer.metadata or {}).get("bio") or ig_meta.get("profile_bio") or "")[:500],
+            "language_and_register": _infer_register(opportunity.source_raw_message),
+            "public_signals": {
+                "is_business": (customer.metadata or {}).get("is_business"),
+                "follower_bucket": _follower_bucket((customer.metadata or {}).get("follower_count")),
+            },
+        },
+        "matched_family_products": [{
+            "name": item.name,
+            "category_path": getattr(item.category, "full_path", "") if item.category_id else "",
+            "price": str(item.price) if item.price else None,
+            "product_id": item.pk,
+        } for item in family_products],
+        "seller_profile": {
+            "name": business.name,
+            "tagline": business.tagline,
+            "business_domain": business.business_domain,
+            "business_types": list(business.business_types.values_list("name", flat=True)),
+            "search_notes": (business.search_notes or "")[:1000],
+        },
+        "channel_options": ["dm", "comment_reply"] if opportunity.source_platform == "instagram" else ["dm", "public_reply"],
+        "platform": opportunity.source_platform,
+    }
+    try:
+        context["seller_message_style"] = MessageStyle.for_business(business).as_engine_dict()
+    except Exception:
+        context["seller_message_style"] = {}
+    return context
+
+
+def _infer_register(text: str) -> str:
+    casual = ("چنده", "میشه", "میخوام", "می‌خوام", "بدید", "بگید", "دارین", "رو میخوام", "دمت")
+    return "colloquial" if any(x in (text or "") for x in casual) else "formal_or_neutral"
+
+
+def _follower_bucket(value) -> str | None:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return "under_1k" if n < 1000 else "1k_10k" if n < 10000 else "10k_100k" if n < 100000 else "100k_plus"
+
+
+def _recent_reply_suggestions(business) -> list[str]:
+    from .models import InstagramReplySuggestion, OpportunityProductMatch
+    out = []
+    for variants in OpportunityProductMatch.objects.filter(opportunity__business=business).exclude(reply_variants={}) \
+            .order_by("-created_at").values_list("reply_variants", flat=True)[:50]:
+        variants = variants or {}
+        out.extend(str(v.get("text") or "") for v in variants.get("variants", []) if isinstance(v, dict))
+    for histories in OpportunityProductMatch.objects.filter(opportunity__business=business).order_by("-created_at") \
+            .values_list("reply_history", flat=True)[:50]:
+        for old in histories[-10:]:
+            out.extend(str(v.get("text") or "") for v in (old.get("reply_variants") or {}).get("variants", [])
+                       if isinstance(v, dict))
+    for row in InstagramReplySuggestion.objects.filter(opportunity__business=business).order_by("-updated_at")[:50]:
+        out.extend(str(v.get("text") or "") for v in (row.reply_variants or {}).get("variants", []) if isinstance(v, dict))
+        for old in row.history[-10:]:
+            out.extend(str(v.get("text") or "") for v in (old.get("reply_variants") or {}).get("variants", []) if isinstance(v, dict))
+    return out[-50:]
+
+
+def _charge_outreach_llm(business, started_at):
+    """Price the direct chat_json call from the admin model registry and write the normal wallet ledger entry."""
+    from decimal import Decimal, ROUND_HALF_UP
+    from apps.core.models import LLMUsageLog
+    from apps.billing.models import AIModel, BillingSettings, WalletTransaction
+    from apps.billing.services import apply_transaction
+
+    usage = LLMUsageLog.objects.filter(business_id=business.pk, purpose="outreach_suggestion", created_at__gte=started_at,
+                                       ok=True).order_by("-pk").first()
+    if not usage:
+        return Decimal("0")
+    model = AIModel.objects.filter(name=usage.model, is_active=True, provider__is_active=True).order_by("priority").first()
+    if not model:
+        return Decimal("0")
+    cost = (Decimal(usage.tokens_in) * model.input_price_usd + Decimal(usage.tokens_out) * model.output_price_usd) / Decimal(1_000_000)
+    usage.cost_usd = cost
+    usage.save(update_fields=["cost_usd"])
+    settings = BillingSettings.get()
+    amount = (cost * settings.usd_to_toman * settings.multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if amount > 0:
+        apply_transaction(business, -amount, WalletTransaction.USAGE, "ساخت پیش‌نویس پیام شخصی‌سازی‌شده", cost_usd=cost, calls=1)
+    return amount
+
+
+def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: str = "", force: bool = False,
+                                           generator=None):
+    """Create three human-reviewed drafts. No code path sends them automatically."""
+    from django.conf import settings as django_settings
+    from django.urls import reverse
+    from django.utils import timezone
+    from apps.businesses.models import MessageStyle
+    from apps.billing.services import is_blocked
+    from need_engine.reply import MessageStyle as EngineMessageStyle, generate_outreach_variants
+    from apps.discovery.models import InstagramReplySuggestion
+
+    if not force and (not hasattr(opportunity, "ai_analysis") or opportunity.ai_analysis.intent_score < 0.80):
+        return None
+    if is_blocked(opportunity.business):
+        return None
+    meta = dict(opportunity.trace_metadata or {})
+    pid = str(match.product_id)
+    if opportunity.source_platform == "instagram":
+        saved, _ = InstagramReplySuggestion.objects.get_or_create(opportunity=opportunity, product=match.product)
+        existing = saved.reply_variants or {}
+        history = list(saved.history or [])
+    else:
+        saved, history = None, list(match.reply_history or [])
+        existing = match.reply_variants or {}
+    if existing and existing.get("variants") and not force:
+        return existing
+    style_model = MessageStyle.for_business(opportunity.business)
+    style = EngineMessageStyle.from_dict(style_model.as_engine_dict())
+    nonce = len(history) + (1 if existing else 0) + 1
+    tracked_link = None
+    if style.include_link:
+        path = reverse("product_click", kwargs={"pk": match.product_id})
+        ref = opportunity.engine_opportunity_id or str(opportunity.pk)
+        tracked_link = f"{django_settings.PUBLIC_BASE_URL}{path}?ref={ref}"
+    context = _reply_context(opportunity, match)
+    prior = _recent_reply_suggestions(opportunity.business)
+    if existing:
+        prior.extend(v.get("text", "") for v in existing.get("variants", []) if isinstance(v, dict))
+    started_at = timezone.now()
+    if generator is None:
+        from apps.core.llm import chat_json
+        data = chat_json
+        result_raw = data
+        payload = context
+        if instruction:
+            payload["regeneration_instruction"] = instruction[:200]
+        payload["generation"] = nonce
+        result = result_raw(
+            __import__("need_engine.reply", fromlist=["OUTREACH_SYSTEM"]).OUTREACH_SYSTEM,
+            __import__("json").dumps(payload, ensure_ascii=False), purpose="outreach_suggestion",
+            business_id=opportunity.business_id, max_tokens=1800, attempts=1,
+        )
+        from need_engine.reply import validate_outreach_result, OUTREACH_SYSTEM
+        validated = validate_outreach_result(result, platform=opportunity.source_platform, style=style,
+                                             prior_suggestions=prior, tracked_link=tracked_link)
+        _charge_outreach_llm(opportunity.business, started_at)
+    else:
+        validated, _usage = generator(context=context, platform=opportunity.source_platform, style=style,
+                                      tracked_link=tracked_link, prior_suggestions=prior, instruction=instruction,
+                                      generation=nonce)
+    if existing:
+        history.append({"reply_variants": existing, "saved_at": timezone.now().isoformat()})
+    if opportunity.source_platform == "instagram":
+        saved.reply_variants, saved.history = validated, history[-50:]
+        saved.save(update_fields=["reply_variants", "history", "updated_at"])
+    match.reply_variants = validated
+    match.reply_history = history[-50:]
+    match.save(update_fields=["reply_variants", "reply_history"])
+    return validated
 

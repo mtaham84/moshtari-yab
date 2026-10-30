@@ -121,10 +121,13 @@
   {% for page in pages %}<tr>
     <td><a href="{{ page.profile_url }}" target="_blank" rel="noopener noreferrer nofollow">@{{ page.handle }}</a></td>
     <td>{{ page.get_kind_display }}</td><td>{{ page.default_product.name|default:"—" }}</td>
-    <td>{% if page.is_active %}فعال{% else %}متوقف{% endif %}{% if page.status_label %} · {{ page.status_label }}{% endif %}</td>
+    <td>{% if page.is_active %}فعال{% else %}متوقف{% endif %}{% if page.status_label %} · {{ page.status_label }}{% endif %}{% if page.discovered_family_id %}<div style="font-size:.72rem;color:var(--panel-text-muted)">خانواده {{ page.discovered_family_id }}</div>{% endif %}</td>
     <td>{{ page.last_run_at|default:"—" }}</td>
-    <td><form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm p-btn-secondary" name="action" value="toggle" type="submit">{% if page.is_active %}توقف پایش{% else %}فعال‌سازی{% endif %}</button></form>
-    <form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm" name="action" value="remove" type="submit">حذف</button></form></td>
+    <td><div style="display:flex;gap:5px;flex-wrap:wrap">
+      {% if page.last_status == 'candidate' %}<form method="post" style="display:inline-flex;gap:5px">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm p-btn-primary" name="action" value="approve_candidate" type="submit">تأیید</button><button class="p-btn p-btn-sm p-btn-secondary" name="action" value="deny_candidate" type="submit">رد</button></form>
+      {% else %}<form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm p-btn-secondary" name="action" value="toggle" type="submit">{% if page.is_active %}توقف پایش{% else %}فعال‌سازی{% endif %}</button></form>{% endif %}
+      <form method="post" style="display: inline;">{% csrf_token %}<input type="hidden" name="page_id" value="{{ page.pk }}"><button class="p-btn p-btn-sm" name="action" value="remove" type="submit">حذف</button></form>
+    </div></td>
   </tr>{% endfor %}
   </tbody></table></div>{% else %}<p>هنوز صفحه‌ای اضافه نشده است.</p>{% endif %}
 </div>

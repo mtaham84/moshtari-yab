@@ -10,6 +10,7 @@ urlpatterns = [
     path("opportunities/<int:pk>/", views.opportunity_detail_view, name="opportunity_detail"),
     path("opportunities/new-count/", views.opportunity_new_count_view, name="opportunity_new_count"),
     path("opportunities/<int:pk>/rewrite/", views.opportunity_rewrite_view, name="opportunity_rewrite"),
+    path("opportunities/<int:pk>/reply-suggestions/", views.opportunity_reply_suggestions_view, name="opportunity_reply_suggestions"),
     path("opportunities/<int:pk>/status/", views.opportunity_status_update_view, name="opportunity_status_update"),
     path("opportunities/<int:pk>/feedback/", views.opportunity_feedback_view, name="opportunity_feedback"),
     path("communities/", views.communities_list_view, name="communities_list"),

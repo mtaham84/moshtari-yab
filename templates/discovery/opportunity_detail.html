@@ -53,23 +53,8 @@
   <!-- Right / Main Column (70%) -->
   <div style="display: flex; flex-direction: column; gap: 20px;">
 
-    {% if opportunity.source_platform == 'x' and x_reply_cards %}
-    <div class="p-card" style="padding: 20px 22px;">
-      <h3>پیشنویس پاسخ X — قبل از ارسال بازبینی کنید</h3>
-      <p>هیچ پاسخی خودکار ارسال نمی‌شود. متن تکراری نفرستید و قوانین X را رعایت کنید.</p>
-      {% for card in x_reply_cards %}
-        {% for key,text in card.variants.items %}
-        <div class="x-reply-wrap">
-        <label class="form-label">{% if key == 'public' %}پاسخ عمومی{% elif key == 'dm' %}پیام خصوصی{% else %}پاسخ کوتاه{% endif %}</label>
-        <textarea class="form-input x-reply-text" dir="rtl" rows="3">{{ text }}</textarea>
-        <small class="x-reply-counter" data-limit="280"></small>
-        <button type="button" class="p-btn p-btn-sm x-copy-reply">کپی</button>
-        {% if key == 'public' and card.public_url %}<a class="p-btn p-btn-sm x-intent-link" target="_blank" rel="noopener noreferrer" data-base="{{ x_intent_base_url }}" data-tweet-id="{{ opportunity.source_message_id }}">باز کردن X برای پاسخ</a>{% endif %}
-        {% if key == 'short' and card.short_url %}<a class="p-btn p-btn-sm x-intent-link" target="_blank" rel="noopener noreferrer" data-base="{{ x_intent_base_url }}" data-tweet-id="{{ opportunity.source_message_id }}">باز کردن X برای پاسخ</a>{% endif %}
-        </div>
-        {% endfor %}
-      {% endfor %}
-    </div>
+    {% if opportunity.source_platform == 'instagram' or opportunity.source_platform == 'x' %}
+      {% for card in reply_cards %}{% include "discovery/partials/reply_suggestion_card.html" with card=card opportunity=opportunity %}{% endfor %}
     {% endif %}
     
     <!-- 1. Customer Identity Card -->
@@ -320,6 +305,7 @@
     {% endif %}
 
     <!-- 6. Suggested AI Reply (NO Autonomous Messaging, Pure Recommendation) -->
+    {% if opportunity.source_platform != 'instagram' and opportunity.source_platform != 'x' %}
     <div class="p-card" style="padding: 22px 26px; border: 1.5px solid rgba(16, 185, 129, 0.3);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -378,6 +364,7 @@
         </button>
       </div>
     </div>
+    {% endif %}
   </div>
 
   <!-- Left / Side Column (Actions & Scores - 30%) -->

@@ -168,13 +168,20 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
 
         incoming_product_ids = {p.id for _, p in items}
         opp.product_matches.exclude(product_id__in=incoming_product_ids).delete()
+        primary_suggestion_match = None
         for i, (match_data, product) in enumerate(items, 1):
-            OpportunityProductMatch.objects.update_or_create(
+            product_match, _ = OpportunityProductMatch.objects.update_or_create(
                 opportunity=opp, product=product,
                 defaults={"rank": i, "match_score": float(match_data.get("match_score") or 0),
                           "recommendation_reason": (match_data.get("verdict") or {}).get("reason") or "",
                           "matching_attributes": match_data.get("verdict") or {},
-                          "reply_variants": match_data.get("reply_variants")})
+                          "reply_variants": match_data.get("reply_variants") or OpportunityProductMatch.objects.filter(
+                              opportunity=opp, product=product).values_list("reply_variants", flat=True).first() or {}})
+            if i == 1:
+                primary_suggestion_match = product_match
+        intent_score = STRENGTH_INTENT.get(need.get("strength"), 0.5)
+        if platform == "x" and intent_score >= 0.80 and primary_suggestion_match:
+            transaction.on_commit(lambda oid=opp.pk, mid=primary_suggestion_match.pk: _auto_suggest_x_reply(oid, mid))
 
         opp.evidence_items.all().delete()
         ev = [Evidence(opportunity=opp, evidence_type="customer_message", content=e.get("text", ""),
@@ -188,6 +195,18 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         Evidence.objects.bulk_create(ev)
         out.append(opp)
     return out
+
+
+def _auto_suggest_x_reply(opportunity_id: int, match_id: int):
+    try:
+        opportunity = Opportunity.objects.select_related("business", "customer", "ai_analysis").get(pk=opportunity_id)
+        match = OpportunityProductMatch.objects.select_related("product").get(pk=match_id)
+        if (match.reply_variants or {}).get("variants"):
+            return
+        from apps.discovery.services import generate_opportunity_reply_suggestions
+        generate_opportunity_reply_suggestions(opportunity, match)
+    except Exception:
+        log.exception("X reply suggestion generation failed for opportunity %s", opportunity_id)
 
 
 @transaction.atomic

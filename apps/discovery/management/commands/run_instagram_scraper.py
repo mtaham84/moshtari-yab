@@ -1,4 +1,5 @@
 import random
+import os
 import time
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -27,19 +28,19 @@ class Command(BaseCommand):
             "--query",
             type=str,
             default="",
-            help="Primary search query to discover hashtags for (e.g. 'سنگ ساختمانی').",
+            help="Primary search query used in one-off manual mode.",
         )
         parser.add_argument(
             "--hashtags",
             type=str,
             default="",
-            help="Comma-separated list of explicit hashtags to scrape (e.g. 'سنگ_ساختمانی,تراورتن,سنگ_نما').",
+            help="Comma-separated list of explicit hashtags to scrape in one-off manual mode.",
         )
         parser.add_argument(
             "--min-comments",
             type=int,
-            default=50,
-            help="Minimum number of comments required on a post to qualify for comment scraping (default: 50).",
+            default=int(os.getenv("INSTAGRAM_MIN_COMMENTS", "20")),
+            help="Minimum comments required on a post (configurable through INSTAGRAM_MIN_COMMENTS).",
         )
         parser.add_argument(
             "--max-posts",
@@ -51,7 +52,7 @@ class Command(BaseCommand):
             "--tenant",
             type=str,
             default="",
-            help="Tenant identifier to tag collected leads with (e.g. 'tenant_3' for stone business).",
+            help="Tenant identifier to tag collected leads with in one-off manual mode (e.g. 'tenant_3').",
         )
         parser.add_argument(
             "--loop",
@@ -110,72 +111,43 @@ class Command(BaseCommand):
             # Determine targets
             if all_businesses:
                 from apps.businesses.models import Business
-                from apps.products.models import Product
+                from apps.discovery.instagram_families import families_for_business, ensure_family_plan, discover_sources, sample_sources
                 targets = []
-                for b in Business.objects.all():
-                    prods = Product.objects.filter(business=b, status="ACTIVE", is_discovery_active=True, instagram_discovery_enabled=True)
-                    tags = set()
-                    terms = set()
-                    for p in prods:
-                        if p.instagram_hashtags:
-                            tags.update(p.instagram_hashtags)
-                        if p.instagram_terms:
-                            terms.update(p.instagram_terms)
-
-                    # Always include the core business domain and main industry names
-                    # Core keyword injections based on business profile
-                    domain = (getattr(b, "business_domain", "") or "").strip()
-                    name_and_domain = f"{b.name} {domain}".lower()
-                    if "سنگ" in name_and_domain:
-                        core_stone_terms = ["سنگ ساختمانی", "سنگبری", "سنگ نما", "تراورتن", "مرمریت", "سنگ اسلب", "سنگ پله"]
-                        for st in core_stone_terms:
-                            terms.add(st)
-                            tags.add(st.replace(" ", "_"))
-                    if "دندان" in name_and_domain:
-                        core_dental_terms = ["دندانپزشکی", "دندان‌پزشکی", "لمینت", "ارتودنسی", "عصب کشی", "ایمپلنت", "روکش دندان", "کامپوزیت دندان"]
-                        for dt in core_dental_terms:
-                            terms.add(dt)
-                            tags.add(dt.replace(" ", "_"))
-                    if "لپ" in name_and_domain or "استوک" in name_and_domain:
-                        core_laptop_terms = ["لپ‌تاپ استوک", "لپ تاپ استوک", "لپ تاپ گیمینگ", "تینکپد", "لپ تاپ لنوو", "مک بوک استوک"]
-                        for lt in core_laptop_terms:
-                            terms.add(lt)
-                            tags.add(lt.replace(" ", "_").replace("‌", "_"))
-                    if "کنکور" in name_and_domain:
-                        core_konkur_terms = ["مشاوره کنکور", "کنکور تجربی", "زیست کنکور", "آزمون آزمایشی کنکور"]
-                        for kt in core_konkur_terms:
-                            terms.add(kt)
-                            tags.add(kt.replace(" ", "_"))
-
-                    # Strict Fluff Blacklist: drop buzzwords like 'طرح لبخند' or cosmetic slogans
-                    FLUFF_BLACKLIST = {"طرح لبخند", "طرح_لبخند", "لبخند هالیوودی", "لبخند_هالیوودی", "زیبایی دندان", "کیفیت عالی", "تخفیف ویژه"}
-
-                    # Sanitize tags: keep only clean, valid Instagram hashtags (no long sentences, no commas/punctuation)
-                    clean_tags = []
-                    for t in tags:
-                        clean = str(t).strip().lstrip("#")
-                        if any(fluff in clean for fluff in FLUFF_BLACKLIST):
+                by_tenant = []
+                for b in Business.objects.order_by("id"):
+                    family_rows = {}
+                    tenant_sources = []
+                    for family in families_for_business(b):
+                        try:
+                            plan, built = ensure_family_plan(b, family)
+                        except Exception as plan_exc:
+                            self.stderr.write(f"Plan failed for {b.pk}/{family.product_id}: {plan_exc}")
                             continue
-                        if 2 <= len(clean) <= 30 and not any(ch in clean for ch in "،,.:;!?()[]{}«»*&^%$#@!~`+=\\/"):
-                            clean_tags.append(clean)
-
-                    clean_terms = []
-                    for tm in terms:
-                        tm_str = str(tm).strip()
-                        if any(fluff in tm_str for fluff in FLUFF_BLACKLIST):
+                        if plan is None:
                             continue
-                        if 2 <= len(tm_str) <= 40 and not any(ch in tm_str for ch in "،,.:;!?()[]{}«»*&^%$#@!~`+=\\/"):
-                            clean_terms.append(tm_str)
-
-                    if clean_tags or clean_terms:
-                        targets.append({
-                            "tenant_id": f"tenant_{b.id}",
-                            "business": b,
-                            "name": b.name,
-                            "hashtags": sorted(set(clean_tags)),
-                            "terms": sorted(set(clean_terms)),
-                            "query": list(clean_terms)[0] if clean_terms else (clean_tags[0] if clean_tags else b.name),
+                        self.stdout.write(f"Instagram family plan {family.product_id}: {plan.__dict__}")
+                        sources = discover_sources(b, family, plan)
+                        family_rows[family.product_id] = (family, plan, sources)
+                        tenant_sources.extend(sources)
+                    selected = sample_sources(
+                        b, tenant_sources,
+                        min(4, int(os.getenv("INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE", "4"))),
+                    )
+                    selected_by_family = {}
+                    for source in selected:
+                        selected_by_family.setdefault(source.family_id, []).append(source)
+                    targets_for_business = []
+                    for family_id, sources in selected_by_family.items():
+                        family, plan, _ = family_rows[family_id]
+                        targets_for_business.append({
+                            "tenant_id": f"tenant_{b.id}", "business": b, "name": b.name,
+                            "family": family, "plan": plan, "sources": sources,
+                            "hashtags": [], "terms": [], "query": family.category_path or family.title,
                         })
+                    by_tenant.append(targets_for_business)
+                # Tenants take turns first; each tenant then advances one family before the next tenant round.
+                targets = [group[offset] for offset in range(max((len(group) for group in by_tenant), default=0))
+                           for group in by_tenant if offset < len(group)]
             else:
                 default_tenant = tenant_id or "tenant_default"
                 targets = [{
@@ -184,7 +156,7 @@ class Command(BaseCommand):
                     "name": default_tenant,
                     "hashtags": explicit_tags,
                     "terms": [query] if query else [],
-                    "query": query or "سنگ ساختمانی",
+                    "query": query or "محصولات",
                 }]
 
             self.stdout.write(f"\nProcessing {len(targets)} business discovery targets...")
@@ -218,7 +190,10 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
                 cl = self._get_persistent_client(account)
                 try:
-                    leads_found = self._scrape_target(cl, account, target, min_comments, max_posts)
+                    if target.get("family"):
+                        leads_found = self._scrape_family_target(cl, account, target, min_comments, max_posts)
+                    else:
+                        leads_found = self._scrape_target(cl, account, target, min_comments, max_posts)
                     cycle_leads += leads_found
                     self._persist_session(cl, account)
                 except Exception as exc:
@@ -697,6 +672,285 @@ class Command(BaseCommand):
             time.sleep(random.uniform(4.0, 7.0))
 
         return posts_inspected, qualifying_posts, leads_saved
+
+    def _request_budget_available(self, account) -> bool:
+        from django.db.models import Sum
+        from apps.discovery.instagram_families import INSTAGRAM_DAILY_REQUEST_BUDGET
+        from apps.discovery.models import InstagramCrawlExecution
+        used = InstagramCrawlExecution.objects.filter(account=account, crawled_at__date=dj_timezone.localdate()).aggregate(
+            total=Sum("requests"))['total'] or 0
+        used += int(getattr(self, "_current_api_requests", 0))
+        return used < INSTAGRAM_DAILY_REQUEST_BUDGET
+
+    def _instagram_api_call(self, account, method, *args, **kwargs):
+        if not self._request_budget_available(account):
+            raise RuntimeError("سقف درخواست روزانهٔ اکانت اینستاگرام تکمیل شد")
+        self._current_api_requests = int(getattr(self, "_current_api_requests", 0)) + 1
+        return method(*args, **kwargs)
+
+    def _discover_candidate_pages(self, cl, account, business, family, plan, source):
+        """Search real public accounts, score their recent posts, and cache at most six family candidates."""
+        from datetime import timedelta
+        from apps.discovery.instagram_families import INSTAGRAM_PAGE_MIN_COMMENTS
+        from apps.discovery.models import InstagramPage
+
+        term = source.label.removeprefix("search:").strip()
+        if not term or not hasattr(cl, "search_users"):
+            return []
+        last_search = business.instagram_crawl_executions.filter(target_type="PAGE", query_text=f"search:{term}",
+                                                                  crawled_at__gte=dj_timezone.now() - timedelta(days=7)).exists()
+        if last_search:
+            return []
+        try:
+            candidates = self._instagram_api_call(account, cl.search_users, term) or []
+        except Exception as exc:
+            self._page_search_error = str(exc)
+            self.stderr.write(f"Page search failed for {term}: {exc}")
+            return []
+        terms = ["فروش", "فروشگاه", "عمده", "تولیدی", "کلاس", "آموزش", "آموزشگاه", "کلینیک", "سالن", "مشاوره", "shop", "store", "academy", "clinic"]
+        checked, passing = set(), []
+        for user in candidates[:8]:
+            handle = str(getattr(user, "username", "") or "").strip().lstrip("@")
+            uid = str(getattr(user, "pk", "") or getattr(user, "id", ""))
+            if not handle or not uid or handle.casefold() in checked:
+                continue
+            checked.add(handle.casefold())
+            if getattr(user, "is_private", None) is not False:
+                continue
+            bio = str(getattr(user, "biography", "") or "")
+            account_name = f"{handle} {getattr(user, 'full_name', '')} {bio}".casefold()
+            business_like = bool(getattr(user, "is_business", False)) or any(t in account_name for t in terms)
+            if not business_like:
+                continue
+            try:
+                media = self._instagram_api_call(account, cl.user_medias, uid, amount=6) or []
+            except Exception:
+                continue
+            recent_comments = []
+            cutoff = dj_timezone.now() - timedelta(days=14)
+            for post in media:
+                posted = getattr(post, "taken_at", None)
+                if posted and dj_timezone.is_naive(posted):
+                    posted = dj_timezone.make_aware(posted, dj_timezone.utc)
+                if posted and posted < cutoff:
+                    continue
+                recent_comments.append(int(getattr(post, "comment_count", 0) or 0))
+            if len(recent_comments) < 2:
+                continue
+            average = sum(recent_comments) / len(recent_comments) if recent_comments else 0
+            if average < INSTAGRAM_PAGE_MIN_COMMENTS:
+                continue
+            passing.append((average, handle, bio))
+        passing.sort(reverse=True)
+        created = []
+        for rank, (average, handle, bio) in enumerate(passing[:6]):
+            page, was_created = InstagramPage.objects.get_or_create(
+                business=business, handle=handle,
+                defaults={"kind": "watched", "is_active": rank < 2, "last_status": "candidate",
+                          "discovered_family_id": family.product_id},
+            )
+            if was_created:
+                created.append(page)
+            elif not page.is_active and page.discovered_family_id == family.product_id and page.last_status in {"", "candidate"}:
+                page.last_status = "candidate"
+                page.save(update_fields=["last_status"])
+        return created
+
+    def _inspect_family_medias(self, cl, account, target, source, medias, min_comments: int):
+        """Cache each post/comments once globally, then score the cached comments for this tenant/family."""
+        import hashlib
+        from datetime import timedelta
+        from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
+        from instagram_engine.analyzer import (extract_caption_cta, evaluate_comment_smart,
+                                                llm_evaluate_family_batch)
+        from apps.discovery.instagram_families import INSTAGRAM_PAGE_MIN_COMMENTS, lead_quality_score
+
+        business, family, plan = target["business"], target["family"], target["plan"]
+        page_source = source.source_type == "page"
+        age_days = 14 if page_source else 7
+        cutoff = dj_timezone.now() - timedelta(days=age_days)
+        posts_inspected = qualifying_posts = leads_saved = 0
+        seen = set()
+        buyer_signals, negatives = list(plan.buyer_signals or []), list(plan.negative_signals or [])
+        family_context = {"category_path": family.category_path, "product_titles": family.titles[:10],
+                          "seller_notes": family.notes[:1000], "business_domain": business.business_domain}
+        for media in medias or []:
+            media_id = str(getattr(media, "id", "") or getattr(media, "pk", ""))
+            if not media_id or media_id in seen:
+                continue
+            seen.add(media_id)
+            taken_at = getattr(media, "taken_at", None)
+            if taken_at and dj_timezone.is_naive(taken_at):
+                taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
+            if not taken_at or taken_at < cutoff:
+                continue
+            comment_count = int(getattr(media, "comment_count", 0) or 0)
+            effective_min = INSTAGRAM_PAGE_MIN_COMMENTS if page_source else min_comments
+            if comment_count < effective_min:
+                continue
+            posts_inspected += 1
+            digest = hashlib.sha256(f"ig_post:{media_id}".encode()).hexdigest()
+            code = str(getattr(media, "code", "") or "")
+            cached = InstagramCrawledPost.objects.filter(post_hash=digest).first()
+            caption = str(getattr(media, "caption_text", "") or (cached.caption if cached else ""))
+            if cached and cached.comments_cached:
+                raw_comments = list(cached.comments)
+            else:
+                try:
+                    raw = self._instagram_api_call(account, cl.media_comments, media_id, amount=min(comment_count, 100))
+                except Exception:
+                    try:
+                        raw = self._instagram_api_call(account, cl.media_comments_gql, media_id, amount=min(comment_count, 100))
+                    except Exception as exc:
+                        self.stderr.write(f"Comment fetch failed for {code or media_id}: {exc}")
+                        continue
+                raw_comments = []
+                for comment in raw or []:
+                    user = getattr(comment, "user", None)
+                    if user is None:
+                        continue
+                    user_pk = str(getattr(user, "pk", "") or getattr(user, "id", ""))
+                    username = str(getattr(user, "username", "") or "")
+                    text = str(getattr(comment, "text", "") or "")
+                    if not user_pk or not username or not text:
+                        continue
+                    raw_comments.append({
+                        "id": str(getattr(comment, "pk", "") or getattr(comment, "id", "") or user_pk),
+                        "user_pk": user_pk, "username": username,
+                        "full_name": str(getattr(user, "full_name", "") or username), "text": text[:1500],
+                        "is_business": getattr(user, "is_business", None),
+                        "follower_count": getattr(user, "follower_count", None),
+                        "bio": str(getattr(user, "biography", "") or "")[:500],
+                    })
+                if cached is None:
+                    try:
+                        cached = InstagramCrawledPost.objects.create(
+                            post_hash=digest, media_id=media_id, media_code=code, account_username=account.username,
+                            posted_at=taken_at or dj_timezone.now(), caption=caption,
+                            comments=raw_comments, comment_count=comment_count, comments_cached=True,
+                        )
+                    except Exception:
+                        cached = InstagramCrawledPost.objects.filter(post_hash=digest).first()
+                if cached and not cached.comments_cached:
+                    cached.caption, cached.comments, cached.comment_count, cached.comments_cached = caption, raw_comments, comment_count, True
+                    cached.save(update_fields=["caption", "comments", "comment_count", "comments_cached"])
+            if not raw_comments:
+                continue
+            qualifying_posts += 1
+            post_url = f"https://www.instagram.com/p/{code}/" if code else ""
+            cta = extract_caption_cta(caption)
+            evaluations, ambiguous = {}, []
+            for row in raw_comments:
+                eval_row = evaluate_comment_smart(row["text"], caption=caption, cta_word=cta,
+                                                  product_context=family.category_path or family.title,
+                                                  buyer_signals=buyer_signals, negative_signals=negatives)
+                evaluations[row["id"]] = eval_row
+                if eval_row.get("is_ambiguous"):
+                    ambiguous.append({"id": row["id"], "username": row["username"], "text": row["text"]})
+            ai = {}
+            for offset in range(0, len(ambiguous), 25):
+                ai.update(llm_evaluate_family_batch(ambiguous[offset:offset + 25], business_id=business.pk,
+                                                    family_context=family_context, buyer_signals=buyer_signals))
+            evaluations.update(ai)
+            for row in raw_comments:
+                result = evaluations.get(row["id"], {})
+                if not result.get("is_lead"):
+                    continue
+                leads_saved += 1
+                score = lead_quality_score(result.get("intent_score", .8), is_business=row.get("is_business"),
+                                           follower_count=row.get("follower_count"), bio=row.get("bio", ""),
+                                           seller_notes=family.notes, family_path=family.category_path,
+                                           product_titles=family.titles)
+                lead, created = InstagramEngineLead.objects.get_or_create(
+                    tenant_id=target["tenant_id"], ig_user_pk=row["user_pk"],
+                    defaults={"username": row["username"], "full_name": row["full_name"],
+                              "profile_url": f"https://www.instagram.com/{row['username']}/",
+                              "comment_text": row["text"], "source_post_url": post_url,
+                              "post_caption_snippet": caption[:600], "matched_cta": result.get("matched_cta", ""),
+                              "intent_score": score, "status": "NEW",
+                              "profile_bio": row.get("bio", ""), "commenter_is_business": row.get("is_business"),
+                              "follower_count": row.get("follower_count")},
+                )
+                from apps.discovery.services import sync_instagram_lead_to_opportunity
+                sync_instagram_lead_to_opportunity(lead, business=business, ai_meta=result)
+        return posts_inspected, qualifying_posts, leads_saved
+
+    def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
+        from apps.discovery.models import InstagramCrawlExecution, InstagramPage, InstagramSourceStat
+        from apps.discovery.instagram_families import (DiscoverySource, INSTAGRAM_DAILY_REQUEST_BUDGET,
+                                                         record_source_result)
+
+        total_leads = 0
+        page_searches = 0
+        selected_report = []
+        for source in target["sources"]:
+            stat = InstagramSourceStat.objects.filter(business=target["business"], family_id=source.family_id,
+                                                       source_type=source.source_type, label=source.label[:100]).first()
+            selected_report.append({"type": source.source_type, "label": source.label,
+                                    "requests": stat.requests if stat else 0, "leads": stat.leads if stat else 0})
+        self.stdout.write(f"Selected sources for family {target['family'].product_id}: {selected_report}")
+        for source in target["sources"]:
+            self._current_api_requests = 0
+            self._page_search_error = ""
+            if account.status != "ACTIVE" or not self._request_budget_available(account):
+                break
+            error = ""
+            medias = []
+            actual_source = source
+            try:
+                if source.source_type == "page" and source.label.startswith("search:"):
+                    page_searches += 1
+                    if page_searches > max(1, int(os.getenv("INSTAGRAM_PAGE_SEARCH_TERMS_PER_CYCLE", "1"))):
+                        continue
+                    created = self._discover_candidate_pages(cl, account, target["business"], target["family"],
+                                                             target["plan"], source)
+                    execution_type, query = "PAGE", source.label
+                    leads = 0
+                    search_status = "FAILED" if self._page_search_error else "SUCCESS"
+                    record_source_result(target["business"], source, leads, search_status)
+                    InstagramCrawlExecution.objects.create(
+                        business=target["business"], tenant_id=target["tenant_id"], query_text=query,
+                        target_type=execution_type, account_username=account.username, account=account,
+                        status=search_status, posts_inspected=len(created), requests=self._current_api_requests,
+                        message=f"صفحه‌های واقعی بررسی‌شده: {len(created)}",
+                    )
+                    continue
+                if source.source_type == "keyword":
+                    medias = self._instagram_api_call(account, cl.media_search, source.label, amount=max_posts) or []
+                    execution_type, query = "KEYWORD", source.label
+                elif source.source_type == "hashtag":
+                    tag = source.label.lstrip("#")
+                    medias = list(self._instagram_api_call(account, cl.hashtag_medias_top, tag, amount=max_posts) or [])
+                    if self._request_budget_available(account):
+                        medias += list(self._instagram_api_call(account, cl.hashtag_medias_recent, tag, amount=max_posts) or [])
+                    execution_type, query = "HASHTAG", f"#{tag}"
+                else:
+                    page = source.page or InstagramPage.objects.filter(business=target["business"], handle__iexact=source.label).first()
+                    if page is None:
+                        continue
+                    uid = self._instagram_api_call(account, cl.user_id_from_username, page.handle)
+                    medias = self._instagram_api_call(account, cl.user_medias, uid, amount=max_posts) or []
+                    page.last_run_at, page.last_status, page.consecutive_failures = dj_timezone.now(), "ok", 0
+                    page.save(update_fields=["last_run_at", "last_status", "consecutive_failures"])
+                    execution_type, query = "PAGE", f"@{page.handle}"
+            except Exception as exc:
+                error = str(exc)
+                self._note_account_error(account, error, cl, exc)
+                execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
+                query = source.label
+            inspected, qualifying, leads = self._inspect_family_medias(cl, account, target, source, medias, min_comments)
+            total_leads += leads
+            status = "FAILED" if error and not medias else ("SUCCESS" if qualifying else "NO_POSTS")
+            record_source_result(target["business"], source, leads, status)
+            InstagramCrawlExecution.objects.create(
+                business=target["business"], tenant_id=target["tenant_id"], query_text=query,
+                target_type=execution_type, account_username=account.username, account=account,
+                status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
+                requests=self._current_api_requests,
+                message=f"خانواده {target['family'].product_id}: بررسی {inspected} پست؛ {leads} سرنخ. {error[:180]}",
+            )
+            time.sleep(random.uniform(3.0, 7.0))
+        return total_leads
 
     def _scrape_target(self, cl, account, target, min_comments, max_posts) -> int:
         tenant_id = target["tenant_id"]

@@ -17,7 +17,8 @@ from django.views.decorators.http import require_POST, require_GET
 
 from apps.businesses.models import Business
 from apps.billing.models import Wallet, WalletTransaction, BillingSettings
-from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution, TwitterEngineAccount
+from apps.discovery.models import (InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
+                                   InstagramSourceStat, TwitterEngineAccount)
 
 logger = logging.getLogger("management")
 
@@ -270,6 +271,7 @@ def manage_dashboard(request):
         "total_calls_all": total_calls_all,
         "businesses": businesses,
         "crawl_executions": InstagramCrawlExecution.objects.all().select_related("business", "account").order_by("-crawled_at")[:60],
+        "instagram_source_stats": InstagramSourceStat.objects.select_related("business").order_by("-last_run_at", "business_id")[:150],
         "now": dj_timezone.now(),
     }
     return render(request, "ops/manage_dashboard.html", context)

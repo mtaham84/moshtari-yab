@@ -704,6 +704,20 @@
     {% endif %}
   </div>
 
+  <div class="card" style="margin-top:24px;">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div><h2>بازده منبع‌های جست‌وجوی اینستاگرام</h2><span class="muted" style="font-size:.82rem">لیدهای واجد شرایط تقسیم بر تعداد درخواست، به تفکیک فروشگاه و خانواده</span></div>
+    </div>
+    {% if instagram_source_stats %}<div class="table-responsive"><table><thead><tr><th>منبع</th><th>خانواده</th><th>فروشگاه</th><th class="n">درخواست‌ها</th><th class="n">لیدها</th><th class="n">بازده</th><th>آخرین اجرا</th></tr></thead><tbody>
+      {% for stat in instagram_source_stats %}<tr>
+        <td>{{ stat.get_source_type_display }} · {{ stat.label }}</td><td>{{ stat.family_id }}</td><td>{{ stat.business.name }}</td>
+        <td class="n">{{ stat.requests }}</td><td class="n">{{ stat.leads }}</td>
+        <td class="n">{% if stat.requests %}{{ stat.leads|floatformat:2 }} / {{ stat.requests }}{% else %}—{% endif %}</td>
+        <td class="jalali-time-cell">{% if stat.last_run_at %}<span dir="ltr">{{ stat.last_run_at|jalali_dt }}</span>{% else %}—{% endif %}</td>
+      </tr>{% endfor %}
+    </tbody></table></div>{% else %}<p class="muted">هنوز برای منبع‌های جدید آمار اجرا ثبت نشده است.</p>{% endif %}
+  </div>
+
   <!-- Live Instagram Crawl Audit Trail per Query & Account -->
   <div class="card" style="margin-top:24px;">
     <div class="ops-head" style="margin-bottom:12px;">

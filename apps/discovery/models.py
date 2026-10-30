@@ -609,6 +609,9 @@ class OpportunityProductMatch(models.Model):
         verbose_name="ویژگی‌های منطبق کالا"
     )
     reply_variants = models.JSONField(null=True, blank=True, verbose_name="پیشنویس‌های پاسخ X")
+    reply_history = models.JSONField(default=list, blank=True, verbose_name="تاریخچهٔ پیش‌نویس‌های پیام")
+    reply_sent = models.BooleanField(default=False, verbose_name="پیام توسط فروشنده ارسال شد")
+    reply_sent_at = models.DateTimeField(null=True, blank=True)
     rank = models.PositiveSmallIntegerField(
         default=1,
         verbose_name="رتبه در بین پیشنهادات"
@@ -820,6 +823,7 @@ class InstagramPage(models.Model):
     last_run_at = models.DateTimeField(null=True, blank=True)
     queued_at = models.DateTimeField(null=True, blank=True)
     last_status = models.CharField(max_length=24, blank=True, default="")
+    discovered_family_id = models.CharField(max_length=80, blank=True, default="", db_index=True)
     consecutive_failures = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -831,6 +835,63 @@ class InstagramPage(models.Model):
 
     def __str__(self):
         return f"@{self.handle} ({self.business})"
+
+
+class InstagramFamilyPlan(models.Model):
+    """Cached Instagram discovery plan for one current product family."""
+
+    STATUS_CHOICES = [("ready", "آماده"), ("failed", "ناموفق")]
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_family_plans")
+    family_id = models.CharField(max_length=80, db_index=True)
+    content_hash = models.CharField(max_length=64)
+    hashtags = models.JSONField(default=list, blank=True)
+    keywords = models.JSONField(default=list, blank=True)
+    page_search_terms = models.JSONField(default=list, blank=True)
+    buyer_signals = models.JSONField(default=list, blank=True)
+    negative_signals = models.JSONField(default=list, blank=True)
+    built_at = models.DateTimeField(default=dj_timezone.now)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="ready")
+    error = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "family_id"], name="uniq_ig_plan_business_family")]
+        indexes = [models.Index(fields=["business", "status", "built_at"], name="igplan_business_status_idx")]
+
+
+class InstagramSourceStat(models.Model):
+    SOURCE_CHOICES = [("page", "صفحه"), ("hashtag", "هشتگ"), ("keyword", "کلیدواژه")]
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_source_stats")
+    family_id = models.CharField(max_length=80, db_index=True)
+    source_type = models.CharField(max_length=12, choices=SOURCE_CHOICES)
+    label = models.CharField(max_length=100)
+    requests = models.PositiveIntegerField(default=0)
+    leads = models.PositiveIntegerField(default=0)
+    alpha = models.FloatField(default=1.0)
+    beta = models.FloatField(default=1.0)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "family_id", "source_type", "label"],
+                                                name="uniq_ig_source_stat")]
+        indexes = [models.Index(fields=["business", "family_id", "source_type"], name="igstat_family_type_idx")]
+
+
+class InstagramReplySuggestion(models.Model):
+    """Persisted history and sent state for human-reviewed Instagram message drafts."""
+
+    opportunity = models.ForeignKey("discovery.Opportunity", on_delete=models.CASCADE,
+                                    related_name="instagram_reply_suggestions")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="instagram_reply_suggestions")
+    reply_variants = models.JSONField(default=dict, blank=True)
+    history = models.JSONField(default=list, blank=True)
+    sent = models.BooleanField(default=False)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["opportunity", "product"], name="uniq_ig_reply_opp_product")]
 
 
 class InstagramCategoryTarget(models.Model):
@@ -1004,6 +1065,9 @@ class InstagramEngineLead(models.Model):
     comment_text = models.TextField(verbose_name="متن کامنت خریدار")
     source_post_url = models.CharField(max_length=255, null=True, blank=True, verbose_name="لینک پست مبدا")
     post_caption_snippet = models.TextField(null=True, blank=True, verbose_name="خلاصه کپشن پست")
+    profile_bio = models.TextField(blank=True, default="", verbose_name="بیوی عمومیِ دریافت‌شده همراه کامنت")
+    commenter_is_business = models.BooleanField(null=True, blank=True, verbose_name="حساب کاری طبق اطلاعات عمومی")
+    follower_count = models.PositiveIntegerField(null=True, blank=True, verbose_name="تعداد دنبال‌کنندگانِ دریافت‌شده")
     matched_cta = models.CharField(max_length=100, null=True, blank=True, verbose_name="کال‌تواکشن منطبق")
     intent_score = models.FloatField(default=0.85, db_index=True, verbose_name="ضریب احتمال خرید")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW", db_index=True, verbose_name="وضعیت لید")
@@ -1033,6 +1097,10 @@ class InstagramCrawledPost(models.Model):
     account_username = models.CharField(max_length=100, verbose_name="اکانت اسکرپر")
     posted_at = models.DateTimeField(db_index=True, verbose_name="زمان انتشار پست")
     crawled_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="زمان ثبت کرول")
+    caption = models.TextField(blank=True, default="")
+    comments = models.JSONField(default=list, blank=True)
+    comment_count = models.PositiveIntegerField(default=0)
+    comments_cached = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "پست کرول‌شده اینستاگرام"
@@ -1107,6 +1175,7 @@ class InstagramCrawlExecution(models.Model):
         default=0,
         verbose_name="پست‌های بررسی‌شده",
     )
+    requests = models.PositiveSmallIntegerField(default=1, verbose_name="تعداد درخواست‌های API")
     qualifying_posts = models.PositiveIntegerField(
         default=0,
         verbose_name="پست‌های حائز شرایط (کامنت >= ۵۰)",
