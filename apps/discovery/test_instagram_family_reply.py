@@ -64,6 +64,14 @@ class InstagramPureTests(SimpleTestCase):
         self.assertTrue(result["c2"]["is_lead"])
         self.assertEqual(fake_llm.call_count, 1)
 
+        # Potential customer lead with >30% probability is also accepted
+        fake_llm_low = Mock(return_value={"results": [{"id": "c3", "is_buyer": True,
+                                                       "intent_score": .35, "reason": "علاقه‌مندی بالقوه"}]})
+        low_res = llm_evaluate_family_batch([{"id": "c3", "username": "buyer2", "text": "شاید بخرم"}],
+                                            business_id=4, family_context={}, call_llm=fake_llm_low)
+        self.assertTrue(low_res["c3"]["is_lead"])
+        self.assertEqual(low_res["c3"]["intent_score"], 0.35)
+
     def test_source_bandit_reward_and_exploration_budget(self):
         sources = [DiscoverySource("f1", "page", "@shop", True),
                    DiscoverySource("f1", "hashtag", "پیراهن_مردانه"),
