@@ -21,7 +21,7 @@ User = get_user_model()
 def make_seller(email="s@example.com", name="فروشگاه آفتاب"):
     user = User.objects.create_user(username=email, email=email, password="pass12345", first_name="سارا")
     biz = Business.objects.create(user=user, name=name, business_type="PHYSICAL", business_domain="پوشاک",
-                                  description="دستکش و لوازم گرم زمستانی برای موتورسواران")
+                                  description="دستکش و لوازم گرم زمستانی برای موتورسواران", onboarding_done=True)
     return user, biz
 
 
