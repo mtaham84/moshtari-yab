@@ -38,7 +38,7 @@ class WalletTests(EngineSchemaMixin, TestCase):
         st.add_cost("need_extraction", "m", 100, 10, False, 0.5, 50000)              # platform: nobody pays
         st.add_cost("reply", "m", 100, 10, True, 0.04, 4000, businesses=[str(self.biz.pk)])   # cached: free
         r = services.charge_pending_usage(grace_seconds=0)
-        self.assertEqual((r["rows"], r["businesses"]), (4, 2))
+        self.assertEqual((r["rows"], r["businesses"]), (4, 1))  # the empty wallet receives no debit transaction
         # $0.01 share × 100,000 × 1.5 = 1,500 toman
         self.assertEqual(Wallet.objects.get(business=self.biz).balance_toman, Decimal("8500"))
         self.assertEqual(Wallet.objects.get(business=self.other).balance_toman, Decimal("0"))
