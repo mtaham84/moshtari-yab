@@ -1052,7 +1052,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         try:
             completed = subprocess.run(
                 [executable, "search", "iran", "-t", "Latest", "--exclude", "retweets", "--max", "1", "--json"],
-                capture_output=True, text=True, encoding="utf-8", timeout=15, check=False, env=sub_env
+                capture_output=True, text=True, encoding="utf-8", timeout=25, check=False, env=sub_env
             )
             try:
                 payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
