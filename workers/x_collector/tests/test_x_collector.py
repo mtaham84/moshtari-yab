@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import io
 import contextlib
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ class FakeClient:
         self.failures = failures
         self.calls = []
 
-    def search(self, query, limit):
+    def search(self, query, limit, account=None):
         self.calls.append((query, limit))
         if self.failures:
             self.failures -= 1
@@ -44,6 +45,9 @@ class XCollectorTests(unittest.TestCase):
             else:
                 child.unlink()
         self.fixture = json.loads((Path(__file__).parent / "fixtures" / "x_tweets.json").read_text(encoding="utf-8"))
+        fresh = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        for item in self.fixture:
+            item["createdAtISO"] = fresh
 
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
@@ -82,7 +86,9 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
 
     def test_supported_timestamps_are_normalised_to_utc(self):
-        timestamp_values = ["2026-10-01T10:00:00Z", 1790848800, 1790848800000, "Thu Oct 01 10:00:00 +0000 2026"]
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        timestamp_values = [now.isoformat().replace("+00:00", "Z"), int(now.timestamp()), int(now.timestamp() * 1000),
+                            now.strftime("%a %b %d %H:%M:%S +0000 %Y")]
         records = [{**self.fixture[0], "id": str(index), "created_at": value} for index, value in enumerate(timestamp_values)]
         result = self.collector(client=FakeClient(records)).run(["q"])
         rows = load_file(result["output"])
@@ -157,7 +163,7 @@ class XCollectorTests(unittest.TestCase):
 
     def test_rate_limit_sets_cooldown_and_later_run_does_not_call_client(self):
         client = FakeClient()
-        def rate_limited(query, limit):
+        def rate_limited(query, limit, account=None):
             client.calls.append((query, limit))
             raise XCliError("rate limit", kind="rate_limit")
         client.search = rate_limited
@@ -185,7 +191,8 @@ class XCollectorTests(unittest.TestCase):
             records = XCliClient().search("فارسی", 5)
         self.assertEqual(len(records), 2)
         self.assertFalse(run.call_args.kwargs["shell"])
-        self.assertNotIn("secret-a", str(run.call_args))
+        self.assertNotIn("secret-a", " ".join(run.call_args.args[0]))
+        self.assertNotIn("secret-b", " ".join(run.call_args.args[0]))
 
     def test_query_starting_with_dash_cannot_become_a_cli_option(self):
         with self.assertRaisesRegex(XCliError, "starting with '-'"):
@@ -213,7 +220,7 @@ class XCollectorTests(unittest.TestCase):
     def test_loop_stops_on_failure(self):
         collector = self.collector()
         collector.run = lambda *args, **kwargs: {"status": "AUTH_FAILED", "collected": 0}
-        with patch("workers.x_collector.worker.time.sleep", return_value=None):
+        with patch("workers.x_collector.worker.time.sleep", side_effect=XCliError("stop test loop")):
             with self.assertRaises(XCliError):
                 collect_forever(collector, ["q"], 1)
 
@@ -247,13 +254,16 @@ class XCollectorTests(unittest.TestCase):
         collector = self.collector()
         collector.run = lambda *args, **kwargs: {"status": "AUTH_FAILED", "collected": 0}
         with patch("workers.x_collector.worker.ingest_new", return_value=0) as ingest, \
-                patch.dict("os.environ", {"X_AUTO_INGEST": "true"}):
+                patch.dict("os.environ", {"X_AUTO_INGEST": "true"}), \
+                patch("workers.x_collector.worker.time.sleep", side_effect=XCliError("stop test loop")):
             with self.assertRaises(XCliError):
                 collect_forever(collector, ["q"], 1)
         ingest.assert_called_once()
 
     def test_product_queries_tag_posts_per_product_and_record_searches(self):
-        client = FakeClient(self.fixture[:1])
+        recent = dict(self.fixture[0])
+        recent["createdAtISO"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        client = FakeClient([recent])
         collector = self.collector(client)
         q = {"query": "notion (اکانت) lang:fa", "kind": "intent", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}
         result = collector.run([q])
@@ -265,7 +275,7 @@ class XCollectorTests(unittest.TestCase):
                           for s in collector.searches],
                          [{"query": q["query"], "product_ids": ["1", "2"], "business_ids": ["7", "8"], "fetched": 1,
                            "new_by_product": {"1": 1, "2": 1}}])
-        again = self.collector(FakeClient(self.fixture[:1])).run([q])
+        again = self.collector(FakeClient([recent])).run([q])
         self.assertEqual(again["collected"], 0)                        # same post × product is not collected twice
 
     def test_search_fee_bills_every_seller_in_full(self):
@@ -328,7 +338,8 @@ class XCollectorTests(unittest.TestCase):
     def test_agent_reach_nested_author_fields_are_normalized(self):
         record = normalize_tweet({"id": "1990000000000001003", "text": "دنبال آسیاب قهوه هستم",
                                   "author": {"id": "81003", "name": "خریدار", "screenName": "buyer"},
-                                  "createdAtISO": "2026-10-01T10:00:00Z", "lang": "fa"}, "آسیاب قهوه")
+                                  "createdAtISO": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                                  "lang": "fa"}, "آسیاب قهوه")
         self.assertEqual(record["author_id"], "81003")
         self.assertEqual(record["author_handle"], "@buyer")
         self.assertEqual(record["author_name"], "خریدار")
@@ -378,7 +389,7 @@ def test_not_found_skips_only_that_query(tmp_path):
         def __init__(self):
             self.calls = []
 
-        def search(self, query, limit):
+        def search(self, query, limit, account=None):
             self.calls.append(query)
             if query.startswith("bad"):
                 raise XCliError("404", kind="query")

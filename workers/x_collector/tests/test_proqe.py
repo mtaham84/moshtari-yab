@@ -2,7 +2,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from shared.collector_kit.seen import SeenStore
-from workers.x_collector.proqe import ExemplarStore, expand_queries_with_proqe, load_proqe_queries
+from workers.x_collector.proqe import (ExemplarStore, expand_queries_with_proqe, load_proqe_queries,
+                                       purge_legacy_product_state)
 from workers.x_collector.intent_queries import product_queries
 
 
@@ -50,6 +51,24 @@ def test_exemplar_store_synced_decisions(tmp_path):
     assert store.is_decision_synced("x:p:10", 999) is False
     store.mark_decision_synced("x:p:10", 999, "customer")
     assert store.is_decision_synced("x:p:10", 999) is True
+
+
+def test_legacy_product_state_purge_is_dry_run_safe_and_keeps_family_rows(tmp_path):
+    path = tmp_path / "families.sqlite3"
+    store = ExemplarStore(path)
+    store.add_expanded_queries("17", [{"query": "تیشرت مردانه", "kind": "intent"}])
+    store.add_expanded_queries("f17-a1b2c3d4", [{"query": "پیراهن مردانه", "kind": "intent"}])
+    store.add_exemplar("1", "17", "خریدار عمده جوراب")
+    store.add_exemplar("2", "f17-a1b2c3d4", "خریدار پیراهن مردانه")
+    store.mark_expanded("17")
+    store.mark_expanded("f17-a1b2c3d4")
+
+    report = purge_legacy_product_state(path, dry_run=True)
+    assert report == {"proqe_expanded_queries": 1, "proqe_exemplars": 1, "proqe_expansion_state": 1}
+    assert len(store.get_expanded_queries("17")) == 1
+    assert purge_legacy_product_state(path, dry_run=False) == report
+    assert store.get_expanded_queries("17") == []
+    assert len(store.get_expanded_queries("f17-a1b2c3d4")) == 1
 
 
 def test_thompson_sampling_feedback_and_scoring(tmp_path):
@@ -222,8 +241,9 @@ def test_purge_long_queries_keeps_only_three_word_queries(tmp_path):
     for q in ['"سنگ نما" -تخفیف lang:fa', '"سنگ لابی شکسته" lang:fa', '"سنگ تراورتن شکلاتی براق" lang:fa']:
         seen.record_feedback(q, success=True)
     store.add_expanded_queries("p", [{"query": "شوره نما", "kind": "problem"}, {"query": "چیکار کنم شوره سنگ", "kind": "problem"}])
+    store.record_outcome('"سنگ تراورتن شکلاتی براق" lang:fa', is_proqe=True, customer=True)
     out = purge_long_queries(state)
-    assert out == {"query_runs": 1, "proqe_expanded_queries": 1}
+    assert out == {"query_runs": 1, "proqe_expanded_queries": 1, "proqe_query_outcomes": 1}
     assert [q["query"] for q in store.get_expanded_queries("p")] == ["شوره نما"]
 
 

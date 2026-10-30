@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from unittest.mock import patch
 
 from apps.discovery.models import EngineSyncCursor, MonitoredCommunity
 from apps.discovery.tests import EngineSchemaMixin, seller
@@ -47,6 +48,17 @@ class WalletTests(EngineSchemaMixin, TestCase):
 
     def test_charge_without_engine_schema_is_a_noop(self):
         self.assertEqual(services.charge_pending_usage()["rows"], 0)
+
+    def test_direct_luna_usage_appears_in_model_usage(self):
+        from apps.core.models import LLMUsageLog
+
+        LLMUsageLog.objects.create(model="luna-test", purpose="taxonomy_tree", business_id=self.biz.pk,
+                                   tokens_in=120, tokens_out=80, cost_usd=Decimal("0.01"))
+        with patch("apps.billing.services._table_exists", return_value=False):
+            usage, = services.model_usage(30)
+        self.assertEqual((usage["key"], usage["calls"], usage["pt"], usage["ct"], usage["tokens"]),
+                         ("luna-test", 1, 120, 80, 200))
+        self.assertEqual(usage["toman"], 1500.0)
 
 
 class OpsPanelTests(EngineSchemaMixin, TestCase):

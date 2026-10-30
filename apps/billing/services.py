@@ -234,6 +234,25 @@ def model_usage(days: float) -> list[dict]:
             bump_last(r, a["last"])
     except Exception:
         pass
+    try:
+        from django.db.models import Count, Max, Sum
+        from apps.core.models import LLMUsageLog
+
+        since = timezone.now() - timedelta(days=days)
+        cfg = BillingSettings.get()
+        toman_per_usd = float(cfg.usd_to_toman * cfg.multiplier)
+        for usage in (LLMUsageLog.objects.filter(created_at__gte=since)
+                      .values("model").annotate(n=Count("id"), pt=Sum("tokens_in"), ct=Sum("tokens_out"),
+                                                 usd=Sum("cost_usd"), last=Max("created_at"))):
+            r = row(usage["model"] or "—")
+            r["calls"] += int(usage["n"] or 0)
+            r["pt"] += int(usage["pt"] or 0)
+            r["ct"] += int(usage["ct"] or 0)
+            r["usd"] += float(usage["usd"] or 0)
+            r["toman"] += float(usage["usd"] or 0) * toman_per_usd
+            bump_last(r, usage["last"])
+    except Exception:
+        log.debug("LLM usage ledger unavailable", exc_info=True)
     for r in merged.values():
         r["tokens"] = r["tokens"] + r["pt"] + r["ct"]
     return sorted(merged.values(), key=lambda r: (-r["usd"], -r["calls"]))

@@ -1,7 +1,7 @@
-"""LLM-written X search terms per product (names people type, problems in buyer voice, brand/model).
+"""LLM-written X search terms per seller/category family (names people type, problems in buyer voice, brand/model).
 
-Terms are cached in the need-engine kv table per product and only re-generated when the product or its card changes,
-so the collector (which rebuilds queries every cycle) pays once per product version. Failures fall back to the
+Terms are cached in the need-engine kv table per family and only re-generated when family products, category or seller
+notes change, so the collector (which rebuilds queries every cycle) pays once per family version. Failures fall back to the
 deterministic terms in ``intent_queries``.
 """
 from __future__ import annotations

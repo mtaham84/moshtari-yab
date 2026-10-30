@@ -104,7 +104,7 @@ def _dedupe_terms(values: list[Any], min_words: int, max_words: int) -> list[str
     return out
 
 
-# ── two-word rule ────────────────────────────────────────────────────────────────────────────────────────────
+# ── short phrase rule ─────────────────────────────────────────────────────────────────────────────────────────
 MAX_PHRASE_WORDS = 3
 _OPERATOR = re.compile(r"(?:^|\s)(?:lang|since_time|since|until|from|to|min_faves|min_retweets|filter):\S+", re.I)
 _NEG = re.compile(r'(?:^|\s)-(?:"[^"]*"|\S+)')
@@ -166,7 +166,7 @@ def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[st
 
 
 def phrase_candidates(product: Any, terms: dict[str, Any] | None, card: Any = None) -> list[tuple[str, str]]:
-    """[(phrase, kind)] — every phrase 1–2 words. kind: intent (core topic names), problem, alternative, solution, product."""
+    """[(phrase, kind)] — every phrase 1–3 words. kind: intent (core topic names), problem, alternative, solution, product."""
     terms = terms or {}
     out: list[tuple[str, str]] = []
     names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 5, strip_noise=True)
@@ -231,7 +231,7 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
     ops = operators()
     raw_candidates, seen = [], set()
     for phrase, kind in phrase_candidates(product, terms, card):
-        query = f"{_quote(phrase)} {ops}".strip()      # ONE phrase (<= 2 words) per query, operators only as filters
+        query = f"{_quote(phrase)} {ops}".strip()      # ONE phrase (<= 3 words) per query, operators only as filters
         key = norm(query)
         if len(query) > max_chars or key in seen:
             continue
@@ -323,7 +323,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     values: list[tuple[str, str]] = [(f"{_quote(p)} {tail_ops}".strip(), kind) for p, kind in phrase_candidates(product, terms, card)]
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
 
-    # ProQE: queries evolved from confirmed buyers (already restricted to <= 2 words)
+    # ProQE: queries evolved from confirmed buyers (already restricted to <= 3 words)
     try:
         from workers.x_collector.proqe import load_proqe_queries
         for pq in load_proqe_queries(pid):

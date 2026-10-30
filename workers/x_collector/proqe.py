@@ -38,7 +38,7 @@ HARD RULES
 2. Be TOPICAL at product-type level: «جوراب», «دامن», «لباس مجلسی مردانه», «شوره سنگ», «دندان درد». Never too broad («لباس»,
    «خرید کالا») and never colours, sizes, finishes, brands, models, prices, cities or adjectives («شکلاتی», «شکسته», «ارزان»).
    The SELLER NOTES in the family description (ideal customer, wholesale, city) are binding.
-3. Learn the VOCABULARY of the confirmed buyers (their verbs and nouns) and compress it into 2-word phrases. Do not copy
+3. Learn the VOCABULARY of the confirmed buyers (their verbs and nouns) and compress it into 1-3 word phrases. Do not copy
    whole sentences and do not return anything already in "Existing queries".
 4. Avoid the vocabulary pattern of rejected tweets (news, jokes, politics, seller ads, generic chatter).
 5. Prefer variations in the spirit of the best-performing queries (same topic noun, different companion word).
@@ -52,9 +52,9 @@ Return 4 to 6 phrases covering the same three formats as the base queries:
 Return strictly JSON:
 {
   "expanded_queries": [
-    {"query": "two words", "kind": "problem"},
-    {"query": "two words", "kind": "alternative"},
-    {"query": "two words", "kind": "solution"}
+    {"query": "short phrase", "kind": "problem"},
+    {"query": "short phrase", "kind": "alternative"},
+    {"query": "short phrase", "kind": "solution"}
   ]
 }
 """
@@ -544,9 +544,10 @@ def purge_long_queries(state_path: str | Path, max_words: int = 3) -> dict[str, 
     """Deletes every stored query longer than ``max_words`` positive words from the SQLite state (bandit + ProQE)."""
     from workers.x_collector.intent_queries import positive_word_count
 
-    out = {"query_runs": 0, "proqe_expanded_queries": 0}
+    out = {"query_runs": 0, "proqe_expanded_queries": 0, "proqe_query_outcomes": 0}
     with closing(sqlite3.connect(state_path)) as db:
-        for table, col in (("query_runs", "query"), ("proqe_expanded_queries", "query")):
+        for table, col in (("query_runs", "query"), ("proqe_expanded_queries", "query"),
+                           ("proqe_query_outcomes", "query")):
             try:
                 rows = db.execute(f"SELECT DISTINCT {col} FROM {table}").fetchall()
             except sqlite3.OperationalError:
@@ -556,4 +557,24 @@ def purge_long_queries(state_path: str | Path, max_words: int = 3) -> dict[str, 
                     db.execute(f"DELETE FROM {table} WHERE {col} = ?", (q,))
                     out[table] += 1
         db.commit()
+    return out
+
+
+def purge_legacy_product_state(state_path: str | Path, dry_run: bool = True) -> dict[str, int]:
+    """Remove per-product ProQE state after the collector switches to stable family IDs (``f…``)."""
+    out: dict[str, int] = {}
+    with closing(sqlite3.connect(state_path)) as db:
+        for table in ("proqe_expanded_queries", "proqe_exemplars", "proqe_expansion_state"):
+            try:
+                ids = [r[0] for r in db.execute(
+                    f"SELECT DISTINCT product_id FROM {table} WHERE product_id NOT LIKE 'f%'"
+                )]
+            except sqlite3.OperationalError:
+                out[table] = 0
+                continue
+            if ids and not dry_run:
+                db.executemany(f"DELETE FROM {table} WHERE product_id = ?", [(pid,) for pid in ids])
+            out[table] = len(ids)
+        if not dry_run:
+            db.commit()
     return out
