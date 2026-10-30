@@ -232,7 +232,9 @@ def manage_dashboard(request):
 
     # 9. Comprehensive Crawler & Query Intelligence Metrics
     try:
-        from apps.discovery.models import InstagramCrawledPost, XCrawledPost, Opportunity, InstagramSourceStat
+        from apps.discovery.models import (
+            InstagramCrawledPost, XCrawledPost, Opportunity, InstagramSourceStat, InstagramEngineLead
+        )
         from apps.core.jalali import format_jalali_date
         import zoneinfo
 
