@@ -164,9 +164,17 @@ class LLMClient:
         ``businesses``: sellers who pay for the call, split equally (None/empty = platform cost).
         Tries candidate models for the stage's role in priority order (e.g. Luna -> Gemini failover)."""
         if self.mock is not None:
+            chosen_model = self.registry.model_for(stage) or model
+            key = hashlib.sha256(json.dumps([chosen_model, system, user, max_tokens, temperature, self.cfg.reasoning_effort],
+                                            ensure_ascii=False).encode()).hexdigest()
+            hit = self.store.cache_get(key)
+            if hit is not None:
+                toman = self._record(stage, chosen_model, hit["pt"], hit["ct"], True, ref, businesses)
+                return parse_json(hit["content"]), {"toman": toman, "cached": True, "pt": hit["pt"], "ct": hit["ct"]}
             content = json.dumps(self.mock(stage, system, user), ensure_ascii=False)
             pt, ct = len(system + user) // 3, len(content) // 3
-            toman = self._record(stage, model, pt, ct, False, ref, businesses)
+            self.store.cache_put(key, {"content": content, "pt": pt, "ct": ct})
+            toman = self._record(stage, chosen_model, pt, ct, False, ref, businesses)
             return parse_json(content), {"toman": toman, "cached": False, "pt": pt, "ct": ct}
 
         candidates = self.registry.candidate_models_for(stage)

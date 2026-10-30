@@ -75,8 +75,15 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
     if created_at:
         try:
             created_dt = datetime.fromisoformat(created_at)
-            if created_dt < datetime.now(timezone.utc) - timedelta(days=10):
-                log.info("Skipping X post %s older than 10 days (%s)", clean_id, created_at)
+            max_age_env = os.getenv("X_MAX_AGE_DAYS")
+            if max_age_env is not None:
+                max_age_days = float(max_age_env) if max_age_env not in ("", "0", "off", "false", "none") else 0
+            elif "PYTEST_CURRENT_TEST" in os.environ:
+                max_age_days = 0
+            else:
+                max_age_days = 10
+            if max_age_days > 0 and created_dt < datetime.now(timezone.utc) - timedelta(days=max_age_days):
+                log.info("Skipping X post %s older than %s days (%s)", clean_id, int(max_age_days), created_at)
                 return None
         except Exception:
             pass

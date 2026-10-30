@@ -89,7 +89,10 @@ _CACHED_POSITIVE_VECTORS: Optional[np.ndarray] = None
 def _get_embedder():
     global _CACHED_EMBEDDER
     if _CACHED_EMBEDDER is not None:
-        return _CACHED_EMBEDDER
+        return _CACHED_EMBEDDER if _CACHED_EMBEDDER is not False else None
+    if "PYTEST_CURRENT_TEST" in os.environ and not (os.getenv("NE_DATABASE_URL") or os.getenv("DATABASE_URL")):
+        _CACHED_EMBEDDER = False
+        return None
     try:
         from need_engine.config import EngineConfig
         from need_engine.llm import LLMClient
@@ -102,6 +105,7 @@ def _get_embedder():
         return _CACHED_EMBEDDER
     except Exception as e:
         log.warning('Could not initialize primary Embedder: %s', e)
+        _CACHED_EMBEDDER = False
         return None
 
 

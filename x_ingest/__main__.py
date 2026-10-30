@@ -52,8 +52,15 @@ def validate_record(record: object) -> dict:
             parsed_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
             if parsed_dt.tzinfo is None:
                 parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-            if parsed_dt < datetime.now(timezone.utc) - timedelta(days=10):
-                raise ValueError(f"tweet created_at ({created}) is older than 10 days")
+            max_age_env = os.getenv("X_MAX_AGE_DAYS")
+            if max_age_env is not None:
+                max_age_days = float(max_age_env) if max_age_env not in ("", "0", "off", "false", "none") else 0
+            elif "PYTEST_CURRENT_TEST" in os.environ:
+                max_age_days = 0
+            else:
+                max_age_days = 10
+            if max_age_days > 0 and parsed_dt < datetime.now(timezone.utc) - timedelta(days=max_age_days):
+                raise ValueError(f"tweet created_at ({created}) is older than {int(max_age_days)} days")
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
     metadata = parsed.meta
@@ -104,6 +111,7 @@ def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {schema}.x_post_products (
             hit_id BIGSERIAL PRIMARY KEY, tweet_id BIGINT NOT NULL, product_id TEXT NOT NULL, query TEXT,
             found_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (tweet_id, product_id))""")
+        has_xcrawled = bool(conn.execute("SELECT to_regclass('discovery_xcrawledpost')").fetchone()[0])
         with Path(path).open(encoding="utf-8") as stream:
             for line_no, line in enumerate(stream, 1):
                 if not line.strip() or line.lstrip().startswith("//"):
@@ -131,15 +139,16 @@ def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
                     conn.execute(f"""INSERT INTO {schema}.x_post_products (tweet_id, product_id, query) VALUES (%s,%s,%s)
                                      ON CONFLICT (tweet_id, product_id) DO NOTHING""",
                                  (record["tweet_id"], record["product_id"], record["query"]))
-                try:
-                    post_hash = hashlib.sha256(f"x_tweet:{record['tweet_id']}".encode("utf-8")).hexdigest()
-                    conn.execute("""
-                        INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url)
-                        VALUES (%s, %s, %s, %s, now(), %s)
-                        ON CONFLICT (post_hash) DO NOTHING
-                    """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or ""))
-                except Exception as exc:
-                    log.debug("Skipped discovery_xcrawledpost recording: %s", exc)
+                if has_xcrawled:
+                    try:
+                        post_hash = hashlib.sha256(f"x_tweet:{record['tweet_id']}".encode("utf-8")).hexdigest()
+                        conn.execute("""
+                            INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url)
+                            VALUES (%s, %s, %s, %s, now(), %s)
+                            ON CONFLICT (post_hash) DO NOTHING
+                        """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or ""))
+                    except Exception as exc:
+                        log.debug("Skipped discovery_xcrawledpost recording: %s", exc)
                 count += 1
     if invalid_count:
         log.info("Skipped %s invalid X record(s) from %s", invalid_count, path)

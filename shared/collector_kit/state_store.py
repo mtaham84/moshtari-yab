@@ -192,7 +192,7 @@ class PostgresStateStore:
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:
         with self._connect(self.dsn) as db:
-                db.execute(f"UPDATE {self.schema}.collector_query_runs SET last_run_at=now(),runs=runs+1,fetched=fetched+%s,new_posts=new_posts+%s,last_error=%s,last_ok_at=COALESCE(%s,last_ok_at), beta=CASE WHEN %s IS NULL AND %s=0 THEN beta+0.5 ELSE beta END, empty_runs=CASE WHEN %s IS NOT NULL THEN empty_runs WHEN %s=0 THEN empty_runs+1 ELSE 0 END, dropped=CASE WHEN %s IS NULL AND %s=0 AND empty_runs+1>=6 THEN TRUE ELSE dropped END WHERE platform=%s AND query=%s",
+                db.execute(f"UPDATE {self.schema}.collector_query_runs SET last_run_at=now(),runs=runs+1,fetched=fetched+%s,new_posts=new_posts+%s,last_error=%s,last_ok_at=COALESCE(%s,last_ok_at), beta=CASE WHEN %s::text IS NULL AND %s=0 THEN beta+0.5 ELSE beta END, empty_runs=CASE WHEN %s::text IS NOT NULL THEN empty_runs WHEN %s=0 THEN empty_runs+1 ELSE 0 END, dropped=CASE WHEN %s::text IS NULL AND %s=0 AND empty_runs+1>=6 THEN TRUE ELSE dropped END WHERE platform=%s AND query=%s",
                            (fetched, new_posts, error, started_at, error, fetched, error, fetched, error, fetched, self.platform, query))
 
     def dropped_queries(self, limit: int = 50) -> list[str]:
