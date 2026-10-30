@@ -52,7 +52,7 @@
 </div>
 
 <style>
-  .shop { max-width: 1200px; margin: 0 auto; padding: 0 0 60px; color: #fff; }
+  .shop { max-width: 1200px; margin: 0 auto; padding: 0 0 60px; color: #fff; overflow-x: hidden; }
   .shop-cover { height: clamp(150px, 26vw, 280px); border-radius: 0 0 28px 28px; background: linear-gradient(135deg, #7928ca, #e8268e 55%, #f5a524) center / cover no-repeat; position: relative; overflow: hidden; }
   .shop-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.25), transparent 40%, rgba(0,0,0,.2)); }
   .shop-cover-top { position: relative; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; }
@@ -61,7 +61,7 @@
   .shop-avatar { width: clamp(92px, 14vw, 128px); aspect-ratio: 1; border-radius: 50%; border: 4px solid rgba(255,255,255,.9); background: linear-gradient(135deg, #f5a524, #ff7a3d); display: grid; place-items: center; overflow: hidden; box-shadow: 0 12px 34px rgba(0,0,0,.4); flex: 0 0 auto; }
   .shop-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .shop-avatar span { font-size: 2.6rem; font-weight: 900; color: #1b1206; }
-  .shop-id { flex: 1 1 260px; padding: 14px 18px; border-radius: 22px; background: var(--ui-glass, rgba(255,255,255,.14)); border: 1px solid var(--ui-edge, rgba(255,255,255,.3)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+  .shop-id { flex: 1 1 260px; min-width: 0; box-sizing: border-box; max-width: 100%; padding: 14px 18px; border-radius: 22px; background: var(--ui-glass, rgba(255,255,255,.14)); border: 1px solid var(--ui-edge, rgba(255,255,255,.3)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
   .shop-id h1 { margin: 0; font-size: clamp(1.2rem, 3vw, 1.7rem); display: flex; align-items: center; gap: 8px; }
   .shop-ok { color: #34d399; width: 1.2em; height: 1.2em; }
   .shop-tag { margin: 6px 0 0; color: rgba(255,255,255,.82); }
