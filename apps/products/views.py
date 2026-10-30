@@ -40,6 +40,15 @@ def _form_list_int(value: str | None, default: int, minimum: int, maximum: int) 
         return default
     return max(minimum, min(maximum, number))
 
+
+def _categories_for(business):
+    """Sellers who set up their own tree pick only from it; older tenants keep the global + custom list."""
+    own = Category.objects.filter(business=business, is_active=True)
+    if own.exists():
+        return own.select_related("parent").order_by("full_path")
+    return Category.objects.filter(Q(business__isnull=True) | Q(business=business), is_active=True).select_related("parent")
+
+
 @login_required
 def product_list_view(request):
     business = getattr(request.user, "business", None)
@@ -87,10 +96,7 @@ def product_add_view(request):
             business_domain="عمومی"
         )
 
-    categories = Category.objects.filter(
-        Q(business__isnull=True) | Q(business=business),
-        is_active=True
-    ).select_related("parent")
+    categories = _categories_for(business)
 
     if request.method == "POST":
         name = request.POST.get("name", "").strip()[:255]
@@ -144,7 +150,7 @@ def product_add_view(request):
 
         category = None
         if category_id and str(category_id).isdigit():
-            category = Category.objects.filter(id=int(category_id)).first()
+            category = categories.filter(id=int(category_id)).first()
 
         price = None
         if price_val:
@@ -211,7 +217,10 @@ def product_add_view(request):
             except Exception:
                 pass
 
-        messages.success(request, f"محصول «{product.name}» با موفقیت ثبت و ساختاردهی شد.")
+        from apps.products import taxonomy
+        organizing = taxonomy.maybe_organize(business)
+        messages.success(request, f"محصول «{product.name}» با موفقیت ثبت و ساختاردهی شد." + (
+            " هوش مصنوعی در حال دسته‌بندی کالاهای شما و ساخت خانواده‌های جستجوست." if organizing else ""))
         return redirect("products:detail", pk=product.pk)
 
     return render(request, "products/product_form.html", {
@@ -223,10 +232,7 @@ def product_add_view(request):
 def product_edit_view(request, pk):
     business = get_object_or_404(Business, user=request.user)
     product = get_object_or_404(Product, pk=pk, business=business)
-    categories = Category.objects.filter(
-        Q(business__isnull=True) | Q(business=business),
-        is_active=True
-    ).select_related("parent")
+    categories = _categories_for(business)
 
     if request.method == "POST":
         new_images = request.FILES.getlist("images")
@@ -285,7 +291,7 @@ def product_edit_view(request, pk):
         product.attributes = attributes
 
         if category_id and str(category_id).isdigit():
-            product.category = Category.objects.filter(id=int(category_id)).first()
+            product.category = categories.filter(id=int(category_id)).first()
         else:
             product.category = None
 
@@ -488,24 +494,11 @@ def api_create_category(request):
     if not name:
         return JsonResponse({"status": "error", "message": "نام دسته‌بندی الزامی است."}, status=400)
 
-    parent = None
-    if parent_id:
-        parent = Category.objects.filter(id=parent_id).first()
-        if parent:
-            if len(parent.get_ancestors()) >= 4:
-                return JsonResponse({
-                    "status": "error",
-                    "message": "حداکثر عمق مجاز درخت‌واره ۵ سطح است."
-                }, status=400)
-            product_type = parent.product_type
-
-    category = Category.objects.create(
-        business=business,
-        name=name,
-        parent=parent,
-        product_type=product_type,
-        is_active=True
-    )
+    from apps.products import taxonomy
+    try:
+        category = taxonomy.add_node(business, int(parent_id) if str(parent_id or "").isdigit() else None, name)
+    except taxonomy.TaxonomyError as exc:
+        return JsonResponse({"status": "error", "message": str(exc)}, status=400)
 
     return JsonResponse({
         "status": "success",
@@ -522,10 +515,7 @@ def api_create_category(request):
 @login_required
 def api_category_tree(request):
     business = getattr(request.user, "business", None)
-    categories = Category.objects.filter(
-        Q(business__isnull=True) | Q(business=business),
-        is_active=True
-    ).select_related("parent").order_by("name")
+    categories = _categories_for(business).order_by("name")
 
     # Map node objects
     nodes = {

@@ -1,0 +1,47 @@
+{% extends "panel/base_panel.html" %}
+{% block title %}غرفه من | پیدا{% endblock %}
+{% block breadcrumb %}غرفه من{% endblock %}
+{% block nav_shop %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header">
+  <div class="p-header-titles">
+    <h1 class="p-page-title">غرفهٔ من</h1>
+    <p class="p-page-subtitle">صفحهٔ عمومی کسب‌وکار شما؛ لینک آن را برای مشتریان بفرستید.</p>
+  </div>
+  <div class="p-header-actions">
+    {% if business.slug %}<a class="p-btn p-btn-primary" href="{% url 'accounts:shop' business.slug %}" target="_blank" rel="noopener"><svg class="ico" aria-hidden="true"><use href="#i-store"/></svg> مشاهدهٔ غرفه</a>{% endif %}
+    <a class="p-btn" href="{% url 'accounts:categories' %}"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg> دسته‌بندی‌ها</a>
+  </div>
+</div>
+
+{% if messages %}{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="p-card" style="padding:22px; display:grid; gap:16px;">
+  {% csrf_token %}
+  <div class="se-grid">
+    <label>نام غرفه<input type="text" name="name" value="{{ business.name }}" maxlength="255" required></label>
+    <label>آدرس غرفه (انگلیسی یا فارسی، بدون فاصله)<input type="text" name="slug" value="{{ business.slug|default:'' }}" maxlength="60" dir="ltr" placeholder="my-shop"></label>
+    <label>شعار کوتاه<input type="text" name="tagline" value="{{ business.tagline }}" maxlength="140"></label>
+    <label>شهر / موقعیت<input type="text" name="location" value="{{ business.location }}" maxlength="150"></label>
+  </div>
+  <div class="se-grid">
+    <label>لوگو (دایره‌ای)<input type="file" name="logo" accept="image/*">
+      {% if business.logo %}<span class="se-prev"><img src="{{ business.logo.url }}" alt="" width="64" height="64"> <span><input type="checkbox" name="remove_logo" value="1"> حذف</span></span>{% endif %}</label>
+    <label>تصویر سربرگ (افقی، ۱۶۰۰×۴۰۰ یا بزرگ‌تر)<input type="file" name="cover" accept="image/*">
+      {% if business.cover %}<span class="se-prev"><img src="{{ business.cover.url }}" alt="" width="160" height="40"> <span><input type="checkbox" name="remove_cover" value="1"> حذف</span></span>{% endif %}</label>
+  </div>
+  <label>دربارهٔ کسب‌وکار (نمایش در غرفه)<textarea name="description" rows="4" maxlength="2000">{{ business.description }}</textarea></label>
+  <label>توضیحات برای جستجوی مشتری <small>(حداکثر ۱۰۰۰ کاراکتر؛ به هوش مصنوعی داده می‌شود و روی کوئری‌ها اثر دارد)</small>
+    <textarea name="search_notes" rows="5" maxlength="1000" placeholder="مثلاً: تولیدی جوراب هستم و دنبال مغازه‌دارهایی هستم که عمده می‌خرند.">{{ business.search_notes }}</textarea></label>
+  <div><button class="p-btn p-btn-primary" type="submit"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg> ذخیره</button></div>
+</form>
+
+<style>
+  .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px; }
+  form.p-card label { display: grid; gap: 6px; font-weight: 700; }
+  form.p-card label small { font-weight: 400; color: var(--ui-muted); }
+  .se-prev { display: inline-flex; align-items: center; gap: 10px; font-weight: 400; }
+  .se-prev img { border-radius: 12px; object-fit: cover; }
+</style>
+{% endblock %}

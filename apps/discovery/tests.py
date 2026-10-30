@@ -57,7 +57,7 @@ class EngineSchemaMixin:
 
 def seller(email: str, name: str) -> tuple:
     user = User.objects.create_user(username=email, email=email, password="pass12345", first_name=name)
-    return user, Business.objects.create(user=user, name=name, business_type="PHYSICAL", business_domain="عمومی")
+    return user, Business.objects.create(user=user, name=name, business_type="PHYSICAL", business_domain="عمومی", onboarding_done=True)
 
 
 def global_source(chat_id: int = -1001):

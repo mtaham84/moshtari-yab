@@ -26,7 +26,7 @@ def signup_view(request):
         business_domain = request.POST.get("business_domain", "").strip()
 
         # Validations
-        if not (first_name and last_name and email and business_name and business_domain):
+        if not (first_name and last_name and email and business_name):
             messages.error(request, "لطفاً تمامی فیلدهای الزامی فرم را تکمیل فرمایید.")
             return render(request, "accounts/signup.html", {
                 "first_name": first_name,
@@ -86,11 +86,8 @@ def signup_view(request):
 
         # Immediate login
         login(request, user)
-        messages.success(
-            request,
-            "ثبت‌نام با موفقیت انجام شد! با توجه به نسخه دمو، شرایط احراز هویت ایمیل غیرفعال شده و حساب کسب‌وکار شما فوراً فعال گردید."
-        )
-        return redirect("accounts:dashboard")
+        messages.success(request, "ثبت‌نام انجام شد. حالا نوع کسب‌وکار و دسته‌بندی محصولات خود را مشخص کنید.")
+        return redirect("accounts:onboarding")
 
     return render(request, "accounts/signup.html")
 

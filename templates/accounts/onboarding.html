@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if mode == 'manage' %}دسته‌بندی‌های کسب‌وکار{% else %}راه‌اندازی کسب‌وکار{% endif %} | پیدا{% endblock %}
+
+{% block body %}
+<div class="ob" id="ob" data-mode="{{ mode }}" data-selected='{{ selected_keys|join:"," }}' data-max="{{ max_types }}">
+  {% csrf_token %}
+  <header class="ob-top">
+    <a class="brand" href="{% url 'core:landing' %}" aria-label="صفحه اصلی">
+      <div class="brand-icon"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg></div>
+      <div class="brand-text"><span class="brand-name">پیدا</span><span class="brand-tagline">{% if mode == 'manage' %}مدیریت دسته‌بندی‌ها{% else %}راه‌اندازی کسب‌وکار{% endif %}</span></div>
+    </a>
+    {% if mode == 'manage' %}<a class="ob-back" href="{% url 'accounts:dashboard' %}"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg> بازگشت به پنل</a>{% endif %}
+  </header>
+
+  <ol class="ob-steps" aria-label="مراحل">
+    <li data-step="1"><span>۱</span> نوع کسب‌وکار</li>
+    <li data-step="2"><span>۲</span> انتخاب دسته‌ها</li>
+    <li data-step="3"><span>۳</span> ویرایش و توضیحات</li>
+  </ol>
+
+  <div class="ob-alert" id="ob-alert" role="alert" hidden></div>
+
+  <!-- STEP 1 -->
+  <section class="ob-card" data-pane="1" hidden>
+    <h1>کسب‌وکار شما از کدام نوع است؟</h1>
+    <p class="ob-lead">حداکثر {{ max_types }} نوع را انتخاب کنید. بر اساس آن، هوش مصنوعی زیردسته‌های مناسب را برای شما پیشنهاد می‌کند.</p>
+    <div class="ob-types" id="ob-types">
+      {% for t in types %}
+      <button type="button" class="ob-type" data-key="{{ t.key }}" aria-pressed="false">
+        <span class="ob-type-ico"><svg class="ico" aria-hidden="true"><use href="#i-{{ t.icon }}"/></svg></span>
+        <strong>{{ t.name }}</strong>
+        <small>{{ t.description }}</small>
+        <em>{% if t.kind == 'SERVICE' %}خدماتی{% else %}کالایی{% endif %}</em>
+      </button>
+      {% endfor %}
+    </div>
+    <div class="ob-actions"><button class="btn primary" id="ob-next-1" type="button">ادامه <svg class="ico" aria-hidden="true"><use href="#i-check"/></svg></button></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="ob-card" data-pane="2" hidden>
+    <h1>دسته‌بندی‌هایی که به کار شما مربوط است</h1>
+    <p class="ob-lead">آنچه می‌فروشید یا ارائه می‌دهید را تیک بزنید. تا سه سطح (مثلاً پوشاک ← مردانه ← پیراهن). در مرحلهٔ بعد می‌توانید ویرایش و اضافه کنید.</p>
+    <div id="ob-system" class="ob-system"></div>
+    <div class="ob-actions">
+      <button class="btn" id="ob-prev-2" type="button">بازگشت</button>
+      <button class="btn primary" id="ob-next-2" type="button">افزودن انتخاب‌شده‌ها</button>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="ob-card" data-pane="3" hidden>
+    <h1>دسته‌بندی‌های شما</h1>
+    <p class="ob-lead">این درخت مخصوص کسب‌وکار شماست. می‌توانید زیرشاخه اضافه، نام را ویرایش یا حذف کنید. سطح چهارم فقط برای شماست و در جستجوی مشتری تا سطح ۳ در نظر گرفته می‌شود. هر دستهٔ نهایی (بدون فرزند) یک «خانواده» است که برایش مشتری پیدا می‌کنیم.</p>
+    <div class="ob-tree" id="ob-own"></div>
+    <div class="ob-addroot"><input id="ob-root-name" type="text" maxlength="60" placeholder="نام دستهٔ اصلی جدید"><button class="btn" id="ob-add-root" type="button"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> دستهٔ اصلی</button></div>
+
+    <div class="ob-notes">
+      <label for="ob-notes">توضیحات دلخواه برای جستجوی مشتری <span class="ob-count"><b id="ob-count">0</b> / ۱۰۰۰</span></label>
+      <textarea id="ob-notes" maxlength="1000" rows="5" placeholder="نوع مشتری مورد نظر و نحوهٔ فروش خود را بنویسید…">{{ business.search_notes }}</textarea>
+      <div class="ob-examples">
+        <span>نمونه (برای استفاده کلیک کنید):</span>
+        {% for e in notes_examples %}<button type="button" class="ob-example" data-text="{{ e }}">{{ e }}</button>{% endfor %}
+      </div>
+      <label for="ob-tag">شعار کوتاه غرفه (اختیاری)</label>
+      <input id="ob-tag" type="text" maxlength="140" value="{{ business.tagline }}" placeholder="مثلاً: تولیدکنندهٔ جوراب با کیفیت، فروش عمده">
+    </div>
+    <div class="ob-actions">
+      <button class="btn" id="ob-prev-3" type="button">بازگشت</button>
+      <button class="btn primary" id="ob-finish" type="button">{% if mode == 'manage' %}ذخیره{% else %}پایان و افزودن کالا{% endif %}</button>
+    </div>
+  </section>
+
+  <div class="ob-loading" id="ob-loading" hidden><div class="ob-spin"></div><p id="ob-loading-text">در حال آماده‌سازی…</p></div>
+</div>
+
+<style>
+  .ob { max-width: 1080px; margin: 0 auto; padding: 18px 16px 60px; color: #fff; }
+  .ob-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .ob-back { color: #ffe2b3; display: inline-flex; gap: 6px; align-items: center; }
+  .ob-steps { list-style: none; display: flex; gap: 8px; padding: 0; margin: 0 0 18px; flex-wrap: wrap; }
+  .ob-steps li { flex: 1 1 160px; padding: 10px 14px; border-radius: 14px; background: var(--ui-glass, rgba(255,255,255,.13)); border: 1px solid var(--ui-edge-soft, rgba(255,255,255,.2)); color: rgba(255,255,255,.7); display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: .9rem; }
+  .ob-steps li span { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.18); }
+  .ob-steps li.on { background: linear-gradient(135deg, #f5a524, #ff7a3d); color: #1b1206; border-color: transparent; }
+  .ob-steps li.on span { background: rgba(0,0,0,.16); }
+  .ob-steps li.done { color: #c8ffe8; }
+  .ob-card { padding: clamp(16px, 3vw, 30px); border-radius: 24px; background: var(--ui-glass, rgba(255,255,255,.13)); border: 1px solid var(--ui-edge, rgba(255,255,255,.3)); -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+  .ob-card h1 { margin: 0 0 6px; font-size: clamp(1.25rem, 3vw, 1.7rem); }
+  .ob-lead { margin: 0 0 18px; color: rgba(255,255,255,.78); line-height: 1.9; }
+  .ob-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+  .ob-type { text-align: right; display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); color: #fff; cursor: pointer; font: inherit; transition: transform .15s, background .2s, border-color .2s; }
+  .ob-type:hover { transform: translateY(-2px); background: rgba(255,255,255,.14); }
+  .ob-type small { color: rgba(255,255,255,.7); line-height: 1.6; }
+  .ob-type em { font-style: normal; font-size: .74rem; color: #ffe2b3; }
+  .ob-type-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(255,255,255,.14); }
+  .ob-type-ico .ico { width: 22px; height: 22px; }
+  .ob-type[aria-pressed="true"] { background: linear-gradient(135deg, rgba(245,165,36,.9), rgba(255,122,61,.9)); color: #1b1206; border-color: transparent; }
+  .ob-type[aria-pressed="true"] small, .ob-type[aria-pressed="true"] em { color: rgba(27,18,6,.8); }
+  .ob-actions { display: flex; gap: 10px; justify-content: flex-start; margin-top: 20px; flex-wrap: wrap; }
+  .ob-alert { margin-bottom: 14px; padding: 12px 16px; border-radius: 14px; background: rgba(251,113,133,.22); border: 1px solid rgba(251,113,133,.7); }
+  .ob-alert.ok { background: rgba(52,211,153,.2); border-color: rgba(52,211,153,.6); }
+  .ob-system h2 { font-size: 1.05rem; margin: 18px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .ob-l2 { border: 1px solid rgba(255,255,255,.2); border-radius: 16px; margin-bottom: 10px; background: rgba(255,255,255,.06); overflow: hidden; }
+  .ob-l2 > label { display: flex; align-items: center; gap: 10px; padding: 12px 14px; font-weight: 800; cursor: pointer; }
+  .ob-l3 { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 14px; }
+  .ob-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); cursor: pointer; font-size: .86rem; }
+  .ob-chip input, .ob-l2 > label input { accent-color: #f5a524; width: 17px; height: 17px; min-height: 0; }
+  .ob-chip.on { background: rgba(245,165,36,.3); border-color: rgba(245,165,36,.8); }
+  .ob-node { margin: 6px 0; }
+  .ob-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); flex-wrap: wrap; }
+  .ob-row .nm { font-weight: 700; flex: 1 1 140px; min-width: 0; }
+  .ob-row .pc { font-size: .74rem; color: rgba(255,255,255,.65); }
+  .ob-row .lv { font-size: .7rem; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.14); }
+  .ob-ibtn { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2); color: #fff; cursor: pointer; }
+  .ob-ibtn:hover { background: rgba(255,255,255,.24); }
+  .ob-ibtn.del:hover { background: rgba(251,113,133,.4); }
+  .ob-kids { margin-inline-start: 22px; border-inline-start: 2px solid rgba(255,255,255,.16); padding-inline-start: 10px; }
+  .ob-inline { display: flex; gap: 6px; margin: 6px 0 6px 0; }
+  .ob-inline input { flex: 1; min-width: 0; }
+  .ob-addroot { display: flex; gap: 8px; margin-top: 14px; }
+  .ob-addroot input { flex: 1; min-width: 0; }
+  .ob-notes { margin-top: 24px; display: grid; gap: 10px; }
+  .ob-notes label { font-weight: 700; display: flex; justify-content: space-between; gap: 10px; }
+  .ob-count { font-weight: 400; color: rgba(255,255,255,.7); }
+  .ob-examples { display: grid; gap: 8px; }
+  .ob-examples > span { font-size: .8rem; color: rgba(255,255,255,.7); }
+  .ob-example { text-align: right; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.07); border: 1px dashed rgba(255,255,255,.3); color: rgba(255,255,255,.9); cursor: pointer; font: inherit; line-height: 1.7; }
+  .ob-example:hover { background: rgba(255,255,255,.14); }
+  .ob-loading { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 14px; background: rgba(8,10,18,.68); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); text-align: center; padding: 20px; }
+  .ob-loading[hidden], .ob-card[hidden], .ob-alert[hidden] { display: none; }
+  .ob-spin { width: 46px; height: 46px; border-radius: 50%; border: 4px solid rgba(255,255,255,.25); border-top-color: #f5a524; animation: ob-rot 1s linear infinite; }
+  @keyframes ob-rot { to { transform: rotate(360deg); } }
+  @media (max-width: 560px) { .ob-steps li { flex-basis: 100%; } .ob-actions .btn { flex: 1; } .ob-kids { margin-inline-start: 10px; } }
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('ob');
+  const csrf = root.querySelector('input[name=csrfmiddlewaretoken]').value;
+  const $ = (s, r = root) => r.querySelector(s);
+  const $$ = (s, r = root) => Array.from(r.querySelectorAll(s));
+  const MAX = parseInt(root.dataset.max, 10);
+  let selected = (root.dataset.selected || '').split(',').filter(Boolean);
+  let step = 1;
+  const trees = {};
+  const names = {};
+
+  const api = (url, method = 'GET', body) => fetch(url, {
+    method, credentials: 'same-origin',
+    headers: Object.assign({ 'X-CSRFToken': csrf }, body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok || d.ok === false) throw new Error(d.message || 'خطا در ارتباط با سرور'); return d; });
+
+  const alertBox = (msg, ok) => { const a = $('#ob-alert'); a.textContent = msg || ''; a.hidden = !msg; a.classList.toggle('ok', !!ok); if (msg) a.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+  const busy = (text) => { $('#ob-loading').hidden = !text; if (text) $('#ob-loading-text').textContent = text; };
+  const show = (n) => {
+    step = n;
+    $$('.ob-card').forEach(c => c.hidden = c.dataset.pane !== String(n));
+    $$('.ob-steps li').forEach(li => { const s = +li.dataset.step; li.classList.toggle('on', s === n); li.classList.toggle('done', s < n); });
+    alertBox('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /* ---- step 1 ---- */
+  const paintTypes = () => $$('.ob-type').forEach(b => b.setAttribute('aria-pressed', selected.includes(b.dataset.key) ? 'true' : 'false'));
+  $$('.ob-type').forEach(b => { names[b.dataset.key] = b.querySelector('strong').textContent; b.addEventListener('click', () => {
+    const k = b.dataset.key;
+    if (selected.includes(k)) selected = selected.filter(x => x !== k);
+    else if (selected.length >= MAX) return alertBox('حداکثر ' + MAX + ' نوع کسب‌وکار قابل انتخاب است.');
+    else selected.push(k);
+    alertBox(''); paintTypes();
+  }); });
+  $('#ob-next-1').addEventListener('click', async () => {
+    if (!selected.length) return alertBox('حداقل یک نوع کسب‌وکار را انتخاب کنید.');
+    try {
+      busy('در حال ذخیره…'); await api('/accounts/onboarding/api/types/select/', 'POST', { keys: selected });
+      await loadSystem();
+    } catch (e) { busy(''); alertBox(e.message); }
+  });
+
+  /* ---- step 2 ---- */
+  async function loadSystem() {
+    const box = $('#ob-system'); box.innerHTML = '';
+    for (const key of selected) {
+      busy('هوش مصنوعی در حال آماده‌سازی زیردسته‌های «' + names[key] + '» است (فقط برای اولین بار طول می‌کشد)…');
+      const d = await api('/accounts/onboarding/api/tree/' + key + '/');
+      trees[key] = d;
+      renderSystem(box, d);
+    }
+    busy(''); show(2);
+  }
+  function renderSystem(box, d) {
+    const adopted = new Set(d.adopted);
+    const h = document.createElement('h2'); h.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg>'; h.append(d.type.name); box.appendChild(h);
+    d.tree.forEach(l2 => {
+      const wrap = document.createElement('div'); wrap.className = 'ob-l2';
+      const lab = document.createElement('label'); const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = l2.id; cb.dataset.type = d.type.key; cb.dataset.root = d.type.root_id;
+      cb.checked = adopted.has(l2.id); lab.append(cb, document.createTextNode(l2.name)); wrap.appendChild(lab);
+      const kids = document.createElement('div'); kids.className = 'ob-l3';
+      l2.children.forEach(l3 => {
+        const c = document.createElement('label'); c.className = 'ob-chip' + (adopted.has(l3.id) ? ' on' : '');
+        const i = document.createElement('input'); i.type = 'checkbox'; i.value = l3.id; i.checked = adopted.has(l3.id); i.dataset.parent = l2.id;
+        i.addEventListener('change', () => { c.classList.toggle('on', i.checked); if (i.checked) cb.checked = true; });
+        c.append(i, document.createTextNode(l3.name)); kids.appendChild(c);
+      });
+      cb.addEventListener('change', () => $$('input[data-parent="' + l2.id + '"]', wrap).forEach(i => { i.checked = cb.checked; i.parentElement.classList.toggle('on', cb.checked); }));
+      if (l2.children.length) wrap.appendChild(kids);
+      box.appendChild(wrap);
+    });
+  }
+  $('#ob-prev-2').addEventListener('click', () => show(1));
+  $('#ob-next-2').addEventListener('click', async () => {
+    const ids = $$('#ob-system input[type=checkbox]:checked').map(i => parseInt(i.value, 10));
+    ids.push(...Object.values(trees).map(t => t.type.root_id));
+    if (ids.length <= Object.keys(trees).length) return alertBox('حداقل یک دسته را انتخاب کنید.');
+    try { busy('در حال ساخت درخت شما…'); const d = await api('/accounts/onboarding/api/adopt/', 'POST', { node_ids: ids }); renderOwn(d.tree); busy(''); show(3); }
+    catch (e) { busy(''); alertBox(e.message); }
+  });
+
+  /* ---- step 3: own tree editor ---- */
+  function renderOwn(tree) {
+    const box = $('#ob-own'); box.innerHTML = '';
+    const draw = (nodes, parentEl) => nodes.forEach(n => {
+      const node = document.createElement('div'); node.className = 'ob-node';
+      const row = document.createElement('div'); row.className = 'ob-row';
+      row.innerHTML = '<span class="nm"></span><span class="lv">سطح ' + n.depth + '</span>' + (n.products ? '<span class="pc">' + n.products + ' کالا</span>' : '') +
+        (n.depth < 4 ? '<button type="button" class="ob-ibtn" data-act="add" title="افزودن زیرشاخه"><svg class="ico"><use href="#i-plus"/></svg></button>' : '') +
+        '<button type="button" class="ob-ibtn" data-act="rename" title="ویرایش نام"><svg class="ico"><use href="#i-edit"/></svg></button>' +
+        '<button type="button" class="ob-ibtn del" data-act="delete" title="حذف"><svg class="ico"><use href="#i-trash"/></svg></button>';
+      row.querySelector('.nm').textContent = n.name;
+      row.addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) act(b.dataset.act, n, node); });
+      node.appendChild(row);
+      if (n.children.length) { const kids = document.createElement('div'); kids.className = 'ob-kids'; draw(n.children, kids); node.appendChild(kids); }
+      parentEl.appendChild(node);
+    });
+    if (!tree.length) box.innerHTML = '<p class="ob-lead">هنوز دسته‌ای ندارید. از مرحلهٔ قبل انتخاب کنید یا یک دستهٔ اصلی اضافه کنید.</p>';
+    draw(tree, box);
+  }
+  async function mutate(action, payload) {
+    try { busy('…'); const d = await api('/accounts/onboarding/api/node/' + action + '/', 'POST', payload); renderOwn(d.tree); busy(''); alertBox(''); }
+    catch (e) { busy(''); alertBox(e.message); }
+  }
+  function act(a, n, nodeEl) {
+    if (a === 'delete') { if (confirm('«' + n.name + '» با همهٔ زیرشاخه‌هایش حذف شود؟ کالاهای آن به دستهٔ بالاتر منتقل می‌شوند.')) mutate('delete', { id: n.id }); }
+    else if (a === 'rename') { const v = prompt('نام جدید دسته:', n.name); if (v && v.trim()) mutate('rename', { id: n.id, name: v.trim() }); }
+    else if (a === 'add') {
+      if (nodeEl.querySelector(':scope > .ob-inline')) return;
+      const f = document.createElement('div'); f.className = 'ob-inline';
+      f.innerHTML = '<input type="text" maxlength="60" placeholder="نام زیرشاخه"><button type="button" class="btn sm primary">افزودن</button>';
+      const go = () => { const v = f.querySelector('input').value.trim(); if (v) mutate('add', { parent_id: n.id, name: v }); };
+      f.querySelector('button').addEventListener('click', go); f.querySelector('input').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+      nodeEl.querySelector('.ob-row').after(f); f.querySelector('input').focus();
+    }
+  }
+  $('#ob-add-root').addEventListener('click', () => { const i = $('#ob-root-name'); const v = i.value.trim(); if (v) { mutate('add', { parent_id: null, name: v }); i.value = ''; } });
+  $('#ob-prev-3').addEventListener('click', () => (root.dataset.mode === 'manage' ? show(1) : show(2)));
+  const notes = $('#ob-notes'), count = $('#ob-count');
+  const upd = () => count.textContent = notes.value.length; notes.addEventListener('input', upd); upd();
+  $$('.ob-example').forEach(b => b.addEventListener('click', () => { notes.value = b.dataset.text.slice(0, 1000); upd(); notes.focus(); }));
+  $('#ob-finish').addEventListener('click', async () => {
+    try { busy('در حال ذخیره…'); const d = await api('/accounts/onboarding/api/finish/', 'POST', { search_notes: notes.value, tagline: $('#ob-tag').value });
+      location.href = root.dataset.mode === 'manage' ? '/accounts/dashboard/' : d.next; }
+    catch (e) { busy(''); alertBox(e.message); }
+  });
+
+  /* ---- start ---- */
+  paintTypes();
+  if (root.dataset.mode === 'manage') {
+    api('/accounts/onboarding/api/own-tree/').then(d => { renderOwn(d.tree); show(3); }).catch(e => { show(1); alertBox(e.message); });
+  } else show(1);
+})();
+</script>
+{% endblock %}

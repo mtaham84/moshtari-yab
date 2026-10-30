@@ -91,6 +91,7 @@ MIDDLEWARE.extend([
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "apps.accounts.middleware.OnboardingRequiredMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ])
 

@@ -105,7 +105,7 @@ def _dedupe_terms(values: list[Any], min_words: int, max_words: int) -> list[str
 
 
 # ── two-word rule ────────────────────────────────────────────────────────────────────────────────────────────
-MAX_PHRASE_WORDS = 2
+MAX_PHRASE_WORDS = 3
 _OPERATOR = re.compile(r"(?:^|\s)(?:lang|since_time|since|until|from|to|min_faves|min_retweets|filter):\S+", re.I)
 _NEG = re.compile(r'(?:^|\s)-(?:"[^"]*"|\S+)')
 
@@ -123,8 +123,22 @@ def is_short_query(query: str) -> bool:
     return 1 <= n <= MAX_PHRASE_WORDS
 
 
+# words that describe nothing by themselves: «لباس» alone is hopeless, «لباس مجلسی مردانه» or «جوراب» is a real topic
+BROAD_WORDS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "لوازم", "کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
+                                  "مد", "ابزار", "وسیله", "وسایل", "چیز", "چیزی", "جنس", "برند", "کیفیت", "ارزان", "گران",
+                                  "بهترین", "خوب", "جدید", "اصل", "اصلی", "ویژه", "عمده", "تکی", "آنلاین", "اینترنتی")}
+ACTION_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام", "دنبال", "میخوام",
+                                   "می‌خوام", "نیاز", "فروش", "تهیه", "بخرم", "راهنمایی", "مشاوره", "نظر")}
+
+
+def is_too_broad(words: list[str]) -> bool:
+    """True when nothing specific is left after removing buying/advice words and filler («خرید لباس», «قیمت کالا»)."""
+    content = [norm(w) for w in words if norm(w) not in ACTION_WORDS]
+    return not content or all(w in BROAD_WORDS for w in content)
+
+
 def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[str]:
-    """1–2 word phrases only. Longer phrases are REJECTED (never truncated: a cut sentence is garbage), single
+    """1–3 word phrases only. Longer phrases are REJECTED (never truncated: a cut sentence is garbage), single
     generic words («اشتراک», «محصول») are rejected, duplicates (after normalisation) are dropped."""
     out, seen = [], set()
     generic = {norm(g) for g in GENERIC_SINGLE}
@@ -142,6 +156,8 @@ def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[st
             continue
         if len(words) == 1 and (key in generic or len(term) < 5):
             continue   # a lone short word («سنگ») matches half of Persian X
+        if is_too_broad(words):
+            continue
         seen.add(key)
         out.append(term)
         if len(out) >= cap:
@@ -295,8 +311,8 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "12"))
-    per_format = int(os.getenv("X_QUERY_PER_FORMAT", "4"))
+    max_count = int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "10")))
+    per_format = int(os.getenv("X_QUERY_PER_FORMAT", "3"))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
@@ -325,7 +341,8 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
             continue
         seen.add(key)
         raw_candidates.append({
-            "query": query, "kind": kind, "product_ids": [pid], "business_ids": [str(bid)] if bid else [],
+            "query": query, "kind": kind, "product_ids": [str(x) for x in (getattr(product, "member_product_ids", None) or [pid])],
+            "business_ids": [str(bid)] if bid else [],
             "priority": float(getattr(product, "discovery_priority", 1) or 1)
         })
 

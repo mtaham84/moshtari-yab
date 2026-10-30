@@ -38,13 +38,35 @@ class AuthAndOnboardingTestCase(TestCase):
 
     def test_signup_creates_account_and_logs_in_without_email(self):
         response = self.client.post(self.signup_url, self._signup_data(), follow=True)
-        self.assertTemplateUsed(response, "accounts/dashboard.html")
+        self.assertTemplateUsed(response, "accounts/onboarding.html")
         user = User.objects.get(email="sara.m@example.com")
         self.assertTrue(user.check_password("secret-pass-1"))
         self.assertEqual(Business.objects.get(user=user).business_type, "SERVICE")
         self.assertEqual(len(mail.outbox), 0)
         self.client.logout()
         self.assertTrue(self.client.login(username="sara.m@example.com", password="secret-pass-1"))
+
+    def test_storefront_urls_are_registered(self):
+        self.assertEqual(reverse("accounts:shop", args=["sara"]), "/accounts/shop/sara/")
+        self.assertEqual(reverse("accounts:shop_edit"), "/accounts/shop/edit/")
+
+    def test_business_type_selection_is_required_and_limited(self):
+        from apps.businesses.models import BusinessType
+        BusinessType.objects.get_or_create(key="apparel", defaults={"name": "پوشاک", "kind": "PHYSICAL"})
+        BusinessType.objects.get_or_create(key="digital", defaults={"name": "دیجیتال", "kind": "PHYSICAL"})
+        user = User.objects.create_user(username="types@example.com", password="secret-pass-1")
+        business = Business.objects.create(user=user, name="فروشگاه", business_domain="")
+        self.client.force_login(user)
+        select_url = reverse("accounts:ob_select_types")
+        too_many = self.client.post(select_url, data='{"keys":["apparel","food","digital","education"]}',
+                                    content_type="application/json")
+        self.assertEqual(too_many.status_code, 400)
+        self.assertFalse(business.business_types.exists())
+        selected = self.client.post(select_url, data='{"keys":["apparel"]}', content_type="application/json")
+        self.assertEqual(selected.status_code, 200)
+        self.assertEqual(list(business.business_types.values_list("key", flat=True)), ["apparel"])
+        unauthorized_tree = self.client.get(reverse("accounts:ob_type_tree", args=["digital"]))
+        self.assertEqual(unauthorized_tree.status_code, 403)
 
     def test_signup_cannot_take_over_an_existing_account(self):
         owner = User.objects.create_user(username="owner@example.com", email="owner@example.com", password="original-pass")

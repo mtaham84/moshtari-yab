@@ -24,7 +24,8 @@ class ProductsAndTaxonomyTestCase(TestCase):
             user=self.user,
             name="آکادمی تست",
             business_type="HYBRID",
-            business_domain="آموزش و مد"
+            business_domain="آموزش و مد",
+            onboarding_done=True
         )
         self.client.force_login(self.user)
 

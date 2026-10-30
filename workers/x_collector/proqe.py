@@ -34,9 +34,10 @@ system on X/Twitter. You see real tweets that were CONFIRMED as buyers (positive
 like the confirmed buyers and fewer like the rejected ones.
 
 HARD RULES
-1. Every phrase is exactly 1 or 2 Persian words. Never 3+. X search is exact-match, so each extra word makes a query rarer.
-2. Be GENERIC and TOPICAL: the common noun people use for the need («سنگ نما», «شوره سنگ», «دندان درد», «لپ تاپ»), never colors,
-   sizes, finishes, brands, models, prices, cities, adjectives or marketing words («شکلاتی», «شکسته», «ارزان»).
+1. Every phrase is 1, 2 or 3 Persian words. Never 4+. X search is exact-match, so each extra word makes a query rarer.
+2. Be TOPICAL at product-type level: «جوراب», «دامن», «لباس مجلسی مردانه», «شوره سنگ», «دندان درد». Never too broad («لباس»,
+   «خرید کالا») and never colours, sizes, finishes, brands, models, prices, cities or adjectives («شکلاتی», «شکسته», «ارزان»).
+   The SELLER NOTES in the family description (ideal customer, wholesale, city) are binding.
 3. Learn the VOCABULARY of the confirmed buyers (their verbs and nouns) and compress it into 2-word phrases. Do not copy
    whole sentences and do not return anything already in "Existing queries".
 4. Avoid the vocabulary pattern of rejected tweets (news, jokes, politics, seller ads, generic chatter).
@@ -90,7 +91,7 @@ def _format_expansion_prompt(product_title: str, category: str, existing_queries
         for q in winners:
             lines.append(f"- {q}")
 
-    lines.append("\nGenerate 4-6 NEW generic Persian search phrases of 1-2 words each (no duplicates of existing queries).")
+    lines.append("\nGenerate 4-6 NEW topical Persian search phrases of 1-3 words each (no duplicates of existing queries).")
     return "\n".join(lines)
 
 
@@ -354,6 +355,17 @@ class ExemplarStore:
             db.commit()
 
 
+def _family_map(conn) -> dict[str, str]:
+    """real product id -> family id (seller + first three category levels), so learning is shared inside a family."""
+    from workers.x_collector.families import family_id, path_head
+    try:
+        rows = conn.execute("""SELECT p.id, p.business_id, COALESCE(c.full_path, '') FROM public.products_product p
+                               LEFT JOIN public.products_category c ON c.id = p.category_id""").fetchall()
+    except Exception:
+        return {}
+    return {str(r[0]): family_id(r[1], path_head(r[2]), r[0]) for r in rows}
+
+
 def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema: str = "crawler",
                          engine_schema: str = "need_engine") -> dict[str, int]:
     """Syncs LLM decisions from need_engine.x_hit_results to update Thompson Sampling bandit stats
@@ -400,6 +412,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                 LIMIT %s OFFSET %s
             """
             # Page through the history so a burst of >500 decisions between cycles is never skipped.
+            family_of = _family_map(conn)
             page_size, max_pages = 500, 20
             proqe_cache: dict[str, list[str]] = {}
             for page in range(max_pages):
@@ -411,7 +424,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                     if exemplar_store.is_decision_synced(chat_id, int(message_id)):
                         continue
                     fresh += 1
-                    pid = str(product_id)
+                    pid = family_of.get(str(product_id), str(product_id))
                     if pid not in proqe_cache:
                         proqe_cache[pid] = [e["query"] for e in exemplar_store.get_expanded_queries(pid)]
                     is_proqe = any(search_query.startswith(q) for q in proqe_cache[pid])
@@ -421,7 +434,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                         stats["rewarded"] += 1
                         exemplar_store.record_outcome(search_query, is_proqe, True)
                         if exemplar_store.add_exemplar(
-                            tweet_id=message_id, product_id=product_id, tweet_text=tweet_text,
+                            tweet_id=message_id, product_id=pid, tweet_text=tweet_text,
                             query=search_query, reason=reason
                         ):
                             stats["exemplars_added"] += 1
@@ -430,7 +443,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                         seen_store.record_feedback(search_query, success=False, weight=0.5)
                         stats["penalized"] += 1
                         exemplar_store.record_outcome(search_query, is_proqe, False)
-                        if exemplar_store.add_negative(message_id, product_id, tweet_text, query=search_query, reason=reason):
+                        if exemplar_store.add_negative(message_id, pid, tweet_text, query=search_query, reason=reason):
                             stats["negatives_added"] = stats.get("negatives_added", 0) + 1
 
                     # "not_fit" says the person is a buyer of something else, not that the query is bad:
@@ -504,7 +517,7 @@ def expand_queries_with_proqe(
             k = item.get("kind", "problem")
             if k not in {"problem", "complaint", "alternative", "solution", "intent"}:
                 k = "problem"
-            if 1 <= len(q.split()) <= 2 and len(q) >= 5 and _FA.search(q):
+            if 1 <= len(q.split()) <= 3 and len(q) >= 5 and _FA.search(q):
                 expanded.append({"query": q, "kind": k})
 
     exemplar_store.mark_expanded(pid)
@@ -521,13 +534,13 @@ def load_proqe_queries(product_id: str, state_path: str | Path | None = None) ->
         state_path = os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3")
     try:
         store = ExemplarStore(state_path)
-        return [q for q in store.get_expanded_queries(str(product_id)) if 1 <= len(q["query"].split()) <= 2]
+        return [q for q in store.get_expanded_queries(str(product_id)) if 1 <= len(q["query"].split()) <= 3]
     except Exception as exc:
         log.debug("Could not load ProQE queries for product %s: %s", product_id, exc)
         return []
 
 
-def purge_long_queries(state_path: str | Path, max_words: int = 2) -> dict[str, int]:
+def purge_long_queries(state_path: str | Path, max_words: int = 3) -> dict[str, int]:
     """Deletes every stored query longer than ``max_words`` positive words from the SQLite state (bandit + ProQE)."""
     from workers.x_collector.intent_queries import positive_word_count
 

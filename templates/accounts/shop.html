@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ shop.name }} | غرفه در پیدا{% endblock %}
+
+{% block body %}
+<div class="shop">
+  <header class="shop-cover" {% if shop.cover %}style="background-image:url('{{ shop.cover.url }}')"{% endif %}>
+    <div class="shop-cover-top">
+      <a class="shop-brand" href="{% url 'core:landing' %}"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> پیدا</a>
+      {% if is_owner %}<a class="shop-edit" href="{% url 'accounts:shop_edit' %}"><svg class="ico" aria-hidden="true"><use href="#i-edit"/></svg> ویرایش غرفه</a>{% endif %}
+    </div>
+  </header>
+
+  <section class="shop-head">
+    <div class="shop-avatar">
+      {% if shop.logo %}<img src="{{ shop.logo.url }}" alt="{{ shop.name }}">{% else %}<span>{{ shop.name|slice:":1" }}</span>{% endif %}
+    </div>
+    <div class="shop-id">
+      <h1>{{ shop.name }} <svg class="ico shop-ok" aria-label="غرفه تأییدشده"><use href="#i-shield"/></svg></h1>
+      {% if shop.tagline %}<p class="shop-tag">{{ shop.tagline }}</p>{% endif %}
+      <ul class="shop-meta">
+        <li><svg class="ico" aria-hidden="true"><use href="#i-box"/></svg> {{ count }} کالا و خدمت</li>
+        {% if shop.location %}<li><svg class="ico" aria-hidden="true"><use href="#i-map"/></svg> {{ shop.location }}</li>{% endif %}
+        {% for t in types %}<li class="chip">{{ t.name }}</li>{% endfor %}
+      </ul>
+    </div>
+  </section>
+
+  <nav class="shop-tabs" aria-label="دسته‌بندی‌ها">
+    <a href="?" class="{% if not active %}on{% endif %}">همه</a>
+    {% for c in roots %}<a href="?c={{ c.id }}" class="{% if active and active.id == c.id %}on{% endif %}">{{ c.name }}</a>{% endfor %}
+  </nav>
+
+  <main class="shop-grid">
+    {% for it in items %}
+    <a class="shop-card" href="{% url 'products:public_card' it.p.pk %}">
+      <div class="shop-img">{% if it.image %}<img src="{{ it.image }}" alt="{{ it.p.name }}" loading="lazy">{% else %}<svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>{% endif %}</div>
+      <div class="shop-body">
+        <h3>{{ it.p.name|truncatechars:60 }}</h3>
+        {% if it.p.category %}<small>{{ it.p.category.name }}</small>{% endif %}
+        <strong>{% if it.p.price %}{{ it.p.price|floatformat:0 }} تومان{% else %}تماس بگیرید{% endif %}</strong>
+      </div>
+    </a>
+    {% empty %}
+    <p class="shop-empty">هنوز کالایی در این بخش ثبت نشده است.</p>
+    {% endfor %}
+  </main>
+
+  {% if shop.description %}
+  <section class="shop-about"><h2>دربارهٔ غرفه</h2><p>{{ shop.description|linebreaksbr }}</p></section>
+  {% endif %}
+</div>
+
+<style>
+  .shop { max-width: 1200px; margin: 0 auto; padding: 0 0 60px; color: #fff; }
+  .shop-cover { height: clamp(150px, 26vw, 280px); border-radius: 0 0 28px 28px; background: linear-gradient(135deg, #7928ca, #e8268e 55%, #f5a524) center / cover no-repeat; position: relative; overflow: hidden; }
+  .shop-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.25), transparent 40%, rgba(0,0,0,.2)); }
+  .shop-cover-top { position: relative; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; }
+  .shop-brand, .shop-edit { display: inline-flex; gap: 8px; align-items: center; padding: 8px 14px; border-radius: 999px; background: rgba(12,14,24,.45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.25); color: #fff; font-weight: 700; }
+  .shop-head { display: flex; gap: 18px; align-items: flex-end; margin: -56px 18px 0; position: relative; z-index: 3; flex-wrap: wrap; }
+  .shop-avatar { width: clamp(92px, 14vw, 128px); aspect-ratio: 1; border-radius: 50%; border: 4px solid rgba(255,255,255,.9); background: linear-gradient(135deg, #f5a524, #ff7a3d); display: grid; place-items: center; overflow: hidden; box-shadow: 0 12px 34px rgba(0,0,0,.4); flex: 0 0 auto; }
+  .shop-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .shop-avatar span { font-size: 2.6rem; font-weight: 900; color: #1b1206; }
+  .shop-id { flex: 1 1 260px; padding: 14px 18px; border-radius: 22px; background: var(--ui-glass, rgba(255,255,255,.14)); border: 1px solid var(--ui-edge, rgba(255,255,255,.3)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+  .shop-id h1 { margin: 0; font-size: clamp(1.2rem, 3vw, 1.7rem); display: flex; align-items: center; gap: 8px; }
+  .shop-ok { color: #34d399; width: 1.2em; height: 1.2em; }
+  .shop-tag { margin: 6px 0 0; color: rgba(255,255,255,.82); }
+  .shop-meta { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 0; margin: 10px 0 0; font-size: .86rem; color: rgba(255,255,255,.85); }
+  .shop-meta li { display: inline-flex; align-items: center; gap: 6px; }
+  .shop-meta .chip { padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); }
+  .shop-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 18px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .shop-tabs a { flex: 0 0 auto; padding: 9px 18px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); color: #fff; font-weight: 700; }
+  .shop-tabs a.on { background: linear-gradient(135deg, #f5a524, #ff7a3d); color: #1b1206; border-color: transparent; }
+  .shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 14px; padding: 0 18px; }
+  .shop-card { display: flex; flex-direction: column; border-radius: 20px; overflow: hidden; background: var(--ui-glass, rgba(255,255,255,.13)); border: 1px solid var(--ui-edge, rgba(255,255,255,.3)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); color: #fff; transition: transform .2s, box-shadow .2s; }
+  .shop-card:hover { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(0,0,0,.4); color: #fff; }
+  .shop-img { aspect-ratio: 1; background: rgba(255,255,255,.08); display: grid; place-items: center; }
+  .shop-img img { width: 100%; height: 100%; object-fit: cover; }
+  .shop-img .ico { width: 44px; height: 44px; opacity: .5; }
+  .shop-body { padding: 12px 14px 14px; display: grid; gap: 4px; }
+  .shop-body h3 { margin: 0; font-size: .95rem; line-height: 1.6; }
+  .shop-body small { color: rgba(255,255,255,.7); }
+  .shop-body strong { color: #ffd27a; margin-top: 4px; }
+  .shop-empty { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: rgba(255,255,255,.75); }
+  .shop-about { margin: 30px 18px 0; padding: 18px 20px; border-radius: 22px; background: var(--ui-glass, rgba(255,255,255,.13)); border: 1px solid var(--ui-edge, rgba(255,255,255,.3)); }
+  .shop-about h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  .shop-about p { margin: 0; line-height: 2; color: rgba(255,255,255,.88); }
+  @media (max-width: 560px) { .shop-head { margin-inline: 12px; flex-direction: column; align-items: center; text-align: center; } .shop-id { width: 100%; } .shop-meta { justify-content: center; } .shop-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 12px; } .shop-tabs { padding: 14px 12px; } }
+</style>
+{% endblock %}

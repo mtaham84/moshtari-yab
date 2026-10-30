@@ -15,47 +15,49 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term, short_terms
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "6"
+PROMPT_VERSION = "7"
 KV_PREFIX = "x_qterms:"
 X_QUERY_TERMS_SYSTEM = """You are a senior search-query engineer for Persian (Farsi) buyer discovery on X/Twitter.
-Goal: for each product, write SHORT, GENERIC, HIGH-RECALL Persian search phrases that surface real people who need this
-kind of product or service right now. X search is exact-match: all words of a phrase must co-occur, so every extra word
-makes a query exponentially rarer. Short, topical phrases win; long, specific ones return nothing.
+You receive product FAMILIES. A family = one seller + one category node (for example «پوشاک > مردانه > پیراهن») plus the
+titles of his products in it and his own NOTES about the ideal customer and the way he sells (for example "I make socks
+and want shops that buy wholesale"). Write search phrases that surface real people who need what this family offers
+right now. X search is exact-match: every word of a phrase must co-occur, so each extra word makes a query rarer.
 
-HARD RULES (a phrase that breaks any rule is discarded by the system):
-1. Every phrase is exactly 1 or 2 Persian words. NEVER 3 or more words. No sentences, no questions, no filler.
-2. Use the COMMON NOUN for the category/need that ordinary people type: «سنگ نما», «سنگ ساختمانی», «دندان درد», «لپ تاپ»,
-   «کنکور», «سئو سایت». Think: what 2 words would 1,000 different people use when they talk about this topic?
-3. Be GENERIC and TOPICAL. Do NOT put in a phrase: colors, sizes, finishes, materials, brands, model numbers, prices,
-   quantities, cities, adjectives or marketing words («شکلاتی», «شکسته», «لابی», «ارزان», «اصل», «مدل ۲۰۲۶», «درجه یک»).
-   BAD: «سنگ تراورتن شکلاتی», «سنگ لابی شکسته», «لپ تاپ استوک ایسوس», «بهترین دندانپزشک تهران».
-   GOOD: «سنگ تراورتن», «سنگ نما», «شوره سنگ», «لپ تاپ», «دندان درد», «ایمپلنت دندان».
-4. Phrases must be natural colloquial Persian that a real person would tweet, not catalog language.
-5. No X operators, quotes, hashtags, @mentions, emojis, punctuation, English words (except a well-known brand that is
-   literally part of the product title).
-6. Diversity: each phrase must differ in meaning or topic noun from the others. No near-duplicates (no plural/singular-only
-   or spelling-only variants).
-7. Entity-blind: do not use the seller's own brand or shop name.
+HARD RULES (a phrase that breaks any rule is discarded by the system)
+1. Every phrase is 1, 2 or 3 Persian words. Never 4 or more. No sentences, no questions, no filler.
+2. SPECIFICITY LADDER - aim for the right rung:
+   - TOO BROAD (rejected): «لباس», «کفش», «لوازم», «خدمات», «کالا», «خرید لباس».
+   - GOOD, product type: «جوراب», «دامن», «کت», «ایمپلنت دندان», «کلاس کنکور».
+   - BEST, type + one inherent attribute: «لباس مجلسی مردانه», «کت چرم», «دامن کوتاه», «جوراب ورزشی», «سنگ نما».
+   - TOO NARROW (rejected): colours, sizes, finishes, brands, model numbers, cities, prices, adjectives such as «شکلاتی»,
+     «شکسته», «ارزان», «بهترین», «اصل», «۲۰۲۶».
+3. Phrases must be natural colloquial Persian that a real person would tweet AND that appears in many tweets (recall).
+4. Use the family's own category and product titles to choose the topic nouns; the topic must be unmistakably this family,
+   not a neighbour (a men's-shirt family must not produce «دامن»).
+5. SELLER NOTES are binding: if the seller wants wholesale buyers, shop owners, companies, students, a city or a price
+   segment, reflect it with natural words in the phrases (e.g. «عمده جوراب», «خرید عمده», «جوراب فروشی», «دانشجو پایتون»).
+6. No X operators, quotes, hashtags, @mentions, emojis, punctuation or English words (except a well-known brand that is
+   literally part of the product titles).
+7. Diversity: every phrase differs in meaning or topic noun; no near-duplicates (plural/singular or spelling variants).
+8. Entity-blind: never use the seller's brand or shop name.
 
-THREE FORMATS (these are the search angles; write 5 to 8 phrases for EACH):
- FORMAT A  pain_symptoms: the person's own problem or frustration, as [problem word] + [topic noun], or [topic noun] +
-           [symptom]. Examples: «شوره سنگ», «ترک سنگ», «دندان درد», «لپ تاپ هنگ», «نشتی آب».
- FORMAT B  advice_requests: the person asks others for a recommendation/experience: [advice word] + [topic noun].
-           Advice words: پیشنهاد، معرفی، تجربه، کجا، کدوم، دنبال، راهنمایی. Examples: «پیشنهاد سنگبر», «معرفی دندانپزشک»,
-           «تجربه ایمپلنت», «کجا لپتاپ».
- FORMAT C  implicit_solutions: direct need or purchase intent: [action word] + [topic noun].
-           Action words: خرید، قیمت، سفارش، نیاز، دنبال، میخوام. Examples: «خرید سنگ», «قیمت تراورتن», «سفارش سنگ»,
-           «دنبال دندانپزشک».
+THREE FORMATS (write 5 to 8 phrases for EACH)
+ FORMAT A  pain_symptoms: the person's own problem or frustration - [topic noun] + [problem word], e.g. «شوره سنگ»,
+           «دندان درد», «لپ تاپ کند», «پیراهن تنگ».
+ FORMAT B  advice_requests: asking others for a recommendation or experience - [advice word] + [topic], e.g. «پیشنهاد
+           سنگبر», «معرفی دندانپزشک», «تجربه ایمپلنت», «کجا کت مجلسی».
+ FORMAT C  implicit_solutions: direct need or purchase intent - [action word] + [topic], e.g. «خرید عمده جوراب», «قیمت
+           تراورتن», «سفارش دامن», «دنبال دندانپزشک».
 
 ALSO RETURN
- - names: 2 to 4 core topic names of the product/service (1 or 2 words each, the most generic correct nouns).
- - negatives: 0 to 4 single words typical of seller ads/spam for this topic (e.g. «تخفیف», «فروشگاه», «ارسال»).
+ - names: 2 to 4 core topic names of the family (1-3 words, the most natural nouns people use).
+ - negatives: 0 to 4 single words typical of seller ads/spam for this topic.
  - model: brand + model ONLY for hardware/gadgets that people name (max 2 tokens), otherwise null.
 
-QUANTITY: 5-8 phrases per format. Fewer than 5 finds nothing; more than 8 adds noise. Count words before answering.
+QUANTITY: 5-8 phrases per format. Fewer than 5 finds nothing; more than 8 adds noise. Count the words of each phrase.
 
-OUTPUT: strict JSON only, no commentary:
-{"items":[{"product_id":"...","pain_symptoms":["..."],"advice_requests":["..."],"implicit_solutions":["..."],"names":["..."],"negatives":["..."],"model":null}]}"""
+OUTPUT: strict JSON only:
+{"items":[{"product_id":"<family id>","pain_symptoms":["..."],"advice_requests":["..."],"implicit_solutions":["..."],"names":["..."],"negatives":["..."],"model":null}]}"""
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
@@ -74,7 +76,7 @@ def _key(product: Any, card: Any) -> str:
 
 
 def sanitize(raw: Any) -> dict[str, Any]:
-    """Keeps only 1-2 word phrases (longer ones are dropped, never truncated)."""
+    """Keeps only 1-3 word phrases (longer ones are dropped, never truncated)."""
     raw = raw if isinstance(raw, dict) else {}
     model = clean_term(raw.get("model") or "")
     model = model if model and model.lower() not in {"null", "none"} and len(model.split()) <= 2 and len(model) >= 3 else None
@@ -101,7 +103,7 @@ def sanitize(raw: Any) -> dict[str, Any]:
 def _user(product: Any, card: Any) -> dict[str, Any]:
     item = {"product_id": str(getattr(product, "product_id", "")), "title": getattr(product, "title", ""),
             "type": getattr(product, "product_type", ""),
-            "category": getattr(product, "category_path", ""), "description": (getattr(product, "description", "") or "")[:400]}
+            "category": getattr(product, "category_path", ""), "description": (getattr(product, "description", "") or "")[:1400]}
     if card is not None:
         item.update(what_it_is=getattr(card, "what_it_is", None), aliases=getattr(card, "aliases", None),
                     problems_solved=getattr(card, "problems_solved", None))

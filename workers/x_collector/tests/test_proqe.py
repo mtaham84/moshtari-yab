@@ -104,18 +104,17 @@ def test_expand_queries_with_proqe_uses_exemplars(tmp_path):
     mock_llm.complete_json.return_value = ({
         "expanded_queries": [
             {"query": "شوره نما", "kind": "problem"},
-            {"query": "پیشنهاد ضد شوره", "kind": "alternative"},       # 3 words: must be rejected
-            {"query": "چیکار کنم سنگ نما شوره نزنه", "kind": "alternative"},   # long: rejected
+            {"query": "پیشنهاد ضد شوره", "kind": "alternative"},                 # 3 words: accepted
+            {"query": "چیکار کنم سنگ نما شوره نزنه", "kind": "alternative"},    # 6 words: rejected
             {"query": "خرید نانو", "kind": "solution"},
         ]
     }, {})
     expanded = expand_queries_with_proqe(product, store, llm=mock_llm, model="test-model")
-    assert {q["query"] for q in expanded} == {"شوره نما", "خرید نانو"}
-    assert all(len(q["query"].split()) <= 2 for q in expanded)
+    assert {q["query"] for q in expanded} == {"شوره نما", "پیشنهاد ضد شوره", "خرید نانو"}
+    assert all(len(q["query"].split()) <= 3 for q in expanded)
     prompt = mock_llm.complete_json.call_args[0][3]
     assert "نمای ساختمونمون شوره زده چیکار کنیم" in prompt and "Real Confirmed Customer Exemplars" in prompt
-    system = mock_llm.complete_json.call_args[0][2]
-    assert "exactly 1 or 2 Persian words" in system
+    assert "1, 2 or 3 Persian words" in mock_llm.complete_json.call_args[0][2]
 
 
 def test_product_queries_includes_proqe_queries(tmp_path, monkeypatch):
@@ -187,7 +186,7 @@ def test_product_queries_cover_three_formats_with_sane_count():
     qs = product_queries(product, terms=terms)
     assert 9 <= len(qs) <= 12
     assert {"problem", "alternative", "solution"} <= {q["kind"] for q in qs}
-    assert all(positive_word_count(q["query"]) <= 2 and " OR " not in q["query"] for q in qs)
+    assert all(positive_word_count(q["query"]) <= 3 and " OR " not in q["query"] for q in qs)
 
 
 def test_ig_term_scoring_demotes_empty_terms_and_keeps_explorers():
@@ -214,17 +213,17 @@ def test_incomplete_llm_terms_are_not_cached():
     assert not is_complete(None)
 
 
-def test_purge_long_queries_keeps_only_two_word_queries(tmp_path):
+def test_purge_long_queries_keeps_only_three_word_queries(tmp_path):
     from workers.x_collector.proqe import purge_long_queries
 
     state = tmp_path / "s.sqlite3"
     seen = SeenStore(state, platform="x")
     store = ExemplarStore(state)
-    for q in ['"سنگ نما" -تخفیف lang:fa', '("سنگ نما" OR "سنگ لابی شکسته") lang:fa', '"سنگ تراورتن شکلاتی" lang:fa']:
+    for q in ['"سنگ نما" -تخفیف lang:fa', '"سنگ لابی شکسته" lang:fa', '"سنگ تراورتن شکلاتی براق" lang:fa']:
         seen.record_feedback(q, success=True)
     store.add_expanded_queries("p", [{"query": "شوره نما", "kind": "problem"}, {"query": "چیکار کنم شوره سنگ", "kind": "problem"}])
     out = purge_long_queries(state)
-    assert out == {"query_runs": 2, "proqe_expanded_queries": 1}
+    assert out == {"query_runs": 1, "proqe_expanded_queries": 1}
     assert [q["query"] for q in store.get_expanded_queries("p")] == ["شوره نما"]
 
 

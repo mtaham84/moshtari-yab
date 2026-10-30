@@ -29,3 +29,19 @@ class SiteAppearance(models.Model):
     @classmethod
     def current(cls):
         return cls.objects.filter(pk=1).first()
+
+
+class LLMUsageLog(models.Model):
+    """Every direct model call made by the web app (taxonomy, product organising …), so it shows in model usage lists."""
+
+    model = models.CharField(max_length=80, db_index=True)
+    purpose = models.CharField(max_length=40, db_index=True)
+    business_id = models.PositiveIntegerField(null=True, blank=True)
+    tokens_in = models.PositiveIntegerField(default=0)
+    tokens_out = models.PositiveIntegerField(default=0)
+    cost_usd = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    ok = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]

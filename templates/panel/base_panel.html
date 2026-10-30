@@ -181,6 +181,13 @@
 
         <span class="sidebar-section-label" style="margin-top: 10px;">شبکه و تنظیمات</span>
 
+        <a href="{% url 'accounts:onboarding' %}" class="sidebar-link">
+          <div class="sidebar-link-content"><span class="sidebar-link-icon"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></span><span>دسته‌بندی کسب‌وکار</span></div>
+        </a>
+        <a href="{% url 'accounts:shop_edit' %}" class="sidebar-link">
+          <div class="sidebar-link-content"><span class="sidebar-link-icon"><svg class="ico" aria-hidden="true"><use href="#i-store"/></svg></span><span>غرفهٔ من</span></div>
+        </a>
+
         <!-- 5. جوامع تلگرام -->
         <a href="{% url 'discovery:communities_list' %}" class="sidebar-link {% block nav_communities %}{% endblock %}">
           <div class="sidebar-link-content">

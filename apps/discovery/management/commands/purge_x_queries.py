@@ -1,4 +1,4 @@
-"""Deletes every stored X search query that is longer than two words (X operators and -negatives are not counted).
+"""Deletes every stored X search query that is longer than three words (X operators and -negatives are not counted).
 
 Covers the collector's SQLite state (bandit + ProQE), the Postgres ``collector_query_runs`` table and the automatic
 rows of ``XSearchQuery``. Seller-written (manual) queries are kept. New, short queries are generated on the next cycle.
@@ -16,7 +16,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true")
-        parser.add_argument("--max-words", type=int, default=2)
+        parser.add_argument("--max-words", type=int, default=3)
 
     def handle(self, *args, **opts):
         limit, dry = opts["max_words"], opts["dry_run"]

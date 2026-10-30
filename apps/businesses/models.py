@@ -2,6 +2,35 @@ from django.conf import settings
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 
+class BusinessType(models.Model):
+    """Top-level kinds of business (fixed list). The sub-category tree below each type is built ONCE by the AI the first
+    time any seller picks that type, then cached in ``products.Category`` rows (business=None) and reused for everyone."""
+
+    PHYSICAL, SERVICE = "PHYSICAL", "SERVICE"
+    KIND_CHOICES = [(PHYSICAL, "کالایی"), (SERVICE, "خدماتی")]
+    TREE_EMPTY, TREE_BUILDING, TREE_READY, TREE_FAILED = "empty", "building", "ready", "failed"
+
+    key = models.SlugField(max_length=40, unique=True, verbose_name="شناسه")
+    name = models.CharField(max_length=80, verbose_name="نام")
+    description = models.CharField(max_length=200, blank=True, verbose_name="توضیح کوتاه")
+    icon = models.CharField(max_length=30, default="box", verbose_name="آیکون")
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=PHYSICAL, verbose_name="کالایی / خدماتی")
+    order = models.PositiveSmallIntegerField(default=100, verbose_name="ترتیب نمایش")
+    root_category = models.ForeignKey("products.Category", null=True, blank=True, on_delete=models.SET_NULL,
+                                      related_name="+", verbose_name="ریشهٔ درخت دسته‌بندی")
+    tree_status = models.CharField(max_length=10, default=TREE_EMPTY, verbose_name="وضعیت درخت")
+    tree_built_at = models.DateTimeField(null=True, blank=True, verbose_name="زمان ساخت درخت")
+    tree_error = models.CharField(max_length=255, blank=True, verbose_name="آخرین خطای ساخت")
+
+    class Meta:
+        ordering = ["order", "id"]
+        verbose_name = "نوع کسب‌وکار"
+        verbose_name_plural = "انواع کسب‌وکار"
+
+    def __str__(self):
+        return self.name
+
+
 class Business(models.Model):
     BUSINESS_TYPE_CHOICES = [
         ("PHYSICAL", "کالایی / فروشگاهی"),
@@ -29,6 +58,17 @@ class Business(models.Model):
         help_text="مثال: پوشاک و مد، برنامه‌نویسی و IT، آموزش آنلاین، لوازم دیجیتال"
     )
     description = models.TextField(blank=True, verbose_name="توضیحات و ارزش پیشنهادی")
+    business_types = models.ManyToManyField("businesses.BusinessType", blank=True, related_name="businesses",
+                                            verbose_name="نوع(های) کسب‌وکار")
+    search_notes = models.TextField(
+        blank=True, max_length=1000, verbose_name="توضیحات دلخواه برای جستجوی مشتری",
+        help_text="نوع مشتری و نحوهٔ فروش (حداکثر ۱۰۰۰ کاراکتر)؛ این متن به هوش مصنوعی داده می‌شود و در ساخت کوئری‌ها اثر دارد.")
+    slug = models.SlugField(max_length=60, unique=True, null=True, blank=True, allow_unicode=True, verbose_name="آدرس غرفه")
+    tagline = models.CharField(max_length=140, blank=True, verbose_name="شعار / معرفی کوتاه غرفه")
+    logo = models.ImageField(upload_to="shops/logo/", blank=True, null=True, verbose_name="لوگوی غرفه")
+    cover = models.ImageField(upload_to="shops/cover/", blank=True, null=True, verbose_name="تصویر سربرگ غرفه")
+    onboarding_done = models.BooleanField(default=False, verbose_name="راه‌اندازی اولیه کامل شده")
+    organized_product_count = models.PositiveIntegerField(default=0, verbose_name="تعداد کالاهای بررسی‌شده توسط هوش مصنوعی")
     location = models.CharField(max_length=150, blank=True, verbose_name="موقعیت جغرافیایی / شهر")
     target_locations = models.CharField(
         max_length=255,

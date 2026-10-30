@@ -18,7 +18,7 @@ def test_product_mode_is_exact_legacy_order():
     assert [item["query"] for item in generate_queries(product, "product")] == legacy
 
 
-def test_every_generated_query_has_at_most_two_words(monkeypatch):
+def test_every_generated_query_has_at_most_three_words(monkeypatch):
     from workers.x_collector.intent_queries import positive_word_count
 
     monkeypatch.delenv("X_QUERY_NEGATIVE_OPERATORS", raising=False)
@@ -27,9 +27,10 @@ def test_every_generated_query_has_at_most_two_words(monkeypatch):
                               card=SimpleNamespace(aliases=["انگشتی گیمینگ", "کاور انگشت", "آستین انگشت دست گیمینگ حرفه ای"]))
     queries = generate_queries(product, "both")
     assert queries
-    assert all(1 <= positive_word_count(q["query"]) <= 2 for q in queries)
+    assert all(1 <= positive_word_count(q["query"]) <= 3 for q in queries)
     assert all("فروشگاه" not in q["query"] for q in queries)
     assert any(q["query"].startswith('"انگشتی گیمینگ"') for q in queries)
+    assert not any("حرفه ای" in q["query"] for q in queries)          # 5 words: rejected
 
 
 def test_queries_are_stable_capped_one_phrase_each():
@@ -48,10 +49,10 @@ def test_llm_terms_become_short_queries_and_x_syntax_is_stripped(monkeypatch):
     terms = {"names": ['هندزفری" OR lang:en', "ایرفون بی سیم"], "problems": ["صدا قطع میشه", "صدای هندزفریم قطع میشه"], "model": "Airfly M7"}
     queries = generate_queries(product, "both", terms=terms)
     texts = [q["query"] for q in queries]
-    assert any(q.startswith('"ایرفون بلوتوثی"') for q in texts)          # core name from the title, 2 words
-    assert not any("OR lang:en" in q or "بی سیم" in q for q in texts)     # X syntax stripped; 3-word name rejected
-    assert not any(q.startswith('"صدا قطع') for q in texts)                # 3 words: rejected, not truncated
-    assert not any("صدای هندزفریم" in q for q in texts)                      # 4 words: rejected
+    assert any(q.startswith('"ایرفون بی سیم"') for q in texts)            # 3 words are allowed now
+    assert any(q.startswith('"صدا قطع میشه"') for q in texts)
+    assert not any("OR lang:en" in q for q in texts)                         # X syntax stripped
+    assert not any("صدای هندزفریم" in q for q in texts)                      # 4 words: rejected, never truncated
     assert any(q.startswith('"Airfly M7"') and "lang:fa" in q for q in texts)
 
 
@@ -168,10 +169,10 @@ def test_product_queries_belong_to_one_product_and_keep_latin_names():
              "negatives": ["تحویل آنی"], "problems": ["جزوه شلوغ"], "model": None}
     queries = product_queries(product, terms)
     assert all(q["product_ids"] == ["9"] and q["business_ids"] == ["3"] and q["priority"] == 2.0 for q in queries)
-    assert all(1 <= positive_word_count(q["query"]) <= 2 for q in queries)
+    assert all(1 <= positive_word_count(q["query"]) <= 3 for q in queries)
     texts = " ".join(q["query"] for q in queries)
     assert '"Notion AI"' in texts and "notion" in texts
-    assert "خرید اکانت نوشن" not in texts                        # 3 words
+    assert '"اکانت نوشن"' in texts                               # leading «خرید» is stripped from product names
     assert '-"تحویل آنی"' in texts and "-تخفیف" in texts and "lang:fa" in texts
     assert any(q["kind"] == "problem" and "جزوه شلوغ" in q["query"] for q in queries)
 
@@ -232,3 +233,10 @@ def test_kind_weights_across_schedulers_and_worker():
         selected = seen.schedule(queries, budget=5)
         selected_kinds = [q["kind"] for q in selected]
         assert selected_kinds == ["intent", "problem", "alternative", "complaint", "product"]
+
+
+def test_too_broad_phrases_are_rejected_but_specific_ones_pass():
+    from workers.x_collector.intent_queries import short_terms
+
+    out = short_terms(["لباس", "خرید لباس", "پوشاک", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش", "کت", "خدمات"], 10)
+    assert out == ["جوراب", "لباس مجلسی مردانه", "دامن چرم"]

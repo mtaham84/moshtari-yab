@@ -92,28 +92,49 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
     return terms, cards
 
 
-def targeted_queries_from_products(products: list[Any], terms: dict[str, dict] | None = None,
+def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] | None = None,
                                    cards: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """NE_X_MODE=product: queries of the products whose seller turned X search on. An identical query of two products
-    is searched once and tagged with both (each seller still gets — and pays for — its own analysis)."""
+    """Queries per family, interleaved per seller up to ``X_QUERY_MAX_PER_TENANT``, exact duplicates merged (one search,
+    tagged with every product/seller it belongs to)."""
     from workers.x_collector.intent_queries import product_queries
 
     terms, cards = terms or {}, cards or {}
-    merged: dict[str, dict[str, Any]] = {}
-    for product in sorted(products, key=lambda item: (-int(getattr(item, "discovery_priority", 1)), item.title.casefold())):
-        if not getattr(product, "x_search_enabled", False):
+    cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "40"))
+    by_business: dict[str, list[list[dict[str, Any]]]] = {}
+    for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.title).casefold())):
+        if not getattr(fam, "x_search_enabled", False):
             continue
-        pid = str(getattr(product, "product_id", ""))
-        for item in product_queries(product, terms=terms.get(pid), card=cards.get(pid)):
-            key = item["query"].casefold()
-            if key in merged:
-                hit = merged[key]
-                hit["product_ids"] = sorted(set(hit["product_ids"]) | set(item["product_ids"]))
-                hit["business_ids"] = sorted(set(hit["business_ids"]) | set(item["business_ids"]))
-                hit["priority"] = max(hit["priority"], item["priority"])
-            else:
-                merged[key] = item
+        fid = str(fam.product_id)
+        items = product_queries(fam, terms=terms.get(fid), card=cards.get(fid))
+        if items:
+            by_business.setdefault(str(fam.business_id), []).append(items)
+    merged: dict[str, dict[str, Any]] = {}
+    for biz, lists in by_business.items():
+        picked = 0
+        for rank in range(max((len(x) for x in lists), default=0)):     # round robin: no family starves the others
+            for items in lists:
+                if rank >= len(items) or picked >= cap:
+                    continue
+                item = items[rank]
+                key = item["query"].casefold()
+                picked += 1
+                if key in merged:
+                    hit = merged[key]
+                    hit["product_ids"] = sorted(set(hit["product_ids"]) | set(item["product_ids"]))
+                    hit["business_ids"] = sorted(set(hit["business_ids"]) | set(item["business_ids"]))
+                    hit["priority"] = max(hit["priority"], item["priority"])
+                else:
+                    merged[key] = item
     return list(merged.values())
+
+
+def targeted_queries_from_products(products: list[Any], terms: dict[str, dict] | None = None,
+                                   cards: dict[str, Any] | None = None, notes: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """Groups the products into families, then builds the family queries."""
+    from workers.x_collector.families import build_families
+
+    on = [p for p in products if getattr(p, "x_search_enabled", False)]
+    return targeted_queries_from_families(build_families(on, notes), terms=terms, cards=cards)
 
 
 def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
@@ -121,9 +142,17 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
     source = SQLProductSource(config)
     try:
         products = source.all()
+        notes_db = source.db
+        x_mode = (config.x_mode or "product").strip().lower()
+        return _load_intent_queries(config, source, products, x_mode, mode)
     finally:
-        source.db.conn.close()
-    x_mode = (config.x_mode or "product").strip().lower()
+        try:
+            source.db.conn.close()
+        except Exception:
+            pass
+
+
+def _load_intent_queries(config, source, products, x_mode, mode):
     if x_mode in {"product", "both"}:
         products_on = [p for p in products if p.x_search_enabled]
         try:   # sellers whose balance is used up: no search (and no search fee) until they top up
@@ -138,14 +167,11 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
             if skipped:
                 log.info("X search paused for %d products (seller balance used up)", len(skipped))
             products_on = [p for p in products_on if not (p.business_id and str(p.business_id) in blocked)]
-        terms, cards = _terms_and_cards(config, products_on) if products_on else ({}, {})
-        out = targeted_queries_from_products(products_on, terms=terms, cards=cards)
-        if x_mode == "product":
-            return out
-        terms_all, cards_all = _terms_and_cards(config, products)
-        seen = {q["query"].casefold() for q in out}
-        return out + [q for q in intent_queries_from_products(products, mode=mode, terms=terms_all, cards=cards_all)
-                      if q["query"].casefold() not in seen]
+        from workers.x_collector.families import build_families, load_notes
+
+        families = build_families(products_on, load_notes(source.db))
+        terms, cards = _terms_and_cards(config, families) if families else ({}, {})
+        return targeted_queries_from_families(families, terms=terms, cards=cards)   # "both" now equals "product"
     terms, cards = _terms_and_cards(config, products)
     return intent_queries_from_products(products, mode=mode, terms=terms, cards=cards)
 

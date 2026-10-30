@@ -61,6 +61,9 @@ class Category(models.Model):
         blank=True,
         verbose_name="کلمات کلیدی و مترادف‌ها"
     )
+    origin = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copies",
+                               verbose_name="دستهٔ سیستمی منبع")
+    source = models.CharField(max_length=10, default="system", verbose_name="منبع (system / ai / user)")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ایجاد")
 
     class Meta:
