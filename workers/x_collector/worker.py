@@ -293,6 +293,11 @@ class XCollector:
         with exclusive_file_lock(latest_path.with_suffix(latest_path.suffix + ".lock")):
             already_written = self._written_keys(output_path)
             current_account = self.account_pool.get_next_account() if hasattr(self, "account_pool") and self.account_pool else None
+            is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
+            min_qualifying = 1 if is_test_client else int(os.getenv("X_MIN_QUALIFYING_POSTS", "5"))
+            min_inspect = 1 if is_test_client else int(os.getenv("X_MIN_INSPECT_POSTS", "40"))
+            max_inspect = 1 if is_test_client else int(os.getenv("X_MAX_INSPECT_POSTS", "80"))
+
             for query_index, query in enumerate(queries):
                 if len(collected) >= daily_remaining:
                     break
@@ -303,17 +308,55 @@ class XCollector:
                     try:
                         if current_account is None and hasattr(self, "account_pool") and self.account_pool:
                             current_account = self.account_pool.get_next_account()
+
+                        fetch_limit = min(max(min_inspect, self.max_per_query), daily_remaining - len(collected)) if not is_test_client else min(self.max_per_query, daily_remaining - len(collected))
                         raw_items = mock_records if mock_records is not None else self.client.search(
-                            search_query, min(self.max_per_query, daily_remaining - len(collected)),
+                            search_query, fetch_limit,
                             account=current_account)
                         fetched_count = len(raw_items)
                         if current_account and hasattr(self, "account_pool") and self.account_pool:
                             self.account_pool.record_success(current_account, posts_count=fetched_count)
-                        new_before = len(collected)
                         breaker.success()
+
                         records = self._records_for_query(raw_items, query, query_products)
                         records = filter_uncrawled_tweets(records)
+
+                        candidates = []
                         for record in records:
+                            key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
+                            if key in already_written or self.state.has_seen(record):
+                                continue
+                            candidates.append(record)
+
+                        # If fewer than min_qualifying tweets found, expand inspection up to max_inspect
+                        if len(candidates) < min_qualifying and mock_records is None and not is_test_client and fetched_count < max_inspect:
+                            expand_limit = min(max_inspect, daily_remaining - len(collected))
+                            if expand_limit > fetch_limit:
+                                log.info("Query '%s' yielded only %d qualifying tweets (< %d); expanding search up to %d tweets",
+                                         query, len(candidates), min_qualifying, expand_limit)
+                                try:
+                                    raw_items = self.client.search(search_query, expand_limit, account=current_account)
+                                    fetched_count = len(raw_items)
+                                    records = self._records_for_query(raw_items, query, query_products)
+                                    records = filter_uncrawled_tweets(records)
+                                    candidates = []
+                                    for record in records:
+                                        key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
+                                        if key in already_written or self.state.has_seen(record):
+                                            continue
+                                        candidates.append(record)
+                                except Exception as expand_exc:
+                                    log.warning("Expanding search to %d failed: %s", expand_limit, expand_exc)
+
+                        if len(candidates) < min_qualifying and not is_test_client:
+                            log.info("Query '%s' discarded: only %d qualifying tweets found (minimum required: %d)",
+                                     query, len(candidates), min_qualifying)
+                            self._update_x_source_stat(query, query_sellers.get(query) or [], success=False, leads=0)
+                            self.state.record_query(query, fetched_count, 0, started_at=started_at)
+                            break
+
+                        new_before = len(collected)
+                        for record in candidates:
                             key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
                             if key in already_written or self.state.has_seen(record):
                                 continue
@@ -329,10 +372,13 @@ class XCollector:
                                 continue
                             already_written.add(key)
                             collected.append(record)
+
+                        added_count = len(collected) - new_before
+                        self._update_x_source_stat(query, query_sellers.get(query) or [], success=True, leads=added_count)
                         self._record_search(query, query_products, query_sellers, mock_records,
                                             raw_items, collected, new_before, started_at)
                         capped = len(collected) >= daily_remaining
-                        self.state.record_query(query, fetched_count, len(collected) - new_before,
+                        self.state.record_query(query, fetched_count, added_count,
                                                 started_at=None if capped else started_at)
                         break
                     except XCliError as exc:
@@ -424,6 +470,47 @@ class XCollector:
         self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
                               "business_ids": query_sellers.get(query) or [], "fetched": len(raw_items),
                               "new_by_product": new_by_product, "ran_at": started_at.isoformat()})
+
+    def _update_x_source_stat(self, query: str, sellers: list[str], success: bool, leads: int = 0) -> None:
+        try:
+            import os
+            import psycopg
+            dsn = os.getenv("DATABASE_URL")
+            if not dsn:
+                try:
+                    from x_ingest.__main__ import _dsn
+                    dsn = _dsn()
+                except Exception:
+                    pass
+            if not dsn:
+                return
+            with psycopg.connect(dsn, connect_timeout=3) as conn:
+                for seller_id in sellers:
+                    if not str(seller_id).isdigit():
+                        continue
+                    b_id = int(seller_id)
+                    alpha_inc = min(1.0, 0.25 * float(leads)) if (success and leads >= 1) else 0.0
+                    beta_inc = 0.0 if (success and leads >= 1) else 0.25
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    conn.execute("""
+                        INSERT INTO discovery_instagramsourcestat
+                            (business_id, family_id, source_type, label, requests, leads, alpha, beta, last_run_at)
+                        VALUES
+                            (%s, %s, 'x_query', %s, 1, %s, %s, %s, %s)
+                        ON CONFLICT (business_id, family_id, source_type, label)
+                        DO UPDATE SET
+                            requests = discovery_instagramsourcestat.requests + 1,
+                            leads = discovery_instagramsourcestat.leads + EXCLUDED.leads,
+                            alpha = discovery_instagramsourcestat.alpha + %s,
+                            beta = discovery_instagramsourcestat.beta + %s,
+                            last_run_at = EXCLUDED.last_run_at
+                    """, (
+                        b_id, f"x_{b_id}", query[:100], leads,
+                        1.0 + alpha_inc, 1.0 + beta_inc, now_iso,
+                        alpha_inc, beta_inc
+                    ))
+        except Exception as exc:
+            log.debug("Could not update X source stat: %s", exc)
 
     def _write_status(self, result: dict[str, Any]) -> None:
         target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)

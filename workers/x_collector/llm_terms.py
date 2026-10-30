@@ -15,48 +15,37 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term, short_terms
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "9"
+PROMPT_VERSION = "11"
 KV_PREFIX = "x_qterms:"
 X_QUERY_TERMS_SYSTEM = """You are a senior search-query engineer for Persian (Farsi) buyer discovery on X/Twitter.
-You receive product FAMILIES. A family = one seller + one category node (for example «پوشاک > مردانه > پیراهن») plus the
-titles of his products in it and his own NOTES about the ideal customer and the way he sells (for example "I make socks
-and want shops that buy wholesale"). Write search phrases that surface real people who need what this family offers
-right now. X search is exact-match: every word of a phrase must co-occur, so each extra word makes a query rarer.
+You receive product FAMILIES. A family = one seller + one category node (e.g. «پوشاک > مردانه > پیراهن») plus the
+titles of products in it and the seller's NOTES about the target customer (e.g. wholesale, retail, specific audience).
 
-HARD RULES (a phrase that breaks any rule is discarded by the system)
-1. Every phrase is 1, 2 or 3 Persian words. Never 4 or more. No sentences, no questions, no filler.
-2. SPECIFICITY LADDER - aim for the right rung:
-   - TOO BROAD (rejected): «لباس», «کفش», «لوازم», «خدمات», «کالا», «خرید لباس».
-   - GOOD, product type: «جوراب», «دامن», «کت», «ایمپلنت دندان», «کلاس کنکور».
-   - BEST, type + one inherent attribute: «لباس مجلسی مردانه», «کت چرم», «دامن کوتاه», «جوراب ورزشی», «سنگ نما».
-   - TOO NARROW (rejected): colours, sizes, finishes, brands, model numbers, cities, prices, adjectives such as «شکلاتی»,
-     «شکسته», «ارزان», «بهترین», «اصل», «۲۰۲۶».
-3. Prefer common spoken Persian and broad real-life wording over exact catalog names. Examples: «لباس زمستونی», «لباس خنک»,
-   «لباس راحت», «لباس گشاد», «لباس تنگ», «پیراهن کژوال», «لباس مجلسی», «دندون درد», «ارتودنسی», «ایمپلنت».
-   Write «دندون» when people say it; avoid formal «دندان‌پزشکی» when a natural phrase exists.
-4. Use the family's own category and product titles to choose the topic nouns; the topic must be unmistakably this family,
-   not a neighbour (a men's-shirt family must not produce «دامن»).
-5. SELLER NOTES are binding: if the seller wants wholesale buyers, shop owners, companies, students, a city or a price
-   segment, reflect it with natural words in the phrases (e.g. «عمده جوراب», «خرید عمده», «جوراب فروشی», «دانشجو پایتون»).
-6. No X operators, quotes, hashtags, @mentions, emojis, punctuation or English words (except a well-known brand that is
-   literally part of the product titles).
-7. Diversity: every phrase differs in meaning or topic noun; no near-duplicates (plural/singular or spelling variants).
-8. Entity-blind: never use the seller's brand or shop name.
-9. Every phrase must contain at least one ANCHOR WORD or a direct synonym of this family's topic. Never write phrases
-   about a neighbouring family. The system rejects phrases without an anchor even if they sound plausible.
+Your mission is to generate natural, realistic, broad Persian search phrases (1, 2, or 3 words) that real buyers, shoppers,
+and people with genuine purchase or recommendation intent tweet on X.
 
-THREE FORMATS (write 4 to 6 phrases for EACH)
- FORMAT A  pain_symptoms: the person's own problem or frustration in colloquial words - e.g. «شوره سنگ», «دندون درد»,
-           «لپ تاپ کند», «لباس تنگ», «لباس خنک», «پیراهن بدفرم».
- FORMAT B  style, fit or use-case wording that helps find people discussing the category - e.g. «لباس راحت», «پیراهن کژوال»,
-           «لباس مجلسی», «هودی گرم», «ارتودنسی نامرئی».
- FORMAT C  direct topic or treatment names only when useful - e.g. «ارتودنسی», «ایمپلنت», «سویشرت», «پیراهن اسپرت».
- NEVER write «خرید»، «قیمت»، «تخفیف»، «ارسال»، «کجا»، «معرفی»، «پیشنهاد» or «تجربه» queries; these are weak/noisy.
+CRITICAL RULES:
+1. Every phrase MUST be 1, 2, or 3 Persian words. Never 4 or more.
+2. NATURAL BUYER INTENT: Write phrases people actually tweet when seeking to buy, looking for recommendations, or asking about a product or service.
+   - High-intent buying & recommendations: «خرید لباس مردانه», «خرید پیراهن مردانه», «پیشنهاد لباس», «معرفی پیراهن», «قیمت پیراهن مردانه», «خرید کت شلوار».
+   - Common category & product searches: «لباس مردانه», «پیراهن مردانه», «کت و شلوار», «پیراهن اسپرت», «لباس مجلسی مردانه», «پوشاک مردانه».
+   - Situational/Need phrases: «پیراهن نخی», «لباس خنک تابستانی», «پیراهن کژوال», «لباس راحتی», «پیراهن قواره بزرگ».
+3. STRICTLY FORBIDDEN:
+   - NEVER generate awkward, weird, or purely negative phrases like «لباس نامناسب», «پیراهن بدفرم», «لباس بی‌کیفیت», «لباس کثیف». Real buyers do not search for "unsuitable clothes"!
+   - Never write single generic stop-words alone («کالا», «خدمات», «محصول»). Single product nouns like «پیراهن» or «کت» are acceptable, but 2-3 word natural phrases like «خرید پیراهن» or «لباس مردانه» are best.
+   - No hashtags, quotes, @mentions, English words, punctuation, or emojis.
+4. FAMILY ANCHORS: Every phrase must clearly be about this specific family's topic (e.g. men's shirts -> «پیراهن», «لباس مردانه»). Do not drift to sibling families (e.g. do not produce «شلوار» or «دامن» for a shirt family).
+5. SELLER NOTES: If seller specifies wholesale («عمده»), students, specific gender or region, include natural phrases reflecting it (e.g. «خرید عمده پیراهن», «پیراهن عمده»).
 
-ALSO RETURN
- - names: 2 to 4 core topic names of the family (1-3 words, the most natural nouns people use).
- - negatives: 0 to 4 single words typical of seller ads/spam for this topic.
- - model: brand + model ONLY for hardware/gadgets that people name (max 2 tokens), otherwise null.
+THREE FORMATS (write 4 to 6 phrases for EACH):
+ FORMAT A  pain_symptoms: Everyday situations, needs, or desired fits in natural buyer voice (e.g. «لباس خنک تابستانی», «پیراهن نخی خنک», «پیراهن قواره بزرگ», «لباس مجلسی شیک», «دندون درد»). NEVER write awkward negative terms like «نامناسب».
+ FORMAT B  advice_requests: Asking for buying recommendations, advice, or shopping queries (e.g. «خرید لباس مردانه», «پیشنهاد لباس مردانه», «معرفی پیراهن», «خرید پیراهن مردانه», «قیمت پیراهن», «خرید کت شلوار»).
+ FORMAT C  implicit_solutions: Core category names and search phrases buyers type directly (e.g. «پیراهن مردانه», «کت و شلوار», «لباس مردانه», «پیراهن کژوال», «پیراهن نخی», «پوشاک مردانه»).
+
+ALSO RETURN:
+ - names: 2 to 4 core category/topic names (1-3 words, e.g. «پیراهن مردانه», «لباس مردانه», «پیراهن نخی»).
+ - negatives: 0 to 4 words to exclude seller ads/spam.
+ - model: brand/model ONLY for tech/gadgets, otherwise null.
 
 QUANTITY: 4-6 phrases per format. The search system selects at most 10 diverse phrases per family. Count the words of each phrase.
 
@@ -65,10 +54,11 @@ OUTPUT: strict JSON only:
 X_QUERY_TERMS_SYSTEM += """
 
 FAMILY-DRIFT AND INTENT EXAMPLES (follow these exactly):
-- Men's-shirt family: «پیراهن تنگ» and «لباس خنک» are good; «تنگی شلوار» is wrong-family drift.
-- Men's-shirt family: «پیراهن کژوال» is good; «گرانی شومیز» and «پیدا نکردن شومیز» belong to another family.
-- «لباس مجلسی مردانه» is useful; «پوشاک مردانه» and «خرید لباس مردانه» are too broad or weak.
-- «دندون درد», «ارتودنسی» and «ایمپلنت» are useful; «کجا ایمپلنت» and «خرید ایمپلنت» are weak.
+- Men's-shirt family: «خرید لباس مردانه», «پیراهن مردانه», «پیراهن نخی», «خرید پیراهن» are good; «تنگی شلوار» is wrong-family drift.
+- Men's-shirt family: «پیراهن کژوال» and «پیشنهاد لباس» are good; «گرانی شومیز» belongs to another family.
+- «لباس مجلسی مردانه», «پوشاک مردانه» and «خرید لباس مردانه» are all great, realistic buyer queries.
+- «دندون درد», «ارتودنسی» and «ایمپلنت دندان» are good natural dental queries.
+- NEVER write awkward or nonsensical phrases like «لباس نامناسب»!
 """
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 

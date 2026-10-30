@@ -123,21 +123,29 @@ def is_short_query(query: str) -> bool:
     return 1 <= n <= MAX_PHRASE_WORDS
 
 
-# words that describe nothing by themselves: «لباس» alone is hopeless, «لباس مجلسی مردانه» or «جوراب» is a real topic
-BROAD_WORDS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "کیف", "لوازم", "ساعت", "کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
-                                  "مد", "ابزار", "وسیله", "وسایل", "چیز", "چیزی", "جنس", "برند", "کیفیت", "ارزان", "گران",
-                                  "بهترین", "خوب", "جدید", "اصل", "اصلی", "ویژه", "عمده", "تکی", "آنلاین", "اینترنتی")}
+# Purely generic filler words that have no topical product substance
+GENERIC_FILLER = {norm(w) for w in ("کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
+                                    "وسیله", "وسایل", "چیز", "چیزی", "جنس", "برند", "کیفیت",
+                                    "بهترین", "خوب", "جدید", "اصل", "اصلی", "ویژه", "تکی", "آنلاین", "اینترنتی")}
+# Topic nouns that are valid when combined with other words (e.g. "لباس مردانه", "خرید لباس")
+CATEGORY_NOUNS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "کیف", "ساعت", "ابزار", "مد")}
+BROAD_WORDS = GENERIC_FILLER | CATEGORY_NOUNS
 AUDIENCE_WORDS = {norm(w) for w in ("مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی")}
 ACTION_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام", "دنبال", "میخوام",
                                    "می‌خوام", "نیاز", "فروش", "تهیه", "بخرم", "راهنمایی", "مشاوره", "نظر", "پیدا", "کردن")}
-WEAK_QUERY_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام",
-                                       "تخفیف", "ارسال", "فروش", "رایگان", "موجود", "موجوده", "چنده", "ارزان", "گرون")}
+WEAK_QUERY_WORDS = {norm(w) for w in ("رایگان", "مفت", "نامناسب", "بدفرم", "بی‌کیفیت", "آشغال", "خرابکاری")}
 
 
 def is_too_broad(words: list[str]) -> bool:
-    """Reject phrases whose remaining topic is only a generic category or audience («خرید لباس مردانه»)."""
-    content = [norm(w) for w in words if norm(w) not in ACTION_WORDS | AUDIENCE_WORDS]
-    return not content or all(w in BROAD_WORDS for w in content)
+    """Reject phrases that describe no product or specific topic at all (e.g. lone 'لباس' or 'خرید آنلاین').
+    Realistic buyer phrases like 'خرید لباس مردانه', 'پوشاک مردانه', 'لباس مردانه', 'پیراهن مردانه' are valid."""
+    clean = [norm(w) for w in words]
+    if not clean:
+        return True
+    if len(clean) == 1:
+        return clean[0] in BROAD_WORDS | ACTION_WORDS | AUDIENCE_WORDS
+    # Reject if all words are purely abstract filler + actions with no topic or category
+    return all(w in GENERIC_FILLER | ACTION_WORDS for w in clean)
 
 
 def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[str]:

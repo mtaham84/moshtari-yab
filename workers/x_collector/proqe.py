@@ -35,9 +35,7 @@ like the confirmed buyers and fewer like the rejected ones.
 
 HARD RULES
 1. Every phrase is 1, 2 or 3 Persian words. Never 4+. X search is exact-match, so each extra word makes a query rarer.
-2. Prefer colloquial pain, fit, comfort and use-case phrases over exact catalog names: «دندون درد», «لباس خنک», «لباس راحت»,
-   «لباس تنگ», «پیراهن کژوال», «هودی گرم», «شوره سنگ». Never write purchase/location/price/discount/shipping queries
-   («خرید پیراهن», «کجا ایمپلنت», «قیمت», «تخفیف», «ارسال رایگان») or a phrase about a neighbouring family.
+2. Prefer colloquial buyer searches, needs, recommendations and product phrases: «خرید پیراهن مردانه», «پیشنهاد لباس», «دندون درد», «لباس خنک», «لباس راحت», «پیراهن کژوال», «هودی گرم». NEVER write awkward, weird or purely negative terms like «نامناسب» or «بدفرم».
    The SELLER NOTES in the family description (ideal customer, wholesale, city) are binding.
 3. Learn the VOCABULARY of the confirmed buyers (their verbs and nouns) and compress it into 1-3 word phrases. Do not copy
    whole sentences and do not return anything already in "Existing queries".

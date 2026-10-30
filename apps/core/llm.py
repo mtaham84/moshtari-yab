@@ -67,8 +67,11 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        post_model = model_name
+        if "generativelanguage.googleapis.com" in base_url and post_model == "gpt-6-luna":
+            post_model = "gemini-3.1-flash-lite"
         body = json.dumps({
-            "model": model_name,
+            "model": post_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.2,
             "max_tokens": max_tokens

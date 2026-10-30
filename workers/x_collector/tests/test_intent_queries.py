@@ -65,9 +65,10 @@ def test_model_term_needs_brand_and_model():
 def test_broadness_is_data_driven_and_keeps_specific_topics():
     from workers.x_collector.intent_queries import is_too_broad
 
-    assert is_too_broad("پوشاک مردانه".split())
-    assert is_too_broad("خرید لباس مردانه".split())
-    for phrase in ("لباس مجلسی مردانه", "پیراهن مردانه", "جوراب ورزشی"):
+    assert is_too_broad(["لباس"])
+    assert is_too_broad("خرید آنلاین".split())
+    assert is_too_broad("محصولات جدید".split())
+    for phrase in ("پوشاک مردانه", "خرید لباس مردانه", "لباس مجلسی مردانه", "پیراهن مردانه", "جوراب ورزشی", "خرید پیراهن"):
         assert not is_too_broad(phrase.split())
 
 
@@ -252,4 +253,4 @@ def test_too_broad_phrases_are_rejected_but_specific_ones_pass():
     from workers.x_collector.intent_queries import short_terms
 
     out = short_terms(["لباس", "خرید لباس", "پوشاک", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش", "کت", "خدمات"], 10)
-    assert out == ["جوراب", "لباس مجلسی مردانه", "دامن چرم"]
+    assert out == ["خرید لباس", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش"]

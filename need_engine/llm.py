@@ -148,8 +148,12 @@ class LLMClient:
         return toman
 
     def _post(self, path: str, body: dict, timeout: float) -> tuple[int, str]:
-        base_url, api_key = self.registry.endpoint(body.get("model", ""))
-        req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(body).encode(),
+        model_name = body.get("model", "")
+        base_url, api_key = self.registry.endpoint(model_name)
+        post_body = dict(body)
+        if "generativelanguage.googleapis.com" in base_url and post_body.get("model") == "gpt-6-luna":
+            post_body["model"] = "gemini-3.1-flash-lite"
+        req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(post_body).encode(),
                                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
