@@ -92,6 +92,10 @@ def _validate_plan(data: Any) -> dict[str, list[str]]:
 def ensure_family_plan(business, family, call_llm: Callable | None = None):
     """Return the cache if its family hash matches; otherwise build at most eight new plans per tenant/day."""
     from .models import InstagramFamilyPlan
+    from apps.billing.services import is_blocked
+
+    if is_blocked(business):
+        return None, False
 
     cached = InstagramFamilyPlan.objects.filter(business=business, family_id=family.product_id,
                                                    content_hash=family.content_hash(), status="ready").first()
@@ -124,6 +128,10 @@ def ensure_family_plan(business, family, call_llm: Callable | None = None):
 
 def families_for_business(business):
     """Use the shared X family builder so Instagram and X segment products identically."""
+    from apps.billing.services import is_blocked
+
+    if is_blocked(business):
+        return []
     from apps.products.models import Product
     products = Product.objects.filter(business=business, status="ACTIVE", is_discovery_active=True,
                                       instagram_discovery_enabled=True).select_related("category")

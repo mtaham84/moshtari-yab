@@ -63,6 +63,9 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
     except Exception as exc:
         log.warning("Could not read product cards: %s", exc)
         cards = {}
+    if products and hasattr(products[0], "member_product_ids"):
+        from workers.x_collector.families import family_cards
+        cards = family_cards(products, cards)
     terms: dict = {}
     if os.getenv("X_QUERY_LLM", "true").strip().lower() in {"1", "true", "yes", "on"}:
         try:
@@ -76,11 +79,18 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
 
             state_file = os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3")
             exemplar_store = ExemplarStore(state_file)
+            from shared.collector_kit.seen import SeenStore
+            try:
+                dropped_queries = SeenStore(state_file, platform="x").dropped_queries()
+            except Exception as drop_exc:
+                log.debug("Could not read weak X phrases: %s", drop_exc)
+                dropped_queries = []
             for product in products:
                 pid = str(getattr(product, "product_id", ""))
                 if exemplar_store.expansion_due(pid):
                     try:
-                        expand_queries_with_proqe(product, exemplar_store, llm=llm_inst, model=config.extract_model)
+                        expand_queries_with_proqe(product, exemplar_store, llm=llm_inst, model=config.extract_model,
+                                                  dropped_queries=dropped_queries)
                     except Exception as p_exc:
                         log.debug("ProQE expansion skipped for product %s: %s", pid, p_exc)
         except Exception as exc:
@@ -99,13 +109,18 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
     from workers.x_collector.intent_queries import product_queries
 
     terms, cards = terms or {}, cards or {}
+    from workers.x_collector.families import family_cards, family_topic_contexts
+    member_card_keys = {str(pid) for fam in families for pid in getattr(fam, "member_product_ids", [])}
+    if member_card_keys.intersection(cards):
+        cards = family_cards(families, cards)
+    contexts = family_topic_contexts(families, cards)
     cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "40"))
     by_business: dict[str, list[list[dict[str, Any]]]] = {}
     for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.title).casefold())):
         if not getattr(fam, "x_search_enabled", False):
             continue
         fid = str(fam.product_id)
-        items = product_queries(fam, terms=terms.get(fid), card=cards.get(fid))
+        items = product_queries(fam, terms=terms.get(fid), card=cards.get(fid), topic_context=contexts.get(fid))
         if items:
             by_business.setdefault(str(fam.business_id), []).append(items)
     merged: dict[str, dict[str, Any]] = {}
@@ -153,27 +168,22 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
 
 
 def _load_intent_queries(config, source, products, x_mode, mode):
-    if x_mode in {"product", "both"}:
-        products_on = [p for p in products if p.x_search_enabled]
-        try:   # sellers whose balance is used up: no search (and no search fee) until they top up
-            from need_engine.registry import ModelRegistry
+    products_on = [p for p in products if p.x_search_enabled]
+    try:   # Always consult fresh wallet balances before generating any terms or contacting an LLM.
+        from need_engine.registry import ModelRegistry
+        blocked = ModelRegistry(config).blocked(force=True)
+    except Exception as exc:
+        log.error("Seller balances unavailable; refusing to generate X queries: %s", exc)
+        return []
+    skipped = [p.product_id for p in products_on if p.business_id and str(p.business_id) in blocked]
+    if skipped:
+        log.info("X search paused for %d products (seller balance used up)", len(skipped))
+    products_on = [p for p in products_on if not (p.business_id and str(p.business_id) in blocked)]
+    from workers.x_collector.families import build_families, load_notes
 
-            blocked = ModelRegistry(config).blocked()
-        except Exception as exc:
-            log.warning("Seller balances unavailable, searching all X-enabled products: %s", exc)
-            blocked = frozenset()
-        if blocked:
-            skipped = [p.product_id for p in products_on if p.business_id and str(p.business_id) in blocked]
-            if skipped:
-                log.info("X search paused for %d products (seller balance used up)", len(skipped))
-            products_on = [p for p in products_on if not (p.business_id and str(p.business_id) in blocked)]
-        from workers.x_collector.families import build_families, load_notes
-
-        families = build_families(products_on, load_notes(source.db))
-        terms, cards = _terms_and_cards(config, families) if families else ({}, {})
-        return targeted_queries_from_families(families, terms=terms, cards=cards)   # "both" now equals "product"
-    terms, cards = _terms_and_cards(config, products)
-    return intent_queries_from_products(products, mode=mode, terms=terms, cards=cards)
+    families = build_families(products_on, load_notes(source.db))
+    terms, cards = _terms_and_cards(config, families) if families else ({}, {})
+    return targeted_queries_from_families(families, terms=terms, cards=cards)
 
 
 def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
@@ -192,9 +202,12 @@ def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
             blocked: dict[int, set[str]] = {}
             for item in negatives:
                 blocked.setdefault(int(item["business_id"]), set()).add(str(item["normalized_term"]).casefold())
+            from need_engine.registry import ModelRegistry
+            blocked_ids = ModelRegistry(config, db=db).blocked(force=True)
             return [{"query": row["text"], "priority": float(row["weight"] or 1),
                      "kind": "intent" if "intent" in row["kind"] else "product"}
-                    for row in rows if not any(term and term in row["text"].casefold() for term in blocked.get(int(row["business_id"]), set()))]
+                    for row in rows if str(row["business_id"]) not in blocked_ids
+                    and not any(term and term in row["text"].casefold() for term in blocked.get(int(row["business_id"]), set()))]
         finally:
             source.db.close()
     try:

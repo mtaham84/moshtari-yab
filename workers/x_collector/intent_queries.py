@@ -124,16 +124,17 @@ def is_short_query(query: str) -> bool:
 
 
 # words that describe nothing by themselves: «لباس» alone is hopeless, «لباس مجلسی مردانه» or «جوراب» is a real topic
-BROAD_WORDS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "لوازم", "کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
+BROAD_WORDS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "کیف", "لوازم", "ساعت", "کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
                                   "مد", "ابزار", "وسیله", "وسایل", "چیز", "چیزی", "جنس", "برند", "کیفیت", "ارزان", "گران",
                                   "بهترین", "خوب", "جدید", "اصل", "اصلی", "ویژه", "عمده", "تکی", "آنلاین", "اینترنتی")}
+AUDIENCE_WORDS = {norm(w) for w in ("مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی")}
 ACTION_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام", "دنبال", "میخوام",
-                                   "می‌خوام", "نیاز", "فروش", "تهیه", "بخرم", "راهنمایی", "مشاوره", "نظر")}
+                                   "می‌خوام", "نیاز", "فروش", "تهیه", "بخرم", "راهنمایی", "مشاوره", "نظر", "پیدا", "کردن")}
 
 
 def is_too_broad(words: list[str]) -> bool:
-    """True when nothing specific is left after removing buying/advice words and filler («خرید لباس», «قیمت کالا»)."""
-    content = [norm(w) for w in words if norm(w) not in ACTION_WORDS]
+    """Reject phrases whose remaining topic is only a generic category or audience («خرید لباس مردانه»)."""
+    content = [norm(w) for w in words if norm(w) not in ACTION_WORDS | AUDIENCE_WORDS]
     return not content or all(w in BROAD_WORDS for w in content)
 
 
@@ -306,7 +307,8 @@ def balanced_pick(candidates: list[dict[str, Any]], reference: str, total: int, 
     return picked[:total]
 
 
-def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any = None) -> list[dict[str, Any]]:
+def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any = None,
+                    topic_context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Queries of ONE product with MP-CABS Entity-Blind 4-angle queries + MMR diversification.
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
@@ -320,7 +322,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     neg_ops = " ".join(f"-{_quote(n)}" for n in negatives)
     tail_ops = " ".join(x for x in (neg_ops, ops) if x)
 
-    values: list[tuple[str, str]] = [(f"{_quote(p)} {tail_ops}".strip(), kind) for p, kind in phrase_candidates(product, terms, card)]
+    values: list[tuple[str, str]] = [(p, kind) for p, kind in phrase_candidates(product, terms, card)]
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
 
     # ProQE: queries evolved from confirmed buyers (already restricted to <= 3 words)
@@ -329,13 +331,22 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
         for pq in load_proqe_queries(pid):
             q_text = pq.get("query", "").strip()
             if q_text and is_short_query(q_text):
-                values.append((f"{_quote(q_text)} {tail_ops}".strip(), pq.get("kind", "problem")))
+                values.append((q_text, pq.get("kind", "problem")))
     except Exception:
         pass
 
     raw_candidates, seen = [], set()
-    for query, kind in values:
-        query = " ".join(query.split())
+    for phrase, kind in values:
+        phrase = " ".join(phrase.split())
+        if is_too_broad(phrase.split()):
+            continue
+        if topic_context:
+            from workers.x_collector.families import family_phrase_allowed
+            if not family_phrase_allowed(phrase, topic_context.get("anchor_tokens", set()),
+                                         topic_context.get("other_family_nouns", set()),
+                                         topic_context.get("topic_tokens")):
+                continue
+        query = f"{_quote(phrase)} {tail_ops}".strip()
         key = norm(query)
         if not query or query.startswith("-") or len(query) > max_chars or key in seen:
             continue

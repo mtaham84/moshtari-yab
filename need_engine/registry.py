@@ -63,6 +63,7 @@ class Snapshot:
     enforce_balance: bool = False
     min_balance: float = 0.0
     balances: dict[str, float] = field(default_factory=dict)          # business id → Toman
+    wallets_loaded: bool = False
 
 
 class ModelRegistry:
@@ -87,6 +88,14 @@ class ModelRegistry:
 
     def refresh(self, force: bool = False) -> Snapshot:
         if not self.enabled:
+            if self.cfg.products_source == "db" and (force or time.time() - self._loaded_at >= self.cfg.registry_ttl):
+                with self._lock:
+                    if force or time.time() - self._loaded_at >= self.cfg.registry_ttl:
+                        self._loaded_at = time.time()
+                        try:
+                            self._load_billing(self._snap)
+                        except Exception as e:
+                            log.warning("wallet registry not loaded (%s)", e)
             return self._snap
         with self._lock:
             if not force and time.time() - self._loaded_at < self.cfg.registry_ttl:
@@ -121,6 +130,13 @@ class ModelRegistry:
                         snap.models_by_role[role] = []
                     if e.name not in snap.models_by_role[role]:
                         snap.models_by_role[role].append(e.name)
+        self._load_billing(snap)
+        return snap
+
+    def _load_billing(self, snap: Snapshot) -> None:
+        from need_engine.sources import _ident
+
+        db = self._conn()
         settings_t = _ident(self.cfg.billing_settings_table)
         if self._exists(settings_t):
             rows = db.all(f"SELECT usd_to_toman, enforce_balance, min_balance_toman FROM {settings_t} ORDER BY id LIMIT 1")
@@ -129,10 +145,10 @@ class ModelRegistry:
                 snap.enforce_balance = bool(rows[0]["enforce_balance"])
                 snap.min_balance = float(rows[0]["min_balance_toman"] or 0)
         wallets_t = _ident(self.cfg.wallets_table)
-        if snap.enforce_balance and self._exists(wallets_t):
+        if self._exists(wallets_t):
             snap.balances = {str(r["business_id"]): float(r["balance_toman"])
                              for r in db.all(f"SELECT business_id, balance_toman FROM {wallets_t}")}
-        return snap
+            snap.wallets_loaded = True
 
     # ── queries ─────────────────────────────────────────────────────────────
     def model_for(self, stage: str) -> str | None:
@@ -177,14 +193,15 @@ class ModelRegistry:
         snap = self.refresh()
         return bool(self.cfg.llm_api_key) or any(e.api_key for e in snap.models.values())
 
-    def blocked(self) -> frozenset[str]:
+    def blocked(self, force: bool = False) -> frozenset[str]:
         """Sellers whose prepaid balance is used up (pay-as-you-go): their products are not matched and their
         private chats are not analysed until the balance is topped up.
         Sellers without a wallet row are not blocked (the panel creates one for every business)."""
-        snap = self.refresh()
-        if not snap.enforce_balance:
-            return frozenset()
-        return frozenset(b for b, bal in snap.balances.items() if bal <= snap.min_balance)
+        snap = self.refresh(force=force)
+        if self.cfg.products_source == "db" and not snap.wallets_loaded:
+            raise RuntimeError("wallet balances unavailable; refusing paid discovery work")
+        return frozenset(b for b, bal in snap.balances.items()
+                         if bal <= 0 or (snap.enforce_balance and bal <= snap.min_balance))
 
     def is_blocked(self, business_id: str | None) -> bool:
         return business_id is not None and str(business_id) in self.blocked()

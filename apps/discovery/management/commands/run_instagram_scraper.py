@@ -849,6 +849,12 @@ class Command(BaseCommand):
                     ambiguous.append({"id": row["id"], "username": row["username"], "text": row["text"]})
             ai = {}
             for offset in range(0, len(ambiguous), 25):
+                from apps.billing.services import is_blocked
+                if is_blocked(business):
+                    self.stdout.write(self.style.WARNING(
+                        f"Skipping Instagram LLM evaluation for tenant {business.pk}: اعتبار تمام شده"
+                    ))
+                    break
                 ai.update(llm_evaluate_family_batch(ambiguous[offset:offset + 25], business_id=business.pk,
                                                     family_context=family_context, buyer_signals=buyer_signals))
             evaluations.update(ai)
@@ -881,6 +887,16 @@ class Command(BaseCommand):
                                                          record_source_result)
 
         total_leads = 0
+        from apps.billing.services import is_blocked
+        try:
+            if is_blocked(target["business"]):
+                self.stdout.write(self.style.WARNING(
+                    f"Skipping Instagram family for tenant {target['business'].pk}: اعتبار تمام شده"
+                ))
+                return 0
+        except Exception as exc:
+            self.stderr.write(f"Skipping Instagram family: wallet status unavailable ({type(exc).__name__})")
+            return 0
         page_searches = 0
         selected_report = []
         for source in target["sources"]:
@@ -892,6 +908,11 @@ class Command(BaseCommand):
         for source in target["sources"]:
             self._current_api_requests = 0
             self._page_search_error = ""
+            if is_blocked(target["business"]):
+                self.stdout.write(self.style.WARNING(
+                    f"Stopping Instagram sources for tenant {target['business'].pk}: اعتبار تمام شده"
+                ))
+                break
             if account.status != "ACTIVE" or not self._request_budget_available(account):
                 break
             error = ""

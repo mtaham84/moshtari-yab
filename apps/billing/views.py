@@ -54,7 +54,9 @@ def dashboard(request):
     totals = services.cost_totals(float(days))
     wallets = Wallet.objects.aggregate(total=Sum("balance_toman"), n=Count("id"))
     s = BillingSettings.get()
-    blocked = Wallet.objects.filter(balance_toman__lte=s.min_balance_toman).count() if s.enforce_balance else 0
+    blocked = Wallet.objects.filter(balance_toman__lte=0).count()
+    if s.enforce_balance and s.min_balance_toman > 0:
+        blocked = Wallet.objects.filter(balance_toman__lte=s.min_balance_toman).count()
     rev = services.revenue(float(days))
     waiting = services.waiting_payment().values()
     held = {k: sum(w[k] for w in waiting) for k in ("messages", "needs", "products")}

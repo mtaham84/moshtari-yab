@@ -62,7 +62,7 @@ Return strictly JSON:
 
 def _format_expansion_prompt(product_title: str, category: str, existing_queries: list[str],
                              exemplars: list[dict[str, Any]], negatives: list[dict[str, Any]] | None = None,
-                             winners: list[str] | None = None) -> str:
+                             winners: list[str] | None = None, dropped_queries: list[str] | None = None) -> str:
     lines = [
         f"Product/Service: {product_title}",
         f"Category: {category}",
@@ -90,6 +90,10 @@ def _format_expansion_prompt(product_title: str, category: str, existing_queries
         lines.append("\nBest performing queries so far:")
         for q in winners:
             lines.append(f"- {q}")
+
+    if dropped_queries:
+        lines.append("\nDO NOT REPEAT these phrases: they returned zero results in six searches:")
+        lines.extend(f"- {q}" for q in dropped_queries[:30])
 
     lines.append("\nGenerate 4-6 NEW topical Persian search phrases of 1-3 words each (no duplicates of existing queries).")
     return "\n".join(lines)
@@ -471,7 +475,8 @@ def expand_queries_with_proqe(
     store_or_path: Any,
     llm: Any = None,
     model: str | None = None,
-    existing_queries: list[str] | None = None
+    existing_queries: list[str] | None = None,
+    dropped_queries: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Generates progressive query expansions using LLM + RAG customer exemplars."""
     if isinstance(store_or_path, (str, Path)):
@@ -494,7 +499,7 @@ def expand_queries_with_proqe(
     if llm is None:
         return exemplar_store.get_expanded_queries(pid)
 
-    user_prompt = _format_expansion_prompt(title, cat, existing, exemplars, negatives, winners)
+    user_prompt = _format_expansion_prompt(title, cat, existing, exemplars, negatives, winners, dropped_queries)
     try:
         data, _ = llm.complete_json(
             "x_query_expand",

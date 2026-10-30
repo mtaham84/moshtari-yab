@@ -41,10 +41,22 @@ class WalletTests(EngineSchemaMixin, TestCase):
         self.assertEqual((r["rows"], r["businesses"]), (4, 2))
         # $0.01 share × 100,000 × 1.5 = 1,500 toman
         self.assertEqual(Wallet.objects.get(business=self.biz).balance_toman, Decimal("8500"))
-        self.assertEqual(Wallet.objects.get(business=self.other).balance_toman, Decimal("-1500"))
+        self.assertEqual(Wallet.objects.get(business=self.other).balance_toman, Decimal("0"))
         self.assertTrue(services.is_blocked(self.other))
         self.assertEqual(services.charge_pending_usage(grace_seconds=0)["rows"], 0)   # idempotent
         self.assertEqual(EngineSyncCursor.objects.get(name=services.BILLING_CURSOR).position, 4)
+
+    def test_usage_debit_is_clipped_to_balance_and_topup_unblocks(self):
+        services.apply_transaction(self.biz, 500, WalletTransaction.TOPUP)
+        charged = services.charge_usage(self.biz, 1000, cost_usd=Decimal("0.02"), calls=2)
+        wallet = Wallet.objects.get(business=self.biz)
+        self.assertEqual(wallet.balance_toman, Decimal("0"))
+        self.assertEqual(charged.amount_toman, Decimal("-500"))
+        self.assertEqual(charged.cost_usd, Decimal("0.010000"))
+        self.assertTrue(services.is_blocked(self.biz))
+        self.assertIsNone(services.charge_usage(self.biz, 100))
+        services.apply_transaction(self.biz, 1000, WalletTransaction.TOPUP)
+        self.assertFalse(services.is_blocked(self.biz))
 
     def test_charge_without_engine_schema_is_a_noop(self):
         self.assertEqual(services.charge_pending_usage()["rows"], 0)

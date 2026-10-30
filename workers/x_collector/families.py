@@ -12,8 +12,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from need_engine.text import norm, tokens
+
 FAMILY_VERSION = "2"
 SEARCH_DEPTH = 3
+_TOPIC_MODIFIERS = {norm(x) for x in (
+    "مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی", "مجلسی", "تابستانی", "زمستانی",
+    "پاییزه", "بهاره", "چهارخانه", "راه راه", "لینن", "حریر", "آکسفورد", "استوک", "جدید",
+)}
+_TOPIC_FILLER = {norm(x) for x in ("و", "مدل", "لباس", "پوشاک", "فروشگاه", "خرید", "قیمت", "عمده")}
 
 
 def path_head(category_path: str | None) -> str:
@@ -40,6 +47,8 @@ class Family:
     product_type: str = ""
     category_keywords: list[str] = field(default_factory=list)
     x_search_enabled: bool = True
+    anchor_words: list[str] = field(default_factory=list)
+    other_family_names: list[str] = field(default_factory=list)
 
     def content_hash(self) -> str:
         payload = [FAMILY_VERSION, self.category_path, sorted(self.titles)[:12], self.notes]
@@ -75,6 +84,97 @@ def build_families(products: list[Any], notes_by_business: dict[str, str] | None
             category_keywords=list(getattr(members[0], "category_keywords", []) or [])[:6],
         ))
     return out
+
+
+def _get(card: Any, key: str, default=None):
+    if isinstance(card, dict):
+        return card.get(key, default)
+    return getattr(card, key, default)
+
+
+def family_cards(families: list[Any], product_cards: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Collapse product-card aliases onto family IDs so family query generation sees every member's vocabulary."""
+    from types import SimpleNamespace
+
+    product_cards = product_cards or {}
+    out = {}
+    for family in families:
+        member_cards = [product_cards.get(str(pid)) for pid in getattr(family, "member_product_ids", [])]
+        member_cards = [card for card in member_cards if card is not None]
+        aliases, problems, descriptions = [], [], []
+        for card in member_cards:
+            aliases.extend(_get(card, "aliases", []) or [])
+            problems.extend(_get(card, "problems_solved", []) or [])
+            what = _get(card, "what_it_is", "")
+            if what:
+                descriptions.append(str(what))
+        out[str(family.product_id)] = SimpleNamespace(
+            aliases=list(dict.fromkeys(str(x) for x in aliases if x)),
+            problems_solved=list(dict.fromkeys(str(x) for x in problems if x)),
+            what_it_is="؛ ".join(dict.fromkeys(descriptions))[:1400],
+        )
+    return out
+
+
+def topic_head(title: str) -> str:
+    """First real topic noun in a product title, ignoring audience, season, fabric and merchandising modifiers."""
+    return next((word for word in tokens(title) if word not in _TOPIC_MODIFIERS and word not in _TOPIC_FILLER), "")
+
+
+def family_anchor_tokens(family: Any, card: Any = None) -> set[str]:
+    """Normalized family anchors from its leaf, product type, aliases, keywords and member-title head nouns."""
+    path = str(getattr(family, "category_path", "") or "")
+    leaf = path.split(">")[-1].strip() if path else str(getattr(family, "title", "") or "")
+    values = [leaf, getattr(family, "product_type", ""), *(getattr(family, "category_keywords", []) or []),
+              *(_get(card, "aliases", []) or [])]
+    values.extend(topic_head(title) for title in (getattr(family, "titles", []) or []))
+    return {word for value in values for word in tokens(str(value or "")) if len(word) > 1}
+
+
+def family_topic_tokens(family: Any, card: Any = None) -> set[str]:
+    """Topic nouns only, excluding audience/style modifiers that must not mask sibling-family drift."""
+    path = str(getattr(family, "category_path", "") or "")
+    leaf = path.split(">")[-1].strip() if path else str(getattr(family, "title", "") or "")
+    values = [leaf, getattr(family, "product_type", ""), *(getattr(family, "category_keywords", []) or []),
+              *(_get(card, "aliases", []) or [])]
+    values.extend(topic_head(title) for title in (getattr(family, "titles", []) or []))
+    return {word for value in values for word in tokens(str(value or ""))
+            if len(word) > 1 and word not in _TOPIC_MODIFIERS and word not in _TOPIC_FILLER}
+
+
+def family_topic_contexts(families: list[Any], cards: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    """Build family anchors plus sibling leaf nouns per tenant, for prompt context and hard query validation."""
+    cards = cards or {}
+    siblings: dict[str, list[tuple[str, str, set[str]]]] = {}
+    for family in families:
+        path = str(getattr(family, "category_path", "") or "")
+        leaf = path.split(">")[-1].strip() if path else str(getattr(family, "title", "") or "")
+        nouns = {w for w in tokens(leaf) if w not in _TOPIC_MODIFIERS and w not in _TOPIC_FILLER}
+        siblings.setdefault(str(getattr(family, "business_id", "")), []).append(
+            (str(family.product_id), leaf, nouns))
+    contexts = {}
+    for family in families:
+        fid, business_id = str(family.product_id), str(getattr(family, "business_id", ""))
+        other = [(name, nouns) for other_id, name, nouns in siblings.get(business_id, []) if other_id != fid]
+        contexts[fid] = {
+            "anchor_tokens": family_anchor_tokens(family, cards.get(fid)),
+            "anchor_words": sorted(family_anchor_tokens(family, cards.get(fid))),
+            "topic_tokens": family_topic_tokens(family, cards.get(fid)),
+            "other_family_names": [name for name, _ in other],
+            "other_family_nouns": set().union(*(nouns for _, nouns in other)) if other else set(),
+        }
+    return contexts
+
+
+def family_phrase_allowed(phrase: str, anchor_tokens: set[str], other_family_nouns: set[str] | None = None,
+                          topic_tokens: set[str] | None = None) -> bool:
+    phrase_tokens = set(tokens(phrase))
+    if not phrase_tokens.intersection(anchor_tokens):
+        return False
+    other_family_nouns = other_family_nouns or set()
+    matches_other = phrase_tokens.intersection(other_family_nouns)
+    matches_this = phrase_tokens.intersection(topic_tokens if topic_tokens is not None else anchor_tokens)
+    return not matches_other or bool(matches_this)
 
 
 def load_notes(db) -> dict[str, str]:

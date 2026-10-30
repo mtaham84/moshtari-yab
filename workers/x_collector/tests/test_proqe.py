@@ -252,6 +252,20 @@ def test_empty_search_is_penalised(tmp_path):
     seen.record_feedback('"نمونه یک" lang:fa', success=True, weight=0.0)
     before = seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"]
     seen.record_query('"نمونه یک" lang:fa', fetched=0, new_posts=0)
-    assert seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"] == before + 0.25
+    assert seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"] == before + 0.5
     seen.record_query('"نمونه یک" lang:fa', fetched=5, new_posts=1)
-    assert seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"] == before + 0.25
+    assert seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"] == before + 0.5
+
+
+def test_six_empty_runs_drop_query_and_proqe_is_told_not_to_repeat(tmp_path):
+    from workers.x_collector.proqe import _format_expansion_prompt
+
+    query = '"پیراهن پاره" lang:fa'
+    seen = SeenStore(tmp_path / "drop.sqlite3", platform="x")
+    seen.schedule([{"query": query, "kind": "problem", "priority": 1}], budget=1)
+    for _ in range(6):
+        seen.record_query(query, fetched=0, new_posts=0)
+    assert seen.dropped_queries() == [query]
+    assert seen.query_status()[0]["empty_runs"] == 6
+    assert seen.schedule([{"query": query, "kind": "problem", "priority": 1}], budget=1) == []
+    assert query in _format_expansion_prompt("پیراهن مردانه", "پیراهن", [], [], [], [], [query])

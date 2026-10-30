@@ -39,24 +39,43 @@ def ensure_wallet(business: Business, with_gift: bool = False) -> Wallet:
 
 @transaction.atomic
 def apply_transaction(business: Business, amount, kind: str, description: str = "", user=None,
-                      cost_usd=Decimal("0"), calls: int = 0) -> WalletTransaction:
-    """Change a balance and log it. ``amount`` > 0 adds credit, < 0 takes it (the balance may go below zero)."""
+                      cost_usd=Decimal("0"), calls: int = 0) -> WalletTransaction | None:
+    """Change a balance and log it; background usage debits are clipped at the spendable balance floor."""
     ensure_wallet(business)
     wallet = Wallet.objects.select_for_update().get(business=business)
     amount = Decimal(str(amount)).quantize(CENT, ROUND_HALF_UP)
+    cost_usd = Decimal(str(cost_usd))
+    if kind == WalletTransaction.USAGE and amount < 0:
+        cfg = BillingSettings.get()
+        floor = max(Decimal("0"), cfg.min_balance_toman) if cfg.enforce_balance else Decimal("0")
+        requested = -amount
+        available = max(Decimal("0"), wallet.balance_toman - floor)
+        charged = min(requested, available).quantize(CENT, ROUND_HALF_UP)
+        if charged <= 0:
+            return None
+        if charged < requested:
+            cost_usd *= charged / requested
+            description = (description + " (محدود به اعتبار باقی‌مانده)")[:255]
+        amount = -charged
     wallet.balance_toman = (wallet.balance_toman + amount).quantize(CENT)
     wallet.save(update_fields=["balance_toman", "updated_at"])
     return WalletTransaction.objects.create(
         wallet=wallet, kind=kind, amount_toman=amount, balance_after=wallet.balance_toman,
-        cost_usd=Decimal(str(cost_usd)).quantize(Decimal("0.000001")), calls=calls,
+        cost_usd=cost_usd.quantize(Decimal("0.000001"), ROUND_HALF_UP), calls=calls,
         description=description[:255], created_by=user if getattr(user, "is_authenticated", False) else None)
+
+
+@transaction.atomic
+def charge_usage(business: Business, amount, description: str = "", *, cost_usd=Decimal("0"), calls: int = 0):
+    """Charge background usage without overdrawing a seller; partial charges stop exactly at the spendable floor."""
+    return apply_transaction(business, -abs(Decimal(str(amount))), WalletTransaction.USAGE, description,
+                             cost_usd=cost_usd, calls=calls)
 
 
 def is_blocked(business: Business) -> bool:
     s = BillingSettings.get()
-    if not s.enforce_balance:
-        return False
-    return ensure_wallet(business).balance_toman <= s.min_balance_toman
+    balance = ensure_wallet(business).balance_toman
+    return balance <= 0 or (s.enforce_balance and balance <= s.min_balance_toman)
 
 
 # ── engine tables (read-only from here) ───────────────────────────────────────
@@ -125,10 +144,11 @@ def charge_pending_usage(grace_seconds: float = 5.0) -> dict:
             amount = (usd * rate).quantize(CENT, ROUND_HALF_UP)
             if b is None or amount <= 0:
                 continue
-            apply_transaction(b, -amount, WalletTransaction.USAGE, f"مصرف هوش مصنوعی ({g['calls']} فراخوانی)",
+            tx = charge_usage(b, amount, f"مصرف هوش مصنوعی ({g['calls']} فراخوانی)",
                               cost_usd=usd, calls=int(g["calls"]))
-            total += amount
-            n += 1
+            if tx:
+                total += -tx.amount_toman
+                n += 1
         cursor.position = top
         cursor.save(update_fields=["position", "updated_at"])
     if n:

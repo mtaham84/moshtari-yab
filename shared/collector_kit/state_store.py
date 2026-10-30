@@ -22,6 +22,7 @@ class StateStore(Protocol):
     def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]: ...
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None: ...
+    def dropped_queries(self, limit: int = 50) -> list[str]: ...
     def last_ok(self, query: str) -> datetime | None: ...
     def get_seed_progress(self, seed: str) -> datetime | None: ...
     def set_seed_progress(self, seed: str, latest: str | None) -> None: ...
@@ -78,6 +79,9 @@ class PostgresStateStore:
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_daily_counts (platform TEXT NOT NULL, day DATE NOT NULL, collected INTEGER NOT NULL, PRIMARY KEY(platform,day))")
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_settings (platform TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(platform,key))")
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_query_runs (platform TEXT NOT NULL, query TEXT NOT NULL, kind TEXT NOT NULL, priority DOUBLE PRECISION NOT NULL DEFAULT 1, last_run_at TIMESTAMPTZ, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_ok_at TIMESTAMPTZ, PRIMARY KEY(platform,query))")
+            db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS beta DOUBLE PRECISION NOT NULL DEFAULT 1.0")
+            db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS empty_runs INTEGER NOT NULL DEFAULT 0")
+            db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS dropped BOOLEAN NOT NULL DEFAULT FALSE")
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_seed_progress (platform TEXT NOT NULL, seed TEXT NOT NULL, last_seen_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY(platform,seed))")
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_comments_fetched (platform TEXT NOT NULL, post_shortcode TEXT NOT NULL, fetched_at TIMESTAMPTZ NOT NULL, PRIMARY KEY(platform,post_shortcode))")
 
@@ -176,19 +180,26 @@ class PostgresStateStore:
             with db.transaction():
                 for item in queries:
                     db.execute(f"INSERT INTO {self.schema}.collector_query_runs(platform,query,kind,priority) VALUES(%s,%s,%s,%s) ON CONFLICT(platform,query) DO UPDATE SET kind=EXCLUDED.kind,priority=EXCLUDED.priority", (self.platform, item["query"], item.get("kind", "product"), item.get("priority", 1.0)))
-                rows = db.execute(f"SELECT query,kind,priority,last_run_at FROM {self.schema}.collector_query_runs WHERE platform=%s AND query=ANY(%s)", (self.platform, [item["query"] for item in queries])).fetchall() if queries else []
+                rows = db.execute(f"SELECT query,kind,priority,last_run_at,dropped FROM {self.schema}.collector_query_runs WHERE platform=%s AND query=ANY(%s)", (self.platform, [item["query"] for item in queries])).fetchall() if queries else []
         by_query = {row[0]: row for row in rows}
         def score(item):
             row = by_query[item["query"]]
             last, kind = row[3], row[1]
             stale = 1e12 if not last else max(1.0, (now - last).total_seconds())
             return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 1.0)), item["query"]
-        return sorted(queries, key=score)[:max(0, budget)]
+        return sorted((item for item in queries if not by_query[item["query"]][4]), key=score)[:max(0, budget)]
 
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:
         with self._connect(self.dsn) as db:
-                db.execute(f"UPDATE {self.schema}.collector_query_runs SET last_run_at=now(),runs=runs+1,fetched=fetched+%s,new_posts=new_posts+%s,last_error=%s,last_ok_at=COALESCE(%s,last_ok_at) WHERE platform=%s AND query=%s", (fetched, new_posts, error, started_at, self.platform, query))
+                db.execute(f"UPDATE {self.schema}.collector_query_runs SET last_run_at=now(),runs=runs+1,fetched=fetched+%s,new_posts=new_posts+%s,last_error=%s,last_ok_at=COALESCE(%s,last_ok_at), beta=CASE WHEN %s IS NULL AND %s=0 THEN beta+0.5 ELSE beta END, empty_runs=CASE WHEN %s IS NOT NULL THEN empty_runs WHEN %s=0 THEN empty_runs+1 ELSE 0 END, dropped=CASE WHEN %s IS NULL AND %s=0 AND empty_runs+1>=6 THEN TRUE ELSE dropped END WHERE platform=%s AND query=%s",
+                           (fetched, new_posts, error, started_at, error, fetched, error, fetched, error, fetched, self.platform, query))
+
+    def dropped_queries(self, limit: int = 50) -> list[str]:
+        with self._connect(self.dsn) as db:
+            rows = db.execute(f"SELECT query FROM {self.schema}.collector_query_runs WHERE platform=%s AND dropped=TRUE ORDER BY empty_runs DESC,query LIMIT %s",
+                              (self.platform, max(0, limit))).fetchall()
+        return [str(row[0]) for row in rows]
 
     def last_ok(self, query: str) -> datetime | None:
         with self._connect(self.dsn) as db:
@@ -197,8 +208,8 @@ class PostgresStateStore:
 
     def query_status(self) -> list[dict[str, Any]]:
         with self._connect(self.dsn) as db:
-            rows = db.execute(f"SELECT query,kind,last_run_at,fetched,new_posts FROM {self.schema}.collector_query_runs WHERE platform=%s ORDER BY query", (self.platform,)).fetchall()
-        return [dict(zip(("query", "kind", "last_run_at", "fetched", "new_posts"), row)) for row in rows]
+            rows = db.execute(f"SELECT query,kind,last_run_at,fetched,new_posts,empty_runs,dropped FROM {self.schema}.collector_query_runs WHERE platform=%s ORDER BY query", (self.platform,)).fetchall()
+        return [dict(zip(("query", "kind", "last_run_at", "fetched", "new_posts", "empty_runs", "dropped"), row)) for row in rows]
 
     def get_seed_progress(self, seed: str) -> datetime | None:
         with self._connect(self.dsn) as db:

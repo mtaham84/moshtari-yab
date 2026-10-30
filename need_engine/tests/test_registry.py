@@ -68,14 +68,16 @@ def test_registry_picks_models_endpoints_and_prices():
 def test_registry_falls_back_without_panel_tables():
     r = ModelRegistry(cfg(), db=FakeDB(tables=False))
     assert r.model_for("verify") is None and r.endpoint("x") == ("https://env.example/v1", "ENVKEY")
-    assert r.usd_to_toman() == EngineConfig().usd_to_toman and r.blocked() == frozenset()
+    assert r.usd_to_toman() == EngineConfig().usd_to_toman
+    with pytest.raises(RuntimeError, match="wallet balances unavailable"):
+        r.blocked()
     assert not ModelRegistry(cfg(products_source="jsonl:x")).enabled
 
 
 def test_blocked_sellers_and_access_rule():
     reg = ModelRegistry(cfg(), db=FakeDB(balances={"1": 0, "2": 5000, "3": -10}))
     assert reg.blocked() == frozenset({"1", "3"})
-    assert ModelRegistry(cfg(), db=FakeDB(enforce=False, balances={"1": 0})).blocked() == frozenset()
+    assert ModelRegistry(cfg(), db=FakeDB(enforce=False, balances={"1": 0})).blocked() == frozenset({"1"})
 
     acc = SourceAccess(cfg(), db=FakeDB(), registry=reg)
     acc.enabled, acc.loaded = True, True

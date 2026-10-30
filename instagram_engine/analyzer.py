@@ -135,64 +135,72 @@ GPT6_LUNA_CACHED_PRICE_PER_M = 0.01
 
 
 def _call_llm_with_usage(payload: dict, timeout: float = 25.0) -> Dict[str, Any]:
-    """Helper to perform OpenAI-compatible chat completion and extract token usage."""
-    api_key = settings.llm_api_key
-    api_base = settings.llm_api_base.rstrip("/")
-    model_name = payload.get("model") or getattr(settings, "llm_model", "gpt-6-luna")
-
-    # Dynamic lookup from database Provider / AIModel if configured
+    """Helper to perform OpenAI-compatible chat completion with multi-model failover."""
+    candidates = []
     try:
         from apps.billing.models import AIModel
-        db_model = AIModel.objects.filter(is_active=True).order_by("priority").first()
-        if db_model and db_model.provider and db_model.provider.is_active:
-            api_key = db_model.provider.api_key or api_key
-            api_base = db_model.provider.base_url.rstrip("/")
-            model_name = db_model.name
+        db_models = list(AIModel.objects.filter(is_active=True, provider__is_active=True).select_related("provider").order_by("priority"))
+        for m in db_models:
+            if m.provider and m.provider.base_url and m.provider.api_key:
+                candidates.append((m.name, m.provider.base_url.rstrip("/"), m.provider.api_key))
     except Exception:
         pass
 
-    if not api_key:
+    # Fallback to settings if candidates table is empty
+    if not candidates:
+        if settings.llm_api_key and settings.llm_api_base:
+            candidates.append((
+                payload.get("model") or getattr(settings, "llm_model", "gpt-6-luna"),
+                settings.llm_api_base.rstrip("/"),
+                settings.llm_api_key
+            ))
+
+    if not candidates:
         return {"content": None, "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
 
-    payload["model"] = model_name
-    url = f"{api_base}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    for model_name, api_base, api_key in candidates:
+        candidate_payload = dict(payload)
+        candidate_payload["model"] = model_name
+        url = f"{api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
-    try:
-        raw_res = None
-        if httpx is not None:
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
-                    raw_res = resp.json()
-                else:
-                    logger.warning("LLM API error HTTP %d: %s", resp.status_code, resp.text[:200])
-        else:
-            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw_res = json.loads(resp.read().decode("utf-8"))
+        try:
+            raw_res = None
+            if httpx is not None:
+                with httpx.Client(timeout=timeout) as client:
+                    resp = client.post(url, headers=headers, json=candidate_payload)
+                    if resp.status_code == 200:
+                        raw_res = resp.json()
+                    else:
+                        logger.warning("LLM model %s returned HTTP %d: %s; failing over to next model...", model_name, resp.status_code, resp.text[:200])
+                        continue
+            else:
+                req = urllib.request.Request(url, data=json.dumps(candidate_payload).encode("utf-8"), headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    raw_res = json.loads(resp.read().decode("utf-8"))
 
-        if raw_res and "choices" in raw_res and raw_res["choices"]:
-            content = raw_res["choices"][0]["message"]["content"]
-            usage = raw_res.get("usage", {})
-            tokens_in = usage.get("prompt_tokens") or (len(str(payload)) // 3)
-            tokens_out = usage.get("completion_tokens") or (len(content) // 3)
-            
-            # Accurate token cost for Luna GPT-6 ($0.10 / $0.50 per 1M)
-            cost_usd = (tokens_in * GPT6_LUNA_INPUT_PRICE_PER_M + tokens_out * GPT6_LUNA_OUTPUT_PRICE_PER_M) / 1_000_000.0
+            if raw_res and "choices" in raw_res and raw_res["choices"]:
+                content = raw_res["choices"][0]["message"]["content"]
+                usage = raw_res.get("usage", {})
+                tokens_in = usage.get("prompt_tokens") or (len(str(candidate_payload)) // 3)
+                tokens_out = usage.get("completion_tokens") or (len(content) // 3)
 
-            return {
-                "content": content,
-                "tokens_in": tokens_in,
-                "tokens_out": tokens_out,
-                "cost_usd": round(cost_usd, 8),
-                "model": model_name,
-            }
-    except Exception as exc:
-        logger.error("LLM call failed: %s", exc)
+                cost_usd = (tokens_in * GPT6_LUNA_INPUT_PRICE_PER_M + tokens_out * GPT6_LUNA_OUTPUT_PRICE_PER_M) / 1_000_000.0
+
+                return {
+                    "content": content,
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                    "cost_usd": round(cost_usd, 8),
+                    "model": model_name,
+                }
+            elif raw_res and "error" in raw_res:
+                logger.warning("LLM model %s returned error: %s; failing over to next model...", model_name, raw_res.get("error"))
+        except Exception as exc:
+            logger.warning("LLM call for model %s failed: %s; failing over to next candidate model...", model_name, exc)
 
     return {"content": None, "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
 

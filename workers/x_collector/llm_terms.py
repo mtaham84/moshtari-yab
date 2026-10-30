@@ -15,7 +15,7 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term, short_terms
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "7"
+PROMPT_VERSION = "8"
 KV_PREFIX = "x_qterms:"
 X_QUERY_TERMS_SYSTEM = """You are a senior search-query engineer for Persian (Farsi) buyer discovery on X/Twitter.
 You receive product FAMILIES. A family = one seller + one category node (for example «پوشاک > مردانه > پیراهن») plus the
@@ -40,6 +40,8 @@ HARD RULES (a phrase that breaks any rule is discarded by the system)
    literally part of the product titles).
 7. Diversity: every phrase differs in meaning or topic noun; no near-duplicates (plural/singular or spelling variants).
 8. Entity-blind: never use the seller's brand or shop name.
+9. Every phrase must contain at least one ANCHOR WORD or a direct synonym of this family's topic. Never write phrases
+   about a neighbouring family. The system rejects phrases without an anchor even if they sound plausible.
 
 THREE FORMATS (write 5 to 8 phrases for EACH)
  FORMAT A  pain_symptoms: the person's own problem or frustration - [topic noun] + [problem word], e.g. «شوره سنگ»,
@@ -58,6 +60,14 @@ QUANTITY: 5-8 phrases per format. Fewer than 5 finds nothing; more than 8 adds n
 
 OUTPUT: strict JSON only:
 {"items":[{"product_id":"<family id>","pain_symptoms":["..."],"advice_requests":["..."],"implicit_solutions":["..."],"names":["..."],"negatives":["..."],"model":null}]}"""
+X_QUERY_TERMS_SYSTEM += """
+
+FAMILY-DRIFT EXAMPLES (follow these exactly):
+- Men's-shirt family: «پیراهن تنگ» is good; «تنگی شلوار» is wrong because trousers are another family.
+- Men's-shirt family: «خرید پیراهن مردانه» is good; «گرانی شومیز» is wrong because شومیز belongs to another family.
+- Men's-shirt family: «پیراهن مردانه» is good; «پوشاک مردانه» is too broad and has no shirt topic.
+- Men's-shirt family: «پیراهن آکسفورد» is good; «پیدا نکردن شومیز» is wrong-family drift.
+"""
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
@@ -70,8 +80,18 @@ def is_complete(terms: Any) -> bool:
                                            for k in ("pain_symptoms", "advice_requests", "implicit_solutions"))
 
 
-def _key(product: Any, card: Any) -> str:
-    payload = [PROMPT_VERSION, product.content_hash(), card.model_dump(mode="json") if card is not None else None]
+def _key(product: Any, card: Any, topic_context: dict[str, Any] | None = None) -> str:
+    if hasattr(card, "model_dump"):
+        card_data = card.model_dump(mode="json")
+    elif isinstance(card, dict):
+        card_data = card
+    elif card is not None:
+        card_data = {key: getattr(card, key, None) for key in ("what_it_is", "aliases", "problems_solved")}
+    else:
+        card_data = None
+    topic = topic_context or {}
+    context_data = {key: topic.get(key, []) for key in ("anchor_words", "other_family_names")}
+    payload = [PROMPT_VERSION, product.content_hash(), card_data, context_data]
     return hashlib.sha1(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -100,13 +120,16 @@ def sanitize(raw: Any) -> dict[str, Any]:
     }
 
 
-def _user(product: Any, card: Any) -> dict[str, Any]:
+def _user(product: Any, card: Any, topic_context: dict[str, Any] | None = None) -> dict[str, Any]:
     item = {"product_id": str(getattr(product, "product_id", "")), "title": getattr(product, "title", ""),
             "type": getattr(product, "product_type", ""),
             "category": getattr(product, "category_path", ""), "description": (getattr(product, "description", "") or "")[:1400]}
     if card is not None:
         item.update(what_it_is=getattr(card, "what_it_is", None), aliases=getattr(card, "aliases", None),
                     problems_solved=getattr(card, "problems_solved", None))
+    topic_context = topic_context or {}
+    item["OTHER FAMILIES OF THIS SELLER (never write phrases about these)"] = topic_context.get("other_family_names", [])
+    item["ANCHOR WORDS you may use"] = topic_context.get("anchor_words", [])
     return item
 
 
@@ -114,10 +137,12 @@ def llm_terms(products: list[Any], cards: dict[str, Any], store: Any, llm: Any, 
               batch_size: int = 15) -> dict[str, dict[str, Any]]:
     """{product_id: {"names", "problems", "model"}}; products whose generation failed are missing (fallback)."""
     cached = store.get_prefix(KV_PREFIX)
+    from workers.x_collector.families import family_topic_contexts
+    contexts = family_topic_contexts(products, cards) if products and hasattr(products[0], "member_product_ids") else {}
     out: dict[str, dict[str, Any]] = {}
     todo = []
     for product in products:
-        key = _key(product, cards.get(product.product_id))
+        key = _key(product, cards.get(product.product_id), contexts.get(str(product.product_id)))
         hit = cached.get(KV_PREFIX + product.product_id)
         if isinstance(hit, dict) and hit.get("h") == key and is_complete(hit.get("terms")):
             out[product.product_id] = hit["terms"]
@@ -125,7 +150,8 @@ def llm_terms(products: list[Any], cards: dict[str, Any], store: Any, llm: Any, 
             todo.append((product, key))
     for start in range(0, len(todo), batch_size):
         chunk = todo[start:start + batch_size]
-        user = json.dumps({"products": [_user(p, cards.get(p.product_id)) for p, _ in chunk]}, ensure_ascii=False)
+        user = json.dumps({"products": [_user(p, cards.get(p.product_id), contexts.get(str(p.product_id)))
+                                         for p, _ in chunk]}, ensure_ascii=False)
         try:
             data, _ = llm.complete_json("x_query_extract", model, X_QUERY_TERMS_SYSTEM, user, max_tokens=4096,
                                         ref="x_query_terms")

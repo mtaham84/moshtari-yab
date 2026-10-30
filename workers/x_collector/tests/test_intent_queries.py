@@ -62,6 +62,15 @@ def test_model_term_needs_brand_and_model():
     assert model_term("فوق العاده بهترین مدل X9000 دستکش") == ""
 
 
+def test_broadness_is_data_driven_and_keeps_specific_topics():
+    from workers.x_collector.intent_queries import is_too_broad
+
+    assert is_too_broad("پوشاک مردانه".split())
+    assert is_too_broad("خرید لباس مردانه".split())
+    for phrase in ("لباس مجلسی مردانه", "پیراهن مردانه", "جوراب ورزشی"):
+        assert not is_too_broad(phrase.split())
+
+
 class FakeStore:
     def __init__(self):
         self.kv = {}
@@ -103,6 +112,9 @@ def test_llm_terms_are_sanitized_cached_and_regenerated_on_change(monkeypatch):
     assert llm_terms([product], {}, store, llm, "m") == first and llm.calls == 1
     llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
     assert llm.calls == 2
+    monkeypatch.setattr(lt, "PROMPT_VERSION", "9")
+    llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
+    assert llm.calls == 3
 
 
 def test_llm_failure_falls_back_without_caching():

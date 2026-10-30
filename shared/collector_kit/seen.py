@@ -28,6 +28,10 @@ class SeenStore:
                 db.execute("ALTER TABLE query_runs ADD COLUMN beta REAL NOT NULL DEFAULT 1.0")
             if "leads_count" not in q_cols:
                 db.execute("ALTER TABLE query_runs ADD COLUMN leads_count INTEGER NOT NULL DEFAULT 0")
+            if "empty_runs" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN empty_runs INTEGER NOT NULL DEFAULT 0")
+            if "dropped" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN dropped INTEGER NOT NULL DEFAULT 0")
             db.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS seed_progress (seed TEXT NOT NULL, last_seen_at TEXT, updated_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,seed))")
             db.execute("CREATE TABLE IF NOT EXISTS comments_fetched (post_shortcode TEXT NOT NULL, fetched_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,post_shortcode))")
@@ -48,8 +52,8 @@ class SeenStore:
             query_columns = {row[1] for row in db.execute("PRAGMA table_info(query_runs)")}
             if "platform" not in query_columns:
                 db.execute("ALTER TABLE query_runs RENAME TO query_runs_legacy")
-                db.execute("CREATE TABLE query_runs (query TEXT NOT NULL, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_ok_at TEXT, platform TEXT NOT NULL DEFAULT 'x', PRIMARY KEY(platform,query))")
-                db.execute("INSERT INTO query_runs(query,kind,priority,last_run_at,runs,fetched,new_posts,last_error,last_ok_at,platform) SELECT query,kind,priority,last_run_at,runs,fetched,new_posts,last_error,last_ok_at,'x' FROM query_runs_legacy")
+                db.execute("CREATE TABLE query_runs (query TEXT NOT NULL, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_ok_at TEXT, alpha REAL NOT NULL DEFAULT 1.0, beta REAL NOT NULL DEFAULT 1.0, leads_count INTEGER NOT NULL DEFAULT 0, empty_runs INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0, platform TEXT NOT NULL DEFAULT 'x', PRIMARY KEY(platform,query))")
+                db.execute("INSERT INTO query_runs(query,kind,priority,last_run_at,runs,fetched,new_posts,last_error,last_ok_at,alpha,beta,leads_count,empty_runs,dropped,platform) SELECT query,kind,priority,last_run_at,runs,fetched,new_posts,last_error,last_ok_at,alpha,beta,leads_count,empty_runs,dropped,'x' FROM query_runs_legacy")
                 db.execute("DROP TABLE query_runs_legacy")
             db.commit()
 
@@ -168,9 +172,9 @@ class SeenStore:
 
     def query_status(self) -> list[dict[str, Any]]:
         with closing(sqlite3.connect(self.path)) as db:
-            rows = db.execute("SELECT query,kind,last_run_at,fetched,new_posts FROM query_runs WHERE platform=? ORDER BY query",
+            rows = db.execute("SELECT query,kind,last_run_at,fetched,new_posts,empty_runs,dropped FROM query_runs WHERE platform=? ORDER BY query",
                               (self.platform,)).fetchall()
-        names = ("query", "kind", "last_run_at", "fetched", "new_posts")
+        names = ("query", "kind", "last_run_at", "fetched", "new_posts", "empty_runs", "dropped")
         return [dict(zip(names, row)) for row in rows]
 
     def export_state(self) -> dict[str, list[tuple]]:
@@ -237,7 +241,7 @@ class SeenStore:
             for item in queries:
                 db.execute("INSERT INTO query_runs(query,kind,priority,platform) VALUES(?,?,?,?) ON CONFLICT(platform,query) DO UPDATE SET kind=excluded.kind,priority=excluded.priority",
                            (item["query"], item.get("kind", "product"), item.get("priority", 1.0), self.platform))
-            rows = db.execute("SELECT query,kind,priority,last_run_at,runs,alpha,beta,leads_count FROM query_runs WHERE platform=? AND query IN (%s)" % ",".join("?" for _ in queries),
+            rows = db.execute("SELECT query,kind,priority,last_run_at,runs,alpha,beta,leads_count,dropped FROM query_runs WHERE platform=? AND query IN (%s)" % ",".join("?" for _ in queries),
                               [self.platform, *[item["query"] for item in queries]]).fetchall() if queries else []
             by_query = {row[0]: row for row in rows}
 
@@ -255,7 +259,8 @@ class SeenStore:
                 theta = random.betavariate(alpha, beta)
                 return -(stale * priority * kind_wt * (0.2 + 0.8 * theta)), item["query"]
 
-            selected = sorted(queries, key=score)[:max(0, budget)]
+            eligible = [item for item in queries if not by_query[item["query"]][8]]
+            selected = sorted(eligible, key=score)[:max(0, budget)]
             db.commit()
             return selected
 
@@ -287,9 +292,18 @@ class SeenStore:
                        (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, self.platform, query))
             if error is None and started_at is not None:
                 db.execute("UPDATE query_runs SET last_ok_at=? WHERE platform=? AND query=?", (started_at.isoformat(), self.platform, query))
-            if error is None and fetched == 0:   # a search that returned nothing earns a small penalty (it was a useless query)
-                db.execute("UPDATE query_runs SET beta = coalesce(beta, 1.0) + 0.25 WHERE platform=? AND query=?", (self.platform, query))
+            if error is None and fetched == 0:
+                db.execute("UPDATE query_runs SET beta=coalesce(beta,1.0)+0.5, empty_runs=empty_runs+1, dropped=CASE WHEN empty_runs+1>=6 THEN 1 ELSE dropped END WHERE platform=? AND query=?",
+                           (self.platform, query))
+            elif error is None and fetched > 0:
+                db.execute("UPDATE query_runs SET empty_runs=0 WHERE platform=? AND query=?", (self.platform, query))
             db.commit()
+
+    def dropped_queries(self, limit: int = 50) -> list[str]:
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = db.execute("SELECT query FROM query_runs WHERE platform=? AND dropped=1 ORDER BY empty_runs DESC, query LIMIT ?",
+                              (self.platform, max(0, limit))).fetchall()
+        return [str(row[0]) for row in rows]
 
     def last_ok(self, query: str) -> datetime | None:
         with closing(sqlite3.connect(self.path)) as db:

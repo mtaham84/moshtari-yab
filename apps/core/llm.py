@@ -96,14 +96,25 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
                     pass
                 if not content:
                     last = "empty response"
+                    if "error" in data:
+                        err_msg = data.get("error", {}).get("message") or str(data.get("error"))
+                        last = f"API error: {err_msg}"
+                        # If error mentions quota, credit, balance, billing, break to failover immediately
+                        if any(k in err_msg.lower() for k in ("quota", "credit", "balance", "billing", "payment", "unauthorized")):
+                            log.warning("Candidate model %s quota/credit exhausted: %s. Shifting to next model.", model_name, err_msg)
+                            break
                     continue
                 return _extract_json(content)
             except Exception as exc:
                 last = str(exc)
                 log.warning("LLM model %s failed on attempt %d: %s", model_name, attempt + 1, exc)
-                # If host connection fails or certificate error, failover to next candidate model
                 exc_str = str(exc).lower()
-                if any(k in exc_str for k in ("urlopen", "connection", "tlsv1", "not found", "404", "ssl", "refused", "timeout")):
+                # Failover immediately on connection, network, or out-of-credit / quota errors
+                if any(k in exc_str for k in (
+                    "urlopen", "connection", "tlsv1", "not found", "404", "ssl", "refused", "timeout",
+                    "402", "429", "401", "403", "quota", "credit", "balance", "payment", "billing", "unauthorized"
+                )):
+                    log.info("Model %s hit unrecoverable/quota error (%s); shifting to next model immediately.", model_name, last)
                     break
         log.warning("Candidate model %s failed (%s), failing over to next model...", model_name, last)
 
