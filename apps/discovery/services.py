@@ -280,7 +280,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             except Exception as w_exc:
                 pass
 
-        if match and intent_flt >= 0.80:
+        if match:
             from django.db import transaction
             transaction.on_commit(lambda oid=opp.pk, mid=match.pk: _generate_suggestion_after_commit(oid, mid))
         return opp
@@ -416,7 +416,7 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
     from need_engine.reply import MessageStyle as EngineMessageStyle, generate_outreach_variants
     from apps.discovery.models import InstagramReplySuggestion
 
-    if not force and (not hasattr(opportunity, "ai_analysis") or opportunity.ai_analysis.intent_score < 0.80):
+    if not force and not hasattr(opportunity, "ai_analysis"):
         return None
     if is_blocked(opportunity.business):
         return None

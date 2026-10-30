@@ -100,6 +100,9 @@ class InstagramPureTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             validate_outreach_result(raw, platform="instagram", style=MessageStyle(),
                                      prior_suggestions=[raw["variants"][0]["text"]])
+        raw["variants"][1]["text"] = raw["variants"][0]["text"]
+        with self.assertRaises(ValueError):
+            validate_outreach_result(raw, platform="instagram", style=MessageStyle())
 
 
 class InstagramFamilyDatabaseTests(TestCase):
@@ -278,3 +281,13 @@ class OutreachBillingDatabaseTests(TestCase):
         saved = InstagramReplySuggestion.objects.get(opportunity=self.opportunity, product=self.product)
         self.assertEqual(len(saved.history), 1)
         self.assertEqual(saved.history[0]["reply_variants"]["variants"][0]["tone"], "short")
+
+    def test_low_intent_opportunity_also_gets_human_review_drafts(self):
+        from apps.discovery.services import generate_opportunity_reply_suggestions
+        from unittest.mock import patch
+        AIAnalysis.objects.filter(opportunity=self.opportunity).update(intent_score=.35)
+        generator = Mock(return_value=(self._variants("پیشنهاد شخصی‌سازی‌شده"), {}))
+        with patch("apps.billing.services.is_blocked", return_value=False):
+            result = generate_opportunity_reply_suggestions(self.opportunity, self.match, generator=generator)
+        self.assertEqual(len(result["variants"]), 3)
+        generator.assert_called_once()

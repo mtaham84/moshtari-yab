@@ -180,7 +180,7 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
             if i == 1:
                 primary_suggestion_match = product_match
         intent_score = STRENGTH_INTENT.get(need.get("strength"), 0.5)
-        if platform == "x" and intent_score >= 0.80 and primary_suggestion_match:
+        if platform == "x" and primary_suggestion_match:
             transaction.on_commit(lambda oid=opp.pk, mid=primary_suggestion_match.pk: _auto_suggest_x_reply(oid, mid))
 
         opp.evidence_items.all().delete()

@@ -122,6 +122,7 @@ def validate_outreach_result(data: dict, *, platform: str, style: MessageStyle,
         if any(_similarity(comparable, old) >= .8 for old in prior):
             raise ValueError("یک پیش‌نویس بیش از حد شبیه پیام‌های قبلی فروشنده است؛ دوباره تولید کنید")
         clean.append({"tone": tone, "text": text})
+        prior.append(comparable)
     if len(clean) != 3:
         raise ValueError("مدل باید سه پیش‌نویس مستقل برگرداند")
     return {"channel": channel, "variants": clean, "why": why, "warnings": warnings}
