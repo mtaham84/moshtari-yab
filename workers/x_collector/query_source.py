@@ -114,6 +114,8 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
     if member_card_keys.intersection(cards):
         cards = family_cards(families, cards)
     contexts = family_topic_contexts(families, cards)
+    for family in families:
+        contexts[str(family.product_id)]["family"] = family
     cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "40"))
     by_business: dict[str, list[list[dict[str, Any]]]] = {}
     for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.title).casefold())):

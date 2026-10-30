@@ -15,7 +15,7 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term, short_terms
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "8"
+PROMPT_VERSION = "9"
 KV_PREFIX = "x_qterms:"
 X_QUERY_TERMS_SYSTEM = """You are a senior search-query engineer for Persian (Farsi) buyer discovery on X/Twitter.
 You receive product FAMILIES. A family = one seller + one category node (for example «پوشاک > مردانه > پیراهن») plus the
@@ -31,7 +31,9 @@ HARD RULES (a phrase that breaks any rule is discarded by the system)
    - BEST, type + one inherent attribute: «لباس مجلسی مردانه», «کت چرم», «دامن کوتاه», «جوراب ورزشی», «سنگ نما».
    - TOO NARROW (rejected): colours, sizes, finishes, brands, model numbers, cities, prices, adjectives such as «شکلاتی»,
      «شکسته», «ارزان», «بهترین», «اصل», «۲۰۲۶».
-3. Phrases must be natural colloquial Persian that a real person would tweet AND that appears in many tweets (recall).
+3. Prefer common spoken Persian and broad real-life wording over exact catalog names. Examples: «لباس زمستونی», «لباس خنک»,
+   «لباس راحت», «لباس گشاد», «لباس تنگ», «پیراهن کژوال», «لباس مجلسی», «دندون درد», «ارتودنسی», «ایمپلنت».
+   Write «دندون» when people say it; avoid formal «دندان‌پزشکی» when a natural phrase exists.
 4. Use the family's own category and product titles to choose the topic nouns; the topic must be unmistakably this family,
    not a neighbour (a men's-shirt family must not produce «دامن»).
 5. SELLER NOTES are binding: if the seller wants wholesale buyers, shop owners, companies, students, a city or a price
@@ -43,30 +45,30 @@ HARD RULES (a phrase that breaks any rule is discarded by the system)
 9. Every phrase must contain at least one ANCHOR WORD or a direct synonym of this family's topic. Never write phrases
    about a neighbouring family. The system rejects phrases without an anchor even if they sound plausible.
 
-THREE FORMATS (write 5 to 8 phrases for EACH)
- FORMAT A  pain_symptoms: the person's own problem or frustration - [topic noun] + [problem word], e.g. «شوره سنگ»,
-           «دندان درد», «لپ تاپ کند», «پیراهن تنگ».
- FORMAT B  advice_requests: asking others for a recommendation or experience - [advice word] + [topic], e.g. «پیشنهاد
-           سنگبر», «معرفی دندانپزشک», «تجربه ایمپلنت», «کجا کت مجلسی».
- FORMAT C  implicit_solutions: direct need or purchase intent - [action word] + [topic], e.g. «خرید عمده جوراب», «قیمت
-           تراورتن», «سفارش دامن», «دنبال دندانپزشک».
+THREE FORMATS (write 4 to 6 phrases for EACH)
+ FORMAT A  pain_symptoms: the person's own problem or frustration in colloquial words - e.g. «شوره سنگ», «دندون درد»,
+           «لپ تاپ کند», «لباس تنگ», «لباس خنک», «پیراهن بدفرم».
+ FORMAT B  style, fit or use-case wording that helps find people discussing the category - e.g. «لباس راحت», «پیراهن کژوال»,
+           «لباس مجلسی», «هودی گرم», «ارتودنسی نامرئی».
+ FORMAT C  direct topic or treatment names only when useful - e.g. «ارتودنسی», «ایمپلنت», «سویشرت», «پیراهن اسپرت».
+ NEVER write «خرید»، «قیمت»، «تخفیف»، «ارسال»، «کجا»، «معرفی»، «پیشنهاد» or «تجربه» queries; these are weak/noisy.
 
 ALSO RETURN
  - names: 2 to 4 core topic names of the family (1-3 words, the most natural nouns people use).
  - negatives: 0 to 4 single words typical of seller ads/spam for this topic.
  - model: brand + model ONLY for hardware/gadgets that people name (max 2 tokens), otherwise null.
 
-QUANTITY: 5-8 phrases per format. Fewer than 5 finds nothing; more than 8 adds noise. Count the words of each phrase.
+QUANTITY: 4-6 phrases per format. The search system selects at most 10 diverse phrases per family. Count the words of each phrase.
 
 OUTPUT: strict JSON only:
 {"items":[{"product_id":"<family id>","pain_symptoms":["..."],"advice_requests":["..."],"implicit_solutions":["..."],"names":["..."],"negatives":["..."],"model":null}]}"""
 X_QUERY_TERMS_SYSTEM += """
 
-FAMILY-DRIFT EXAMPLES (follow these exactly):
-- Men's-shirt family: «پیراهن تنگ» is good; «تنگی شلوار» is wrong because trousers are another family.
-- Men's-shirt family: «خرید پیراهن مردانه» is good; «گرانی شومیز» is wrong because شومیز belongs to another family.
-- Men's-shirt family: «پیراهن مردانه» is good; «پوشاک مردانه» is too broad and has no shirt topic.
-- Men's-shirt family: «پیراهن آکسفورد» is good; «پیدا نکردن شومیز» is wrong-family drift.
+FAMILY-DRIFT AND INTENT EXAMPLES (follow these exactly):
+- Men's-shirt family: «پیراهن تنگ» and «لباس خنک» are good; «تنگی شلوار» is wrong-family drift.
+- Men's-shirt family: «پیراهن کژوال» is good; «گرانی شومیز» and «پیدا نکردن شومیز» belong to another family.
+- «لباس مجلسی مردانه» is useful; «پوشاک مردانه» and «خرید لباس مردانه» are too broad or weak.
+- «دندون درد», «ارتودنسی» and «ایمپلنت» are useful; «کجا ایمپلنت» and «خرید ایمپلنت» are weak.
 """
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 

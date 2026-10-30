@@ -32,6 +32,25 @@ def test_family_queries_reject_reported_drift_but_keep_good_phrases():
     assert any("شومیز زنانه" in query for query in blouse_queries)
 
 
+def test_family_queries_use_colloquial_clothing_and_dental_terms_and_cap_at_ten(monkeypatch):
+    from workers.x_collector.families import family_topic_contexts
+
+    shirt = _family("shirt", "پیراهن مردانه", "پیراهن مردانه پنبه‌ای")
+    dental = _family("implant", "ایمپلنت", "ایمپلنت دندان")
+    dental.category_path = "خدمات > دندان پزشکی > ایمپلنت"
+    contexts = family_topic_contexts([shirt, dental])
+    monkeypatch.setenv("X_QUERY_MAX_PER_FAMILY", "99")
+
+    shirt_queries = [row["query"] for row in product_queries(shirt, {}, topic_context=contexts[shirt.product_id])]
+    dental_queries = [row["query"] for row in product_queries(dental, {}, topic_context=contexts[dental.product_id])]
+    assert len(shirt_queries) <= 10
+    assert any("لباس خنک" in query for query in shirt_queries)
+    assert any("لباس تنگ" in query for query in shirt_queries)
+    assert any("دندون درد" in query for query in dental_queries)
+    assert all("دندان" not in query for query in dental_queries)
+    assert all("-تخفیف" not in query and "-ارسال" not in query for query in shirt_queries + dental_queries)
+
+
 def test_llm_prompt_contains_family_context_and_prompt_version_is_bumped():
     import json
     import workers.x_collector.llm_terms as terms_module
@@ -45,7 +64,7 @@ def test_llm_prompt_contains_family_context_and_prompt_version_is_bumped():
     assert "پیراهن" in message
     assert "OTHER FAMILIES" in message and "ANCHOR WORDS" in message
     assert "گرانی شومیز" in X_QUERY_TERMS_SYSTEM and "تنگی شلوار" in X_QUERY_TERMS_SYSTEM
-    assert terms_module.PROMPT_VERSION == "8"
+    assert terms_module.PROMPT_VERSION == "9"
 
 
 def test_blocked_tenant_is_removed_before_x_terms_or_llm(monkeypatch):

@@ -14,11 +14,23 @@ from typing import Any
 
 from need_engine.text import norm, tokens
 
-FAMILY_VERSION = "2"
+FAMILY_VERSION = "3"
 SEARCH_DEPTH = 3
+_CLOTHING_ROOTS = {norm(x) for x in ("پوشاک", "لباس")}
+_DENTAL_ROOTS = {norm(x) for x in ("دندان", "دندانپزشک", "دندانپزشکی", "دندان پزشکی", "دندان‌پزشکی",
+                                   "دندونپزشک", "دندونپزشکی", "دندون پزشکی")}
+_CATEGORY_SYNONYMS = {norm("پوشاک"): ("لباس",), norm("لباس"): ("پوشاک",),
+                      norm("دندان"): ("دندون",), norm("دندانپزشکی"): ("دندونپزشکی", "دندون"),
+                      norm("دندان پزشکی"): ("دندون پزشکی", "دندون"), norm("دندان‌پزشکی"): ("دندون پزشکی", "دندون")}
+_APPAREL_DISCOVERY_TERMS = (
+    "لباس زمستونی", "لباس بهاره", "لباس خنک", "لباس تابستونی", "لباس راحت", "لباس گشاد", "لباس تنگ",
+    "لباس مجلسی", "لباس کژوال", "لباس اسپرت",
+)
+_DENTAL_DISCOVERY_TERMS = ("دندون درد", "دندون خراب", "دندون لق")
 _TOPIC_MODIFIERS = {norm(x) for x in (
     "مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی", "مجلسی", "تابستانی", "زمستانی",
-    "پاییزه", "بهاره", "چهارخانه", "راه راه", "لینن", "حریر", "آکسفورد", "استوک", "جدید",
+    "تابستونی", "زمستونی", "پاییزه", "بهاره", "خنک", "گرم", "راحت", "گشاد", "تنگ", "شیک",
+    "کژوال", "اسپرت", "روزمره", "چهارخانه", "راه راه", "لینن", "حریر", "آکسفورد", "استوک", "جدید",
 )}
 _TOPIC_FILLER = {norm(x) for x in ("و", "مدل", "لباس", "پوشاک", "فروشگاه", "خرید", "قیمت", "عمده")}
 
@@ -121,6 +133,28 @@ def topic_head(title: str) -> str:
     return next((word for word in tokens(title) if word not in _TOPIC_MODIFIERS and word not in _TOPIC_FILLER), "")
 
 
+def family_discovery_terms(family: Any) -> list[tuple[str, str]]:
+    """Useful colloquial category-level searches; family validation still blocks sibling-topic drift."""
+    path = norm(str(getattr(family, "category_path", "") or ""))
+    title = norm(str(getattr(family, "title", "") or ""))
+    values = " ".join((path, title))
+    out = []
+    if any(root in values for root in _CLOTHING_ROOTS):
+        out.extend((phrase, "problem" if any(x in phrase for x in ("تنگ", "گشاد", "خنک", "راحت")) else "intent")
+                   for phrase in _APPAREL_DISCOVERY_TERMS)
+    if any(root in values for root in _DENTAL_ROOTS):
+        out.extend((phrase, "problem") for phrase in _DENTAL_DISCOVERY_TERMS)
+    return out
+
+
+def family_category_synonyms(family: Any) -> set[str]:
+    """Common colloquial category words for category paths such as پوشاک > مردانه > پیراهن."""
+    path = str(getattr(family, "category_path", "") or "")
+    categories = {norm(part) for part in path.split(">")}
+    return {word for category, synonyms in _CATEGORY_SYNONYMS.items() if category in categories
+            for synonym in synonyms for word in tokens(synonym)}
+
+
 def family_anchor_tokens(family: Any, card: Any = None) -> set[str]:
     """Normalized family anchors from its leaf, product type, aliases, keywords and member-title head nouns."""
     path = str(getattr(family, "category_path", "") or "")
@@ -128,7 +162,8 @@ def family_anchor_tokens(family: Any, card: Any = None) -> set[str]:
     values = [leaf, getattr(family, "product_type", ""), *(getattr(family, "category_keywords", []) or []),
               *(_get(card, "aliases", []) or [])]
     values.extend(topic_head(title) for title in (getattr(family, "titles", []) or []))
-    return {word for value in values for word in tokens(str(value or "")) if len(word) > 1}
+    return ({word for value in values for word in tokens(str(value or "")) if len(word) > 1}
+            | family_category_synonyms(family))
 
 
 def family_topic_tokens(family: Any, card: Any = None) -> set[str]:
@@ -160,6 +195,7 @@ def family_topic_contexts(families: list[Any], cards: dict[str, Any] | None = No
             "anchor_tokens": family_anchor_tokens(family, cards.get(fid)),
             "anchor_words": sorted(family_anchor_tokens(family, cards.get(fid))),
             "topic_tokens": family_topic_tokens(family, cards.get(fid)),
+            "family": family,
             "other_family_names": [name for name, _ in other],
             "other_family_nouns": set().union(*(nouns for _, nouns in other)) if other else set(),
         }

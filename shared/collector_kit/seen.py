@@ -265,16 +265,21 @@ class SeenStore:
             return selected
 
     def record_feedback(self, query: str, success: bool, weight: float = 1.0) -> None:
-        """Bandit reinforcement: success increases alpha (reward), failure increases beta (penalty)."""
+        """Reward real buyers and suppress phrases repeatedly judged irrelevant by sellers."""
         with closing(sqlite3.connect(self.path)) as db:
             db.execute("INSERT INTO query_runs(platform, query, kind, alpha, beta, leads_count) VALUES(?, ?, 'product', 1.0, 1.0, 0) ON CONFLICT(platform, query) DO NOTHING",
                        (self.platform, query))
             if success:
-                db.execute("UPDATE query_runs SET alpha = alpha + ?, leads_count = leads_count + 1 WHERE platform=? AND query=?",
+                db.execute("UPDATE query_runs SET alpha = alpha + ?, leads_count = leads_count + 1, dropped = 0 WHERE platform=? AND query=?",
                            (weight, self.platform, query))
             else:
-                db.execute("UPDATE query_runs SET beta = beta + ? WHERE platform=? AND query=?",
-                           (weight, self.platform, query))
+                row = db.execute("SELECT alpha, beta FROM query_runs WHERE platform=? AND query=?",
+                                 (self.platform, query)).fetchone()
+                alpha, beta = float(row[0] or 1), float(row[1] or 1)
+                beta += float(weight)
+                dropped = int(beta >= 3.0 and beta >= 2.0 * alpha)
+                db.execute("UPDATE query_runs SET beta=?, dropped=CASE WHEN ?=1 THEN 1 ELSE dropped END WHERE platform=? AND query=?",
+                           (beta, dropped, self.platform, query))
             db.commit()
 
     def get_query_bandit_stats(self, query: str) -> dict[str, Any]:

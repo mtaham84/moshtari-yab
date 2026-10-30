@@ -197,13 +197,13 @@ def test_product_queries_cover_three_formats_with_sane_count():
     terms = {
         "names": ["سنگ نما", "سنگ ساختمانی"],
         "pain_symptoms": ["شوره سنگ", "ترک سنگ", "لکه سنگ", "سنگ کثیف", "رنگ سنگ"],
-        "advice_requests": ["پیشنهاد سنگبر", "معرفی سنگبر", "تجربه سنگ", "کجا سنگ", "کدوم سنگ"],
-        "implicit_solutions": ["خرید سنگ", "قیمت سنگ", "سفارش سنگ", "دنبال سنگبر", "میخوام سنگ"],
+        "advice_requests": ["سنگ طبیعی", "سنگ ساختمانی", "سنگ نما"],
+        "implicit_solutions": ["سنگ ساختمانی", "نمای سنگی", "سنگ طبیعی"],
     }
     product = SimpleNamespace(product_id="s1", business_id="b", title="سنگ نما", category_path="مصالح / سنگ",
                               category_keywords=["سنگ"], discovery_priority=1, x_search_enabled=True)
     qs = product_queries(product, terms=terms)
-    assert 9 <= len(qs) <= 12
+    assert 9 <= len(qs) <= 10
     assert {"problem", "alternative", "solution"} <= {q["kind"] for q in qs}
     assert all(positive_word_count(q["query"]) <= 3 and " OR " not in q["query"] for q in qs)
 
@@ -269,3 +269,16 @@ def test_six_empty_runs_drop_query_and_proqe_is_told_not_to_repeat(tmp_path):
     assert seen.query_status()[0]["empty_runs"] == 6
     assert seen.schedule([{"query": query, "kind": "problem", "priority": 1}], budget=1) == []
     assert query in _format_expansion_prompt("پیراهن مردانه", "پیراهن", [], [], [], [], [query])
+
+
+def test_repeated_bad_query_feedback_suppresses_phrase_and_good_feedback_restores_it(tmp_path):
+    seen = SeenStore(tmp_path / "feedback-drop.sqlite3", platform="x")
+    query = '"لباس ارزان" lang:fa'
+    seen.schedule([{"query": query, "kind": "problem", "priority": 1}], budget=1)
+    for _ in range(4):
+        seen.record_feedback(query, success=False, weight=0.5)
+    assert seen.dropped_queries() == [query]
+    assert seen.schedule([{"query": query, "kind": "problem", "priority": 1}], budget=1) == []
+    seen.record_feedback(query, success=True)
+    assert seen.dropped_queries() == []
+    assert seen.schedule([{"query": query, "kind": "problem", "priority": 1}], budget=1)

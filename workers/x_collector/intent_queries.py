@@ -130,6 +130,8 @@ BROAD_WORDS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "کیف", "
 AUDIENCE_WORDS = {norm(w) for w in ("مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی")}
 ACTION_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام", "دنبال", "میخوام",
                                    "می‌خوام", "نیاز", "فروش", "تهیه", "بخرم", "راهنمایی", "مشاوره", "نظر", "پیدا", "کردن")}
+WEAK_QUERY_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام",
+                                       "تخفیف", "ارسال", "فروش", "رایگان", "موجود", "موجوده", "چنده", "ارزان", "گرون")}
 
 
 def is_too_broad(words: list[str]) -> bool:
@@ -150,14 +152,15 @@ def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[st
         if not 1 <= len(words) <= MAX_PHRASE_WORDS:
             continue
         term = " ".join(words)
+        term = re.sub(r"دندان(?=\s|$)", "دندون", term)
         key = norm(term).casefold()
         if key in seen or len(term) < 3:
             continue
         if not (_FA.search(term) or any(len(re.sub(r"[^A-Za-z]", "", w)) >= 3 for w in words)):
             continue
-        if len(words) == 1 and (key in generic or len(term) < 5):
+        if len(words) == 1 and key in generic:
             continue   # a lone short word («سنگ») matches half of Persian X
-        if is_too_broad(words):
+        if is_too_broad(words) or any(norm(w) in WEAK_QUERY_WORDS for w in term.split()):
             continue
         seen.add(key)
         out.append(term)
@@ -170,7 +173,7 @@ def phrase_candidates(product: Any, terms: dict[str, Any] | None, card: Any = No
     """[(phrase, kind)] — every phrase 1–3 words. kind: intent (core topic names), problem, alternative, solution, product."""
     terms = terms or {}
     out: list[tuple[str, str]] = []
-    names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 5, strip_noise=True)
+    names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 4, strip_noise=True)
     out += [(p, "intent") for p in names]
     pain = short_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or [])
                        + list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 8)
@@ -313,16 +316,18 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "10")))
-    per_format = int(os.getenv("X_QUERY_PER_FORMAT", "3"))
+    max_count = min(10, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "10")))))
+    per_format = min(10, max(1, int(os.getenv("X_QUERY_PER_FORMAT", "4"))))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
-    negatives = _short_terms(list(terms.get("negatives") or []) + list(PRODUCT_MODE_NEGATIVES), 6)
-    neg_ops = " ".join(f"-{_quote(n)}" for n in negatives)
-    tail_ops = " ".join(x for x in (neg_ops, ops) if x)
+    # Seller-ad exclusions can hide real buyer posts mentioning shipping or discounts.
+    tail_ops = ops
 
     values: list[tuple[str, str]] = [(p, kind) for p, kind in phrase_candidates(product, terms, card)]
+    if topic_context and topic_context.get("family") is not None:
+        from workers.x_collector.families import family_discovery_terms
+        values.extend(family_discovery_terms(topic_context["family"]))
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
 
     # ProQE: queries evolved from confirmed buyers (already restricted to <= 3 words)
@@ -338,7 +343,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     raw_candidates, seen = [], set()
     for phrase, kind in values:
         phrase = " ".join(phrase.split())
-        if is_too_broad(phrase.split()):
+        if is_too_broad(phrase.split()) or any(norm(w) in WEAK_QUERY_WORDS for w in phrase.split()):
             continue
         if topic_context:
             from workers.x_collector.families import family_phrase_allowed
@@ -357,7 +362,6 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
             "priority": float(getattr(product, "discovery_priority", 1) or 1)
         })
 
-    # Three formats (A: pain/frustration, B: asking for advice, C: demand/solution/intent). Each gets its own quota so
-    # one format can never crowd out the others, then any leftover slots go to the most relevant remaining queries.
+    # Keep enough pain, style/use-case and direct-topic phrases; MMR removes near-duplicates before the hard family cap.
     target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
-    return balanced_pick(raw_candidates, target_ref, max_count, per_format)
+    return balanced_pick(raw_candidates, target_ref, min(10, max(1, max_count)), per_format)

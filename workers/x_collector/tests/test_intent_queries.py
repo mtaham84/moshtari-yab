@@ -112,7 +112,7 @@ def test_llm_terms_are_sanitized_cached_and_regenerated_on_change(monkeypatch):
     assert llm_terms([product], {}, store, llm, "m") == first and llm.calls == 1
     llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
     assert llm.calls == 2
-    monkeypatch.setattr(lt, "PROMPT_VERSION", "9")
+    monkeypatch.setattr(lt, "PROMPT_VERSION", "10")
     llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
     assert llm.calls == 3
 
@@ -185,7 +185,8 @@ def test_product_queries_belong_to_one_product_and_keep_latin_names():
     texts = " ".join(q["query"] for q in queries)
     assert '"Notion AI"' in texts and "notion" in texts
     assert '"اکانت نوشن"' in texts                               # leading «خرید» is stripped from product names
-    assert '-"تحویل آنی"' in texts and "-تخفیف" in texts and "lang:fa" in texts
+    assert "lang:fa" in texts
+    assert "-تخفیف" not in texts and "-ارسال" not in texts
     assert any(q["kind"] == "problem" and "جزوه شلوغ" in q["query"] for q in queries)
 
 
@@ -206,8 +207,8 @@ def test_three_formats_kinds_are_generated_from_llm_terms():
         "names": ["نرم‌افزار حسابداری"],
         "negatives": ["استخدام"],
         "pain_symptoms": ["حساب کتاب", "اشتباه حسابداری"],
-        "advice_requests": ["پیشنهاد حسابدار", "معرفی نرم‌افزار"],
-        "implicit_solutions": ["خرید نرم‌افزار", "قیمت حسابداری"],
+            "advice_requests": ["حسابداری ساده", "حسابداری ابری"],
+            "implicit_solutions": ["حسابداری مالی", "نرم افزار حسابداری"],
     }
     prod = product_queries(product, terms=terms)
     kinds = {q["kind"] for q in prod}

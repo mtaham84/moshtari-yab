@@ -35,8 +35,9 @@ like the confirmed buyers and fewer like the rejected ones.
 
 HARD RULES
 1. Every phrase is 1, 2 or 3 Persian words. Never 4+. X search is exact-match, so each extra word makes a query rarer.
-2. Be TOPICAL at product-type level: «جوراب», «دامن», «لباس مجلسی مردانه», «شوره سنگ», «دندان درد». Never too broad («لباس»,
-   «خرید کالا») and never colours, sizes, finishes, brands, models, prices, cities or adjectives («شکلاتی», «شکسته», «ارزان»).
+2. Prefer colloquial pain, fit, comfort and use-case phrases over exact catalog names: «دندون درد», «لباس خنک», «لباس راحت»,
+   «لباس تنگ», «پیراهن کژوال», «هودی گرم», «شوره سنگ». Never write purchase/location/price/discount/shipping queries
+   («خرید پیراهن», «کجا ایمپلنت», «قیمت», «تخفیف», «ارسال رایگان») or a phrase about a neighbouring family.
    The SELLER NOTES in the family description (ideal customer, wholesale, city) are binding.
 3. Learn the VOCABULARY of the confirmed buyers (their verbs and nouns) and compress it into 1-3 word phrases. Do not copy
    whole sentences and do not return anything already in "Existing queries".
@@ -44,10 +45,7 @@ HARD RULES
 5. Prefer variations in the spirit of the best-performing queries (same topic noun, different companion word).
 6. No operators, quotes, hashtags, mentions, emojis or English words.
 
-Return 4 to 6 phrases covering the same three formats as the base queries:
- - problem: the person's own pain/symptom/frustration ([problem word]+[topic noun]), e.g. «شوره سنگ», «ترک سنگ»
- - alternative: asking for advice/recommendation ([advice word]+[topic noun]), e.g. «پیشنهاد سنگبر», «تجربه ایمپلنت»
- - solution: direct need/purchase intent ([action word]+[topic noun]), e.g. «خرید سنگ», «قیمت تراورتن»
+Return 4 to 6 phrases covering pain, fit/style/use and useful topic names. Keep each phrase short and natural.
 
 Return strictly JSON:
 {

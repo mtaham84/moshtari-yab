@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from django.db import transaction
 from django.utils import timezone
+from need_engine.text import norm
 
 from workers.x_collector.families import build_families
 
@@ -24,14 +25,16 @@ he sells. Plan where REAL BUYERS of this family can be found on Instagram. Buyer
 «قیمت؟», «موجوده؟», «پیام بدید», «سایز؟» in the comments under posts of sellers and niche accounts. So plan three source types.
 
 1) hashtags (6-10): Persian or finglish tags a buyer-oriented post about this family would carry, WITHOUT the # sign.
-   Product-type level (1-3 words joined by _): «لباس_مجلسی_مردانه», «جوراب_ورزشی», «ایمپلنت_دندان».
+   Product-type or common-use level (1-3 words joined by _): «لباس_مجلسی_مردانه», «جوراب_ورزشی», «لباس_خنک», «ایمپلنت_دندان».
    Mid-sized niche tags only: never mega tags («لباس», «فروشگاه», «تخفیف», «پوشاک») and never ultra-narrow ones
    (colours, sizes, model numbers, brands, city names unless the notes demand a city). No spam tags (follow4follow...).
-2) keywords (4-8): 1-3 word Persian phrases for Instagram text search that find posts by sellers/educators of the same
-   family or posts where people ask for it («دامن چرم», «کلاس کنکور», «خرید عمده جوراب»).
-3) page_search_terms (4-8): 1-3 word phrases to FIND relevant business accounts (peer sellers, wholesalers, schools,
-   clinics) through Instagram account search. NEVER output Instagram handles or URLs: you do not know real ones and
-   they will be verified by code.
+2) keywords (4-8): 1-3 word colloquial Persian phrases for Instagram text search. Prefer pain, fit, comfort and common use
+   over exact product/SKU names: «لباس تنگ», «لباس خنک», «لباس راحت», «پیراهن کژوال», «دندون درد», «ارتودنسی», «ایمپلنت».
+   NEVER use purchase, price, discount, shipping, location or where-to-buy wording («خرید پیراهن», «قیمت», «تخفیف»,
+   «ارسال رایگان», «کجا ایمپلنت»).
+3) page_search_terms (4-8): short category and seller-type phrases to FIND relevant business accounts. Keep them broad enough
+   for real account search; avoid model numbers, prices, discounts, shipping or where-to-buy questions. NEVER output
+   Instagram handles or URLs: they will be verified by code.
 Also return buyer_signals (6-12): short Persian phrases that appear in buyer comments for this family
 («قیمت», «موجود», «سایز», «عمده», «دایرکت»). And negative_signals (0-8): words that mark spam/sellers/irrelevance.
 SELLER NOTES ARE BINDING: wholesale -> emphasise buyer shops and B2B words («عمده», «فروشگاه», «همکاری»); students/clients ->
@@ -41,6 +44,9 @@ Return strict JSON:
 
 _HANDLE_OR_URL = re.compile(r"(?:^\s*@|instagram\.com|https?://|www\.)", re.I)
 _BAD_TERM_CHARS = re.compile(r"[\n\r,،;؛!?؟@#]" )
+_WEAK_SEARCH_WORDS = {norm(w) for w in (
+    "خرید", "قیمت", "سفارش", "تخفیف", "ارسال", "رایگان", "کجا", "پیشنهاد", "معرفی", "تجربه", "کدام", "کدوم",
+)}
 GENERIC_BUYER_SIGNALS = (
     "قیمت", "موجود", "چنده", "سایز", "رنگ", "سفارش", "خرید", "عمده", "دایرکت", "پیام بدید", "ارسال دارید",
 )
@@ -81,6 +87,9 @@ def _validate_plan(data: Any) -> dict[str, list[str]]:
     }
     plan = {key: _phrases(data.get(key), limit=limit, words_max=words, max_len=max_len)
             for key, (limit, words, max_len) in fields.items()}
+    for key in ("keywords", "page_search_terms"):
+        plan[key] = [phrase for phrase in plan[key]
+                     if not _WEAK_SEARCH_WORDS.intersection(norm(phrase).split())]
     mega = {"لباس", "فروشگاه", "تخفیف", "پوشاک", "shop", "store", "fashion"}
     plan["hashtags"] = [tag for tag in plan["hashtags"] if " " not in tag and tag.casefold() not in mega]
     if (len(plan["hashtags"]) < 6 or len(plan["keywords"]) < 4 or len(plan["page_search_terms"]) < 4

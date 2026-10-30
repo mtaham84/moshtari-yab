@@ -20,7 +20,7 @@ from need_engine.reply import MessageStyle, validate_outreach_result
 def _valid_plan():
     return {
         "hashtags": ["پیراهن_مردانه", "پوشاک_مردانه", "لباس_مجلسی_مردانه", "شومیز_زنانه", "جوراب_ورزشی", "لباس_بچگانه"],
-        "keywords": ["قیمت پیراهن", "خرید عمده جوراب", "پیراهن مردانه", "لباس بچگانه"],
+        "keywords": ["لباس خنک", "لباس راحت", "پیراهن مردانه", "لباس بچگانه", "خرید عمده جوراب", "قیمت پیراهن"],
         "page_search_terms": ["فروشگاه پوشاک", "تولیدی جوراب", "مزون زنانه", "پوشاک مردانه"],
         "buyer_signals": ["قیمت", "موجوده", "سایز", "عمده", "دایرکت", "ارسال دارید"],
         "negative_signals": ["تبلیغات", "فالوور"],
@@ -34,6 +34,7 @@ class InstagramPureTests(SimpleTestCase):
         plan["page_search_terms"].append("تولیدی لباس")
         clean = _validate_plan(plan)
         self.assertNotIn("@fake_shop", clean["page_search_terms"])
+        self.assertFalse(any("خرید" in term or "قیمت" in term for term in clean["keywords"]))
         plan = _valid_plan()
         plan["page_search_terms"] = ["instagram.com/fake", "example.com"]
         with self.assertRaises(ValueError):
