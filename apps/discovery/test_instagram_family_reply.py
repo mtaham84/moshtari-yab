@@ -144,6 +144,15 @@ class InstagramFamilyDatabaseTests(TestCase):
         self.assertFalse(built)
         llm.assert_not_called()
 
+    def test_zero_balance_skips_instagram_scraping_before_api_calls(self):
+        from apps.discovery.management.commands.run_instagram_scraper import Command
+        command = Command()
+        command._instagram_api_call = Mock(side_effect=AssertionError("Instagram API called"))
+        target = {"business": self.business, "family": self.family, "plan": None, "sources": []}
+        with patch("apps.billing.services.is_blocked", return_value=True):
+            self.assertEqual(command._scrape_family_target(object(), object(), target, 20, 6), 0)
+        command._instagram_api_call.assert_not_called()
+
     def test_daily_plan_cap(self):
         for i in range(8):
             InstagramFamilyPlan.objects.create(business=self.business, family_id=f"f{i}", content_hash=f"h{i}")
