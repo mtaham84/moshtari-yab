@@ -46,3 +46,23 @@ def test_llm_prompt_contains_family_context_and_prompt_version_is_bumped():
     assert "OTHER FAMILIES" in message and "ANCHOR WORDS" in message
     assert "گرانی شومیز" in X_QUERY_TERMS_SYSTEM and "تنگی شلوار" in X_QUERY_TERMS_SYSTEM
     assert terms_module.PROMPT_VERSION == "8"
+
+
+def test_blocked_tenant_is_removed_before_x_terms_or_llm(monkeypatch):
+    from workers.x_collector import query_source
+
+    product = SimpleNamespace(product_id="51", business_id="4", title="پیراهن مردانه", x_search_enabled=True)
+    config = SimpleNamespace(x_mode="intent")
+    source = SimpleNamespace(db=object())
+
+    class Registry:
+        def __init__(self, _config):
+            pass
+
+        def blocked(self, force=False):
+            assert force
+            return frozenset({"4"})
+
+    monkeypatch.setattr("need_engine.registry.ModelRegistry", Registry)
+    monkeypatch.setattr(query_source, "_terms_and_cards", lambda *_: (_ for _ in ()).throw(AssertionError("LLM called")))
+    assert query_source._load_intent_queries(config, source, [product], "intent", None) == []

@@ -130,6 +130,17 @@ class InstagramFamilyDatabaseTests(TestCase):
         self.assertEqual(changed.content_hash, "hash-b")
         self.assertEqual(llm.call_count, 2)
 
+    def test_zero_balance_skips_plan_llm_before_cache_lookup(self):
+        from apps.billing.models import Wallet
+        wallet = Wallet.objects.get(business=self.business)
+        wallet.balance_toman = 0
+        wallet.save(update_fields=["balance_toman"])
+        llm = Mock(return_value=_valid_plan())
+        plan, built = ensure_family_plan(self.business, self.family, call_llm=llm)
+        self.assertIsNone(plan)
+        self.assertFalse(built)
+        llm.assert_not_called()
+
     def test_daily_plan_cap(self):
         for i in range(8):
             InstagramFamilyPlan.objects.create(business=self.business, family_id=f"f{i}", content_hash=f"h{i}")

@@ -88,6 +88,14 @@ def test_blocked_sellers_and_access_rule():
     assert not acc.allows("-100", "1") and acc.allows("-100", "2")
 
 
+def test_zero_balance_blocks_without_enforcement_and_topup_restores_access():
+    db = FakeDB(enforce=False, balances={"1": 0})
+    reg = ModelRegistry(cfg(), db=db)
+    assert reg.blocked(force=True) == frozenset({"1"})
+    db.balances["1"] = 1
+    assert reg.blocked(force=True) == frozenset()
+
+
 def test_llm_client_uses_panel_model_endpoint_and_price(pg_dsn, pg_schema, monkeypatch):
     store = Store(pg_dsn, pg_schema("reg"))
     c = cfg(database_url=pg_dsn)
