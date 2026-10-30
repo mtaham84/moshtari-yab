@@ -32,31 +32,79 @@ def _extract_json(text: str) -> Any:
 def chat_json(system: str, user: str, purpose: str, business_id: int | None = None, max_tokens: int = 3500,
               timeout: float = 90.0, attempts: int = 2) -> Any:
     """Runs one JSON-returning chat completion; raises LLMError when no usable JSON comes back."""
+    import urllib.request
     from apps.core.models import LLMUsageLog
+    from apps.billing.models import AIModel
 
-    try:
-        from instagram_engine.analyzer import _call_llm_with_usage
-    except Exception as exc:   # pragma: no cover - engine package missing
-        raise LLMError(f"LLM client unavailable: {exc}") from exc
+    # Candidate active models ordered by priority (Luna priority 1 has highest priority)
+    models = list(AIModel.objects.filter(is_active=True, provider__is_active=True).select_related("provider").order_by("priority"))
+
+    candidates = []
+    for m in models:
+        if m.provider and m.provider.base_url and m.provider.api_key:
+            candidates.append((m.name, m.provider.base_url.rstrip("/"), m.provider.api_key))
+
+    # Fallback to instagram_engine helper if candidates table is empty
+    if not candidates:
+        try:
+            from instagram_engine.analyzer import _call_llm_with_usage
+            payload = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                       "temperature": 0.2, "max_tokens": max_tokens}
+            res = _call_llm_with_usage(payload, timeout=timeout)
+            content = res.get("content")
+            if content:
+                return _extract_json(content)
+        except Exception:
+            pass
+        raise LLMError("هیچ ارائه‌دهنده یا مدل هوش مصنوعی فعالی یافت نشد.")
 
     last = "no response"
-    for _ in range(max(1, attempts)):
-        payload = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                   "temperature": 0.2, "max_tokens": max_tokens}
-        res = _call_llm_with_usage(payload, timeout=timeout)
-        content = res.get("content")
-        try:
-            LLMUsageLog.objects.create(model=str(res.get("model") or payload.get("model") or "unknown")[:80], purpose=purpose,
-                                       business_id=business_id, tokens_in=int(res.get("tokens_in") or 0),
-                                       tokens_out=int(res.get("tokens_out") or 0), cost_usd=res.get("cost_usd") or 0,
-                                       ok=bool(content))
-        except Exception:   # the ledger must never break the feature
-            log.debug("could not write LLMUsageLog", exc_info=True)
-        if not content:
-            last = "empty response"
-            continue
-        try:
-            return _extract_json(content)
-        except ValueError as exc:
-            last = f"invalid JSON ({exc})"
+    for model_name, base_url, api_key in candidates:
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        body = json.dumps({
+            "model": model_name,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": 0.2,
+            "max_tokens": max_tokens
+        }).encode("utf-8")
+
+        for attempt in range(max(1, attempts)):
+            try:
+                req = urllib.request.Request(url, data=body, headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                ch = (data.get("choices") or [{}])[0]
+                content = (ch.get("message") or {}).get("content") or ""
+                u = data.get("usage") or {}
+                tokens_in = int(u.get("prompt_tokens") or 0)
+                tokens_out = int(u.get("completion_tokens") or 0)
+                try:
+                    LLMUsageLog.objects.create(
+                        model=model_name[:80],
+                        purpose=purpose,
+                        business_id=business_id,
+                        tokens_in=tokens_in,
+                        tokens_out=tokens_out,
+                        cost_usd=0,
+                        ok=bool(content)
+                    )
+                except Exception:
+                    pass
+                if not content:
+                    last = "empty response"
+                    continue
+                return _extract_json(content)
+            except Exception as exc:
+                last = str(exc)
+                log.warning("LLM model %s failed on attempt %d: %s", model_name, attempt + 1, exc)
+                # If host connection fails or certificate error, failover to next candidate model
+                exc_str = str(exc).lower()
+                if any(k in exc_str for k in ("urlopen", "connection", "tlsv1", "not found", "404", "ssl", "refused", "timeout")):
+                    break
+        log.warning("Candidate model %s failed (%s), failing over to next model...", model_name, last)
+
     raise LLMError(last)
