@@ -188,6 +188,61 @@ class ProductsAndTaxonomyTestCase(TestCase):
         self.assertEqual(data["status"], "success")
         self.assertIn("پایتون", data["suggestion"]["full_path"])
 
+    def test_deep_leaf_category_suggestion_for_garments(self):
+        # Setup specific level-2 and level-3 categories
+        mens_shirt = Category.objects.create(
+            name="پیراهن مردانه",
+            parent=self.mens_clothing,
+            product_type="PHYSICAL"
+        )
+        womens_clothing = Category.objects.create(
+            name="پوشاک زنانه",
+            parent=self.root_clothing,
+            product_type="PHYSICAL"
+        )
+        womens_underwear = Category.objects.create(
+            name="لباس زیر و جوراب",
+            parent=womens_clothing,
+            product_type="PHYSICAL"
+        )
+        accessory = Category.objects.create(
+            name="اکسسوری و زیورآلات",
+            parent=self.root_clothing,
+            product_type="PHYSICAL"
+        )
+
+        # 1. 'شورت زنانه' must go to Level 3 'لباس زیر و جوراب', never 'اکسسوری'
+        sug_underwear = suggest_category_for_product("شورت زنانه")
+        self.assertIsNotNone(sug_underwear)
+        self.assertEqual(sug_underwear["category_id"], womens_underwear.id)
+        self.assertNotIn("اکسسوری", sug_underwear["full_path"])
+        self.assertIn("لباس زیر و جوراب", sug_underwear["full_path"])
+
+        # 2. 'پیراهن مردانه' must go to Level 3 'پیراهن مردانه', never stop at Level 2 'مردانه'
+        sug_shirt = suggest_category_for_product("پیراهن مردانه")
+        self.assertIsNotNone(sug_shirt)
+        self.assertEqual(sug_shirt["category_id"], mens_shirt.id)
+        self.assertNotEqual(sug_shirt["category_id"], self.mens_clothing.id)
+        self.assertIn("پیراهن مردانه", sug_shirt["name"])
+
+    def test_suggest_category_auto_adopts_for_business(self):
+        system_shirt = Category.objects.create(
+            name="پیراهن نخی مردانه",
+            parent=self.mens_clothing,
+            product_type="PHYSICAL",
+            business=None,
+            source="system"
+        )
+        # Business currently has no adopted categories for shirts
+        self.assertFalse(Category.objects.filter(business=self.business, name="پیراهن نخی مردانه").exists())
+
+        sug = suggest_category_for_product("پیراهن نخی مردانه", business=self.business)
+        self.assertIsNotNone(sug)
+        # Auto-adoption should create a copy in the business tree
+        adopted = Category.objects.filter(business=self.business, origin=system_shirt).first()
+        self.assertIsNotNone(adopted)
+        self.assertEqual(sug["category_id"], adopted.id)
+
     def test_product_detail_view_rendering(self):
         product = Product.objects.create(
             business=self.business,

@@ -57,18 +57,27 @@
 
     <!-- Product Name -->
     <div class="form-group" style="margin-bottom: 20px;">
-      <label for="prod_name" class="form-label">
-        نام محصول یا خدمت <span class="req">*</span>
-      </label>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
+        <label for="prod_name" class="form-label" style="margin-bottom: 0;">
+          نام محصول یا خدمت <span class="req">*</span>
+        </label>
+        <button type="button" id="btn-trigger-ai-category" class="p-btn p-btn-sm p-btn-primary" style="font-size: 0.78rem; padding: 4px 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px;">
+          <svg class="ico" aria-hidden="true" style="width: 14px; height: 14px;"><use href="#i-cpu"/></svg>
+          <span id="btn-ai-label">دسته‌بندی هوشمند خودکار</span>
+        </button>
+      </div>
       <input 
         type="text" 
         name="name" 
         id="prod_name" 
         class="form-input" 
-        placeholder="مثال: مانتو کتان تابستانی" 
+        placeholder="مثال: مانتو کتان تابستانی، شورت زنانه، پیراهن مردانه" 
         value="{{ product.name|default:'' }}" 
         required 
         autofocus>
+      <small style="color: var(--panel-text-faint); display: block; margin-top: 6px; font-size: 0.76rem;">
+        پس از نوشتن نام محصول، با زدن دکمه «دسته‌بندی هوشمند خودکار» شاخه تخصصی محصول در دقیق‌ترین زیرشاخه تعیین می‌شود.
+      </small>
     </div>
 
     <!-- Product Type Selection -->
@@ -129,7 +138,11 @@
           درخت‌واره دسته‌بندی کالا
           <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منحصربه‌فرد کسب‌وکار شما)</small>
         </label>
-        <div style="display: flex; gap: 8px; align-items: center;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button type="button" id="btn-trigger-ai-category-2" class="p-btn p-btn-sm p-btn-primary" style="font-size: 0.74rem; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;">
+            <svg class="ico" aria-hidden="true" style="width: 13px; height: 13px;"><use href="#i-bolt"/></svg>
+            <span>دسته‌بندی خودکار</span>
+          </button>
           <a href="{% url 'accounts:categories' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.75rem; padding: 4px 10px; display: inline-flex; align-items: center; gap: 6px;">
             <svg class="ico" aria-hidden="true" style="width: 14px; height: 14px;"><use href="#i-folder"/></svg>
             <span>ویرایش دسته‌بندی‌ها</span>
@@ -532,6 +545,7 @@
   const nameInput = document.getElementById('prod_name');
   const descInput = document.getElementById('prod_desc');
   const categorySelect = document.getElementById('category_select');
+  const selectedCatText = document.getElementById('selected-category-text');
   const suggestionBox = document.getElementById('ai-suggestion-box');
   const aiPath = document.getElementById('ai-path-display');
   const aiReason = document.getElementById('ai-reason-text');
@@ -541,16 +555,27 @@
   const dynamicContainer = document.getElementById('dynamic-attributes-container');
 
   let currentSuggestedCatId = null;
-  let debounceTimer = null;
 
-  // Real-time AI Category Suggestion
-  function fetchCategorySuggestion() {
+  // Manual Trigger for AI Auto-Categorization (Never fires while typing)
+  function triggerAutoCategorize(silent = false) {
     const name = nameInput?.value.trim() || '';
     const desc = descInput?.value.trim() || '';
-    if (name.length < 3) {
-      if (suggestionBox) suggestionBox.style.display = 'none';
+    if (name.length < 2) {
+      if (!silent) {
+        alert('لطفاً ابتدا نام محصول را به صورت کامل وارد کنید.');
+        if (nameInput) nameInput.focus();
+      }
       return;
     }
+
+    const btn1 = document.getElementById('btn-trigger-ai-category');
+    const btnLabel = document.getElementById('btn-ai-label');
+    const btn2 = document.getElementById('btn-trigger-ai-category-2');
+    const origText = btnLabel ? btnLabel.textContent : 'دسته‌بندی هوشمند خودکار';
+
+    if (btn1) btn1.disabled = true;
+    if (btn2) btn2.disabled = true;
+    if (btnLabel) btnLabel.textContent = 'در حال تحلیل...';
 
     const typeRadio = document.querySelector('input[name="product_type"]:checked');
     const prodType = typeRadio ? typeRadio.value : '';
@@ -561,30 +586,64 @@
         if (data.status === 'success' && data.suggestion) {
           const s = data.suggestion;
           currentSuggestedCatId = s.category_id;
+
+          // 1. Update category select dropdown
+          if (categorySelect) {
+            let opt = Array.from(categorySelect.options).find(o => o.value === String(s.category_id));
+            if (!opt) {
+              opt = document.createElement('option');
+              opt.value = String(s.category_id);
+              opt.textContent = s.full_path;
+              opt.dataset.fullpath = s.full_path;
+              categorySelect.appendChild(opt);
+            }
+            categorySelect.value = String(s.category_id);
+            categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          // 2. Update active category text display
+          if (selectedCatText) {
+            selectedCatText.textContent = s.full_path;
+          }
+
+          // 3. Update suggestion card widget
           if (aiPath) aiPath.textContent = s.full_path;
           if (aiReason) aiReason.textContent = s.reason;
           if (aiConfidence) aiConfidence.textContent = `${s.confidence}٪ دقت ایجنت`;
           if (suggestionBox) suggestionBox.style.display = 'block';
+
+          // 4. Highlight category in tree explorer
+          if (typeof fetchAndRenderTree === 'function') {
+            fetchAndRenderTree();
+          }
+        } else {
+          if (!silent) {
+            alert('دسته‌بندی دقیقی به‌صورت خودکار پیدا نشد. لطفاً از درخت‌واره زیر دسته مورد نظر را انتخاب نمایید.');
+          }
         }
       })
-      .catch(err => console.log('Suggestion error:', err));
+      .catch(err => {
+        console.error('Auto categorization error:', err);
+        if (!silent) {
+          alert('خطا در ارتباط با سرور هنگام تحلیل دسته‌بندی.');
+        }
+      })
+      .finally(() => {
+        if (btn1) btn1.disabled = false;
+        if (btn2) btn2.disabled = false;
+        if (btnLabel) btnLabel.textContent = origText;
+      });
   }
 
-  nameInput?.addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(fetchCategorySuggestion, 500);
-  });
+  // Bind click on dedicated auto-categorize buttons
+  document.getElementById('btn-trigger-ai-category')?.addEventListener('click', () => triggerAutoCategorize(false));
+  document.getElementById('btn-trigger-ai-category-2')?.addEventListener('click', () => triggerAutoCategorize(false));
 
-  descInput?.addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(fetchCategorySuggestion, 700);
-  });
-
-  // Accept AI suggestion
+  // Accept AI suggestion button
   btnAcceptAi?.addEventListener('click', () => {
     if (currentSuggestedCatId && categorySelect) {
       categorySelect.value = String(currentSuggestedCatId);
-      loadAttributesForCategory(currentSuggestedCatId);
+      categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
       suggestionBox.style.display = 'none';
       categorySelect.style.borderColor = 'var(--brand-purple)';
       setTimeout(() => { categorySelect.style.borderColor = ''; }, 1500);
@@ -740,7 +799,16 @@
   }
 
   categorySelect?.addEventListener('change', () => {
-    loadAttributesForCategory(categorySelect.value);
+    const val = categorySelect.value;
+    if (selectedCatText) {
+      const opt = categorySelect.selectedOptions ? categorySelect.selectedOptions[0] : null;
+      if (opt && val) {
+        selectedCatText.textContent = opt.dataset.fullpath || opt.text.trim();
+      } else if (!val) {
+        selectedCatText.textContent = 'هنوز شاخه‌ای انتخاب نشده است';
+      }
+    }
+    loadAttributesForCategory(val);
   });
 
   // Dynamic Category Tree Builder Logic (Max 2-3 Levels Enforced)
@@ -748,7 +816,6 @@
   const btnTreeText = document.getElementById('btn-tree-text');
   const treeExplorer = document.getElementById('category-tree-explorer');
   const treeContainer = document.getElementById('tree-container');
-  const selectedCatText = document.getElementById('selected-category-text');
   const inlineCreator = document.getElementById('inline-category-creator');
   const creatorLabel = document.getElementById('creator-parent-label');
   const newCatInput = document.getElementById('new-cat-name-input');

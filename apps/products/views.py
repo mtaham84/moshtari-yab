@@ -453,11 +453,12 @@ def api_suggest_category(request):
     name = request.GET.get("name", "").strip()
     description = request.GET.get("description", "").strip()
     product_type = request.GET.get("product_type", "").strip() or None
+    business = getattr(request.user, "business", None) if getattr(request, "user", None) and request.user.is_authenticated else None
 
     if not name:
         return JsonResponse({"status": "empty", "suggestion": None})
 
-    suggestion = suggest_category_for_product(name=name, description=description, product_type=product_type)
+    suggestion = suggest_category_for_product(name=name, description=description, product_type=product_type, business=business)
     if suggestion:
         return JsonResponse({"status": "success", "suggestion": suggestion})
     return JsonResponse({"status": "no_match", "suggestion": None})
