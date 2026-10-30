@@ -586,7 +586,12 @@ class NeedEngine:
                 return
             self.store.update_need(n)
             return
-        score = self.cfg.x_fit_yes_score if fit == "yes" else self.cfg.x_fit_partly_score
+        if fit == "yes":
+            score = self.cfg.x_fit_yes_score
+        elif getattr(n, "strength", "") == "weak":
+            score = max(0.40, min(self.cfg.x_fit_partly_score, 0.50))
+        else:
+            score = self.cfg.x_fit_partly_score
         mp = MatchedProduct(product_id=pid, match_score=score, similarity=1.0,
                             verdict=Verdict(solves=fit, reason=reason or None))
         prev = self.store.emitted(n.need_id)

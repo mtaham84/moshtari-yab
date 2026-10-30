@@ -117,7 +117,7 @@ class EngineConfig:
     x_fit_yes_score: float = _f("NE_X_FIT_YES_SCORE", 0.9)      # per-product mode: match score of fit yes / partly
     x_fit_partly_score: float = _f("NE_X_FIT_PARTLY_SCORE", 0.7)
     x_max_per_run: int = _f("NE_X_MAX_PER_RUN", 200)
-    x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 65.0)
+    x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 30.0)
     x_prefilter: str = _f("NE_X_PREFILTER", "shadow")
     x_min_chars: int = _f("NE_X_MIN_CHARS", 15)
     x_min_persian_ratio: float = _f("NE_X_MIN_PERSIAN_RATIO", 0.5)
@@ -130,7 +130,7 @@ class EngineConfig:
     x_intent_weights: dict = _f("NE_X_INTENT_WEIGHTS", {
         "explicit": 1.0, "recommendation": 0.8, "comparison": 0.6, "general": 0.0,
     })
-    x_embed_min_sim: float = _f("NE_X_EMBED_MIN_SIM", 0.35)
+    x_embed_min_sim: float = _f("NE_X_EMBED_MIN_SIM", 0.30)
     x_embed_gate: str = _f("NE_X_EMBED_GATE", "shadow")
     x_max_posts_per_author_per_run: int = _f("NE_X_MAX_POSTS_PER_AUTHOR_PER_RUN", 3)
     x_batch_size: int = _f("NE_X_BATCH_SIZE", 8)

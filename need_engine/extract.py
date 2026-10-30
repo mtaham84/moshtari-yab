@@ -25,14 +25,15 @@ _LABELS = OPPORTUNITY_LABELS | {"resolved", "joke", "seller", "curiosity", "no_b
 
 
 def _x_reject_reason(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict,
-                     allow_unknown: bool = True) -> str | None:
+                     allow_unknown: bool = True, min_strength: str = "weak") -> str | None:
     """Why an X need is not a confirmed buyer (None = accepted). Unknown author type is allowed: most real
     people have no bio, so only organisations, verified accounts and shop-like bios are rejected."""
     if candidate.get("buyer_intent_confirmed") is not True or candidate.get("is_opportunity") is not True:
         return "no_buyer_intent"
-    if candidate.get("label") not in {"explicit_need", "on_behalf_need"}:
+    if candidate.get("label") not in {"explicit_need", "on_behalf_need", "implicit_need"}:
         return "label"
-    if candidate.get("strength") not in {"medium", "strong"}:
+    allowed_strengths = {"weak", "medium", "strong"} if min_strength == "weak" else {"medium", "strong"}
+    if candidate.get("strength") not in allowed_strengths:
         return "weak"
     if not str(candidate.get("need") or "").strip() or not candidate.get("solution_queries"):
         return "empty_need"
@@ -54,8 +55,8 @@ def _x_reject_reason(candidate: dict, evidence_ids: list[int], author_id: str, n
 
 
 def _confirmed_x_buyer(candidate: dict, evidence_ids: list[int], author_id: str, new_by_id: dict,
-                       allow_unknown: bool = True) -> bool:
-    return _x_reject_reason(candidate, evidence_ids, author_id, new_by_id, allow_unknown) is None
+                       allow_unknown: bool = True, min_strength: str = "medium") -> bool:
+    return _x_reject_reason(candidate, evidence_ids, author_id, new_by_id, allow_unknown, min_strength=min_strength) is None
 
 
 def _int_or_none(v) -> int | None:
@@ -92,7 +93,8 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
 
         ev = sorted({int(e) for e in (n.get("evidence_message_ids") or []) if str(e).lstrip("-").isdigit()} & w.all_ids)
         aid = str(n.get("author_id") or "")
-        reason = _x_reject_reason(n, ev, aid, x_messages, cfg.x_allow_unknown_author) if x_messages else None
+        reason = _x_reject_reason(n, ev, aid, x_messages, cfg.x_allow_unknown_author,
+                                  min_strength=getattr(cfg, "verify_min_strength", "weak")) if x_messages else None
         if reason:
             dropped += 1
             reasons[reason] = reasons.get(reason, 0) + 1
