@@ -126,7 +126,10 @@ services:
 
   ig:
     <<: *app
-    command: ["python", "manage.py", "run_instagram_scraper", "--loop", "--all-businesses", "--interval", "15", "--min-comments", "50", "--max-posts", "6"]
+    environment:
+      <<: *app-env
+      INSTAGRAM_DAILY_REQUEST_BUDGET: "500"
+    command: ["python", "manage.py", "run_instagram_scraper", "--loop", "--all-businesses", "--interval", "15", "--min-comments", "10", "--max-posts", "20"]
     depends_on:
       web:
         condition: service_healthy

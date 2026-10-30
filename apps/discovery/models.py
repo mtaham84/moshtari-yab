@@ -1125,6 +1125,7 @@ class InstagramCrawlExecution(models.Model):
         ("NO_POSTS", "بدون پست جدید"),
         ("THROTTLED", "محدودیت موقت"),
         ("FAILED", "خطا"),
+        ("REMOVED_UNQUALIFIED", "حذف‌شده (کمتر از ۳ پست واجد شرایط)"),
     ]
 
     business = models.ForeignKey(

@@ -39,14 +39,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--min-comments",
             type=int,
-            default=int(os.getenv("INSTAGRAM_MIN_COMMENTS", "20")),
+            default=int(os.getenv("INSTAGRAM_MIN_COMMENTS", "10")),
             help="Minimum comments required on a post (configurable through INSTAGRAM_MIN_COMMENTS).",
         )
         parser.add_argument(
             "--max-posts",
             type=int,
-            default=6,
-            help="Maximum posts to inspect per hashtag (default: 6).",
+            default=20,
+            help="Maximum posts to inspect per hashtag (default: 20).",
         )
         parser.add_argument(
             "--tenant",
@@ -199,6 +199,9 @@ class Command(BaseCommand):
                 except Exception as exc:
                     self._note_account_error(account, str(exc), cl, exc)
                     self.stderr.write(f"Error while scraping target {target['name']}: {exc}")
+                finally:
+                    account.last_action_at = dj_timezone.now()
+                    account.save(update_fields=["last_action_at"])
                 time.sleep(random.uniform(4.0, 8.0))
 
             self.stdout.write(self.style.MIGRATE_HEADING(f"\n=== Discovery Cycle Complete ({cycle_leads} leads captured) ==="))
@@ -439,8 +442,10 @@ class Command(BaseCommand):
 
     def _is_usable(self, account) -> bool:
         account.refresh_from_db(fields=["status", "cooldown_until"])
-        return account.status == "ACTIVE" and not (
-            account.cooldown_until and account.cooldown_until > dj_timezone.now()
+        return (
+            account.status == "ACTIVE"
+            and not (account.cooldown_until and account.cooldown_until > dj_timezone.now())
+            and self._request_budget_available(account)
         )
 
     def _note_account_error(self, account, err_text: str, cl=None, exc=None) -> bool:
@@ -498,9 +503,13 @@ class Command(BaseCommand):
         from instagram_engine.analyzer import get_effective_caption_cta, evaluate_comment_smart, detect_repeated_comment_triggers
         from instagram_engine.post_filters import is_irrelevant_post_for_business
 
-        thirty_days_ago = dj_timezone.now() - timedelta(days=30)
+        max_age_days = 30
+        age_cutoff = dj_timezone.now() - timedelta(days=max_age_days)
+        comment_cutoff = dj_timezone.now() - timedelta(days=10)
 
         for media in medias:
+            if posts_inspected >= 30:
+                break
             m_id = str(getattr(media, "id", "") or getattr(media, "pk", ""))
             if not m_id:
                 continue
@@ -514,15 +523,15 @@ class Command(BaseCommand):
             caption_text = getattr(media, "caption_text", "") or ""
             comment_count = getattr(media, "comment_count", 0) or 0
 
-            # 1. Age Pre-Filter: Strictly reject posts published more than 30 days ago
+            # 1. Age Pre-Filter: Strictly reject posts older than allowed window (30 days)
             taken_at = getattr(media, "taken_at", None)
             if taken_at:
                 if dj_timezone.is_naive(taken_at):
                     taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
-                if taken_at < thirty_days_ago:
+                if taken_at < age_cutoff:
                     self.stdout.write(
                         self.style.WARNING(
-                            f"    ⏭️ [SKIPPED POST > 30 DAYS OLD]: {source_post_url} (Published: {taken_at.strftime('%Y-%m-%d')})"
+                            f"    ⏭️ [SKIPPED POST > {max_age_days} DAYS OLD]: {source_post_url} (Published: {taken_at.strftime('%Y-%m-%d')})"
                         )
                     )
                     continue
@@ -537,8 +546,9 @@ class Command(BaseCommand):
                 )
                 continue
 
-            # Strict Filter: Must have at least min_comments (50)
-            if comment_count < min_comments:
+            # Strict Filter: Must have at least 10 comments
+            effective_min = 10
+            if comment_count < effective_min:
                 continue
 
             # Domain Relevance Filter: Skip posts outside the business domain
@@ -599,6 +609,13 @@ class Command(BaseCommand):
                 )
 
             for c in comments:
+                c_time = getattr(c, "created_at_utc", None) or getattr(c, "created_at", None)
+                if c_time:
+                    if dj_timezone.is_naive(c_time):
+                        c_time = dj_timezone.make_aware(c_time, dj_timezone.utc)
+                    if c_time < comment_cutoff:
+                        continue  # strictly reject comments older than 10 days
+
                 user_obj = getattr(c, "user", None)
                 if not user_obj:
                     continue
@@ -670,8 +687,14 @@ class Command(BaseCommand):
                     self.stderr.write(f"Notice: Opportunity sync skipped: {sync_exc}")
 
             time.sleep(random.uniform(4.0, 7.0))
+            if qualifying_posts >= 3 and posts_inspected >= 15:
+                break
 
-        return posts_inspected, qualifying_posts, leads_saved
+        retired = False
+        if qualifying_posts < 3:
+            retired = True
+
+        return posts_inspected, qualifying_posts, leads_saved, retired
 
     def _request_budget_available(self, account) -> bool:
         from django.db.models import Sum
@@ -756,45 +779,273 @@ class Command(BaseCommand):
                 page.save(update_fields=["last_status"])
         return created
 
+    def _retire_and_delete_source(self, business, source_type: str, label: str, family=None, plan=None):
+        """
+        Permanently remove an unqualified query so it is never searched again:
+        - Removes from InstagramFamilyPlan (hashtags, keywords, page_search_terms)
+        - Removes from Product (instagram_terms, instagram_hashtags)
+        - Deactivates InstagramPage (is_active=False, last_status='unqualified_retired')
+        - Deletes InstagramSourceStat
+        """
+        from apps.discovery.models import InstagramFamilyPlan, InstagramSourceStat, InstagramPage
+        from apps.products.models import Product
+
+        clean_label = str(label or "").strip()
+        raw_tag = clean_label.lstrip("#").strip()
+        raw_handle = clean_label.lstrip("@").strip()
+
+        # 1. InstagramFamilyPlan
+        plans_to_check = [plan] if plan else list(InstagramFamilyPlan.objects.filter(business=business))
+        for p in plans_to_check:
+            if not p:
+                continue
+            modified = False
+            if source_type == "hashtag":
+                old_tags = list(p.hashtags or [])
+                new_tags = [t for t in old_tags if str(t).strip().lstrip("#").casefold() != raw_tag.casefold()]
+                if len(new_tags) != len(old_tags):
+                    p.hashtags = new_tags
+                    modified = True
+            elif source_type == "keyword":
+                old_kw = list(p.keywords or [])
+                new_kw = [k for k in old_kw if str(k).strip().casefold() != clean_label.casefold()]
+                if len(new_kw) != len(old_kw):
+                    p.keywords = new_kw
+                    modified = True
+            elif source_type == "page":
+                if clean_label.startswith("search:"):
+                    term = clean_label[7:].strip()
+                    old_st = list(p.page_search_terms or [])
+                    new_st = [s for s in old_st if str(s).strip().casefold() != term.casefold()]
+                    if len(new_st) != len(old_st):
+                        p.page_search_terms = new_st
+                        modified = True
+            if modified:
+                p.save(update_fields=["hashtags", "keywords", "page_search_terms"])
+
+        # 2. Product (instagram_terms, instagram_hashtags)
+        if business:
+            products = Product.objects.filter(business=business)
+            for prod in products:
+                prod_mod = False
+                if source_type == "hashtag" and prod.instagram_hashtags:
+                    old_tags = list(prod.instagram_hashtags or [])
+                    new_tags = [t for t in old_tags if str(t).strip().lstrip("#").casefold() != raw_tag.casefold()]
+                    if len(new_tags) != len(old_tags):
+                        prod.instagram_hashtags = new_tags
+                        prod_mod = True
+                elif source_type == "keyword" and prod.instagram_terms:
+                    old_kw = list(prod.instagram_terms or [])
+                    new_kw = [k for k in old_kw if str(k).strip().casefold() != clean_label.casefold()]
+                    if len(new_kw) != len(old_kw):
+                        prod.instagram_terms = new_kw
+                        prod_mod = True
+                if prod_mod:
+                    prod.save(update_fields=["instagram_hashtags", "instagram_terms"])
+
+        # 3. InstagramPage (deactivate)
+        if source_type == "page":
+            InstagramPage.objects.filter(business=business, handle__iexact=raw_handle).update(
+                is_active=False,
+                last_status="unqualified_retired",
+            )
+
+        # 4. InstagramSourceStat (delete)
+        InstagramSourceStat.objects.filter(
+            business=business,
+            source_type=source_type,
+            label__iexact=clean_label[:100]
+        ).delete()
+        if source_type == "hashtag":
+            InstagramSourceStat.objects.filter(
+                business=business,
+                source_type="hashtag",
+                label__iexact=raw_tag[:100]
+            ).delete()
+
+    def _fetch_source_medias(
+        self, cl, account, source_type: str, source_label: str, business=None, page_obj=None,
+        target_qualifying: int = 3, min_inspect: int = 15, max_total: int = 30
+    ):
+        """
+        Fetch candidate medias for a given source_type ('hashtag', 'keyword', 'page').
+        - Prefers newest posts (fetches recent first and sorts by taken_at descending).
+        - Inspects at least `min_inspect` (15) posts.
+        - Seeks at least `target_qualifying` (3) qualifying posts (<= 30 days old and >= 10 comments).
+        - If first batch has fewer than 3 qualifying posts, fetches more until >= 3 qualifying found
+          or max_total (30) reached or source exhausted.
+        """
+        from datetime import timedelta
+        from apps.discovery.models import InstagramPage
+        post_cutoff = dj_timezone.now() - timedelta(days=30)
+
+        all_medias = []
+        seen_ids = set()
+
+        def _add(batch):
+            for m in batch or []:
+                mid = str(getattr(m, "id", "") or getattr(m, "pk", ""))
+                if mid and mid not in seen_ids:
+                    seen_ids.add(mid)
+                    all_medias.append(m)
+
+        def _count_qualifying():
+            cnt = 0
+            for m in all_medias:
+                t = getattr(m, "taken_at", None)
+                if t and dj_timezone.is_naive(t):
+                    t = dj_timezone.make_aware(t, dj_timezone.utc)
+                c_cnt = int(getattr(m, "comment_count", 0) or 0)
+                if t and t >= post_cutoff and c_cnt >= 10:
+                    cnt += 1
+            return cnt
+
+        steps = [15, 30]
+
+        if source_type == "hashtag":
+            tag = source_label.lstrip("#")
+            for amount in steps:
+                if len(all_medias) >= max_total:
+                    break
+                try:
+                    # Prefer recent posts
+                    recent = self._instagram_api_call(account, cl.hashtag_medias_recent, tag, amount=amount) or []
+                    _add(recent)
+                except Exception as e:
+                    self.stderr.write(f"Notice: hashtag_medias_recent for #{tag}: {e}")
+
+                if _count_qualifying() < target_qualifying or len(all_medias) < min_inspect:
+                    try:
+                        top = self._instagram_api_call(account, cl.hashtag_medias_top, tag, amount=amount) or []
+                        _add(top)
+                    except Exception:
+                        pass
+
+                if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
+                    break
+                if not self._request_budget_available(account):
+                    break
+
+        elif source_type == "page":
+            handle = source_label.lstrip("@")
+            page = page_obj or (InstagramPage.objects.filter(business=business, handle__iexact=handle).first() if business else None)
+            target_handle = page.handle if page else handle
+            try:
+                uid = self._instagram_api_call(account, cl.user_id_from_username, target_handle)
+            except Exception as e:
+                self.stderr.write(f"User ID lookup failed for @{target_handle}: {e}")
+                return []
+
+            for amount in steps:
+                if len(all_medias) >= max_total:
+                    break
+                try:
+                    batch = self._instagram_api_call(account, cl.user_medias, uid, amount=amount) or []
+                    _add(batch)
+                except Exception as e:
+                    self.stderr.write(f"User medias fetch failed for @{target_handle}: {e}")
+                    break
+                if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
+                    break
+                if not self._request_budget_available(account):
+                    break
+
+            if page:
+                page.last_run_at, page.last_status, page.consecutive_failures = dj_timezone.now(), "ok", 0
+                page.save(update_fields=["last_run_at", "last_status", "consecutive_failures"])
+
+        elif source_type == "keyword":
+            for amount in steps:
+                if len(all_medias) >= max_total:
+                    break
+                try:
+                    batch = self._instagram_api_call(account, cl.media_search, source_label, amount=amount) or []
+                    _add(batch)
+                except Exception as e:
+                    self.stderr.write(f"Media search failed for '{source_label}': {e}")
+                    break
+                if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
+                    break
+                if not self._request_budget_available(account):
+                    break
+
+        # Sort all candidate medias by taken_at descending (strictly newest first)
+        def _sort_key(m):
+            t = getattr(m, "taken_at", None)
+            if t is None:
+                return dj_timezone.now() - timedelta(days=9999)
+            if dj_timezone.is_naive(t):
+                t = dj_timezone.make_aware(t, dj_timezone.utc)
+            return t
+
+        all_medias.sort(key=_sort_key, reverse=True)
+        return all_medias[:max_total]
+
     def _inspect_family_medias(self, cl, account, target, source, medias, min_comments: int):
         """Cache each post/comments once globally, then score the cached comments for this tenant/family."""
         import hashlib
-        from datetime import timedelta
+        from datetime import datetime, timedelta
         from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
         from instagram_engine.analyzer import (extract_caption_cta, evaluate_comment_smart,
                                                 llm_evaluate_family_batch)
         from apps.discovery.instagram_families import INSTAGRAM_PAGE_MIN_COMMENTS, lead_quality_score
 
         business, family, plan = target["business"], target["family"], target["plan"]
-        page_source = source.source_type == "page"
-        age_days = 14 if page_source else 7
-        cutoff = dj_timezone.now() - timedelta(days=age_days)
+        post_cutoff = dj_timezone.now() - timedelta(days=30)
+        comment_cutoff = dj_timezone.now() - timedelta(days=10)
+        effective_min = 10
+        target_qualifying = 3
         posts_inspected = qualifying_posts = leads_saved = 0
         seen = set()
         buyer_signals, negatives = list(plan.buyer_signals or []), list(plan.negative_signals or [])
         family_context = {"category_path": family.category_path, "product_titles": family.titles[:10],
                           "seller_notes": family.notes[:1000], "business_domain": business.business_domain}
+
+        self.stdout.write(self.style.HTTP_INFO(
+            f"  [Scraping Source]: {source.source_type} -> '{source.label}' | Total Medias to inspect: {len(medias or [])}"
+        ))
+
         for media in medias or []:
+            if posts_inspected >= 30:
+                break
             media_id = str(getattr(media, "id", "") or getattr(media, "pk", ""))
             if not media_id or media_id in seen:
                 continue
             seen.add(media_id)
+            posts_inspected += 1
+
+            code = str(getattr(media, "code", "") or "")
+            post_url = f"https://www.instagram.com/p/{code}/" if code else f"id:{media_id}"
             taken_at = getattr(media, "taken_at", None)
             if taken_at and dj_timezone.is_naive(taken_at):
                 taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
-            if not taken_at or taken_at < cutoff:
-                continue
             comment_count = int(getattr(media, "comment_count", 0) or 0)
-            effective_min = INSTAGRAM_PAGE_MIN_COMMENTS if page_source else min_comments
-            if comment_count < effective_min:
+
+            # Rule 1: Post age limit <= 30 days
+            if not taken_at or taken_at < post_cutoff:
+                self.stdout.write(self.style.WARNING(
+                    f"    [{posts_inspected}] ⏭️ [رد شد - پست قدیمی]: {post_url} (تاریخ: {taken_at.strftime('%Y-%m-%d') if taken_at else 'نامشخص'} > ۳۰ روز)"
+                ))
                 continue
-            posts_inspected += 1
+
+            # Rule 2: Minimum comment count >= 10
+            if comment_count < effective_min:
+                self.stdout.write(self.style.WARNING(
+                    f"    [{posts_inspected}] ⏭️ [رد شد - کامنت کم]: {post_url} (کامنت: {comment_count} < ۱۰)"
+                ))
+                continue
+
+            qualifying_posts += 1
+            self.stdout.write(self.style.SUCCESS(
+                f"    🎯 [پست واجد شرایط #{qualifying_posts}]: {post_url} | انتشار: {taken_at.strftime('%Y-%m-%d')} | کامنت: {comment_count} | خواندن کامنت‌های ۱۰ روز اخیر..."
+            ))
+
             digest = hashlib.sha256(f"ig_post:{media_id}".encode()).hexdigest()
-            code = str(getattr(media, "code", "") or "")
             cached = InstagramCrawledPost.objects.filter(post_hash=digest).first()
             caption = str(getattr(media, "caption_text", "") or (cached.caption if cached else ""))
+            raw_comments = []
             if cached and cached.comments_cached:
-                raw_comments = list(cached.comments)
+                raw_comments = list(cached.comments or [])
             else:
                 try:
                     raw = self._instagram_api_call(account, cl.media_comments, media_id, amount=min(comment_count, 100))
@@ -814,10 +1065,14 @@ class Command(BaseCommand):
                     text = str(getattr(comment, "text", "") or "")
                     if not user_pk or not username or not text:
                         continue
+                    c_time = getattr(comment, "created_at_utc", None) or getattr(comment, "created_at", None)
+                    if c_time and dj_timezone.is_naive(c_time):
+                        c_time = dj_timezone.make_aware(c_time, dj_timezone.utc)
                     raw_comments.append({
                         "id": str(getattr(comment, "pk", "") or getattr(comment, "id", "") or user_pk),
                         "user_pk": user_pk, "username": username,
                         "full_name": str(getattr(user, "full_name", "") or username), "text": text[:1500],
+                        "created_at": c_time.isoformat() if c_time else None,
                         "is_business": getattr(user, "is_business", None),
                         "follower_count": getattr(user, "follower_count", None),
                         "bio": str(getattr(user, "biography", "") or "")[:500],
@@ -834,13 +1089,32 @@ class Command(BaseCommand):
                 if cached and not cached.comments_cached:
                     cached.caption, cached.comments, cached.comment_count, cached.comments_cached = caption, raw_comments, comment_count, True
                     cached.save(update_fields=["caption", "comments", "comment_count", "comments_cached"])
-            if not raw_comments:
+
+            # Rule 3: Comments age limit <= 10 days
+            eligible_comments = []
+            for row in raw_comments:
+                c_date = row.get("created_at")
+                if c_date:
+                    try:
+                        dt = datetime.fromisoformat(c_date)
+                        if dj_timezone.is_naive(dt):
+                            dt = dj_timezone.make_aware(dt, dj_timezone.utc)
+                        if dt < comment_cutoff:
+                            continue
+                    except Exception:
+                        pass
+                eligible_comments.append(row)
+
+            self.stdout.write(
+                f"      💬 [بررسی کامنت‌ها]: {len(eligible_comments)} کامنت مربوط به ۱۰ روز اخیر (از مجموع {len(raw_comments)} کامنت)"
+            )
+
+            if not eligible_comments:
                 continue
-            qualifying_posts += 1
-            post_url = f"https://www.instagram.com/p/{code}/" if code else ""
+
             cta = extract_caption_cta(caption)
             evaluations, ambiguous = {}, []
-            for row in raw_comments:
+            for row in eligible_comments:
                 eval_row = evaluate_comment_smart(row["text"], caption=caption, cta_word=cta,
                                                   product_context=family.category_path or family.title,
                                                   buyer_signals=buyer_signals, negative_signals=negatives)
@@ -858,11 +1132,13 @@ class Command(BaseCommand):
                 ai.update(llm_evaluate_family_batch(ambiguous[offset:offset + 25], business_id=business.pk,
                                                     family_context=family_context, buyer_signals=buyer_signals))
             evaluations.update(ai)
-            for row in raw_comments:
+            post_leads_saved = 0
+            for row in eligible_comments:
                 result = evaluations.get(row["id"], {})
                 if not result.get("is_lead"):
                     continue
                 leads_saved += 1
+                post_leads_saved += 1
                 score = lead_quality_score(result.get("intent_score", .8), is_business=row.get("is_business"),
                                            follower_count=row.get("follower_count"), bio=row.get("bio", ""),
                                            seller_notes=family.notes, family_path=family.category_path,
@@ -879,7 +1155,21 @@ class Command(BaseCommand):
                 )
                 from apps.discovery.services import sync_instagram_lead_to_opportunity
                 sync_instagram_lead_to_opportunity(lead, business=business, ai_meta=result)
-        return posts_inspected, qualifying_posts, leads_saved
+            self.stdout.write(self.style.SUCCESS(
+                f"      ✅ استخراج {post_leads_saved} مشتری واقعی از پست {post_url}"
+            ))
+
+            if qualifying_posts >= target_qualifying and posts_inspected >= 15:
+                self.stdout.write(self.style.SUCCESS(
+                    f"  ✨ به حد نصاب رسید: {qualifying_posts} پست واجد شرایط از میان {posts_inspected} پست بررسی‌شده."
+                ))
+                break
+
+        retired = False
+        if qualifying_posts < target_qualifying:
+            retired = True
+
+        return posts_inspected, qualifying_posts, leads_saved, retired
 
     def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
         from apps.discovery.models import InstagramCrawlExecution, InstagramPage, InstagramSourceStat
@@ -913,7 +1203,11 @@ class Command(BaseCommand):
                     f"Stopping Instagram sources for tenant {target['business'].pk}: اعتبار تمام شده"
                 ))
                 break
-            if account.status != "ACTIVE" or not self._request_budget_available(account):
+            if account.status != "ACTIVE":
+                self.stdout.write(self.style.WARNING(f"Stopping sources: اکانت @{account.username} غیرفعال شد."))
+                break
+            if not self._request_budget_available(account):
+                self.stdout.write(self.style.WARNING(f"Stopping sources: سقف درخواست روزانه اکانت @{account.username} تکمیل شد."))
                 break
             error = ""
             medias = []
@@ -925,42 +1219,56 @@ class Command(BaseCommand):
                         continue
                     created = self._discover_candidate_pages(cl, account, target["business"], target["family"],
                                                              target["plan"], source)
-                    execution_type, query = "PAGE", source.label
+                    execution_type, query = "PAGE_SEARCH", source.label
                     leads = 0
                     search_status = "FAILED" if self._page_search_error else "SUCCESS"
                     record_source_result(target["business"], source, leads, search_status)
                     InstagramCrawlExecution.objects.create(
                         business=target["business"], tenant_id=target["tenant_id"], query_text=query,
                         target_type=execution_type, account_username=account.username, account=account,
-                        status=search_status, posts_inspected=len(created), requests=self._current_api_requests,
-                        message=f"صفحه‌های واقعی بررسی‌شده: {len(created)}",
+                        status=search_status, posts_inspected=0, qualifying_posts=0, leads_found=0,
+                        requests=self._current_api_requests,
+                        message=f"صفحه‌های رقیب شناسایی‌شده: {len(created)}",
                     )
                     continue
-                if source.source_type == "keyword":
-                    medias = self._instagram_api_call(account, cl.media_search, source.label, amount=max_posts) or []
-                    execution_type, query = "KEYWORD", source.label
-                elif source.source_type == "hashtag":
-                    tag = source.label.lstrip("#")
-                    medias = list(self._instagram_api_call(account, cl.hashtag_medias_top, tag, amount=max_posts) or [])
-                    if self._request_budget_available(account):
-                        medias += list(self._instagram_api_call(account, cl.hashtag_medias_recent, tag, amount=max_posts) or [])
-                    execution_type, query = "HASHTAG", f"#{tag}"
-                else:
-                    page = source.page or InstagramPage.objects.filter(business=target["business"], handle__iexact=source.label).first()
-                    if page is None:
-                        continue
-                    uid = self._instagram_api_call(account, cl.user_id_from_username, page.handle)
-                    medias = self._instagram_api_call(account, cl.user_medias, uid, amount=max_posts) or []
-                    page.last_run_at, page.last_status, page.consecutive_failures = dj_timezone.now(), "ok", 0
-                    page.save(update_fields=["last_run_at", "last_status", "consecutive_failures"])
-                    execution_type, query = "PAGE", f"@{page.handle}"
+
+                execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
+                query = f"#{source.label.lstrip('#')}" if source.source_type == "hashtag" else (f"@{source.label.lstrip('@')}" if source.source_type == "page" else source.label)
+                medias = self._fetch_source_medias(
+                    cl=cl, account=account, source_type=source.source_type, source_label=source.label,
+                    business=target["business"], page_obj=source.page,
+                    target_qualifying=3, min_inspect=15, max_total=30
+                )
             except Exception as exc:
                 error = str(exc)
                 self._note_account_error(account, error, cl, exc)
                 execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
                 query = source.label
-            inspected, qualifying, leads = self._inspect_family_medias(cl, account, target, source, medias, min_comments)
+            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=10)
             total_leads += leads
+
+            if not error and retired:
+                self._retire_and_delete_source(
+                    business=target["business"],
+                    source_type=source.source_type,
+                    label=source.label,
+                    family=target["family"],
+                    plan=target["plan"]
+                )
+                self.stdout.write(self.style.ERROR(
+                    f"  ❌ [حذف دائمی کوئری]: کوئری '{source.label}' ({source.source_type}) به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {inspected} پست برای همیشه حذف شد."
+                ))
+                status = "REMOVED_UNQUALIFIED"
+                InstagramCrawlExecution.objects.create(
+                    business=target["business"], tenant_id=target["tenant_id"], query_text=query,
+                    target_type=execution_type, account_username=account.username, account=account,
+                    status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
+                    requests=self._current_api_requests,
+                    message=f"حذف دائمی کوئری: بررسی {inspected} پست و تنها {qualifying} پست واجد شرایط (حداقل ۳ پست با ۱۰+ کامنت و حداکثر ۳۰ روز عمر). کوئری برای همیشه حذف شد.",
+                )
+                time.sleep(random.uniform(2.0, 4.0))
+                continue
+
             status = "FAILED" if error and not medias else ("SUCCESS" if qualifying else "NO_POSTS")
             record_source_result(target["business"], source, leads, status)
             InstagramCrawlExecution.objects.create(
@@ -968,7 +1276,7 @@ class Command(BaseCommand):
                 target_type=execution_type, account_username=account.username, account=account,
                 status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
                 requests=self._current_api_requests,
-                message=f"خانواده {target['family'].product_id}: بررسی {inspected} پست؛ {leads} سرنخ. {error[:180]}",
+                message=f"خانواده {target['family'].product_id}: بررسی {inspected} پست ({qualifying} واجد شرایط ۱۰+ کامنت و ۳۰ روز)؛ {leads} سرنخ. {error[:180]}",
             )
             time.sleep(random.uniform(3.0, 7.0))
         return total_leads
@@ -1028,24 +1336,17 @@ class Command(BaseCommand):
             term_err = ""
             term_medias = []
             try:
-                term_medias = cl.media_search(term, amount=max_posts)
-                if term_medias:
-                    self.stdout.write(f"    Retrieved {len(term_medias)} posts for keyword '{term}'.")
+                term_medias = self._fetch_source_medias(
+                    cl=cl, account=account, source_type="keyword", source_label=term,
+                    business=target.get("business"), target_qualifying=3, min_inspect=15, max_total=30
+                )
             except Exception as exc:
                 term_err = str(exc)
-                if classify(exc) is ErrorKind.LOGIN_REQUIRED and account.status == "ACTIVE" and not self._note_account_error(account, term_err, cl, exc):
-                    try:   # read-only search: retry exactly once after a successful recovery
-                        term_medias = cl.media_search(term, amount=max_posts)
-                        term_err = ""
-                    except Exception as retry_exc:
-                        term_err = str(retry_exc)
-                        self._note_account_error(account, term_err, cl, retry_exc) if classify(retry_exc) is not ErrorKind.LOGIN_REQUIRED else None
-                else:
-                    self._note_account_error(account, term_err, cl, exc)
+                self._note_account_error(account, term_err, cl, exc)
                 if term_err:
                     self.stderr.write(f"    Notice: media_search error for '{term}': {term_err}")
 
-            p_insp, p_qual, l_saved = self._inspect_and_process_medias(
+            p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
                 cl=cl,
                 account=account,
                 target=target,
@@ -1058,6 +1359,35 @@ class Command(BaseCommand):
             total_posts_inspected += p_insp
             total_qualifying_posts += p_qual
             total_leads_saved += l_saved
+
+            if not term_err and p_retired:
+                self._retire_and_delete_source(
+                    business=target.get("business"),
+                    source_type="keyword",
+                    label=term,
+                )
+                self.stdout.write(self.style.ERROR(
+                    f"  ❌ [حذف دائمی کلیدواژه]: '{term}' به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {p_insp} پست حذف شد."
+                ))
+                try:
+                    InstagramCrawlExecution.objects.create(
+                        business=target.get("business"),
+                        tenant_id=tenant_id,
+                        query_text=term,
+                        target_type="KEYWORD",
+                        account_username=account.username,
+                        account=account,
+                        status="REMOVED_UNQUALIFIED",
+                        posts_inspected=p_insp,
+                        qualifying_posts=p_qual,
+                        leads_found=l_saved,
+                        message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. کلیدواژه حذف شد.",
+                        crawled_at=dj_timezone.now(),
+                    )
+                except Exception as log_exc:
+                    self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for '{term}': {log_exc}")
+                time.sleep(random.uniform(2.0, 4.0))
+                continue
 
             exec_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
             if term_err and not term_medias:
@@ -1108,49 +1438,18 @@ class Command(BaseCommand):
             tag_err = ""
             tag_medias = []
 
-            # 1. Fetch Top / Viral Posts
             try:
-                top_medias = cl.hashtag_medias_top(tag, amount=max_posts)
-            except Exception as top_exc:
-                try:
-                    top_medias = cl.hashtag_medias_top_v1(tag, amount=max_posts)
-                except Exception as top_err:
-                    self._note_account_error(account, str(top_err), cl, top_err)
-                    top_medias = []
-            for m in top_medias:
-                if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
-                    tag_medias.append(m)
-            if top_medias:
-                self.stdout.write(f"    Retrieved {len(top_medias)} TOP posts for #{tag}.")
+                tag_medias = self._fetch_source_medias(
+                    cl=cl, account=account, source_type="hashtag", source_label=tag,
+                    business=target.get("business"), target_qualifying=3, min_inspect=15, max_total=30
+                )
+            except Exception as exc:
+                tag_err = str(exc)
+                self._note_account_error(account, tag_err, cl, exc)
+                if tag_err:
+                    self.stderr.write(f"    Notice: hashtag fetch error for #{tag}: {tag_err}")
 
-            # 2. Fetch Recent Posts
-            try:
-                recent_medias = cl.hashtag_medias_recent(tag, amount=max_posts)
-            except Exception:
-                try:
-                    recent_medias = cl.hashtag_medias_recent_v1(tag, amount=max_posts)
-                except Exception as recent_err:
-                    self._note_account_error(account, str(recent_err), cl, recent_err)
-                    recent_medias = []
-            for m in recent_medias:
-                if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
-                    tag_medias.append(m)
-            if recent_medias:
-                self.stdout.write(f"    Retrieved {len(recent_medias)} RECENT posts for #{tag}.")
-
-            # 3. Fallback to Web GraphQL if private mobile API returns no posts
-            if not tag_medias:
-                try:
-                    gql_medias, _ = cl.hashtag_medias_paginated_gql(tag, amount=max_posts)
-                    for m in gql_medias:
-                        if str(getattr(m, "id", "") or getattr(m, "pk", "")) not in seen_media_ids:
-                            tag_medias.append(m)
-                    if gql_medias:
-                        self.stdout.write(f"    Retrieved {len(gql_medias)} GQL posts for #{tag}.")
-                except Exception as gql_exc:
-                    self.stderr.write(f"    Notice: hashtag_medias_paginated_gql warning for #{tag}: {gql_exc}")
-
-            p_insp, p_qual, l_saved = self._inspect_and_process_medias(
+            p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
                 cl=cl,
                 account=account,
                 target=target,
@@ -1163,6 +1462,35 @@ class Command(BaseCommand):
             total_posts_inspected += p_insp
             total_qualifying_posts += p_qual
             total_leads_saved += l_saved
+
+            if not tag_err and p_retired:
+                self._retire_and_delete_source(
+                    business=target.get("business"),
+                    source_type="hashtag",
+                    label=tag,
+                )
+                self.stdout.write(self.style.ERROR(
+                    f"  ❌ [حذف دائمی هشتگ]: #{tag} به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {p_insp} پست حذف شد."
+                ))
+                try:
+                    InstagramCrawlExecution.objects.create(
+                        business=target.get("business"),
+                        tenant_id=tenant_id,
+                        query_text=f"#{tag}" if not tag.startswith("#") else tag,
+                        target_type="HASHTAG",
+                        account_username=account.username,
+                        account=account,
+                        status="REMOVED_UNQUALIFIED",
+                        posts_inspected=p_insp,
+                        qualifying_posts=p_qual,
+                        leads_found=l_saved,
+                        message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. هشتگ حذف شد.",
+                        crawled_at=dj_timezone.now(),
+                    )
+                except Exception as log_exc:
+                    self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for #{tag}: {log_exc}")
+                time.sleep(random.uniform(2.0, 4.0))
+                continue
 
             exec_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
             if tag_err and not tag_medias:
@@ -1208,13 +1536,13 @@ class Command(BaseCommand):
                 page_medias = []
                 try:
                     uid = cl.user_id_from_username(handle)
-                    page_medias = cl.user_medias(uid, amount=max_posts)
+                    page_medias = cl.user_medias(uid, amount=min(max_posts, 30))
                 except Exception as exc:
                     page_err = str(exc)
                     self._note_account_error(account, page_err, cl, exc)
                     self.stderr.write(f"    Notice: Error fetching medias from @{handle}: {exc}")
 
-                p_insp, p_qual, l_saved = self._inspect_and_process_medias(
+                p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
                     cl=cl,
                     account=account,
                     target=target,
@@ -1227,6 +1555,35 @@ class Command(BaseCommand):
                 total_posts_inspected += p_insp
                 total_qualifying_posts += p_qual
                 total_leads_saved += l_saved
+
+                if not page_err and p_retired:
+                    self._retire_and_delete_source(
+                        business=target.get("business"),
+                        source_type="page",
+                        label=handle,
+                    )
+                    self.stdout.write(self.style.ERROR(
+                        f"  ❌ [حذف دائمی پیج رقیب]: @{handle} به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {p_insp} پست غیرفعال شد."
+                    ))
+                    try:
+                        InstagramCrawlExecution.objects.create(
+                            business=target.get("business"),
+                            tenant_id=tenant_id,
+                            query_text=f"@{handle}",
+                            target_type="PAGE",
+                            account_username=account.username,
+                            account=account,
+                            status="REMOVED_UNQUALIFIED",
+                            posts_inspected=p_insp,
+                            qualifying_posts=p_qual,
+                            leads_found=l_saved,
+                            message=f"حذف دائمی پیج رقیب @{handle}: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. پیج غیرفعال شد.",
+                            crawled_at=dj_timezone.now(),
+                        )
+                    except Exception as log_exc:
+                        self.stderr.write(f"Notice: Failed to log InstagramCrawlExecution for @{handle}: {log_exc}")
+                    time.sleep(random.uniform(2.0, 4.0))
+                    continue
 
                 page_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
                 if page_err and not page_medias:

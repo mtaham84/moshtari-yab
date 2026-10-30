@@ -136,6 +136,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     raw_toman_dec = cost_usd_dec * usd_rate
     # Final price charged to customer = Raw Toman + 150% markup
     final_toman = int(round(raw_toman_dec * (1 + markup_pct / 100)))
+    tokens_used = int((ai_meta.get("tokens_used") or (ai_meta.get("tokens_in", 0) + ai_meta.get("tokens_out", 0))) if ai_meta else 0)
 
     with transaction.atomic():
         customer, _ = Customer.objects.get_or_create(

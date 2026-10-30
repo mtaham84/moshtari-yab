@@ -16,7 +16,7 @@ from need_engine.text import norm
 from workers.x_collector.families import build_families
 
 INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT = max(1, int(os.getenv("INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT", "8")))
-INSTAGRAM_PAGE_MIN_COMMENTS = max(1, int(os.getenv("INSTAGRAM_PAGE_MIN_COMMENTS", "20")))
+INSTAGRAM_PAGE_MIN_COMMENTS = max(1, int(os.getenv("INSTAGRAM_PAGE_MIN_COMMENTS", "10")))
 INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE = max(1, int(os.getenv("INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE", "4")))
 INSTAGRAM_DAILY_REQUEST_BUDGET = max(1, int(os.getenv("INSTAGRAM_DAILY_REQUEST_BUDGET", "150")))
 PLAN_SYSTEM = """You are a senior Instagram discovery strategist for Persian-speaking (Iran) sellers. A FAMILY is one seller + one category
@@ -78,7 +78,7 @@ def _phrases(value: Any, *, limit: int, words_max: int = 3, max_len: int = 60) -
     return out
 
 
-def _validate_plan(data: Any) -> dict[str, list[str]]:
+def _validate_plan(data: Any, family=None) -> dict[str, list[str]]:
     if not isinstance(data, dict):
         raise ValueError("پاسخ طرح اینستاگرام معتبر نیست")
     fields = {
@@ -92,9 +92,43 @@ def _validate_plan(data: Any) -> dict[str, list[str]]:
                      if not _WEAK_SEARCH_WORDS.intersection(norm(phrase).split())]
     mega = {"لباس", "فروشگاه", "تخفیف", "پوشاک", "shop", "store", "fashion"}
     plan["hashtags"] = [tag for tag in plan["hashtags"] if " " not in tag and tag.casefold() not in mega]
-    if (len(plan["hashtags"]) < 6 or len(plan["keywords"]) < 4 or len(plan["page_search_terms"]) < 4
-            or len(plan["buyer_signals"]) < 6):
-        raise ValueError("پاسخ طرح اینستاگرام ناقص است")
+
+    # Backfill buyer_signals if below 6
+    if len(plan["buyer_signals"]) < 6:
+        for sig in GENERIC_BUYER_SIGNALS:
+            if sig not in plan["buyer_signals"]:
+                plan["buyer_signals"].append(sig)
+            if len(plan["buyer_signals"]) >= 6:
+                break
+
+    # Backfill hashtags if below 6 from family context
+    if family and len(plan["hashtags"]) < 6:
+        fam_words = [re.sub(r"\s+", "_", t.strip()) for t in (getattr(family, "titles", []) or [])]
+        for fw in fam_words:
+            clean = re.sub(r"[^\w_]", "", fw)
+            if clean and clean not in mega and clean not in plan["hashtags"] and len(clean) >= 3:
+                plan["hashtags"].append(clean)
+            if len(plan["hashtags"]) >= 6:
+                break
+
+    # Backfill keywords if below 4 from family context
+    if family and len(plan["keywords"]) < 4:
+        for t in (getattr(family, "titles", []) or []):
+            clean = " ".join([w for w in t.split() if norm(w) not in _WEAK_SEARCH_WORDS and len(w) > 2][:3])
+            if clean and clean not in plan["keywords"]:
+                plan["keywords"].append(clean)
+            if len(plan["keywords"]) >= 4:
+                break
+
+    # Backfill page_search_terms if below 4
+    if family and len(plan["page_search_terms"]) < 4:
+        for t in (getattr(family, "titles", []) or []) + [getattr(family, "title", "")]:
+            cand = f"فروشگاه {t}"[:40]
+            if cand not in plan["page_search_terms"]:
+                plan["page_search_terms"].append(cand)
+            if len(plan["page_search_terms"]) >= 4:
+                break
+
     return plan
 
 
@@ -126,7 +160,7 @@ def ensure_family_plan(business, family, call_llm: Callable | None = None):
     }
     result = call_llm(PLAN_SYSTEM, json.dumps(payload, ensure_ascii=False), purpose="instagram_family_plan",
                       business_id=business.pk)
-    plan = _validate_plan(result)
+    plan = _validate_plan(result, family=family)
     with transaction.atomic():
         row, _ = InstagramFamilyPlan.objects.update_or_create(
             business=business, family_id=family.product_id,
@@ -208,7 +242,7 @@ def sample_sources(business, candidates: list[DiscoverySource], limit: int, *, r
     scored.sort(key=lambda pair: pair[0], reverse=True)
     pinned, seen_types = [], set()
     for _, source in scored:
-        if source.manual and source.source_type not in seen_types:
+        if source.manual and (source.source_type == "page" or source.source_type not in seen_types):
             pinned.append(source)
             seen_types.add(source.source_type)
             if len(pinned) >= limit:
