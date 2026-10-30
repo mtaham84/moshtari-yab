@@ -132,6 +132,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     s = BillingSettings.get()
     usd_rate = s.usd_to_toman or Decimal("268000")
     markup_pct = s.markup_percent or Decimal("150.0")
+    tokens_used = int((ai_meta.get("tokens_used", 0) if ai_meta else 0) or 0)
     cost_usd_dec = Decimal(str(ai_meta.get("cost_usd", 0.0) if ai_meta else 0.0))
     raw_toman_dec = cost_usd_dec * usd_rate
     # Final price charged to customer = Raw Toman + 150% markup

@@ -3,8 +3,15 @@ import logging
 import socket
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from enum import Enum
 from functools import wraps
+from typing import Any
 from urllib.parse import urlparse
+
+try:
+    from curl_cffi import requests
+except ImportError:
+    import requests
 
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
@@ -685,7 +692,8 @@ def manage_account_test(request, pk):
     challenge_hint = ""
     try:
         from instagrapi import Client
-        from instagrapi.exceptions import ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired
+        from instagrapi.exceptions import (ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired,
+                                           PleaseWaitFewMinutes)
         cl = Client()
         if account.proxy_url:
             cl.set_proxy(account.proxy_url)
@@ -1018,59 +1026,265 @@ def manage_leads_export_json(request):
 # Twitter / X Scraper Account Management
 # ---------------------------------------------------------------------------
 
+TWITTER_SETTINGS_ENDPOINT = "https://x.com/i/api/1.1/account/settings.json"
+
+
+class XSessionValidationResult(str, Enum):
+    VALID = "VALID"
+    INVALID = "INVALID"
+    FORBIDDEN_UNKNOWN = "FORBIDDEN_UNKNOWN"
+    ENDPOINT_ERROR = "ENDPOINT_ERROR"
+    RATE_LIMITED = "RATE_LIMITED"
+    NETWORK_ERROR = "NETWORK_ERROR"
+
+
+VALID = XSessionValidationResult.VALID
+INVALID = XSessionValidationResult.INVALID
+FORBIDDEN_UNKNOWN = XSessionValidationResult.FORBIDDEN_UNKNOWN
+ENDPOINT_ERROR = XSessionValidationResult.ENDPOINT_ERROR
+RATE_LIMITED = XSessionValidationResult.RATE_LIMITED
+NETWORK_ERROR = XSessionValidationResult.NETWORK_ERROR
+
+
+def _get_or_generate_ct0(ct0: str | None) -> tuple[str, bool]:
+    """
+    Returns (ct0, was_generated). If ct0 is missing or empty, generates
+    fallback ct0 ("a" * 32) matching original Twitter session behavior.
+    """
+    cleaned = (ct0 or "").strip()
+    if cleaned:
+        return cleaned, False
+    return "a" * 32, True
+
+
+def _extract_response_ct0(response: Any) -> str | None:
+    """Extracts new ct0 cookie from response if set by server."""
+    if response is None:
+        return None
+    cookies = getattr(response, "cookies", None)
+    if cookies is not None:
+        try:
+            if hasattr(cookies, "get"):
+                c = cookies.get("ct0")
+                if isinstance(c, str) and c.strip():
+                    return c.strip()
+            if hasattr(cookies, "items"):
+                for k, v in cookies.items():
+                    if k == "ct0" and isinstance(v, str) and v.strip():
+                        return v.strip()
+        except Exception:
+            pass
+    headers = getattr(response, "headers", None)
+    if headers and hasattr(headers, "get"):
+        sc = headers.get("set-cookie") or headers.get("Set-Cookie") or ""
+        if isinstance(sc, str) and sc.strip():
+            import re
+            m = re.search(r"ct0=([^;,\s]+)", sc)
+            if m:
+                return m.group(1).strip()
+    return None
+
+
+def _call_twitter_settings_endpoint(
+    auth_token: str,
+    ct0: str,
+    proxy_url: str | None = None,
+    timeout: float = 12.0,
+) -> tuple[Any, Exception | None]:
+    """
+    Performs the HTTP GET call to Twitter settings endpoint.
+    Returns (response_object_or_None, exception_or_None).
+    """
+    headers = {
+        "Authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+        "Cookie": f"auth_token={auth_token}; ct0={ct0};",
+        "x-csrf-token": ct0,
+        "X-Csrf-Token": ct0,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    try:
+        try:
+            r = requests.get(
+                TWITTER_SETTINGS_ENDPOINT,
+                headers=headers,
+                proxies=proxies,
+                timeout=timeout,
+                impersonate="chrome120",
+            )
+        except TypeError:
+            r = requests.get(
+                TWITTER_SETTINGS_ENDPOINT,
+                headers=headers,
+                proxies=proxies,
+                timeout=timeout,
+            )
+        return r, None
+    except Exception as exc:
+        return None, exc
+
+
+def _interpret_twitter_response(
+    response: Any = None,
+    error: Exception | None = None,
+    username: str = "",
+    *,
+    status_code: int | None = None,
+    response_text: str = "",
+    response_data: dict | None = None,
+    was_generated: bool = False,
+) -> tuple[XSessionValidationResult, str, str]:
+    """
+    Interprets HTTP response or exception from Twitter settings endpoint.
+    Returns (result_enum, message, confirmed_username).
+
+    Status code mapping:
+      200 -> VALID
+      401 -> INVALID
+      403 -> FORBIDDEN_UNKNOWN (logs snippet; neither confirms nor rejects)
+      404 -> ENDPOINT_ERROR
+      429 -> RATE_LIMITED
+      SSL/Timeout/ConnectionError -> NETWORK_ERROR
+      Any other -> ENDPOINT_ERROR (unknown status, keeps previous state)
+    """
+    if error is not None:
+        err_msg = str(error)
+        logger.warning("Twitter settings endpoint network error for user %s: %s", username, err_msg)
+        return (
+            XSessionValidationResult.NETWORK_ERROR,
+            f"خطای ارتباط شبکه یا تایم‌اوت ({err_msg})",
+            username,
+        )
+
+    code = status_code
+    text = response_text
+    data = response_data
+
+    if response is not None:
+        if code is None:
+            code = getattr(response, "status_code", None)
+        if not text:
+            text = getattr(response, "text", "") or ""
+        if data is None and hasattr(response, "json"):
+            try:
+                data = response.json()
+            except Exception:
+                data = None
+
+    if code == 200:
+        uname = username
+        if isinstance(data, dict):
+            uname = data.get("screen_name") or username
+        return (
+            XSessionValidationResult.VALID,
+            f"اتصال به اکانت @{uname} تایید شد.",
+            uname,
+        )
+
+    if code == 401 or (text and "Could not authenticate" in text):
+        return (
+            XSessionValidationResult.INVALID,
+            "سشن نامعتبر یا منقضی شده است (HTTP 401). لطفاً سشن جدید را وارد نمایید.",
+            username,
+        )
+
+    if code == 403:
+        snippet = (text or "")[:200].replace("\r", " ").replace("\n", " ").strip()
+        if was_generated:
+            logger.warning(
+                "Twitter settings endpoint returned 403 Forbidden with generated ct0 fallback. User: %s, Body snippet: %s",
+                username,
+                snippet,
+            )
+        else:
+            logger.warning(
+                "Twitter settings endpoint returned 403 Forbidden (unknown cause). User: %s, Body snippet: %s",
+                username,
+                snippet,
+            )
+        return (
+            XSessionValidationResult.FORBIDDEN_UNKNOWN,
+            f"دسترسی مسدود شد (HTTP 403؛ علت نامشخص). سشن نه تایید و نه رد شد. پاسخ سرور: {snippet[:80]}",
+            username,
+        )
+
+    if code == 404:
+        return (
+            XSessionValidationResult.ENDPOINT_ERROR,
+            "مسیر یا اندپوینت نامعتبر است (HTTP 404).",
+            username,
+        )
+
+    if code == 429:
+        return (
+            XSessionValidationResult.RATE_LIMITED,
+            "محدودیت موقت نرخ درخواست توییتر (HTTP 429).",
+            username,
+        )
+
+    other_snippet = (text or "")[:100].replace("\r", " ").replace("\n", " ").strip()
+    logger.info("Twitter settings endpoint returned unexpected status HTTP %s: %s", code, other_snippet)
+    return (
+        XSessionValidationResult.ENDPOINT_ERROR,
+        f"پاسخ ناشناخته از توییتر (HTTP {code})؛ نتیجه اعتبارسنجی نامشخص است.",
+        username,
+    )
+
+
 def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[bool, str, str]:
     """Tests Twitter account connectivity and session validity."""
+    auth_token = (account.auth_token or "").strip()
+    if not auth_token:
+        account.status = "CHALLENGED"
+        account.status_message = "کوکی auth_token تنظیم نشده است"
+        account.save(update_fields=["status", "status_message"])
+        account._validation_result = XSessionValidationResult.INVALID
+        return False, "CHALLENGED", "کوکی auth_token تنظیم نشده است و بدون آن سشن نامعتبر است."
+
     if account.proxy_url:
         proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url)
         if not proxy_ok:
+            account._validation_result = XSessionValidationResult.NETWORK_ERROR
             return False, account.status, f"خطای پروکسی: {proxy_msg}"
 
     now = dj_timezone.now()
     if account.cooldown_until and account.cooldown_until > now:
         rem_min = int((account.cooldown_until - now).total_seconds()) // 60
-        return True, "COOLDOWN", f"اکانت در دوره استراحت است ({rem_min} دقیقه باقی‌مانده)"
+        account._validation_result = XSessionValidationResult.RATE_LIMITED
+        return False, account.status, f"اکانت در دوره استراحت است ({rem_min} دقیقه باقی‌مانده)"
 
-    auth_token = (account.auth_token or "").strip()
-    ct0 = (account.ct0 or "").strip() or "a" * 32
-    if not auth_token:
+    ct0, was_generated = _get_or_generate_ct0(account.ct0)
+    response, exc = _call_twitter_settings_endpoint(auth_token, ct0, proxy_url=account.proxy_url)
+    resp_ct0 = _extract_response_ct0(response)
+    effective_ct0 = resp_ct0 or ct0
+
+    result, msg, confirmed_uname = _interpret_twitter_response(
+        response=response,
+        error=exc,
+        username=account.username,
+        was_generated=was_generated,
+    )
+    account._validation_result = result
+
+    if result == XSessionValidationResult.VALID:
+        account.status = "ACTIVE"
+        account.status_message = msg
+        # Rule 4: Only persist a ct0 to the database when the result is VALID
+        account.ct0 = effective_ct0
+        account.save(update_fields=["status", "status_message", "ct0"])
+        return True, "ACTIVE", msg
+    elif result == XSessionValidationResult.INVALID:
         account.status = "CHALLENGED"
-        account.status_message = "کوکی auth_token تنظیم نشده است"
+        account.status_message = msg
         account.save(update_fields=["status", "status_message"])
-        return False, "CHALLENGED", "کوکی auth_token تنظیم نشده است."
-
-    try:
-        from curl_cffi import requests
-        headers = {
-            "Authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
-            "Cookie": f"auth_token={auth_token}; ct0={ct0};",
-            "X-Csrf-Token": ct0,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        proxies = {"http": account.proxy_url, "https": account.proxy_url} if account.proxy_url else None
-        r = requests.get("https://x.com/i/api/1.1/account/settings.json", headers=headers, proxies=proxies, timeout=12, impersonate="chrome120")
-        if r.status_code == 200:
-            data = r.json()
-            uname = data.get("screen_name") or account.username
-            account.status = "ACTIVE"
-            account.status_message = "متصل و فعال"
-            account.save(update_fields=["status", "status_message"])
-            return True, "ACTIVE", f"اتصال به اکانت @{uname} تایید شد."
-        elif r.status_code == 401 or "Could not authenticate" in r.text:
-            account.status = "CHALLENGED"
-            account.status_message = "سشن نامعتبر یا منقضی شده است (HTTP 401) — auth_token/ct0 جدید ثبت کنید"
-            account.save(update_fields=["status", "status_message"])
-            return False, "CHALLENGED", "سشن منقضی یا نامعتبر است (HTTP 401). لطفاً سشن جدید را وارد نمایید."
-        elif r.status_code == 429:
-            account.status = "COOLDOWN"
-            account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-            account.status_message = "محدودیت موقت نرخ درخواست (429)"
-            account.save(update_fields=["status", "status_message", "cooldown_until"])
-            return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
-        else:
-            # Any other code (e.g. 404 from a changed endpoint) does not prove the session works: keep the status as is.
-            return False, account.status, f"پاسخ نامشخص از توییتر (HTTP {r.status_code}); سشن تایید نشد."
-    except Exception as exc:
-        return False, account.status, f"خطای تست اتصال: {exc}"
+        return False, "CHALLENGED", msg
+    else:
+        # FORBIDDEN_UNKNOWN, ENDPOINT_ERROR, RATE_LIMITED, NETWORK_ERROR:
+        # Keep previous state! Do NOT persist generated ct0!
+        inconclusive_msg = f"نتیجه اعتبارسنجی نامشخص است ({msg})؛ وضعیت قبلی اکانت حفظ شد."
+        account.status_message = inconclusive_msg
+        account.save(update_fields=["status_message"])
+        return False, account.status, inconclusive_msg
 
 
 @manage_access_required
@@ -1094,22 +1308,41 @@ def manage_twitter_account_add(request):
         messages.error(request, err)
         return redirect("manage:dashboard")
 
+    if not auth_token:
+        account, created = TwitterEngineAccount.objects.update_or_create(
+            username=username,
+            defaults={
+                "password": password,
+                "auth_token": "",
+                "ct0": ct0,
+                "proxy_url": proxy_url,
+                "status": "CHALLENGED",
+                "status_message": "نیازمند سشن (auth_token)",
+                "is_active": True,
+            }
+        )
+        msg = "اکانت توییتر ثبت شد ولی سشن (auth_token) وارد نشده است؛ وضعیت روی چالش قرار گرفت."
+        if is_ajax:
+            return JsonResponse({"success": False, "account_id": account.id, "username": username, "status": "CHALLENGED", "message": msg})
+        messages.warning(request, msg)
+        return redirect("manage:dashboard")
+
     account, created = TwitterEngineAccount.objects.update_or_create(
         username=username,
         defaults={
             "password": password,
             "auth_token": auth_token,
-            "ct0": ct0 or "a" * 32,
+            "ct0": ct0,
             "proxy_url": proxy_url,
-            "status": "ACTIVE" if auth_token else "CHALLENGED",
-            "status_message": "ثبت شد" if auth_token else "نیازمند سشن",
+            "status": "CHALLENGED",
+            "status_message": "در انتظار اعتبارسنجی",
             "is_active": True,
         }
     )
 
-    ok, st, msg = _test_twitter_account_connection(account) if auth_token else (False, "CHALLENGED", "اکانت ثبت شد ولی سشن وارد نشده است.")
-    if auth_token and not ok:
-        warn_msg = f"اکانت توییتر @{username} ثبت شد ولی سشن واردشده معتبر نبود ({msg}). وضعیت اکانت روی چالش قرار گرفت."
+    ok, st, msg = _test_twitter_account_connection(account)
+    if not ok:
+        warn_msg = f"اکانت توییتر @{username} ثبت شد ولی اعتبارسنجی سشن تایید نشد ({msg})."
         if is_ajax:
             return JsonResponse({"success": False, "deleted": False, "account_id": account.id, "username": username, "status": st, "message": warn_msg})
         messages.warning(request, warn_msg)
@@ -1153,30 +1386,75 @@ def manage_twitter_account_set_session(request, pk):
     auth_token = request.POST.get("auth_token", "").strip()
     ct0 = request.POST.get("ct0", "").strip()
     password = request.POST.get("password", "").strip()
-    if password:
-        account.password = password
-    if auth_token:
-        account.auth_token = auth_token
-    if ct0:
-        account.ct0 = ct0
 
-    ok, status, message = _test_twitter_account_connection(account)
-    account.status = status
-    account.save()
-    if not ok:
+    # Rule 2: If auth_token is missing, return INVALID without making an HTTP request
+    if not auth_token:
         return JsonResponse({
             "success": False,
             "deleted": False,
-            "status": status,
+            "status": account.status,
             "status_display": account.get_status_display(),
-            "message": f"{message} (اکانت در وضعیت چالش حفظ شد؛ می‌توانید سشن جدید وارد کنید یا در صورت تمایل آن را به صورت دستی حذف نمایید).",
+            "message": "کوکی auth_token الزامی است و سشن بدون آن نامعتبر است.",
         })
-    return JsonResponse({
-        "success": True,
-        "status": status,
-        "status_display": account.get_status_display(),
-        "message": message,
-    })
+
+    old_auth_token = account.auth_token
+    old_ct0 = account.ct0
+    old_password = account.password
+    old_status = account.status
+
+    if password:
+        account.password = password
+    account.auth_token = auth_token
+    account.ct0 = ct0
+
+    ok, status, message = _test_twitter_account_connection(account)
+    validation_result = getattr(account, "_validation_result", None)
+    if validation_result is None:
+        validation_result = XSessionValidationResult.VALID if ok else XSessionValidationResult.INVALID
+
+    if validation_result == XSessionValidationResult.VALID:
+        account.status = "ACTIVE"
+        account.status_message = message
+        # account.ct0 was updated to effective_ct0 by _test_twitter_account_connection
+        account.save()
+        return JsonResponse({
+            "success": True,
+            "status": "ACTIVE",
+            "status_display": account.get_status_display(),
+            "message": message,
+        })
+    elif validation_result == XSessionValidationResult.INVALID:
+        account.status = "CHALLENGED"
+        account.status_message = message
+        # Rule 4: a generated ct0 is not saved unless the result is VALID
+        if not ct0:
+            account.ct0 = old_ct0
+        account.save()
+        return JsonResponse({
+            "success": False,
+            "deleted": False,
+            "status": "CHALLENGED",
+            "status_display": account.get_status_display(),
+            "message": f"{message} (سشن رد شد و اکانت در وضعیت چالش قرار گرفت).",
+        })
+    else:
+        # Inconclusive (FORBIDDEN_UNKNOWN, ENDPOINT_ERROR, RATE_LIMITED, NETWORK_ERROR):
+        # Keep previous state and credentials
+        account.auth_token = old_auth_token
+        account.ct0 = old_ct0
+        account.password = old_password
+        account.status = old_status
+        account.status_message = message
+        account.save()
+        inconclusive_msg = f"اعتبارسنجی سشن نامشخص بود ({message}). وضعیت اکانت تغییر نکرد و سشن قبلی حفظ شد."
+        return JsonResponse({
+            "success": False,
+            "deleted": False,
+            "inconclusive": True,
+            "status": old_status,
+            "status_display": account.get_status_display(),
+            "message": inconclusive_msg,
+        })
 
 
 @manage_access_required

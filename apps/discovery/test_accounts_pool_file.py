@@ -20,7 +20,8 @@ class PoolFileTests(TestCase):
             TwitterEngineAccount.objects.create(username="x1", auth_token="a" * 40, ct0="c" * 32)
             self.assertTrue(pool.export_pool(force=True))
             path = tmp / "pool.json"
-            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
             data = json.loads(path.read_text())
             self.assertEqual(data["instagram"][0]["session_json"]["cookies"]["sessionid"], "S")
             self.assertEqual(data["twitter"][0]["auth_token"], "a" * 40)

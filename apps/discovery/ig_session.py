@@ -10,7 +10,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 import enum
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import json
 import logging
 import os
@@ -144,13 +147,16 @@ def account_lock(account_id: int, policy: Policy | None = None, blocking: bool =
     fh = open(pol.session_dir / f".account_{int(account_id)}.lock", "a+")
     got = False
     try:
-        try:
-            fcntl.flock(fh, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        if fcntl is not None:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+                got = True
+            except OSError:
+                got = False
+        else:
             got = True
-        except OSError:
-            got = False
         yield got
     finally:
-        if got:
+        if got and fcntl is not None:
             fcntl.flock(fh, fcntl.LOCK_UN)
         fh.close()
