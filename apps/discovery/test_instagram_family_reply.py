@@ -110,6 +110,9 @@ class InstagramFamilyDatabaseTests(TestCase):
         user = get_user_model().objects.create_user(username="ig-family-test", password="x")
         self.business = Business.objects.create(user=user, name="فروشگاه پوشاک", business_type="PHYSICAL",
                                                 business_domain="پوشاک", search_notes="فروش عمده به فروشگاه‌ها")
+        from apps.billing.models import Wallet, WalletTransaction
+        from apps.billing.services import apply_transaction
+        apply_transaction(self.business, 5000, WalletTransaction.TOPUP)
         self.family = SimpleNamespace(product_id=f"f{self.business.pk}-abc", business_id=str(self.business.pk),
                                       category_path="پوشاک > مردانه > پیراهن", titles=["پیراهن مردانه"],
                                       notes=self.business.search_notes)
