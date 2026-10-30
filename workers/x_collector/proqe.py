@@ -496,10 +496,12 @@ def expand_queries_with_proqe(
         return exemplar_store.get_expanded_queries(pid)
 
     user_prompt = _format_expansion_prompt(title, cat, existing, exemplars, negatives, winners, dropped_queries)
+    primary_model = model or "gpt-6-luna"
+    data = None
     try:
         data, _ = llm.complete_json(
             "x_query_expand",
-            model or "gemini-2.5-flash",
+            primary_model,
             PROQE_EXPANSION_SYSTEM,
             user_prompt,
             max_tokens=2048,
@@ -507,8 +509,21 @@ def expand_queries_with_proqe(
             ref=f"proqe:{pid}"
         )
     except Exception as exc:
-        log.warning("ProQE expansion LLM call failed for product %s: %s", pid, exc)
-        return exemplar_store.get_expanded_queries(pid)
+        log.warning("ProQE expansion with %s failed for product %s: %s; falling back to Gemini", primary_model, pid, exc)
+        try:
+            data, _ = llm.complete_json(
+                "x_query_expand",
+                "gemini-3.5-flash-lite",
+                PROQE_EXPANSION_SYSTEM,
+                user_prompt,
+                max_tokens=2048,
+                temperature=0.3,
+                ref=f"proqe:{pid}:fallback"
+            )
+        except Exception as exc2:
+            log.warning("ProQE expansion fallback also failed for product %s: %s", pid, exc2)
+            return exemplar_store.get_expanded_queries(pid)
+
 
     expanded = []
     from workers.x_collector.intent_queries import clean_term, _FA

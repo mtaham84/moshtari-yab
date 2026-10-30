@@ -76,10 +76,29 @@ def x_source(request):
     days = _days(request)
     st = services.x_collector_status()
     queries = sorted((st or {}).get("queries") or [], key=lambda q: (-(q.get("new_posts") or 0), q.get("query") or ""))
+    from apps.discovery.models import Opportunity
+    delivered_opps = list(
+        Opportunity.objects.filter(source_platform="x")
+        .select_related("customer", "business", "category")
+        .order_by("-created_at")[:30]
+    )
+    for opp in delivered_opps:
+        handle = opp.customer.source_username.lstrip("@") if (opp.customer and opp.customer.source_username) else ""
+        opp.author_handle_clean = handle
+        if handle and opp.source_message_id:
+            opp.tweet_url = f"https://x.com/{handle}/status/{opp.source_message_id}"
+        elif opp.source_message_id:
+            opp.tweet_url = f"https://x.com/i/web/status/{opp.source_message_id}"
+        elif handle:
+            opp.tweet_url = f"https://x.com/{handle}"
+        else:
+            opp.tweet_url = ""
+
     return render(request, "ops/x.html", {
         "nav": "x", "days": days, "periods": PERIODS, "o": services.x_overview(float(days)), "st": st,
         "service": services.x_collector_service(), "queries": queries, "settings_rows": services.x_settings(),
         "search_fee": float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0),
+        "delivered_opps": delivered_opps,
     })
 
 

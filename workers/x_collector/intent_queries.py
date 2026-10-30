@@ -300,20 +300,30 @@ QUERY_FORMAT = {"problem": "A", "complaint": "A", "alternative": "B", "solution"
 
 
 def balanced_pick(candidates: list[dict[str, Any]], reference: str, total: int, per_format: int) -> list[dict[str, Any]]:
-    """Up to ``per_format`` MMR-diverse queries from each of the three formats, topped up to ``total``."""
+    """Up to ``per_format`` MMR-diverse queries from each of the three formats, topped up to ``total``.
+    Strongly prioritizes 2-word queries."""
     from shared.mmr import select_by_mmr
     buckets: dict[str, list[dict[str, Any]]] = {"A": [], "B": [], "C": []}
     for item in candidates:
         buckets[QUERY_FORMAT.get(item.get("kind"), "C")].append(item)
 
+    def pref_key(item: dict[str, Any]) -> int:
+        n = positive_word_count(item.get("query", ""))
+        return 0 if n == 2 else (1 if n == 3 else 2)
+
+    for fmt in ("A", "B", "C"):
+        buckets[fmt].sort(key=pref_key)
+
     def mmr(items: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
-        return select_by_mmr(items, lambda i: i["query"], reference_context=reference, top_k=k, lambda_param=0.65) if items and k > 0 else []
+        sorted_items = sorted(items, key=pref_key)
+        return select_by_mmr(sorted_items, lambda i: i["query"], reference_context=reference, top_k=k, lambda_param=0.65) if sorted_items and k > 0 else []
 
     picked: list[dict[str, Any]] = []
     for fmt in ("A", "B", "C"):
         picked += mmr(buckets[fmt], per_format)
     taken = {id(x) for x in picked}
     rest = [c for c in candidates if id(c) not in taken]
+    rest.sort(key=pref_key)
     picked += mmr(rest, total - len(picked))
     return picked[:total]
 

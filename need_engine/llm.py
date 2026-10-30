@@ -177,8 +177,11 @@ class LLMClient:
         if not candidates:
             chosen = self.registry.model_for(stage) or model
             candidates = [chosen]
-        elif model and model not in candidates:
-            candidates.append(model)
+        elif model:
+            if model in candidates:
+                candidates = [model] + [m for m in candidates if m != model]
+            else:
+                candidates.insert(0, model)
 
         last_error = None
         for cand_idx, current_model in enumerate(candidates):

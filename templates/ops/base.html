@@ -16,7 +16,8 @@
   <aside class="ops-side">
     <div class="ops-brand">مشتری‌یاب<small>پنل مدیریت</small></div>
     <div class="ops-side-nav">
-      <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-cpu"/></svg> اسکرپر و لیدهای اینستاگرام</a>
+      <a href="{% url 'manage:dashboard' %}?tab=crawler-audit" class="{% if request.GET.tab == 'crawler-audit' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> پایش کرول و هوشمندی کوئری‌ها</a>
+      <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' and request.GET.tab != 'crawler-audit' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-cpu"/></svg> مرکز مدیریت و اسکرپرها</a>
       <a href="{% url 'ops:dashboard' %}" class="{% if nav == 'dashboard' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg> داشبورد و وضعیت سرویس‌ها</a>
       <a href="{% url 'ops:costs' %}" class="{% if nav == 'costs' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-cash"/></svg> هزینه‌ها</a>
       <a href="{% url 'ops:funnel' %}" class="{% if nav == 'funnel' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> قیف و کیفیت سرنخ</a>

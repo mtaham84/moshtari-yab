@@ -360,6 +360,7 @@
 <!-- Navigation Tabs -->
 <div class="manage-tabs">
   <button class="tab-btn active" onclick="openTab('matrix', this)"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> تفکیک لیدهای ۳ پلتفرم برای هر ۳ مستأجر</button>
+  <button class="tab-btn" onclick="openTab('crawler-audit', this)"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> پایش جامع کرول، کیفیت پست‌ها و هوشمندی کوئری‌ها</button>
   <button class="tab-btn" onclick="openTab('billing', this)"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg> صورت‌حساب مالی و اعتباری مستأجرین ({{ financial_rows|length }})</button>
   <button class="tab-btn" onclick="openTab('scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> مخزن اکانت‌های اینستاگرام ({{ scrapers_total }})</button>
   <button class="tab-btn" onclick="openTab('twitter-scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg> مخزن اکانت‌ها و کرول‌های توییتر / X ({{ twitter_scrapers_total }})</button>
@@ -1242,7 +1243,427 @@
     {% else %}
     <p class="muted" style="text-align:center; padding:20px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</p>
     {% endif %}
+</div>
+
+<!-- TAB: CRAWLER AUDIT & QUERY INTELLIGENCE -->
+<div id="tab-crawler-audit" class="tab-pane">
+
+  <!-- SECTION 1: INSTAGRAM CRAWLER & QUALITY AUDIT -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="ops-head" style="margin-bottom:16px;">
+      <div>
+        <h2 style="color:#d946ef; display:flex; align-items:center; gap:8px;">
+          <svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg>
+          <span>پایش فرآیند کرول و ارزیابی کیفیت پست‌های اینستاگرام</span>
+        </h2>
+        <p class="muted" style="margin:2px 0 0; font-size:0.85rem;">
+          شاخص‌های تفکیکی پست‌ها و کامنت‌های کرول‌شده به همراه لیست آخرین پست‌های تاییدشده (حداقل ۱۰ کامنت و حداکثر ۳۰ روز اخیر)
+        </p>
+      </div>
+      <div>
+        <span class="pill" style="background:#fae8ff; color:#a21caf; font-weight:700;">فیلتر سن: حداکثر ۳۰ روز | حد آستانه: &ge; ۱۰ کامنت</span>
+      </div>
+    </div>
+
+    <!-- Instagram KPI Cards -->
+    <div class="grid g4" style="margin-bottom:20px;">
+      <div class="card stat" style="border-right:3px solid #d946ef;">
+        <div class="label">کل پست‌های کرول‌شده</div>
+        <div class="value" style="color:#a21caf;">{{ ig_posts_total }}</div>
+        <div class="sub">مجموع پست‌های دریافت‌شده از هشتگ‌ها و صفحات</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid var(--ok);">
+        <div class="label">پست‌های تاییدشده (کیفیت مطلوب)</div>
+        <div class="value" style="color:var(--ok);">{{ ig_posts_approved }}</div>
+        <div class="sub">دارای حداقل ۱۰ کامنت و انتشار در ۳۰ روز اخیر</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid var(--down);">
+        <div class="label">پست‌های ردشده</div>
+        <div class="value" style="color:var(--down);">{{ ig_posts_rejected }}</div>
+        <div class="sub">کمتر از ۱۰ کامنت یا قدیمی‌تر از ۳۰ روز</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #0284c7;">
+        <div class="label">کامنت‌های تاییدشده / کل کامنت‌ها</div>
+        <div class="value" style="color:#0284c7;">{{ ig_comments_approved }} <span style="font-size:0.85rem; color:var(--muted);">/ {{ ig_comments_total }}</span></div>
+        <div class="sub">کامنت‌های ردشده (غیرلید): {{ ig_comments_rejected }}</div>
+      </div>
+    </div>
+
+    <!-- Approved Instagram Posts Table -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:16px 0 10px;">
+      <h3 style="font-size:0.95rem; margin:0; display:flex; align-items:center; gap:8px;">
+        <svg class="ico" aria-hidden="true"><use href="#i-check"/></svg>
+        <span>فهرست آخرین پست‌های تاییدشده اینستاگرام (به ترتیب تازه‌ترین کرول‌ها)</span>
+      </h3>
+      <span class="muted" style="font-size:0.8rem;">تعداد نمایش: {{ approved_ig_posts|length }} پست</span>
+    </div>
+
+    {% if approved_ig_posts %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#fdf4ff;">
+            <th style="width:130px;">کد و شناسه مدیا</th>
+            <th style="width:120px;">تعداد کامنت‌ها</th>
+            <th style="width:130px;">تاریخ انتشار پست</th>
+            <th style="width:130px;">تاریخ کرول و تایید</th>
+            <th>پیش‌نمایش کپشن پست</th>
+            <th style="width:130px; text-align:center;">پیوند اینستاگرام</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in approved_ig_posts %}
+          <tr>
+            <td style="font-family:monospace; font-weight:700; color:#a21caf;">{{ p.media_code }}</td>
+            <td>
+              <span class="badge-status active" style="font-weight:700;">{{ p.comment_count }} کامنت</span>
+            </td>
+            <td class="jalali-time-cell">{{ p.posted_jalali }}</td>
+            <td class="jalali-time-cell">{{ p.crawled_jalali }}</td>
+            <td style="font-size:0.84rem; line-height:1.6; color:#334155; max-width:420px;">
+              {% if p.caption %}
+                {{ p.caption|truncatewords:24 }}
+              {% else %}
+                <span class="muted">بدون متن کپشن</span>
+              {% endif %}
+            </td>
+            <td style="text-align:center;">
+              {% if p.post_url %}
+              <a href="{{ p.post_url }}" target="_blank" rel="noopener noreferrer" class="btn sm" style="background:#fae8ff; color:#a21caf; text-decoration:none; white-space:nowrap; font-weight:600;">
+                مشاهده در اینستاگرام ↗
+              </a>
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:16px;">هیچ پست تاییدشده‌ای در ۳۰ روز گذشته یافت نشد.</p>
+    {% endif %}
   </div>
+
+  <!-- SECTION 2: TWITTER / X CRAWLER & QUALITY AUDIT -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="ops-head" style="margin-bottom:16px;">
+      <div>
+        <h2 style="color:#0f172a; display:flex; align-items:center; gap:8px;">
+          <svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg>
+          <span>پایش فرآیند جستجو و ارزیابی توییت‌های توییتر / X</span>
+        </h2>
+        <p class="muted" style="margin:2px 0 0; font-size:0.85rem;">
+          شاخص‌های تفکیکی توییت‌های بررسی‌شده به همراه متن پیام و پیوند توییت‌های تاییدشده (حداکثر ۱۰ روز اخیر)
+        </p>
+      </div>
+      <div>
+        <span class="pill" style="background:#e0f2fe; color:#0369a1; font-weight:700;">فیلتر سن: حداکثر ۱۰ روز | حد جستجو: ۴۰ الی ۸۰ توییت</span>
+      </div>
+    </div>
+
+    <!-- Twitter KPI Cards -->
+    <div class="grid g4" style="margin-bottom:20px;">
+      <div class="card stat" style="border-right:3px solid #0f172a;">
+        <div class="label">توییت‌های بررسی‌شده (Inspected)</div>
+        <div class="value" style="color:#0f172a;">{{ x_tweets_inspected }}</div>
+        <div class="sub">مجموع توییت‌های ارزیابی‌شده توسط موتور جستجو</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid var(--ok);">
+        <div class="label">توییت‌های تاییدشده (مطلوب)</div>
+        <div class="value" style="color:var(--ok);">{{ x_tweets_approved }}</div>
+        <div class="sub">دارای قصد خرید و سن مجاز (تا ۱۰ روز اخیر)</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #7c3aed;">
+        <div class="label">سرنخ‌های تجاری (Leads)</div>
+        <div class="value" style="color:#7c3aed;">{{ x_leads_count }}</div>
+        <div class="sub">توییت‌های تبدیل‌شده به فرصت فروش برای مستأجرین</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid var(--down);">
+        <div class="label">توییت‌های ردشده</div>
+        <div class="value" style="color:var(--down);">{{ x_tweets_rejected }}</div>
+        <div class="sub">فاقد سیگنال خرید، تبلیغاتی، یا سن بالاتر از ۱۰ روز</div>
+      </div>
+    </div>
+
+    <!-- Approved Tweets Table -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:16px 0 10px;">
+      <h3 style="font-size:0.95rem; margin:0; display:flex; align-items:center; gap:8px;">
+        <svg class="ico" aria-hidden="true"><use href="#i-check"/></svg>
+        <span>فهرست آخرین توییت‌های تاییدشده و پیام‌های استخراج‌شده (به ترتیب تازه‌ترین‌ها)</span>
+      </h3>
+      <span class="muted" style="font-size:0.8rem;">تعداد نمایش: {{ approved_x_tweets|length }} توییت</span>
+    </div>
+
+    {% if approved_x_tweets %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f0f9ff;">
+            <th style="width:140px;">ناشر و مستأجر</th>
+            <th>متن پیام توییت (پیام کشف‌شده)</th>
+            <th style="width:140px;">نوع قصد و شاخه</th>
+            <th style="width:120px;">تاریخ ثبت</th>
+            <th style="width:120px; text-align:center;">پیوند در X</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in approved_x_tweets %}
+          <tr>
+            <td>
+              {% if t.author_handle_clean %}
+              <div style="font-weight:700; color:#0284c7; font-family:monospace; direction:ltr; text-align:right;">@{{ t.author_handle_clean }}</div>
+              {% else %}
+              <div style="font-weight:700; color:#475569;">کاربر توییتر</div>
+              {% endif %}
+              <div class="muted" style="font-size:0.75rem; margin-top:3px;">
+                {{ t.business.name|default:"عمومی" }}
+              </div>
+            </td>
+            <td style="font-size:0.88rem; line-height:1.7; color:#1e293b; max-width:460px; font-weight:500;">
+              {{ t.source_raw_message }}
+            </td>
+            <td>
+              <span class="pill" style="background:#f1f5f9; color:#334155; font-size:0.75rem; display:inline-block; margin-bottom:4px;">
+                {{ t.get_intent_type_display|default:"سیگنال خرید" }}
+              </span>
+              {% if t.category %}
+              <div class="muted" style="font-size:0.75rem;">{{ t.category.name }}</div>
+              {% endif %}
+            </td>
+            <td class="jalali-time-cell">{{ t.created_jalali }}</td>
+            <td style="text-align:center;">
+              {% if t.tweet_url %}
+              <a href="{{ t.tweet_url }}" target="_blank" rel="noopener noreferrer" class="btn sm" style="background:#e0f2fe; color:#0369a1; text-decoration:none; white-space:nowrap; font-weight:600;">
+                مشاهده در X ↗
+              </a>
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:16px;">هیچ توییت تاییدشده‌ای ثبت نشده است.</p>
+    {% endif %}
+  </div>
+
+  <!-- SECTION 3: QUERY INTELLIGENCE & SCORE EVOLUTION -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="ops-head" style="margin-bottom:14px;">
+      <div>
+        <h2 style="color:#7c3aed; display:flex; align-items:center; gap:8px;">
+          <svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg>
+          <span>سامانه هوشمندی کوئری‌ها، یادگیری بیزی و تحلیل روند امتیازات (Thompson Sampling)</span>
+        </h2>
+        <p class="muted" style="margin:2px 0 0; font-size:0.85rem;">
+          محاسبه احتمال موفقیت هر کوئری در یافتن سرنخ واقعی با الگوریتم نمونه‌برداری تامپسون و بهینه‌سازی خودکار بر اساس بازخورد کاربران
+        </p>
+      </div>
+    </div>
+
+    <!-- Formula & Explanatory Banner -->
+    <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; font-size:0.85rem;">
+      <div style="color:#475569; line-height:1.6;">
+        <strong>فرمول محاسبه امتیاز:</strong>
+        <span style="font-family:monospace; background:#fff; padding:2px 8px; border-radius:4px; border:1px solid #e2e8f0; margin:0 4px; font-weight:700;">Score = (&alpha; / (&alpha; + &beta;)) &times; ۱۰۰٪</span>
+        و تغییر نسبت به مبنای خنثی ۵۰٪:
+        <span style="font-family:monospace; background:#fff; padding:2px 8px; border-radius:4px; border:1px solid #e2e8f0; margin:0 4px; font-weight:700;">&Delta; = Score - ۵۰٪</span>
+      </div>
+      <div style="color:var(--muted); font-size:0.8rem;">
+        مقادیر پیش‌فرض: &alpha; = ۱.۰، &beta; = ۱.۰ | سرنخ تاییدشده: افزایش &alpha; | کرول ناموفق یا بازخورد نامربوط: افزایش &beta;
+      </div>
+    </div>
+
+    <!-- Query Sub-Tabs (Top Rated, Top Gainers, Top Losers) -->
+    <div style="display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:10px; overflow-x:auto;">
+      <button type="button" class="btn sm query-subtab-btn primary" id="btn-query-top-rated" onclick="switchQuerySubTab('top-rated', this)" style="font-weight:700;">
+        <svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> بالاترین امتیاز (Top Rated - {{ queries_top_rated|length }})
+      </button>
+      <button type="button" class="btn sm query-subtab-btn" id="btn-query-top-gainers" onclick="switchQuerySubTab('top-gainers', this)" style="font-weight:700;">
+        <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> بیشترین رشد مثبت (Top Gainers - {{ queries_top_gainers|length }})
+      </button>
+      <button type="button" class="btn sm query-subtab-btn" id="btn-query-top-losers" onclick="switchQuerySubTab('top-losers', this)" style="font-weight:700;">
+        <svg class="ico" aria-hidden="true"><use href="#i-alert"/></svg> بیشترین افت منفی (Top Losers - {{ queries_top_losers|length }})
+      </button>
+    </div>
+
+    <!-- Sub-Pane 1: Top Rated -->
+    <div id="query-subtab-top-rated" class="query-subpane">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th>عبارت جستجو / هشتگ</th>
+              <th style="width:130px;">پلتفرم و نوع</th>
+              <th style="width:140px;">کسب‌وکار</th>
+              <th style="width:170px;">امتیاز کیفیت (Score)</th>
+              <th style="width:110px;">تغییر (&Delta;)</th>
+              <th style="width:110px;">&alpha; / &beta;</th>
+              <th style="width:130px;">درخواست‌ها / لیدها</th>
+              <th style="width:120px;">آخرین بررسی</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in queries_top_rated %}
+            <tr>
+              <td style="font-weight:700; font-size:0.9rem; color:#1e293b;">{{ q.label }}</td>
+              <td>
+                <span class="pill" style="font-size:0.75rem; {% if q.source_type == 'x_query' %}background:#e0f2fe; color:#0369a1;{% else %}background:#fae8ff; color:#a21caf;{% endif %}">
+                  {{ q.type_title }}
+                </span>
+              </td>
+              <td style="font-size:0.82rem; color:#475569;">{{ q.business_name }}</td>
+              <td>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <div style="flex:1; background:#e2e8f0; height:8px; border-radius:99px; overflow:hidden;">
+                    <div style="width:{{ q.score }}%; height:100%; {% if q.score >= 60 %}background:var(--ok);{% elif q.score <= 40 %}background:var(--down);{% else %}background:#a855f7;{% endif %}"></div>
+                  </div>
+                  <span style="font-weight:700; font-size:0.85rem; width:45px; text-align:left; font-family:monospace;">{{ q.score }}٪</span>
+                </div>
+              </td>
+              <td>
+                {% if q.delta > 0 %}
+                <span style="color:var(--ok); font-weight:700; font-family:monospace; direction:ltr; display:inline-block;">+{{ q.delta }}٪</span>
+                {% elif q.delta < 0 %}
+                <span style="color:var(--down); font-weight:700; font-family:monospace; direction:ltr; display:inline-block;">{{ q.delta }}٪</span>
+                {% else %}
+                <span class="muted" style="font-family:monospace;">۰.۰٪</span>
+                {% endif %}
+              </td>
+              <td style="font-family:monospace; font-size:0.8rem; color:#64748b;">{{ q.alpha }} / {{ q.beta }}</td>
+              <td>
+                <span style="font-weight:600; color:#0f172a;">{{ q.requests }} بار</span>
+                <span class="muted">/</span>
+                <span style="font-weight:700; color:#7c3aed;">{{ q.leads }} لید</span>
+              </td>
+              <td class="jalali-time-cell">{{ q.last_run_jalali }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="8" class="muted" style="text-align:center; padding:16px;">هیچ کوئری با امتیاز محاسبه‌شده یافت نشد.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-Pane 2: Top Gainers -->
+    <div id="query-subtab-top-gainers" class="query-subpane" style="display:none;">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr style="background:#f0fdf4;">
+              <th>عبارت جستجو / هشتگ</th>
+              <th style="width:130px;">پلتفرم و نوع</th>
+              <th style="width:140px;">کسب‌وکار</th>
+              <th style="width:170px;">امتیاز کیفیت (Score)</th>
+              <th style="width:110px;">رشد مثبت (&Delta;)</th>
+              <th style="width:110px;">&alpha; / &beta;</th>
+              <th style="width:130px;">درخواست‌ها / لیدها</th>
+              <th style="width:120px;">آخرین بررسی</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in queries_top_gainers %}
+            <tr>
+              <td style="font-weight:700; font-size:0.9rem; color:#1e293b;">{{ q.label }}</td>
+              <td>
+                <span class="pill" style="font-size:0.75rem; {% if q.source_type == 'x_query' %}background:#e0f2fe; color:#0369a1;{% else %}background:#fae8ff; color:#a21caf;{% endif %}">
+                  {{ q.type_title }}
+                </span>
+              </td>
+              <td style="font-size:0.82rem; color:#475569;">{{ q.business_name }}</td>
+              <td>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <div style="flex:1; background:#e2e8f0; height:8px; border-radius:99px; overflow:hidden;">
+                    <div style="width:{{ q.score }}%; height:100%; background:var(--ok);"></div>
+                  </div>
+                  <span style="font-weight:700; font-size:0.85rem; width:45px; text-align:left; font-family:monospace; color:var(--ok);">{{ q.score }}٪</span>
+                </div>
+              </td>
+              <td>
+                <span style="color:var(--ok); font-weight:700; font-family:monospace; direction:ltr; display:inline-block;">+{{ q.delta }}٪</span>
+              </td>
+              <td style="font-family:monospace; font-size:0.8rem; color:#64748b;">{{ q.alpha }} / {{ q.beta }}</td>
+              <td>
+                <span style="font-weight:600; color:#0f172a;">{{ q.requests }} بار</span>
+                <span class="muted">/</span>
+                <span style="font-weight:700; color:var(--ok);">{{ q.leads }} لید</span>
+              </td>
+              <td class="jalali-time-cell">{{ q.last_run_jalali }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="8" class="muted" style="text-align:center; padding:16px;">هیچ کوئری با رشد مثبت (&Delta; &gt; ۰) ثبت نشده است.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-Pane 3: Top Losers -->
+    <div id="query-subtab-top-losers" class="query-subpane" style="display:none;">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr style="background:#fef2f2;">
+              <th>عبارت جستجو / هشتگ</th>
+              <th style="width:130px;">پلتفرم و نوع</th>
+              <th style="width:140px;">کسب‌وکار</th>
+              <th style="width:170px;">امتیاز کیفیت (Score)</th>
+              <th style="width:110px;">افت منفی (&Delta;)</th>
+              <th style="width:110px;">&alpha; / &beta;</th>
+              <th style="width:130px;">درخواست‌ها / لیدها</th>
+              <th style="width:120px;">آخرین بررسی</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in queries_top_losers %}
+            <tr>
+              <td style="font-weight:700; font-size:0.9rem; color:#1e293b;">{{ q.label }}</td>
+              <td>
+                <span class="pill" style="font-size:0.75rem; {% if q.source_type == 'x_query' %}background:#e0f2fe; color:#0369a1;{% else %}background:#fae8ff; color:#a21caf;{% endif %}">
+                  {{ q.type_title }}
+                </span>
+              </td>
+              <td style="font-size:0.82rem; color:#475569;">{{ q.business_name }}</td>
+              <td>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <div style="flex:1; background:#e2e8f0; height:8px; border-radius:99px; overflow:hidden;">
+                    <div style="width:{{ q.score }}%; height:100%; background:var(--down);"></div>
+                  </div>
+                  <span style="font-weight:700; font-size:0.85rem; width:45px; text-align:left; font-family:monospace; color:var(--down);">{{ q.score }}٪</span>
+                </div>
+              </td>
+              <td>
+                <span style="color:var(--down); font-weight:700; font-family:monospace; direction:ltr; display:inline-block;">{{ q.delta }}٪</span>
+              </td>
+              <td style="font-family:monospace; font-size:0.8rem; color:#64748b;">{{ q.alpha }} / {{ q.beta }}</td>
+              <td>
+                <span style="font-weight:600; color:#0f172a;">{{ q.requests }} بار</span>
+                <span class="muted">/</span>
+                <span style="font-weight:700; color:#64748b;">{{ q.leads }} لید</span>
+              </td>
+              <td class="jalali-time-cell">{{ q.last_run_jalali }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="8" class="muted" style="text-align:center; padding:16px;">هیچ کوئری با افت منفی (&Delta; &lt; ۰) ثبت نشده است.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Challenge / 2FA Modal -->
@@ -1338,6 +1759,20 @@
 
   function switchTab(tabName) {
     openTab(tabName, document.querySelector('.tab-btn[onclick*="' + tabName + '"]'));
+  }
+
+  function switchQuerySubTab(subName, btn) {
+    document.querySelectorAll('.query-subpane').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.query-subtab-btn').forEach(el => {
+      el.classList.remove('primary');
+      el.classList.remove('active');
+    });
+    const pane = document.getElementById('query-subtab-' + subName);
+    if (pane) pane.style.display = 'block';
+    if (btn) {
+      btn.classList.add('primary');
+      btn.classList.add('active');
+    }
   }
 
   function getCookie(name) {
@@ -1780,6 +2215,14 @@
 </script>
 <script>
   document.addEventListener('DOMContentLoaded', () => {
+    // If URL contains ?tab=... or hash, switch to it directly
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') || window.location.hash.replace('#', '').replace('tab-', '');
+    if (tabParam) {
+      const tabBtn = document.querySelector(`.tab-btn[onclick*="${tabParam}"]`);
+      if (tabBtn) openTab(tabParam, tabBtn);
+    }
+
     // Instagram asked for a code: jump to the accounts tab and open the code field for the first such account.
     const pending = document.querySelector('button[data-autoopen="1"]');
     if (pending) { openTab('scrapers', document.querySelector('.tab-btn[onclick*="scrapers"]')); setTimeout(() => pending.click(), 300); }

@@ -32,6 +32,12 @@ class SeenStore:
                 db.execute("ALTER TABLE query_runs ADD COLUMN empty_runs INTEGER NOT NULL DEFAULT 0")
             if "dropped" not in q_cols:
                 db.execute("ALTER TABLE query_runs ADD COLUMN dropped INTEGER NOT NULL DEFAULT 0")
+            if "strikes" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0")
+            if "last_lead_at" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN last_lead_at TEXT")
+            if "eval_fetched" not in q_cols:
+                db.execute("ALTER TABLE query_runs ADD COLUMN eval_fetched INTEGER NOT NULL DEFAULT 0")
             db.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS seed_progress (seed TEXT NOT NULL, last_seen_at TEXT, updated_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,seed))")
             db.execute("CREATE TABLE IF NOT EXISTS comments_fetched (post_shortcode TEXT NOT NULL, fetched_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,post_shortcode))")
@@ -234,7 +240,7 @@ class SeenStore:
                        (self.platform, key, value))
             db.commit()
 
-    def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+    def schedule(self, queries: list[dict[str, Any]], budget: int, enforce_daily_unique: bool = False) -> list[dict[str, Any]]:
         import random
         now = datetime.now(timezone.utc)
         with closing(sqlite3.connect(self.path)) as db:
@@ -260,6 +266,13 @@ class SeenStore:
                 return -(stale * priority * kind_wt * (0.2 + 0.8 * theta)), item["query"]
 
             eligible = [item for item in queries if not by_query[item["query"]][8]]
+            if enforce_daily_unique:
+                today_date = now.date()
+                eligible = [
+                    item for item in eligible
+                    if not by_query[item["query"]][3]
+                    or datetime.fromisoformat(by_query[item["query"]][3]).date() != today_date
+                ]
             selected = sorted(eligible, key=score)[:max(0, budget)]
             db.commit()
             return selected
@@ -293,8 +306,8 @@ class SeenStore:
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:
         with closing(sqlite3.connect(self.path)) as db:
-            db.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=? WHERE platform=? AND query=?",
-                       (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, self.platform, query))
+            db.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=?,eval_fetched=eval_fetched+? WHERE platform=? AND query=?",
+                       (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, fetched, self.platform, query))
             if error is None and started_at is not None:
                 db.execute("UPDATE query_runs SET last_ok_at=? WHERE platform=? AND query=?", (started_at.isoformat(), self.platform, query))
             if error is None and fetched == 0:
@@ -303,6 +316,79 @@ class SeenStore:
             elif error is None and fetched > 0:
                 db.execute("UPDATE query_runs SET empty_runs=0 WHERE platform=? AND query=?", (self.platform, query))
             db.commit()
+
+    def record_lead_success(self, query: str, leads_count: int = 1) -> None:
+        """Called when a query yields qualified leads. Resets evaluation counter and strikes."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("""
+                UPDATE query_runs
+                SET last_lead_at = ?,
+                    strikes = 0,
+                    eval_fetched = 0,
+                    empty_runs = 0,
+                    leads_count = leads_count + ?,
+                    alpha = alpha + 1.0,
+                    dropped = 0
+                WHERE platform = ? AND query = ?
+            """, (now_iso, leads_count, self.platform, query))
+            db.commit()
+
+    def record_evaluation_failure(self, query: str, heavy_beta: float = 3.0) -> int:
+        """Applies heavy negative penalty and increments strikes when 10 days pass with 80 inspected posts and 0 leads.
+        If strikes >= 2, marks query as dropped (pruned)."""
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT strikes, beta, alpha FROM query_runs WHERE platform = ? AND query = ?",
+                             (self.platform, query)).fetchone()
+            if not row:
+                return 0
+            strikes = (row[0] or 0) + 1
+            beta = float(row[1] or 1.0) + heavy_beta
+            dropped = 1 if strikes >= 2 else 0
+            db.execute("""
+                UPDATE query_runs
+                SET strikes = ?,
+                    beta = ?,
+                    dropped = CASE WHEN ? = 1 THEN 1 ELSE dropped END,
+                    eval_fetched = 0
+                WHERE platform = ? AND query = ?
+            """, (strikes, beta, dropped, self.platform, query))
+            db.commit()
+            return strikes
+
+    def get_query_eval_stats(self, query: str) -> dict[str, Any]:
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("""
+                SELECT last_lead_at, last_ok_at, strikes, eval_fetched, runs, alpha, beta, dropped
+                FROM query_runs WHERE platform = ? AND query = ?
+            """, (self.platform, query)).fetchone()
+        if not row:
+            return {"last_lead_at": None, "last_ok_at": None, "strikes": 0, "eval_fetched": 0, "runs": 0, "alpha": 1.0, "beta": 1.0, "dropped": 0}
+        return {
+            "last_lead_at": row[0],
+            "last_ok_at": row[1],
+            "strikes": row[2] or 0,
+            "eval_fetched": row[3] or 0,
+            "runs": row[4] or 0,
+            "alpha": row[5] or 1.0,
+            "beta": row[6] or 1.0,
+            "dropped": row[7] or 0,
+        }
+
+    def last_lead_time(self, query: str) -> datetime | None:
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT last_lead_at, last_ok_at FROM query_runs WHERE platform = ? AND query = ?",
+                             (self.platform, query)).fetchone()
+        if not row:
+            return None
+        val = row[0] or row[1]
+        if not val:
+            return None
+        try:
+            dt = datetime.fromisoformat(val)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
 
     def dropped_queries(self, limit: int = 50) -> list[str]:
         with closing(sqlite3.connect(self.path)) as db:
@@ -317,6 +403,7 @@ class SeenStore:
             return datetime.fromisoformat(row[0]) if row and row[0] else None
         except ValueError:
             return None
+
 
     def get_seed_progress(self, seed: str) -> datetime | None:
         with closing(sqlite3.connect(self.path)) as db:

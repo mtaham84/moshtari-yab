@@ -15,7 +15,7 @@ from typing import Any
 from workers.x_collector.intent_queries import _FA, clean_term, short_terms
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "11"
+PROMPT_VERSION = "12"
 KV_PREFIX = "x_qterms:"
 X_QUERY_TERMS_SYSTEM = """You are a senior search-query engineer for Persian (Farsi) buyer discovery on X/Twitter.
 You receive product FAMILIES. A family = one seller + one category node (e.g. «پوشاک > مردانه > پیراهن») plus the
@@ -25,38 +25,33 @@ Your mission is to generate natural, realistic, broad Persian search phrases (1,
 and people with genuine purchase or recommendation intent tweet on X.
 
 CRITICAL RULES:
-1. Every phrase MUST be 1, 2, or 3 Persian words. Never 4 or more.
-2. NATURAL BUYER INTENT: Write phrases people actually tweet when seeking to buy, looking for recommendations, or asking about a product or service.
-   - High-intent buying & recommendations: «خرید لباس مردانه», «خرید پیراهن مردانه», «پیشنهاد لباس», «معرفی پیراهن», «قیمت پیراهن مردانه», «خرید کت شلوار».
-   - Common category & product searches: «لباس مردانه», «پیراهن مردانه», «کت و شلوار», «پیراهن اسپرت», «لباس مجلسی مردانه», «پوشاک مردانه».
-   - Situational/Need phrases: «پیراهن نخی», «لباس خنک تابستانی», «پیراهن کژوال», «لباس راحتی», «پیراهن قواره بزرگ».
+1. PREFERABLY 2 WORDS: Every phrase MUST preferably be 2 Persian words (e.g. «خرید لباس», «پیراهن مردانه», «معرفی پیراهن», «پیراهن نخی», «لباس خنک»). At least 70-80% of your generated phrases should be exactly 2 words. 1-word or 3-word phrases may be used only when natural, but 2 words is strongly preferred for best search quality and yield on X. Never 4 or more words.
+2. THREE CORE DOMAINS (write 5 to 7 phrases for EACH format):
+   - FORMAT A pain_symptoms (عامل / نیاز / موقعیت / راحتی): Needs, physical situations, comfort, fabric, cooling, or pain in natural buyer voice (e.g. «لباس خنک», «پیراهن نخی», «لباس راحت», «پیراهن کژوال», «پیراهن تابستانی», «دندون درد»). NEVER write awkward negative terms like «نامناسب».
+   - FORMAT B advice_requests (قصد خرید / پیشنهاد / راه‌حل): Direct buying intent, recommendation requests, store inquiries, pricing (e.g. «خرید لباس», «خرید پیراهن», «پیشنهاد لباس», «معرفی پیراهن», «قیمت پیراهن», «خرید عمده»).
+   - FORMAT C implicit_solutions (پرسونا / مخاطب / هویت / استایل): Target persona, style, gender, category identity as buyers search directly (e.g. «پیراهن مردانه», «پوشاک مردانه», «استایل کژوال», «لباس اسپرت», «لباس مجلسی»).
 3. STRICTLY FORBIDDEN:
    - NEVER generate awkward, weird, or purely negative phrases like «لباس نامناسب», «پیراهن بدفرم», «لباس بی‌کیفیت», «لباس کثیف». Real buyers do not search for "unsuitable clothes"!
-   - Never write single generic stop-words alone («کالا», «خدمات», «محصول»). Single product nouns like «پیراهن» or «کت» are acceptable, but 2-3 word natural phrases like «خرید پیراهن» or «لباس مردانه» are best.
+   - Never write single generic stop-words alone («کالا», «خدمات», «محصول»). Single product nouns like «پیراهن» or «کت» are acceptable, but 2-word natural phrases like «خرید پیراهن» or «لباس مردانه» are best.
    - No hashtags, quotes, @mentions, English words, punctuation, or emojis.
 4. FAMILY ANCHORS: Every phrase must clearly be about this specific family's topic (e.g. men's shirts -> «پیراهن», «لباس مردانه»). Do not drift to sibling families (e.g. do not produce «شلوار» or «دامن» for a shirt family).
-5. SELLER NOTES: If seller specifies wholesale («عمده»), students, specific gender or region, include natural phrases reflecting it (e.g. «خرید عمده پیراهن», «پیراهن عمده»).
-
-THREE FORMATS (write 4 to 6 phrases for EACH):
- FORMAT A  pain_symptoms: Everyday situations, needs, or desired fits in natural buyer voice (e.g. «لباس خنک تابستانی», «پیراهن نخی خنک», «پیراهن قواره بزرگ», «لباس مجلسی شیک», «دندون درد»). NEVER write awkward negative terms like «نامناسب».
- FORMAT B  advice_requests: Asking for buying recommendations, advice, or shopping queries (e.g. «خرید لباس مردانه», «پیشنهاد لباس مردانه», «معرفی پیراهن», «خرید پیراهن مردانه», «قیمت پیراهن», «خرید کت شلوار»).
- FORMAT C  implicit_solutions: Core category names and search phrases buyers type directly (e.g. «پیراهن مردانه», «کت و شلوار», «لباس مردانه», «پیراهن کژوال», «پیراهن نخی», «پوشاک مردانه»).
+5. SELLER NOTES: If seller specifies wholesale («عمده»), students, specific gender or region, include natural 2-word phrases reflecting it (e.g. «خرید عمده», «پیراهن عمده»).
 
 ALSO RETURN:
- - names: 2 to 4 core category/topic names (1-3 words, e.g. «پیراهن مردانه», «لباس مردانه», «پیراهن نخی»).
+ - names: 2 to 4 core category/topic names (preferably 2 words, e.g. «پیراهن مردانه», «پوشاک مردانه», «پیراهن نخی»).
  - negatives: 0 to 4 words to exclude seller ads/spam.
  - model: brand/model ONLY for tech/gadgets, otherwise null.
 
-QUANTITY: 4-6 phrases per format. The search system selects at most 10 diverse phrases per family. Count the words of each phrase.
+QUANTITY: 5-7 phrases per format (total 15-21 phrases per family). Count the words of each phrase and prioritize 2-word combinations.
 
 OUTPUT: strict JSON only:
 {"items":[{"product_id":"<family id>","pain_symptoms":["..."],"advice_requests":["..."],"implicit_solutions":["..."],"names":["..."],"negatives":["..."],"model":null}]}"""
 X_QUERY_TERMS_SYSTEM += """
 
 FAMILY-DRIFT AND INTENT EXAMPLES (follow these exactly):
-- Men's-shirt family: «خرید لباس مردانه», «پیراهن مردانه», «پیراهن نخی», «خرید پیراهن» are good; «تنگی شلوار» is wrong-family drift.
+- Men's-shirt family: «خرید لباس», «پیراهن مردانه», «پیراهن نخی», «خرید پیراهن» are good; «تنگی شلوار» is wrong-family drift.
 - Men's-shirt family: «پیراهن کژوال» and «پیشنهاد لباس» are good; «گرانی شومیز» belongs to another family.
-- «لباس مجلسی مردانه», «پوشاک مردانه» and «خرید لباس مردانه» are all great, realistic buyer queries.
+- «لباس مجلسی», «پوشاک مردانه» and «خرید لباس» are all great, realistic buyer queries.
 - «دندون درد», «ارتودنسی» and «ایمپلنت دندان» are good natural dental queries.
 - NEVER write awkward or nonsensical phrases like «لباس نامناسب»!
 """
@@ -92,9 +87,9 @@ def sanitize(raw: Any) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     model = clean_term(raw.get("model") or "")
     model = model if model and model.lower() not in {"null", "none"} and len(model.split()) <= 2 and len(model) >= 3 else None
-    pain = short_terms(raw.get("pain_symptoms") or raw.get("problems"), 8)
-    advice = short_terms(raw.get("advice_requests") or raw.get("alternatives"), 8)
-    solutions = short_terms(raw.get("implicit_solutions"), 8)
+    pain = short_terms(raw.get("pain_symptoms") or raw.get("problems"), 10)
+    advice = short_terms(raw.get("advice_requests") or raw.get("alternatives"), 10)
+    solutions = short_terms(raw.get("implicit_solutions"), 10)
     return {
         "pain_symptoms": pain,
         "advice_requests": advice,

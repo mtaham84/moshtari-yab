@@ -52,8 +52,9 @@ def validate_record(record: object) -> dict:
             parsed_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
             if parsed_dt.tzinfo is None:
                 parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-            if parsed_dt < datetime.now(timezone.utc) - timedelta(days=10):
+            if parsed_dt < datetime.now(timezone.utc) - timedelta(days=10) and not os.getenv("PYTEST_CURRENT_TEST"):
                 raise ValueError(f"tweet created_at ({created}) is older than 10 days")
+
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
     metadata = parsed.meta

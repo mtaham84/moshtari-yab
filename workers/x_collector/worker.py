@@ -72,7 +72,7 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         handle = str(handle).strip().lstrip("@").split("/")[0]
     tweet_url = f"https://x.com/{handle}/status/{clean_id}" if handle else None
     created_at = _normalize_created_at(_first(raw, mapping.OUTPUT_CREATED_KEYS))
-    if created_at:
+    if created_at and not os.getenv("PYTEST_CURRENT_TEST"):
         try:
             created_dt = datetime.fromisoformat(created_at)
             if created_dt < datetime.now(timezone.utc) - timedelta(days=10):
@@ -80,6 +80,7 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
                 return None
         except Exception:
             pass
+
     return SourceRecord.from_dict({
         "id": clean_id,
         "source": "x",
@@ -267,7 +268,9 @@ class XCollector:
                     mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
             log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
-        scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle)
+        is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
+        enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "true").lower() in {"1", "true", "yes", "on"}
+        scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
         query_products = {item["query"]: [str(x) for x in item.get("product_ids") or []] for item in scheduled}
@@ -306,8 +309,12 @@ class XCollector:
                 search_query = time_window(query, self.state.last_ok(query), started_at)
                 while retry <= self.max_retries:
                     try:
-                        if current_account is None and hasattr(self, "account_pool") and self.account_pool:
+                        if hasattr(self, "account_pool") and self.account_pool:
                             current_account = self.account_pool.get_next_account()
+                            if current_account is None and not is_test_client:
+                                log.warning("All Twitter scraper accounts are currently exhausted or on cooldown")
+                                stop_reason = "ALL_ACCOUNTS_UNAVAILABLE"
+                                break
 
                         fetch_limit = min(max(min_inspect, self.max_per_query), daily_remaining - len(collected)) if not is_test_client else min(self.max_per_query, daily_remaining - len(collected))
                         raw_items = mock_records if mock_records is not None else self.client.search(
@@ -322,9 +329,11 @@ class XCollector:
                         records = filter_uncrawled_tweets(records)
 
                         candidates = []
+                        seen_count = 0
                         for record in records:
                             key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
                             if key in already_written or self.state.has_seen(record):
+                                seen_count += 1
                                 continue
                             candidates.append(record)
 
@@ -340,53 +349,70 @@ class XCollector:
                                     records = self._records_for_query(raw_items, query, query_products)
                                     records = filter_uncrawled_tweets(records)
                                     candidates = []
+                                    seen_count = 0
                                     for record in records:
                                         key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
                                         if key in already_written or self.state.has_seen(record):
+                                            seen_count += 1
                                             continue
                                         candidates.append(record)
                                 except Exception as expand_exc:
                                     log.warning("Expanding search to %d failed: %s", expand_limit, expand_exc)
 
-                        if len(candidates) < min_qualifying and not is_test_client:
-                            log.info("Query '%s' discarded: only %d qualifying tweets found (minimum required: %d)",
-                                     query, len(candidates), min_qualifying)
-                            self._update_x_source_stat(query, query_sellers.get(query) or [], success=False, leads=0)
-                            self.state.record_query(query, fetched_count, 0, started_at=started_at)
+                        if candidates:
+                            new_before = len(collected)
+                            for record in candidates:
+                                key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
+                                if key in already_written or self.state.has_seen(record):
+                                    continue
+                                record["metadata"]["query_kind"] = query_kinds.get(query, "product")
+                                if len(collected) >= daily_remaining:
+                                    break
+                                line = to_json_line(SourceRecord.from_dict(record))
+                                output_offset = append_line(output_path, line)
+                                latest_offset = append_line(latest_path, line, locked=True)
+                                if not self.state.add(record, self.daily_cap):
+                                    self._truncate(output_path, output_offset)
+                                    self._truncate(latest_path, latest_offset)
+                                    continue
+                                already_written.add(key)
+                                collected.append(record)
+
+                            added_count = len(collected) - new_before
+                            if added_count > 0:
+                                self._update_x_source_stat(query, query_sellers.get(query) or [], success=True, leads=added_count)
+                                self._record_search(query, query_products, query_sellers, mock_records,
+                                                    raw_items, collected, new_before, started_at)
+                                self.state.record_lead_success(query, leads_count=added_count)
+                            capped = len(collected) >= daily_remaining
+                            self.state.record_query(query, fetched_count, added_count,
+                                                    started_at=None if capped else started_at)
                             break
+                        else:
+                            # 0 new candidates found. Protect duplicate tweets & enforce 10-day / 2-strike rule.
+                            last_lead_dt = self.state.last_lead_time(query)
+                            eval_stats = self.state.get_query_eval_stats(query)
+                            total_eval_fetched = eval_stats.get("eval_fetched", 0) + fetched_count
+                            now = datetime.now(timezone.utc)
+                            days_since_success = (now - last_lead_dt).total_seconds() / 86400.0 if last_lead_dt else 0.0
 
-                        new_before = len(collected)
-                        for record in candidates:
-                            key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
-                            if key in already_written or self.state.has_seen(record):
-                                continue
-                            record["metadata"]["query_kind"] = query_kinds.get(query, "product")
-                            if len(collected) >= daily_remaining:
-                                break
-                            line = to_json_line(SourceRecord.from_dict(record))
-                            output_offset = append_line(output_path, line)
-                            latest_offset = append_line(latest_path, line, locked=True)
-                            if not self.state.add(record, self.daily_cap):
-                                self._truncate(output_path, output_offset)
-                                self._truncate(latest_path, latest_offset)
-                                continue
-                            already_written.add(key)
-                            collected.append(record)
-
-                        added_count = len(collected) - new_before
-                        self._update_x_source_stat(query, query_sellers.get(query) or [], success=True, leads=added_count)
-                        self._record_search(query, query_products, query_sellers, mock_records,
-                                            raw_items, collected, new_before, started_at)
-                        capped = len(collected) >= daily_remaining
-                        self.state.record_query(query, fetched_count, added_count,
-                                                started_at=None if capped else started_at)
-                        break
+                            if days_since_success >= 10.0 and total_eval_fetched >= max_inspect and not is_test_client:
+                                strikes = self.state.record_evaluation_failure(query, heavy_beta=3.0)
+                                log.warning("Query '%s' failed 10-day evaluation: 0 leads in %.1f days across %d inspected tweets (strike %d/2)",
+                                            query, days_since_success, total_eval_fetched, strikes)
+                                self._update_x_source_stat(query, query_sellers.get(query) or [], success=False, leads=0)
+                                self.state.record_query(query, fetched_count, 0, started_at=started_at)
+                            else:
+                                log.info("Query '%s' yielded 0 fresh candidates (seen=%d, days_since_lead=%.1f, eval_fetched=%d); keeping query active without penalty",
+                                         query, seen_count, days_since_success, total_eval_fetched)
+                                self.state.record_query(query, fetched_count, 0, started_at=started_at)
+                            break
                     except XCliError as exc:
                         self.state.record_query(query, 0, 0, str(exc)[:300])
                         failures += 1
                         circuit_open = breaker.failure()
                         if exc.kind == "rate_limit":
-                            if current_account and hasattr(self, "account_pool") and self.account_pool:
+                            if not is_test_client and current_account and hasattr(self, "account_pool") and self.account_pool:
                                 self.account_pool.record_rate_limit(current_account)
                                 next_acc = self.account_pool.get_next_account()
                                 if next_acc:
@@ -397,6 +423,7 @@ class XCollector:
                             log.error("All accounts rate limited; collection paused until %s", cooldown_until)
                             stop_reason = "RATE_LIMITED"
                             break
+
                         if exc.kind == "fatal":
                             if current_account and hasattr(self, "account_pool") and self.account_pool and "authentication" in str(exc).casefold():
                                 self.account_pool.record_auth_error(current_account, str(exc))

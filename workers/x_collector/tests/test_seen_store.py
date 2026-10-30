@@ -111,6 +111,100 @@ def test_legacy_x_store_keeps_default_platform(tmp_path):
         db.execute("INSERT INTO daily_counts VALUES(?, 5)", (date.today().isoformat(),))
 
     store = SeenStore(path)
-
     assert store.platform == "x"
     assert store.count_today() == 5
+
+
+
+def test_query_lead_success_and_10day_2strike_pruning_rule(tmp_path):
+    path = tmp_path / "eval_test.sqlite3"
+    store = SeenStore(path, platform="x")
+    query = "خرید لباس مردانه"
+    store.schedule([{"query": query, "kind": "product"}], budget=1)
+
+    # Initially 0 strikes, not dropped
+    stats = store.get_query_eval_stats(query)
+    assert stats["strikes"] == 0
+    assert stats["dropped"] == 0
+
+    # 1. Record a successful lead discovery
+    store.record_lead_success(query, leads_count=3)
+    stats = store.get_query_eval_stats(query)
+    assert stats["strikes"] == 0
+    assert stats["dropped"] == 0
+    assert stats["last_lead_at"] is not None
+    assert store.last_lead_time(query) is not None
+
+    # 2. First evaluation failure after 10 days of no leads
+    strikes = store.record_evaluation_failure(query, heavy_beta=3.0)
+    assert strikes == 1
+    stats = store.get_query_eval_stats(query)
+    assert stats["strikes"] == 1
+    assert stats["dropped"] == 0
+    assert stats["beta"] >= 4.0
+    assert query not in store.dropped_queries()
+
+    # 3. Second evaluation failure -> 2 strikes -> pruned!
+    strikes = store.record_evaluation_failure(query, heavy_beta=3.0)
+    assert strikes == 2
+    stats = store.get_query_eval_stats(query)
+    assert stats["strikes"] == 2
+    assert stats["dropped"] == 1
+    assert query in store.dropped_queries()
+
+
+def test_account_pool_least_loaded_and_fair_selection():
+    from workers.x_collector.account_pool import TwitterAccount, TwitterAccountPool
+    pool = TwitterAccountPool.__new__(TwitterAccountPool)
+    pool.accounts = [
+        TwitterAccount(id=1, username="acc_busy", password="", auth_token="t1", ct0="c1", proxy_url="", status="ACTIVE", daily_actions=10),
+        TwitterAccount(id=2, username="ebid8f", password="", auth_token="t2", ct0="c2", proxy_url="", status="ACTIVE", daily_actions=0),
+        TwitterAccount(id=3, username="ksdjcuas", password="", auth_token="t3", ct0="c3", proxy_url="", status="ACTIVE", daily_actions=0),
+    ]
+
+    # Should pick one of the zero-action accounts first
+    picked1 = pool.get_next_account()
+    assert picked1.username in ("ebid8f", "ksdjcuas")
+    picked1.daily_actions += 1
+
+    # Next pick should be the other zero-action account
+    picked2 = pool.get_next_account()
+    assert picked2.username in ("ebid8f", "ksdjcuas")
+    assert picked2.username != picked1.username
+
+
+def test_enforce_daily_unique_schedule(tmp_path):
+    import sqlite3
+    from contextlib import closing
+    from datetime import datetime, timezone, timedelta
+    from shared.collector_kit.seen import SeenStore
+
+    store = SeenStore(tmp_path / "daily_uniq.sqlite3", platform="x")
+    queries = [
+        {"query": "خرید لباس", "kind": "problem"},
+        {"query": "پیراهن مردانه", "kind": "solution"},
+    ]
+
+    # Day 1 initial schedule
+    sched1 = store.schedule(queries, budget=2, enforce_daily_unique=True)
+    assert len(sched1) == 2
+
+    # Simulate query 1 ran today
+    now = datetime.now(timezone.utc)
+    store.record_query("خرید لباس", fetched=10, new_posts=2, started_at=now)
+
+    # Calling schedule again today with enforce_daily_unique=True should exclude "خرید لباس"
+    sched2 = store.schedule(queries, budget=2, enforce_daily_unique=True)
+    assert len(sched2) == 1
+    assert sched2[0]["query"] == "پیراهن مردانه"
+
+    # Simulate tomorrow: update last_run_at to yesterday
+    yesterday = (now - timedelta(days=1)).isoformat()
+    with closing(sqlite3.connect(store.path)) as db:
+        db.execute("UPDATE query_runs SET last_run_at=? WHERE query='خرید لباس'", (yesterday,))
+        db.commit()
+
+    # On next day, "خرید لباس" returns to eligible pool!
+    sched3 = store.schedule(queries, budget=2, enforce_daily_unique=True)
+    assert len(sched3) == 2
+

@@ -863,6 +863,21 @@ class Command(BaseCommand):
                 label__iexact=raw_tag[:100]
             ).delete()
 
+        # 5. Expand new candidate queries inspired by top-performing queries
+        target_plan = plan
+        if not target_plan and business:
+            target_plan = InstagramFamilyPlan.objects.filter(business=business).first()
+        if target_plan:
+            try:
+                from apps.discovery.instagram_families import expand_queries_from_top_sources
+                expanded = expand_queries_from_top_sources(business, target_plan, family=family, retired_label=clean_label)
+                if expanded:
+                    self.stdout.write(self.style.SUCCESS(
+                        f"  ✨ [گسترش خودکار کوئری]: کوئری‌های جدید الهام‌گرفته از کوئری‌های برتر اضافه شدند: {expanded}"
+                    ))
+            except Exception as e:
+                self.stderr.write(f"Query expansion warning: {e}")
+
     def _fetch_source_medias(
         self, cl, account, source_type: str, source_label: str, business=None, page_obj=None,
         target_qualifying: int = 3, min_inspect: int = 15, max_total: int = 30
@@ -980,6 +995,52 @@ class Command(BaseCommand):
 
         all_medias.sort(key=_sort_key, reverse=True)
         return all_medias[:max_total]
+
+    def _get_or_create_post_reply_template(self, post_hash: str, caption: str, cta_word: str, family_context: dict, business_id: int) -> str:
+        """
+        Generate a personalized DM reply template based on the post's caption and inquiry context.
+        Caches it per post hash so 100 people asking 'قیمت' on the same post only incur 1 LLM call,
+        and every subsequent lead is generated for free by substituting their username!
+        """
+        import json, hashlib
+        from django.core.cache import cache
+        key = f"ig_tpl:{post_hash[:16]}:{hashlib.md5((cta_word or 'general').encode()).hexdigest()[:8]}"
+        cached_tpl = cache.get(key)
+        if cached_tpl:
+            return cached_tpl
+
+        from apps.core.llm import chat_json
+        prompt_system = (
+            "شما متخصص فروش حرفه‌ای در دایرکت اینستاگرام هستید. "
+            "با توجه به کپشن پست زیر و مشخصات فروشگاه، یک پیام دایرکت کوتاه، صمیمی، محترمانه و ترغیب‌کننده "
+            "برای پاسخ به کامنت استعلام قیمت/خرید بنویسید.\n"
+            "الزامات مهم:\n"
+            "۱. حتماً در ابتدای پیام از برچسب {username} برای نام کاربر استفاده کنید (مثال: سلام {username} عزیز، وقتتون بخیر).\n"
+            "۲. متن باید متناسب با کالای معرفی‌شده در کپشن باشد و حس ارسال پیام اختصاصی به کاربر را بدهد.\n"
+            "۳. لینک مستقیم، آیدی کانال تلگرام یا شماره تماس قرار ندهید.\n"
+            "۴. خروجی را در قالب JSON برگردانید: {\"template\": \"متن پیام...\"}"
+        )
+        payload = {
+            "post_caption": (caption or "")[:800],
+            "inquiry_type": cta_word or "استعلام قیمت و موجودی",
+            "category": family_context.get("category_path", ""),
+            "product_titles": family_context.get("product_titles", [])[:4],
+            "seller_notes": (family_context.get("seller_notes") or "")[:250],
+        }
+        try:
+            res = chat_json(prompt_system, json.dumps(payload, ensure_ascii=False), purpose="instagram_caption_reply_template", business_id=business_id)
+            if isinstance(res, dict) and res.get("template"):
+                tpl = str(res["template"]).strip()
+            else:
+                prod = (family_context.get("product_titles") or ["کالای انتخابی"])[0]
+                tpl = f"سلام {{username}} عزیز، وقتتون بخیر. در خصوص «{prod}» که در این پست استعلام فرمودید، قیمت و مشخصات خدمت شما ارسال شد."
+        except Exception as exc:
+            self.stderr.write(f"Notice: reply template LLM error: {exc}")
+            prod = (family_context.get("product_titles") or ["کالای انتخابی"])[0]
+            tpl = f"سلام {{username}} عزیز، وقتتون بخیر. در پاسخ به استعلام شما در خصوص «{prod}»، جزئیات کامل خدمت شما تقدیم می‌شود."
+
+        cache.set(key, tpl, timeout=30 * 86400)
+        return tpl
 
     def _inspect_family_medias(self, cl, account, target, source, medias, min_comments: int):
         """Cache each post/comments once globally, then score the cached comments for this tenant/family."""
@@ -1132,6 +1193,18 @@ class Command(BaseCommand):
                 ai.update(llm_evaluate_family_batch(ambiguous[offset:offset + 25], business_id=business.pk,
                                                     family_context=family_context, buyer_signals=buyer_signals))
             evaluations.update(ai)
+
+            # Build or retrieve the cached reply template for this post once
+            post_reply_template = None
+            if any(evaluations.get(r["id"], {}).get("is_lead") for r in eligible_comments):
+                post_reply_template = self._get_or_create_post_reply_template(
+                    post_hash=digest,
+                    caption=caption,
+                    cta_word=cta or "استعلام قیمت و موجودی",
+                    family_context=family_context,
+                    business_id=business.pk
+                )
+
             post_leads_saved = 0
             for row in eligible_comments:
                 result = evaluations.get(row["id"], {})
@@ -1139,6 +1212,11 @@ class Command(BaseCommand):
                     continue
                 leads_saved += 1
                 post_leads_saved += 1
+                result["source_type"] = source.source_type
+                result["source_label"] = source.label
+                display_name = str(row.get("full_name") or row.get("username") or "").strip()
+                if post_reply_template and not result.get("suggested_reply"):
+                    result["suggested_reply"] = post_reply_template.replace("{username}", display_name or "کاربر")
                 score = lead_quality_score(result.get("intent_score", .8), is_business=row.get("is_business"),
                                            follower_count=row.get("follower_count"), bio=row.get("bio", ""),
                                            seller_notes=family.notes, family_path=family.category_path,
