@@ -10,7 +10,7 @@
     <p class="p-page-subtitle">صفحهٔ عمومی کسب‌وکار شما؛ لینک آن را برای مشتریان بفرستید.</p>
   </div>
   <div class="p-header-actions">
-    {% if business.slug %}<a class="p-btn p-btn-primary" href="{% url 'accounts:shop' business.slug %}" target="_blank" rel="noopener"><svg class="ico" aria-hidden="true"><use href="#i-store"/></svg> مشاهدهٔ غرفه</a>{% endif %}
+    {% if business.slug %}<a class="p-btn p-btn-primary" href="{% url 'public_shop' business.slug %}" target="_blank" rel="noopener"><svg class="ico" aria-hidden="true"><use href="#i-store"/></svg> مشاهدهٔ غرفه</a>{% endif %}
     <a class="p-btn" href="{% url 'accounts:categories' %}"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg> دسته‌بندی‌ها</a>
   </div>
 </div>

@@ -13,7 +13,7 @@ urlpatterns = [
     path("manage/", include("apps.billing.manage_urls")),
     path("admin/", admin.site.urls),
     path("ops/", include("apps.billing.urls")),
-    path("shop/<slug:slug>/", shop_view, name="public_shop"),
+    path("shop/<str:slug>/", shop_view, name="public_shop"),
     path("p/<int:pk>/", public_product_card_view, name="short_public_card"),
     path("r/<int:pk>/", product_click_view, name="product_click"),
     path("login/", login_view, name="login_alias"),

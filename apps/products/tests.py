@@ -332,3 +332,348 @@ class XSearchToggleTests(TestCase):
         self.assertEqual(self.client.post(reverse("products:toggle_x_search", args=[product.pk])).status_code, 404)
         product.refresh_from_db()
         self.assertTrue(product.x_search_enabled)
+
+
+from unittest.mock import MagicMock
+from apps.businesses.models import BusinessType
+from apps.products import taxonomy
+
+
+class TaxonomyCoreTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="seller_tax@test.ir",
+            email="seller_tax@test.ir",
+            password="testpass123",
+            first_name="فروشنده"
+        )
+        self.business = Business.objects.create(
+            user=self.user,
+            name="پوشاک نمونه",
+            slug="pooshak-test",
+            business_type="PHYSICAL",
+            onboarding_done=True
+        )
+        self.btype = BusinessType.objects.create(
+            key="apparel_tax",
+            name="پوشاک",
+            kind="PHYSICAL",
+            description="انواع البسه"
+        )
+
+    def test_ensure_type_tree_built_once_and_cached(self):
+        fake_llm = MagicMock(return_value={
+            "children": [
+                {
+                    "name": "مردانه",
+                    "children": [
+                        {"name": "پیراهن", "children": []},
+                        {"name": "شلوار", "children": []}
+                    ]
+                },
+                {
+                    "name": "زنانه",
+                    "children": [
+                        {"name": "مانتو", "children": []}
+                    ]
+                }
+            ]
+        })
+
+        # 1st call builds the tree
+        res1 = taxonomy.ensure_type_tree(self.btype, llm=fake_llm)
+        self.assertEqual(res1.tree_status, BusinessType.TREE_READY)
+        self.assertEqual(fake_llm.call_count, 1)
+
+        root = res1.root_category
+        self.assertIsNotNone(root)
+        self.assertEqual(root.name, "پوشاک")
+        self.assertEqual(root.children.count(), 2)
+
+        # 2nd call should use cache without calling LLM
+        fail_llm = MagicMock(side_effect=Exception("LLM should not be called"))
+        res2 = taxonomy.ensure_type_tree(self.btype, llm=fail_llm)
+        self.assertEqual(res2.tree_status, BusinessType.TREE_READY)
+        self.assertEqual(fail_llm.call_count, 0)
+
+    def test_adopt_nodes_is_idempotent_and_retains_ancestors(self):
+        root = Category.objects.create(name="پوشاک", product_type="PHYSICAL", source="system")
+        dept = Category.objects.create(name="مردانه", parent=root, product_type="PHYSICAL", source="ai")
+        leaf = Category.objects.create(name="پیراهن", parent=dept, product_type="PHYSICAL", source="ai")
+
+        # Adopt only the leaf node
+        count1 = taxonomy.adopt_nodes(self.business, [leaf.pk])
+        # Root + dept + leaf should all be copied for the business
+        self.assertEqual(count1, 3)
+
+        own_leaf = Category.objects.get(business=self.business, origin=leaf)
+        self.assertEqual(own_leaf.name, "پیراهن")
+        self.assertIsNotNone(own_leaf.parent)
+        self.assertEqual(own_leaf.parent.name, "مردانه")
+        self.assertEqual(own_leaf.parent.origin, dept)
+        self.assertIsNotNone(own_leaf.parent.parent)
+        self.assertEqual(own_leaf.parent.parent.name, "پوشاک")
+        self.assertEqual(own_leaf.parent.parent.origin, root)
+
+        # Idempotency: second adopt call with same or ancestor node returns 0 new copies
+        count2 = taxonomy.adopt_nodes(self.business, [leaf.pk, dept.pk])
+        self.assertEqual(count2, 0)
+        self.assertEqual(Category.objects.filter(business=self.business).count(), 3)
+
+    def test_depth_limits_and_rules(self):
+        # Build 3 levels for seller
+        l1 = Category.objects.create(business=self.business, name="پوشاک", product_type="PHYSICAL")
+        l2 = taxonomy.add_node(self.business, l1.pk, "مردانه")
+        l3 = taxonomy.add_node(self.business, l2.pk, "پیراهن")
+        self.assertEqual(l3.depth, 3)
+
+        # Level 4 allowed for seller (user source)
+        l4 = taxonomy.add_node(self.business, l3.pk, "پیراهن نخی", source="user")
+        self.assertEqual(l4.depth, 4)
+
+        # Level 5 not allowed (exceeds MAX_DEPTH 4)
+        with self.assertRaises(taxonomy.TaxonomyError):
+            taxonomy.add_node(self.business, l4.pk, "سایز لارج", source="user")
+
+        # Source 'ai' cannot exceed AI_MAX_DEPTH (3)
+        with self.assertRaises(taxonomy.TaxonomyError):
+            taxonomy.add_node(self.business, l3.pk, "مدل آکسفورد", source="ai")
+
+    def test_rename_node_syncs_descendant_paths(self):
+        root = Category.objects.create(business=self.business, name="پوشاک", product_type="PHYSICAL")
+        sub = Category.objects.create(business=self.business, name="مردانه", parent=root, product_type="PHYSICAL")
+        leaf = Category.objects.create(business=self.business, name="کت و شلوار", parent=sub, product_type="PHYSICAL")
+
+        self.assertEqual(leaf.full_path, "پوشاک > مردانه > کت و شلوار")
+
+        # Rename root
+        taxonomy.rename_node(self.business, root.pk, "لباس و پوشاک")
+        root.refresh_from_db()
+        sub.refresh_from_db()
+        leaf.refresh_from_db()
+
+        self.assertEqual(root.name, "لباس و پوشاک")
+        self.assertEqual(sub.full_path, "لباس و پوشاک > مردانه")
+        self.assertEqual(leaf.full_path, "لباس و پوشاک > مردانه > کت و شلوار")
+
+        # Duplicate sibling name is rejected
+        sub2 = Category.objects.create(business=self.business, name="زنانه", parent=root, product_type="PHYSICAL")
+        with self.assertRaises(taxonomy.TaxonomyError):
+            taxonomy.rename_node(self.business, sub2.pk, "مردانه")
+
+    def test_delete_node_moves_products_to_parent(self):
+        root = Category.objects.create(business=self.business, name="خدمات آموزش", product_type="SERVICE")
+        child = Category.objects.create(business=self.business, name="پایتون", parent=root, product_type="SERVICE")
+        p = Product.objects.create(
+            business=self.business,
+            name="دوره جنگو پیشرفته",
+            category=child,
+            product_type="SERVICE",
+            description="توضیحات دوره جنگو"
+        )
+
+        deleted_count = taxonomy.delete_node(self.business, child.pk)
+        self.assertEqual(deleted_count, 1)
+        self.assertFalse(Category.objects.filter(pk=child.pk).exists())
+
+        p.refresh_from_db()
+        # Product moved to parent
+        self.assertEqual(p.category, root)
+
+        # Deleting root sets product category to None
+        taxonomy.delete_node(self.business, root.pk)
+        p.refresh_from_db()
+        self.assertIsNone(p.category)
+
+    def test_collapse_depth(self):
+        l1 = Category.objects.create(business=self.business, name="دسته‌بندی ۱", product_type="PHYSICAL")
+        l2 = Category.objects.create(business=self.business, name="دسته‌بندی ۲", parent=l1, product_type="PHYSICAL")
+        l3 = Category.objects.create(business=self.business, name="دسته‌بندی ۳", parent=l2, product_type="PHYSICAL")
+        l4 = Category.objects.create(business=self.business, name="دسته‌بندی ۴", parent=l3, product_type="PHYSICAL")
+
+        self.assertEqual(taxonomy.collapse(l1), l1)
+        self.assertEqual(taxonomy.collapse(l2), l2)
+        self.assertEqual(taxonomy.collapse(l3), l3)
+        # Depth 4 collapses to Depth 3
+        self.assertEqual(taxonomy.collapse(l4), l3)
+        self.assertIsNone(taxonomy.collapse(None))
+
+    def test_maybe_organize_and_organize_products(self):
+        cat1 = Category.objects.create(business=self.business, name="مردانه", product_type="PHYSICAL")
+
+        # 4 products: maybe_organize should return False
+        for i in range(4):
+            Product.objects.create(
+                business=self.business,
+                name=f"کالای {i}",
+                description="توضیح کالا",
+                status="ACTIVE"
+            )
+        self.assertFalse(taxonomy.maybe_organize(self.business, background=False))
+
+        # 5th product triggers organization
+        p5 = Product.objects.create(
+            business=self.business,
+            name="پیراهن مردانه سفید",
+            description="پیراهن کتان",
+            status="ACTIVE"
+        )
+        fake_llm = MagicMock(return_value={
+            "assignments": [
+                {"product_id": p5.id, "category_id": cat1.id, "new_category": None}
+            ]
+        })
+        stats = taxonomy.organize_products(self.business, llm=fake_llm)
+        self.assertEqual(stats["checked"], 5)
+        self.assertEqual(stats["placed"], 1)
+
+        p5.refresh_from_db()
+        self.assertEqual(p5.category, cat1)
+
+
+class OnboardingAndStorefrontFlowTestCase(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username="seller_flow@test.ir",
+            email="seller_flow@test.ir",
+            password="testpass123",
+            first_name="سارا"
+        )
+        self.business = Business.objects.create(
+            user=self.user,
+            name="مزون سارا",
+            business_type="PHYSICAL",
+            onboarding_done=False
+        )
+        self.btype = BusinessType.objects.create(
+            key="apparel_flow",
+            name="پوشاک",
+            kind="PHYSICAL"
+        )
+        self.client.force_login(self.user)
+
+    def test_middleware_redirects_unonboarded_user(self):
+        # Accessing guarded panel path redirects to onboarding
+        res = self.client.get("/products/")
+        self.assertEqual(res.status_code, 302)
+        self.assertIn("/accounts/onboarding/", res.url)
+
+        # Onboarding page is accessible (200)
+        res_ob = self.client.get("/accounts/onboarding/")
+        self.assertEqual(res_ob.status_code, 200)
+
+        # Once onboarding_done is set, access is permitted
+        self.business.onboarding_done = True
+        self.business.save()
+        res_after = self.client.get("/products/")
+        self.assertEqual(res_after.status_code, 200)
+
+    def test_onboarding_endpoints_flow(self):
+        # 1. Select types
+        res = self.client.post(
+            reverse("accounts:ob_select_types"),
+            data='{"keys": ["apparel_flow"]}',
+            content_type="application/json"
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(self.business.business_types.filter(key="apparel_flow").exists())
+
+        # Cannot finish onboarding without categories
+        res_fin_fail = self.client.post(
+            reverse("accounts:ob_finish"),
+            data='{"search_notes": "فروش عمده مانتو"}',
+            content_type="application/json"
+        )
+        self.assertEqual(res_fin_fail.status_code, 400)
+        self.assertIn("حداقل یک دسته‌بندی", res_fin_fail.json()["message"])
+
+        # Add node to seller tree
+        cat = Category.objects.create(business=self.business, name="مانتو مجلسی", product_type="PHYSICAL")
+
+        # Finish onboarding with notes and category
+        res_fin = self.client.post(
+            reverse("accounts:ob_finish"),
+            data='{"search_notes": "تولیدی مانتو هستم و مشتری عمده می‌خواهم.", "tagline": "بهترین مانتوهای پاییزه"}',
+            content_type="application/json"
+        )
+        self.assertEqual(res_fin.status_code, 200)
+        self.business.refresh_from_db()
+        self.assertTrue(self.business.onboarding_done)
+        self.assertTrue(bool(self.business.slug))
+        self.assertEqual(self.business.tagline, "بهترین مانتوهای پاییزه")
+
+    def test_shop_view_and_404_conditions(self):
+        # Unknown slug -> 404
+        res_404 = self.client.get("/shop/non-existent-shop-slug/")
+        self.assertEqual(res_404.status_code, 404)
+
+        # Business with onboarding_done=False -> 404
+        self.business.slug = "mezon-sara"
+        self.business.onboarding_done = False
+        self.business.save()
+        res_not_done = self.client.get(f"/shop/{self.business.slug}/")
+        self.assertEqual(res_not_done.status_code, 404)
+
+        # Once finished -> 200
+        self.business.onboarding_done = True
+        self.business.save()
+        res_done = self.client.get(f"/shop/{self.business.slug}/")
+        self.assertEqual(res_done.status_code, 200)
+        self.assertContains(res_done, "مزون سارا")
+
+    def test_shop_edit_slug_uniqueness_and_images(self):
+        self.business.onboarding_done = True
+        self.business.slug = "mezon-sara"
+        self.business.save()
+
+        other_user = User.objects.create_user(username="other@test.ir", password="p")
+        Business.objects.create(user=other_user, name="فروشگاه دیگر", slug="other-shop", onboarding_done=True)
+
+        # Try to take another store's slug
+        res = self.client.post(reverse("accounts:shop_edit"), {
+            "name": "مزون سارا جدید",
+            "slug": "other-shop"
+        })
+        self.assertEqual(res.status_code, 200)
+        self.business.refresh_from_db()
+        self.assertEqual(self.business.slug, "mezon-sara")
+
+        # Update with valid unique slug and image
+        file_obj = io.BytesIO()
+        img = Image.new("RGB", (20, 20), color=(100, 150, 200))
+        img.save(file_obj, format="PNG")
+        file_obj.seek(0)
+        logo_img = SimpleUploadedFile("logo.png", file_obj.read(), content_type="image/png")
+
+        res_ok = self.client.post(reverse("accounts:shop_edit"), {
+            "name": "مزون سارا لوکس",
+            "slug": "mezon-sara-lux",
+            "tagline": "شیک و به‌روز",
+            "logo": logo_img
+        })
+        self.assertEqual(res_ok.status_code, 302)
+        self.business.refresh_from_db()
+        self.assertEqual(self.business.slug, "mezon-sara-lux")
+        self.assertEqual(self.business.name, "مزون سارا لوکس")
+        self.assertTrue(bool(self.business.logo))
+
+    def test_product_form_renders_own_categories_and_defaults_x_search(self):
+        self.business.onboarding_done = True
+        self.business.save()
+
+        # Create own category and an unrelated business category
+        own_cat = Category.objects.create(business=self.business, name="دسته‌بندی من", product_type="PHYSICAL")
+        other_user = User.objects.create_user(username="other2@test.ir", password="p")
+        other_biz = Business.objects.create(user=other_user, name="کسب‌وکار دیگر")
+        Category.objects.create(business=other_biz, name="دسته‌بندی غیرمرتبط", product_type="PHYSICAL")
+
+        # GET product add view
+        res = self.client.get(reverse("products:add"))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "دسته‌بندی من")
+        self.assertNotContains(res, "دسته‌بندی غیرمرتبط")
+        # x_search_enabled should be checked by default on new product form
+        self.assertContains(res, 'name="x_search_enabled" value="on" checked')
+        self.assertContains(res, reverse("accounts:categories"))
+

@@ -18,6 +18,6 @@ urlpatterns = [
     path("onboarding/api/node/<slug:action>/", onboarding.api_node, name="ob_node"),
     path("onboarding/api/finish/", onboarding.api_finish, name="ob_finish"),
     path("shop/edit/", shop.shop_edit_view, name="shop_edit"),
-    path("shop/<slug:slug>/", shop.shop_view, name="shop"),
+    path("shop/<str:slug>/", shop.shop_view, name="shop"),
     path("settings/style-sample/", views.style_sample_view, name="style_sample"),
 ]

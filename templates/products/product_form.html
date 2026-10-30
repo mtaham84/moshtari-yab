@@ -127,12 +127,18 @@
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
         <label for="category_select" class="form-label" style="margin-bottom: 0;">
           درخت‌واره دسته‌بندی کالا
-          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منعطف تا ۵ سطح؛ امکان تعریف دلخواه زیرشاخه‌ها)</small>
+          <small style="color: var(--panel-text-faint); font-weight: 400;">(ساختار درختی منحصربه‌فرد کسب‌وکار شما)</small>
         </label>
-        <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-toggle-tree" style="font-size: 0.75rem; padding: 4px 10px;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          <span id="btn-tree-text">بستن / بازکردن درخت‌واره</span>
-        </button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <a href="{% url 'accounts:categories' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.75rem; padding: 4px 10px; display: inline-flex; align-items: center; gap: 6px;">
+            <svg class="ico" aria-hidden="true" style="width: 14px; height: 14px;"><use href="#i-folder"/></svg>
+            <span>ویرایش دسته‌بندی‌ها</span>
+          </a>
+          <button type="button" class="p-btn p-btn-sm p-btn-secondary" id="btn-toggle-tree" style="font-size: 0.75rem; padding: 4px 10px;">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span id="btn-tree-text">بستن / بازکردن درخت‌واره</span>
+          </button>
+        </div>
       </div>
 
       <!-- Active Selected Category Display Card -->
@@ -180,6 +186,15 @@
       </div>
 
       <!-- Fallback Quick Select Dropdown (Synced with Tree) -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; margin-bottom: 6px;">
+        <label for="category_select" class="form-label" style="margin-bottom: 0; font-size: 0.82rem;">
+          انتخاب از لیست دسته‌ها
+        </label>
+        <a href="{% url 'accounts:categories' %}" class="p-btn p-btn-sm p-btn-secondary" style="font-size: 0.72rem; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;">
+          <svg class="ico" aria-hidden="true" style="width: 12px; height: 12px;"><use href="#i-folder"/></svg>
+          ویرایش دسته‌بندی‌ها
+        </a>
+      </div>
       <select name="category_id" id="category_select" class="form-input" style="height: 44px;">
         <option value="">-- انتخاب مستقیم از لیست تمام دسته‌ها --</option>
         {% for cat in categories %}
@@ -479,7 +494,7 @@
 
         <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer; color: var(--panel-text-main);"
                title="برای همین محصول جداگانه در X جستجو و تحلیل می‌شود؛ هزینه‌ی جستجو و تحلیل از کیف پول شما کسر می‌شود.">
-          <input type="checkbox" name="x_search_enabled" value="on" {% if product.x_search_enabled %}checked{% endif %} style="accent-color: var(--obsidian-cyan);">
+          <input type="checkbox" name="x_search_enabled" value="on" {% if not is_edit or product.x_search_enabled %}checked{% endif %} style="accent-color: var(--obsidian-cyan);">
           <span>جستجوی مشتری در X برای این محصول (هزینه از کیف پول)</span>
         </label>
       </div>
