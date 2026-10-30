@@ -1,5 +1,5 @@
 {% extends "panel/base_panel.html" %}
-{% load static %}
+{% load static ops %}
 
 {% block title %}جزئیات فرصت فروش #{{ opportunity.id }} | پیدا{% endblock %}
 {% block breadcrumb %}
@@ -493,11 +493,11 @@
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; justify-content: space-between;">
           <span>زمان کشف:</span>
-          <span style="direction: ltr;">{{ opportunity.created_at|date:"Y/m/d H:i" }}</span>
+          <span style="direction: ltr;">{{ opportunity.created_at|jalali_dt }}</span>
         </div>
         <div style="display: flex; justify-content: space-between;">
           <span>آخرین تغییر:</span>
-          <span style="direction: ltr;">{{ opportunity.updated_at|date:"Y/m/d H:i" }}</span>
+          <span style="direction: ltr;">{{ opportunity.updated_at|jalali_dt }}</span>
         </div>
         <div style="display: flex; justify-content: space-between;">
           <span>پلتفرم مبدا:</span>

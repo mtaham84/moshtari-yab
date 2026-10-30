@@ -16,7 +16,7 @@
 </div>
 <div class="card" style="margin-top:14px"><h2>تراکنش‌ها</h2>
 <table><tr><th>زمان</th><th>نوع</th><th>توضیح</th><th class="n">فراخوانی</th><th class="n">هزینه‌ی واقعی</th><th class="n">مبلغ</th><th class="n">موجودی</th><th>ثبت‌کننده</th></tr>
-{% for t in transactions %}<tr><td class="muted">{{ t.created_at|date:"Y-m-d H:i" }}</td><td>{{ t.get_kind_display }}</td><td class="muted">{{ t.description }}</td>
+{% for t in transactions %}<tr><td class="muted">{{ t.created_at|jalali_dt }}</td><td>{{ t.get_kind_display }}</td><td class="muted">{{ t.description }}</td>
   <td class="n">{{ t.calls|default:"" }}</td><td class="n">{% if t.cost_usd %}{{ t.cost_usd|usd }}{% endif %}</td>
   <td class="n {% if t.amount_toman < 0 %}neg{% else %}pos{% endif %}">{{ t.amount_toman|toman }}</td><td class="n">{{ t.balance_after|toman }}</td>
   <td class="muted">{{ t.created_by.email|default:"سیستم" }}</td></tr>

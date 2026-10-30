@@ -32,7 +32,7 @@
   <th class="n">هزینه‌ی واقعی (تومان)</th><th class="n">دریافتی (تومان)</th><th class="n">نیاز (باز)</th><th class="n">فرصت</th></tr>
 {% for g in groups %}<tr>
   <td>{{ g.title|default:g.link }}<div class="muted"><code>{{ g.link }}</code></div>
-    {% if g.last %}<div class="muted" style="font-size:.78rem">آخرین پیام {{ g.last|date:"Y-m-d H:i" }}</div>{% endif %}</td>
+    {% if g.last %}<div class="muted" style="font-size:.78rem">آخرین پیام {{ g.last|jalali_dt }}</div>{% endif %}</td>
   <td>
     {% if g.orphan %}
       <span class="st down">بدون منبع در پنل</span>

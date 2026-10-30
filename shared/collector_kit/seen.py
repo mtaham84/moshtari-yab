@@ -287,6 +287,8 @@ class SeenStore:
                        (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, self.platform, query))
             if error is None and started_at is not None:
                 db.execute("UPDATE query_runs SET last_ok_at=? WHERE platform=? AND query=?", (started_at.isoformat(), self.platform, query))
+            if error is None and fetched == 0:   # a search that returned nothing earns a small penalty (it was a useless query)
+                db.execute("UPDATE query_runs SET beta = coalesce(beta, 1.0) + 0.25 WHERE platform=? AND query=?", (self.platform, query))
             db.commit()
 
     def last_ok(self, query: str) -> datetime | None:

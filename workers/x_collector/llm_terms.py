@@ -12,33 +12,50 @@ import logging
 import re
 from typing import Any
 
-from workers.x_collector.intent_queries import _FA, clean_term
+from workers.x_collector.intent_queries import _FA, clean_term, short_terms
 
 log = logging.getLogger("x_collector.llm_terms")
-PROMPT_VERSION = "5"
+PROMPT_VERSION = "6"
 KV_PREFIX = "x_qterms:"
-X_QUERY_TERMS_SYSTEM = """You are an expert search query engineer for Persian Twitter/X buyer discovery.
-Real Persian users on X almost never write catalog or marketplace names. They describe a problem, ask people for advice, or say what they want, in colloquial first-person Persian.
+X_QUERY_TERMS_SYSTEM = """You are a senior search-query engineer for Persian (Farsi) buyer discovery on X/Twitter.
+Goal: for each product, write SHORT, GENERIC, HIGH-RECALL Persian search phrases that surface real people who need this
+kind of product or service right now. X search is exact-match: all words of a phrase must co-occur, so every extra word
+makes a query exponentially rarer. Short, topical phrases win; long, specific ones return nothing.
 
-For EACH product write search phrases in exactly THREE formats. Every phrase is 2-5 words, colloquial Persian, entity-blind (no brand or product name) and must be something a real person would literally tweet:
+HARD RULES (a phrase that breaks any rule is discarded by the system):
+1. Every phrase is exactly 1 or 2 Persian words. NEVER 3 or more words. No sentences, no questions, no filler.
+2. Use the COMMON NOUN for the category/need that ordinary people type: «سنگ نما», «سنگ ساختمانی», «دندان درد», «لپ تاپ»,
+   «کنکور», «سئو سایت». Think: what 2 words would 1,000 different people use when they talk about this topic?
+3. Be GENERIC and TOPICAL. Do NOT put in a phrase: colors, sizes, finishes, materials, brands, model numbers, prices,
+   quantities, cities, adjectives or marketing words («شکلاتی», «شکسته», «لابی», «ارزان», «اصل», «مدل ۲۰۲۶», «درجه یک»).
+   BAD: «سنگ تراورتن شکلاتی», «سنگ لابی شکسته», «لپ تاپ استوک ایسوس», «بهترین دندانپزشک تهران».
+   GOOD: «سنگ تراورتن», «سنگ نما», «شوره سنگ», «لپ تاپ», «دندان درد», «ایمپلنت دندان».
+4. Phrases must be natural colloquial Persian that a real person would tweet, not catalog language.
+5. No X operators, quotes, hashtags, @mentions, emojis, punctuation, English words (except a well-known brand that is
+   literally part of the product title).
+6. Diversity: each phrase must differ in meaning or topic noun from the others. No near-duplicates (no plural/singular-only
+   or spelling-only variants).
+7. Entity-blind: do not use the seller's own brand or shop name.
 
-FORMAT 1 - pain_symptoms: the person's own problem, symptom or frustration with their current situation.
-   e.g. «دندونم تیر میکشه», «سنگ نما شوره زده», «لپ تاپم هنگ میکنه», «دیگه جواب نمیده», «خسته شدم از»
-FORMAT 2 - advice_requests: the person asks others for help, a recommendation or experience, mentioning the topic.
-   e.g. «کسی راهی بلده برای شوره سنگ», «چی پیشنهاد میدین برای درد دندون», «تجربه دارین دربارهٔ لپ تاپ استوک»
-FORMAT 3 - implicit_solutions: the person wants an outcome or a solution, or states a direct need to get/find/buy something in this area.
-   e.g. «راهکار رفع شوره سنگ», «روش افزایش سرعت سیستم», «دنبال دندونپزشک خوب»
+THREE FORMATS (these are the search angles; write 5 to 8 phrases for EACH):
+ FORMAT A  pain_symptoms: the person's own problem or frustration, as [problem word] + [topic noun], or [topic noun] +
+           [symptom]. Examples: «شوره سنگ», «ترک سنگ», «دندان درد», «لپ تاپ هنگ», «نشتی آب».
+ FORMAT B  advice_requests: the person asks others for a recommendation/experience: [advice word] + [topic noun].
+           Advice words: پیشنهاد، معرفی، تجربه، کجا، کدوم، دنبال، راهنمایی. Examples: «پیشنهاد سنگبر», «معرفی دندانپزشک»,
+           «تجربه ایمپلنت», «کجا لپتاپ».
+ FORMAT C  implicit_solutions: direct need or purchase intent: [action word] + [topic noun].
+           Action words: خرید، قیمت، سفارش، نیاز، دنبال، میخوام. Examples: «خرید سنگ», «قیمت تراورتن», «سفارش سنگ»,
+           «دنبال دندانپزشک».
 
-QUANTITY RULE: give 5 to 8 phrases per format. Fewer than 5 finds nothing; more than 8 adds duplicates and noise. Each phrase must be clearly different in wording from the others, and none may be a slogan, generic filler («کیفیت عالی», «تخفیف ویژه») or a single generic word.
+ALSO RETURN
+ - names: 2 to 4 core topic names of the product/service (1 or 2 words each, the most generic correct nouns).
+ - negatives: 0 to 4 single words typical of seller ads/spam for this topic (e.g. «تخفیف», «فروشگاه», «ارسال»).
+ - model: brand + model ONLY for hardware/gadgets that people name (max 2 tokens), otherwise null.
 
-Also give:
-   - names: 2-4 core product/service keywords (1-3 words, Persian or English, e.g. «سنگ نما», «لمینت», «notion ai»).
-   - cues: 3-8 buying/seeking cues (1-3 words) written next to names (e.g. «بخرم», «قیمت», «پیشنهاد», «معرفی»).
-   - negatives: 0-4 words typical of seller ads (e.g. «تخفیف», «کد تخفیف»).
-   - model: brand + model for hardware/gadgets, else null.
+QUANTITY: 5-8 phrases per format. Fewer than 5 finds nothing; more than 8 adds noise. Count words before answering.
 
-Return JSON:
-{"items":[{"product_id":"...","pain_symptoms":[...],"advice_requests":[...],"implicit_solutions":[...],"names":[...],"cues":[...],"negatives":[...],"model":null}]}"""
+OUTPUT: strict JSON only, no commentary:
+{"items":[{"product_id":"...","pain_symptoms":["..."],"advice_requests":["..."],"implicit_solutions":["..."],"names":["..."],"negatives":["..."],"model":null}]}"""
 _LATIN = re.compile(r"[A-Za-z]{3,}")
 
 
@@ -57,67 +74,28 @@ def _key(product: Any, card: Any) -> str:
 
 
 def sanitize(raw: Any) -> dict[str, Any]:
+    """Keeps only 1-2 word phrases (longer ones are dropped, never truncated)."""
     raw = raw if isinstance(raw, dict) else {}
-
-    def terms(values: Any, lo: int, hi: int, cap: int) -> list[str]:
-        out = []
-        for value in values if isinstance(values, list) else []:
-            term = clean_term(value)
-            if lo <= len(term.split()) <= hi and _FA.search(term) and term not in out:
-                out.append(term)
-        return out[:cap]
-
-    def words(values: Any, lo: int, hi: int, cap: int) -> list[str]:   # Persian or Latin
-        out = []
-        for value in values if isinstance(values, list) else []:
-            term = clean_term(value)
-            if lo <= len(term.split()) <= hi and (_FA.search(term) or _LATIN.search(term)) and term not in out:
-                out.append(term)
-        return out[:cap]
-
     model = clean_term(raw.get("model") or "")
-    model = model if model and model.lower() not in {"null", "none"} and len(model.split()) <= 3 and len(model) >= 3 else None
-
-    # MP-CABS Triplets
-    triplets = []
-    for item in raw.get("triplets") if isinstance(raw.get("triplets"), list) else []:
-        if isinstance(item, dict):
-            p = clean_term(item.get("persona") or "")
-            t = clean_term(item.get("trigger") or "")
-            pn = clean_term(item.get("pain") or "")
-            if p or t or pn:
-                triplets.append({"persona": p, "trigger": t, "pain": pn})
-
-    pain_symptoms = terms(raw.get("pain_symptoms"), 2, 5, 8)
-    if not pain_symptoms and "problems" in raw:
-        pain_symptoms = terms(raw.get("problems"), 2, 5, 8)
-
-    dissatisfactions = terms(raw.get("dissatisfactions"), 2, 5, 6)
-    if not dissatisfactions and "complaints" in raw:
-        dissatisfactions = terms(raw.get("complaints"), 2, 5, 6)
-
-    advice_requests = terms(raw.get("advice_requests"), 2, 6, 8)
-    if not advice_requests and "alternatives" in raw:
-        advice_requests = terms(raw.get("alternatives"), 2, 6, 6)
-
-    implicit_solutions = terms(raw.get("implicit_solutions"), 2, 6, 8)
-
-    res = {
-        "triplets": triplets[:3],
-        "pain_symptoms": pain_symptoms,
-        "dissatisfactions": dissatisfactions,
-        "advice_requests": advice_requests,
-        "implicit_solutions": implicit_solutions,
-        "names": words(raw.get("names"), 1, 3, 6),
-        "cues": words(raw.get("cues"), 1, 3, 8),
-        "negatives": words(raw.get("negatives"), 1, 3, 5),
+    model = model if model and model.lower() not in {"null", "none"} and len(model.split()) <= 2 and len(model) >= 3 else None
+    pain = short_terms(raw.get("pain_symptoms") or raw.get("problems"), 8)
+    advice = short_terms(raw.get("advice_requests") or raw.get("alternatives"), 8)
+    solutions = short_terms(raw.get("implicit_solutions"), 8)
+    return {
+        "pain_symptoms": pain,
+        "advice_requests": advice,
+        "implicit_solutions": solutions,
+        "names": short_terms(raw.get("names"), 4, strip_noise=True),
+        "negatives": short_terms(raw.get("negatives"), 5),
         "model": model,
-        # backward-compatibility mappings
-        "problems": pain_symptoms,
-        "complaints": dissatisfactions,
-        "alternatives": advice_requests,
+        # backward-compatibility keys read by older callers
+        "problems": pain,
+        "alternatives": advice,
+        "dissatisfactions": [],
+        "complaints": [],
+        "cues": [],
+        "triplets": [],
     }
-    return res
 
 
 def _user(product: Any, card: Any) -> dict[str, Any]:

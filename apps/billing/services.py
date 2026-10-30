@@ -189,6 +189,56 @@ def cost_breakdown(days: float, by: str) -> list[dict]:
     return rows
 
 
+def model_usage(days: float) -> list[dict]:
+    """Usage per model over ``days`` from BOTH ledgers: the engine's ``costs`` table (Telegram/X analysis, reply, verify)
+    and the Instagram analyses (``AIAnalysis`` rows, e.g. Luna). Rows: key, calls, pt, ct, tokens, usd, toman, last_at."""
+    from datetime import datetime, timezone as dt_tz
+
+    merged: dict[str, dict] = {}
+
+    def row(key: str) -> dict:
+        return merged.setdefault(key, {"key": key, "calls": 0, "pt": 0, "ct": 0, "tokens": 0, "usd": 0.0, "toman": 0.0, "last_at": None})
+
+    def bump_last(r: dict, when) -> None:
+        if when and (r["last_at"] is None or when > r["last_at"]):
+            r["last_at"] = when
+
+    if _table_exists("costs"):
+        rows = _rows("""SELECT model AS key, COUNT(*) FILTER (WHERE part = 0) AS calls, COALESCE(SUM(prompt_tokens), 0) AS pt,
+                        COALESCE(SUM(completion_tokens), 0) AS ct, COALESCE(SUM(usd), 0) AS usd, COALESCE(SUM(toman), 0) AS toman,
+                        MAX(ts) AS last_ts FROM {s}.costs WHERE ts >= %s GROUP BY model""", (_since(days),))
+        for r0 in rows:
+            r = row(r0["key"] or "—")
+            r["calls"] += int(r0["calls"] or 0)
+            r["pt"] += int(r0["pt"] or 0)
+            r["ct"] += int(r0["ct"] or 0)
+            r["usd"] += float(r0["usd"] or 0)
+            r["toman"] += float(r0["toman"] or 0)
+            if r0["last_ts"]:
+                bump_last(r, datetime.fromtimestamp(float(r0["last_ts"]), tz=dt_tz.utc))
+    try:
+        from django.db.models import Count, Max, Sum
+        from apps.discovery.models import AIAnalysis
+
+        since = timezone.now() - timedelta(days=days)
+        for a in (AIAnalysis.objects.filter(created_at__gte=since).exclude(model_name="")
+                  .values("model_name").annotate(n=Count("id"), tok=Sum("tokens_used"), usd=Sum("cost_usd"),
+                                                 toman=Sum("cost_toman"), last=Max("created_at"))):
+            if a["model_name"] == "instagram_direct_cta":      # rule-based, no model call
+                continue
+            r = row(a["model_name"])
+            r["calls"] += int(a["n"] or 0)
+            r["tokens"] += int(a["tok"] or 0)
+            r["usd"] += float(a["usd"] or 0)
+            r["toman"] += float(a["toman"] or 0)
+            bump_last(r, a["last"])
+    except Exception:
+        pass
+    for r in merged.values():
+        r["tokens"] = r["tokens"] + r["pt"] + r["ct"]
+    return sorted(merged.values(), key=lambda r: (-r["usd"], -r["calls"]))
+
+
 def cost_daily(days: int = 14) -> list[dict]:
     if not _table_exists("costs"):
         return []

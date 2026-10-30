@@ -72,17 +72,25 @@ def fa_digits(val):
 
 @register.filter
 def jalali_dt(dt):
-    """Formats datetime to Persian Jalali string with Tehran time in Persian digits."""
+    """Jalali date + Tehran time in Persian digits. Accepts datetime, date or an ISO string."""
     if not dt:
         return "—"
     try:
+        from datetime import date, datetime
         from zoneinfo import ZoneInfo
         from django.utils import timezone
         from apps.core.jalali import format_jalali_date, to_persian_digits
-        tehran_tz = ZoneInfo("Asia/Tehran")
-        dt_tehran = dt.astimezone(tehran_tz) if timezone.is_aware(dt) else dt
-        d_str = format_jalali_date(dt_tehran.date(), persian_digits=True)
-        t_str = to_persian_digits(f"{dt_tehran.hour:02d}:{dt_tehran.minute:02d}:{dt_tehran.second:02d}")
-        return f"{d_str} ساعت {t_str}"
+
+        if isinstance(dt, str):
+            dt = date.fromisoformat(dt) if len(dt) == 10 else datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        if isinstance(dt, datetime):
+            tehran = dt.astimezone(ZoneInfo("Asia/Tehran")) if timezone.is_aware(dt) else dt
+            d_str = format_jalali_date(tehran.date(), persian_digits=True)
+            t_str = to_persian_digits(f"{tehran.hour:02d}:{tehran.minute:02d}")
+            return f"{d_str} ساعت {t_str}"
+        if isinstance(dt, date):
+            return format_jalali_date(dt, persian_digits=True)
+        return str(dt)
     except Exception:
         return str(dt)
+

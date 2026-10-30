@@ -104,6 +104,71 @@ def _dedupe_terms(values: list[Any], min_words: int, max_words: int) -> list[str
     return out
 
 
+# ── two-word rule ────────────────────────────────────────────────────────────────────────────────────────────
+MAX_PHRASE_WORDS = 2
+_OPERATOR = re.compile(r"(?:^|\s)(?:lang|since_time|since|until|from|to|min_faves|min_retweets|filter):\S+", re.I)
+_NEG = re.compile(r'(?:^|\s)-(?:"[^"]*"|\S+)')
+
+
+def positive_word_count(query: str) -> int:
+    """Words a person would type in ``query``: X operators, -negatives, quotes, parentheses and OR/AND are not counted."""
+    text = _NEG.sub(" ", str(query or ""))
+    text = _OPERATOR.sub(" ", text)
+    text = re.sub(r"[\"“”«»()\[\]{}]", " ", text)
+    return len([w for w in text.split() if w.upper() not in {"OR", "AND"} and re.search(r"\w", w)])
+
+
+def is_short_query(query: str) -> bool:
+    n = positive_word_count(query)
+    return 1 <= n <= MAX_PHRASE_WORDS
+
+
+def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[str]:
+    """1–2 word phrases only. Longer phrases are REJECTED (never truncated: a cut sentence is garbage), single
+    generic words («اشتراک», «محصول») are rejected, duplicates (after normalisation) are dropped."""
+    out, seen = [], set()
+    generic = {norm(g) for g in GENERIC_SINGLE}
+    for value in values if isinstance(values, (list, tuple)) else []:
+        words = clean_term(value).split()
+        while strip_noise and words and norm(words[0]) in _LEADING_NOISE and len(words) > 1:
+            words = words[1:]   # product names: «خرید اکانت نوشن» → «اکانت نوشن»; buyer phrases keep «خرید …»
+        if not 1 <= len(words) <= MAX_PHRASE_WORDS:
+            continue
+        term = " ".join(words)
+        key = norm(term).casefold()
+        if key in seen or len(term) < 3:
+            continue
+        if not (_FA.search(term) or any(len(re.sub(r"[^A-Za-z]", "", w)) >= 3 for w in words)):
+            continue
+        if len(words) == 1 and (key in generic or len(term) < 5):
+            continue   # a lone short word («سنگ») matches half of Persian X
+        seen.add(key)
+        out.append(term)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def phrase_candidates(product: Any, terms: dict[str, Any] | None, card: Any = None) -> list[tuple[str, str]]:
+    """[(phrase, kind)] — every phrase 1–2 words. kind: intent (core topic names), problem, alternative, solution, product."""
+    terms = terms or {}
+    out: list[tuple[str, str]] = []
+    names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 5, strip_noise=True)
+    out += [(p, "intent") for p in names]
+    pain = short_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or [])
+                       + list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 8)
+    out += [(p, "problem") for p in pain]
+    advice = short_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 8)
+    out += [(p, "alternative") for p in advice]
+    solutions = short_terms(list(terms.get("implicit_solutions") or []), 8)
+    out += [(p, "solution") for p in solutions]
+    model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
+    if model and len(model) >= 3 and len(model.split()) <= MAX_PHRASE_WORDS:
+        out.append((model, "product"))
+    return out
+
+
+
 def operators() -> str:
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     if _env_bool("X_QUERY_NEGATIVE_OPERATORS"):
@@ -141,56 +206,25 @@ def generate_queries(product: Any, mode: str | None = None, terms: dict[str, Any
         mode = "both"
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
     max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT", "12"))
+    per_format = int(os.getenv("X_QUERY_PER_FORMAT", "4"))
     if mode == "product":   # legacy: raw title / category / keywords
         legacy = [str(getattr(product, key, "") or "").strip() for key in ("title", "category_path")]
         legacy += [str(x).strip() for x in (getattr(product, "category_keywords", []) or [])]
         return [{"query": query, "kind": "product"} for query in legacy if len(query) >= 2]
     terms = terms or {}
     ops = operators()
-    intent_tail = "(" + " OR ".join(INTENT_WORDS) + ") " + ops
-    names = _dedupe_terms(list(terms.get("names") or []) + core_terms(product, card), 1, 4)
-    values: list[tuple[str, str]] = [(q, "intent") for q in or_queries(names, intent_tail, max_chars)]
-    pain_symptoms = _dedupe_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or []), 2, 5)
-    values += [(q, "problem") for q in or_queries(pain_symptoms, ops, max_chars)]
-    dissatisfactions = _dedupe_terms(list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 2, 5)
-    if dissatisfactions:
-        values += [(q, "complaint") for q in or_queries(dissatisfactions, ops, max_chars)]
-    elif names:
-        cmp_tail = "(" + " OR ".join(COMPLAINT_CUES) + ") " + ops
-        values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars)]
-    advice_requests = _dedupe_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 2, 6)
-    if advice_requests:
-        values += [(q, "alternative") for q in or_queries(advice_requests, ops, max_chars)]
-    elif names:
-        alt_tail = "(" + " OR ".join(ALTERNATIVE_CUES) + ") " + ops
-        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars)]
-    implicit_solutions = _dedupe_terms(list(terms.get("implicit_solutions") or []), 2, 5)
-    if implicit_solutions:
-        values += [(q, "solution") for q in or_queries(implicit_solutions, ops, max_chars)]
-    if mode == "both":
-        model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
-        if model and len(model) >= 3:
-            values.append((f"{_quote(model)} ({' OR '.join(PRODUCT_CUES)}) {ops}".strip(), "product"))
     raw_candidates, seen = [], set()
-    for query, kind in values:
-        query = " ".join(query.split())
+    for phrase, kind in phrase_candidates(product, terms, card):
+        query = f"{_quote(phrase)} {ops}".strip()      # ONE phrase (<= 2 words) per query, operators only as filters
         key = norm(query)
-        if not query or query.startswith("-") or len(query) > max_chars or key in seen:
+        if len(query) > max_chars or key in seen:
             continue
         seen.add(key)
         raw_candidates.append({"query": query, "kind": kind})
 
-    # MMR-driven diverse query selection
-    from shared.mmr import select_by_mmr
+    # Same balanced three-format pick as product mode
     target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
-    return select_by_mmr(
-        raw_candidates,
-        lambda item: item["query"],
-        reference_context=target_ref,
-        top_k=max_count,
-        lambda_param=0.65,
-    )
-
+    return balanced_pick(raw_candidates, target_ref, max_count, per_format)
 
 
 # ── per-product mode (NE_X_MODE=product): every query belongs to one seller product ────────────────────────────
@@ -263,64 +297,23 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
     max_count = int(os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "12"))
     per_format = int(os.getenv("X_QUERY_PER_FORMAT", "4"))
-    group_size = int(os.getenv("X_QUERY_TERMS_PER_QUERY", "2"))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
-    names = _name_terms(llm_names + ([model] if model else []) + core_terms(product, card), 8)
-    cues = _short_terms(terms.get("cues"), 10) or list(PRODUCT_MODE_CUES)
     negatives = _short_terms(list(terms.get("negatives") or []) + list(PRODUCT_MODE_NEGATIVES), 6)
     neg_ops = " ".join(f"-{_quote(n)}" for n in negatives)
     tail_ops = " ".join(x for x in (neg_ops, ops) if x)
 
-    values: list[tuple[str, str]] = []
-
-    # Angle 1: Core Intent (Names + buying cues)
-    if names:
-        intent_tail = " ".join(x for x in ("(" + " OR ".join(_quote(c) for c in cues) + ")", tail_ops) if x)
-        values += [(q, "intent") for q in or_queries(names, intent_tail, max_chars, group_size)]
-
-    # MP-CABS Angle 2: Pain / Symptom Expression
-    pain_symptoms = _dedupe_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or []), 2, 5)
-    if pain_symptoms:
-        values += [(q, "problem") for q in or_queries(pain_symptoms, tail_ops, max_chars, group_size)]
-
-    # MP-CABS Angle 3: Dissatisfaction with current setup / workarounds
-    dissatisfactions = _dedupe_terms(list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 2, 5)
-    if dissatisfactions:
-        values += [(q, "complaint") for q in or_queries(dissatisfactions, tail_ops, max_chars, group_size)]
-    elif names:
-        cmp_tail = " ".join(x for x in ("(" + " OR ".join(COMPLAINT_CUES) + ")", tail_ops) if x)
-        values += [(q, "complaint") for q in or_queries(names, cmp_tail, max_chars, group_size)]
-
-    # MP-CABS Angle 4: Informal Advice / Seeking Recommendation
-    advice_requests = _dedupe_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 2, 6)
-    if advice_requests:
-        values += [(q, "alternative") for q in or_queries(advice_requests, tail_ops, max_chars, group_size)]
-    elif names:
-        alt_tail = " ".join(x for x in ("(" + " OR ".join(ALTERNATIVE_CUES) + ")", tail_ops) if x)
-        values += [(q, "alternative") for q in or_queries(names, alt_tail, max_chars, group_size)]
-
-    # MP-CABS Angle 5: Implicit Solution Seeking
-    implicit_solutions = _dedupe_terms(list(terms.get("implicit_solutions") or []), 2, 5)
-    if implicit_solutions:
-        values += [(q, "solution") for q in or_queries(implicit_solutions, tail_ops, max_chars, group_size)]
-
-    # Specific model/brand if hardware
-    if model and len(model) >= 3:
-        values.append((f"{_quote(model)} ({' OR '.join(PRODUCT_CUES)}) {tail_ops}".strip(), "product"))
-
+    values: list[tuple[str, str]] = [(f"{_quote(p)} {tail_ops}".strip(), kind) for p, kind in phrase_candidates(product, terms, card)]
     pid, bid = str(getattr(product, "product_id", "")), getattr(product, "business_id", None)
 
-    # ProQE: Include customer-evolved queries
+    # ProQE: queries evolved from confirmed buyers (already restricted to <= 2 words)
     try:
         from workers.x_collector.proqe import load_proqe_queries
         for pq in load_proqe_queries(pid):
             q_text = pq.get("query", "").strip()
-            q_kind = pq.get("kind", "problem")
-            if q_text:
-                full_q = f"{q_text} {tail_ops}".strip()
-                values.append((full_q, q_kind))
+            if q_text and is_short_query(q_text):
+                values.append((f"{_quote(q_text)} {tail_ops}".strip(), pq.get("kind", "problem")))
     except Exception:
         pass
 

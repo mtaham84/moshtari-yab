@@ -62,7 +62,7 @@ def dashboard(request):
         "nav": "dashboard", "days": days, "periods": PERIODS, "totals": totals, "revenue": rev,
         "profit": rev - Decimal(str(round(totals["toman"], 2))),
         "wallet_total": wallets["total"] or 0, "wallet_count": wallets["n"], "blocked": blocked, "held": held,
-        "by_model": services.cost_breakdown(float(days), "model"),
+        "by_model": services.model_usage(float(days)),
         "by_stage": services.cost_breakdown(float(days), "stage"),
         "daily": services.cost_daily(14), "status": services.service_status(),
         "recent": WalletTransaction.objects.select_related("wallet__business")[:10], "settings": s,
@@ -122,6 +122,7 @@ def costs(request):
     return render(request, "ops/costs.html", {
         "nav": "costs", "days": days, "periods": PERIODS, "filters": f, "rows": rows, "page": page,
         "has_next": len(rows) == 100, "by_business": services.cost_breakdown(float(days), "business"),
+        "by_model": services.model_usage(float(days)),
         "businesses": Business.objects.order_by("name").values_list("pk", "name"),
         "models": AIModel.objects.values_list("name", flat=True).distinct(),
     })
@@ -130,8 +131,13 @@ def costs(request):
 # ── providers & models ─────────────────────────────────────────────────────────
 @staff_required
 def providers(request):
+    usage = {u["key"]: u for u in services.model_usage(30)}
+    providers_qs = list(Provider.objects.prefetch_related("models"))
+    for prov in providers_qs:
+        for m in prov.models.all():
+            m.usage = usage.get(m.name)
     return render(request, "ops/providers.html", {
-        "nav": "providers", "providers": Provider.objects.prefetch_related("models"),
+        "nav": "providers", "providers": providers_qs, "usage_all": list(usage.values()),
         "orphan_hint": not Provider.objects.exists(),
     })
 

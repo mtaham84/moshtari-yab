@@ -95,62 +95,40 @@ def test_expand_queries_with_proqe_uses_exemplars(tmp_path):
     db_file = tmp_path / "proqe_test.sqlite3"
     store = ExemplarStore(db_file)
     store.add_exemplar(
-        tweet_id="2001",
-        product_id="prod_stone",
-        category="سنگ ساختمانی",
-        query="مشکل شوره سنگ",
-        tweet_text="نمای ساختمونمون شوره زده چیکار کنیم؟",
-        reason="نیاز به ضد شوره سنگ"
+        tweet_id="2001", product_id="prod_stone", category="سنگ ساختمانی", query="شوره سنگ",
+        tweet_text="نمای ساختمونمون شوره زده چیکار کنیم؟", reason="نیاز به ضد شوره سنگ",
     )
-
-    product = SimpleNamespace(
-        product_id="prod_stone",
-        title="محلول ضد شوره و نانو سنگ",
-        category_path="مصالح / سنگ ساختمانی",
-        discovery_priority=1
-    )
-
+    product = SimpleNamespace(product_id="prod_stone", title="محلول ضد شوره و نانو سنگ",
+                              category_path="مصالح / سنگ ساختمانی", discovery_priority=1)
     mock_llm = MagicMock()
     mock_llm.complete_json.return_value = ({
         "expanded_queries": [
-            {"query": "شوره زدن نمای ساختمان", "kind": "problem"},
-            {"query": "چیکار کنم سنگ نما شوره نزنه", "kind": "alternative"}
+            {"query": "شوره نما", "kind": "problem"},
+            {"query": "پیشنهاد ضد شوره", "kind": "alternative"},       # 3 words: must be rejected
+            {"query": "چیکار کنم سنگ نما شوره نزنه", "kind": "alternative"},   # long: rejected
+            {"query": "خرید نانو", "kind": "solution"},
         ]
     }, {})
-
     expanded = expand_queries_with_proqe(product, store, llm=mock_llm, model="test-model")
-    assert len(expanded) == 2
-    assert any("شوره زدن" in q["query"] for q in expanded)
-
-    # Check LLM call contained real customer exemplar
-    call_args = mock_llm.complete_json.call_args
-    user_prompt = call_args[0][3]
-    assert "نمای ساختمونمون شوره زده چیکار کنیم" in user_prompt
-    assert "Real Confirmed Customer Exemplars" in user_prompt
+    assert {q["query"] for q in expanded} == {"شوره نما", "خرید نانو"}
+    assert all(len(q["query"].split()) <= 2 for q in expanded)
+    prompt = mock_llm.complete_json.call_args[0][3]
+    assert "نمای ساختمونمون شوره زده چیکار کنیم" in prompt and "Real Confirmed Customer Exemplars" in prompt
+    system = mock_llm.complete_json.call_args[0][2]
+    assert "exactly 1 or 2 Persian words" in system
 
 
 def test_product_queries_includes_proqe_queries(tmp_path, monkeypatch):
     db_file = tmp_path / "state.sqlite3"
     monkeypatch.setenv("X_COLLECT_STATE_FILE", str(db_file))
-
     store = ExemplarStore(db_file)
-    store.add_expanded_queries("stone_1", [
-        {"query": "شوره زدن سنگ نما در زمستان", "kind": "problem"}
-    ])
-
-    product = SimpleNamespace(
-        product_id="stone_1",
-        business_id="b_1",
-        title="نانو سنگ نما",
-        category_path="سنگ / نانو",
-        category_keywords=["سنگ"],
-        discovery_priority=1,
-        x_search_enabled=True
-    )
-
-    queries = product_queries(product, terms={"names": ["نانو سنگ"]})
-    queries_text = [q["query"] for q in queries]
-    assert any("شوره زدن سنگ نما در زمستان" in q for q in queries_text)
+    store.add_expanded_queries("stone_1", [{"query": "شوره نما", "kind": "problem"},
+                                           {"query": "شوره زدن سنگ نما در زمستان", "kind": "problem"}])   # old long one
+    product = SimpleNamespace(product_id="stone_1", business_id="b_1", title="نانو سنگ نما", category_path="سنگ / نانو",
+                              category_keywords=["سنگ"], discovery_priority=1, x_search_enabled=True)
+    texts = [q["query"] for q in product_queries(product, terms={"names": ["نانو سنگ"]})]
+    assert any(q.startswith('"شوره نما"') for q in texts)
+    assert not any("زمستان" in q for q in texts)
 
 
 def test_negatives_reach_the_prompt_and_rank_by_similarity(tmp_path):
@@ -169,15 +147,14 @@ def test_negatives_reach_the_prompt_and_rank_by_similarity(tmp_path):
     assert "Rejected Tweets" in prompt and "قیمت سنگ در بازار جهانی" in prompt
 
 
-def test_expansion_due_needs_new_evidence(tmp_path):
+def test_expansion_due_cold_start_then_needs_new_evidence(tmp_path):
     store = ExemplarStore(tmp_path / "due.sqlite3")
-    assert store.expansion_due("p1") is False
-    store.add_exemplar("1", "p1", "متن اول")
-    assert store.expansion_due("p1") is True
+    assert store.expansion_due("p1") is True              # cold start: first expansion needs no exemplars
     store.mark_expanded("p1")
+    assert store.expansion_due("p1", min_interval_hours=0) is False
+    store.add_exemplar("1", "p1", "متن اول")
+    assert store.expansion_due("p1", min_interval_hours=0) is False   # one new exemplar is not enough
     store.add_exemplar("2", "p1", "متن دوم")
-    assert store.expansion_due("p1", min_interval_hours=0) is False  # only 1 new exemplar
-    store.add_exemplar("3", "p1", "متن سوم")
     assert store.expansion_due("p1", min_interval_hours=0) is True
 
 
@@ -197,20 +174,20 @@ def test_prune_drops_losers_and_keeps_untested(tmp_path):
 
 
 def test_product_queries_cover_three_formats_with_sane_count():
+    from workers.x_collector.intent_queries import positive_word_count
+
     terms = {
-        "names": ["سنگ نما", "سنگ تراورتن"],
-        "pain_symptoms": ["سنگ نما شوره زده", "سنگ کف ترک خورده", "دیوار لابی شوره زده", "نمای ساختمون کثیف شده", "سنگ پله لیز شده"],
-        "advice_requests": ["کسی راهی بلده برای شوره سنگ", "چی پیشنهاد میدین برای ترک سنگ", "تجربه دارین دربارهٔ سنگ نما",
-                            "برای سنگ کثیف چیکار کنم", "کدوم سنگ برای نما بهتره"],
-        "implicit_solutions": ["راهکار رفع شوره سنگ", "روش جلوگیری از ترک سنگ", "دنبال سنگبر خوب", "ترمیم سنگ نمای قدیمی", "تمیز کردن سنگ نما"],
+        "names": ["سنگ نما", "سنگ ساختمانی"],
+        "pain_symptoms": ["شوره سنگ", "ترک سنگ", "لکه سنگ", "سنگ کثیف", "رنگ سنگ"],
+        "advice_requests": ["پیشنهاد سنگبر", "معرفی سنگبر", "تجربه سنگ", "کجا سنگ", "کدوم سنگ"],
+        "implicit_solutions": ["خرید سنگ", "قیمت سنگ", "سفارش سنگ", "دنبال سنگبر", "میخوام سنگ"],
     }
     product = SimpleNamespace(product_id="s1", business_id="b", title="سنگ نما", category_path="مصالح / سنگ",
                               category_keywords=["سنگ"], discovery_priority=1, x_search_enabled=True)
     qs = product_queries(product, terms=terms)
-    kinds = {q["kind"] for q in qs}
     assert 9 <= len(qs) <= 12
-    assert {"problem", "alternative", "solution"} <= kinds
-    assert all(q["query"].split(")")[0].count(" OR ") <= 1 for q in qs if q["kind"] not in {"intent", "complaint"})  # <=2 phrases per query
+    assert {"problem", "alternative", "solution"} <= {q["kind"] for q in qs}
+    assert all(positive_word_count(q["query"]) <= 2 and " OR " not in q["query"] for q in qs)
 
 
 def test_ig_term_scoring_demotes_empty_terms_and_keeps_explorers():
@@ -235,3 +212,27 @@ def test_incomplete_llm_terms_are_not_cached():
     assert is_complete(full)
     assert not is_complete({**full, "advice_requests": []})
     assert not is_complete(None)
+
+
+def test_purge_long_queries_keeps_only_two_word_queries(tmp_path):
+    from workers.x_collector.proqe import purge_long_queries
+
+    state = tmp_path / "s.sqlite3"
+    seen = SeenStore(state, platform="x")
+    store = ExemplarStore(state)
+    for q in ['"سنگ نما" -تخفیف lang:fa', '("سنگ نما" OR "سنگ لابی شکسته") lang:fa', '"سنگ تراورتن شکلاتی" lang:fa']:
+        seen.record_feedback(q, success=True)
+    store.add_expanded_queries("p", [{"query": "شوره نما", "kind": "problem"}, {"query": "چیکار کنم شوره سنگ", "kind": "problem"}])
+    out = purge_long_queries(state)
+    assert out == {"query_runs": 2, "proqe_expanded_queries": 1}
+    assert [q["query"] for q in store.get_expanded_queries("p")] == ["شوره نما"]
+
+
+def test_empty_search_is_penalised(tmp_path):
+    seen = SeenStore(tmp_path / "e.sqlite3", platform="x")
+    seen.record_feedback('"نمونه یک" lang:fa', success=True, weight=0.0)
+    before = seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"]
+    seen.record_query('"نمونه یک" lang:fa', fetched=0, new_posts=0)
+    assert seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"] == before + 0.25
+    seen.record_query('"نمونه یک" lang:fa', fetched=5, new_posts=1)
+    assert seen.get_query_bandit_stats('"نمونه یک" lang:fa')["beta"] == before + 0.25

@@ -28,30 +28,32 @@ from need_engine.text import norm, tokens
 
 log = logging.getLogger("x_collector.proqe")
 
-PROQE_EXPANSION_SYSTEM = """You are a search query expansion specialist using the ProQE (Progressive Query Expansion) framework for Persian Twitter/X buyer discovery.
-Your objective is to expand search queries for a product/service by learning from real Persian tweets that were confirmed as real buying customers.
+PROQE_EXPANSION_SYSTEM = """You are the query-evolution engine (ProQE: Progressive Query Expansion) of a Persian buyer-discovery
+system on X/Twitter. You see real tweets that were CONFIRMED as buyers (positive exemplars), tweets that were REJECTED
+(negative exemplars) and the queries that already work. Your job: propose NEW search phrases that will surface more people
+like the confirmed buyers and fewer like the rejected ones.
 
-Guidelines:
-1. Twitter users never use textbook or catalog terms. They use colloquial Persian, slang, informal complaints, personal pain descriptions, or ask for recommendations.
-2. Observe the provided "Real Customer Exemplars" (real converting tweets) to learn:
-   - Specific Persian verbs and colloquial expressions (e.g., «دندونم تیر میکشه», «لپ تاپم بالا نمیاد», «سنگ نما شوره زده»).
-   - How real people ask questions or complain without mentioning brands.
-3. Generate 4 to 6 NEW diverse, entity-blind search queries, covering the same THREE formats as the base queries:
-   - problem: the person's own pain, symptom or frustration (e.g. "دیوار لابی شوره زده", "خسته شدم از مسکن")
-   - alternative: asking others for advice or experience (e.g. "کسی راهی بلده برای ترمیم سنگ")
-   - solution: wanting an outcome / a direct need (e.g. "روش جلوگیری از نفوذ آب به سنگ", "دنبال دندونپزشک خوب")
-   Fewer than 4 finds nothing, more than 6 is noise. Every query is 2-5 words and must not duplicate an existing one.
+HARD RULES
+1. Every phrase is exactly 1 or 2 Persian words. Never 3+. X search is exact-match, so each extra word makes a query rarer.
+2. Be GENERIC and TOPICAL: the common noun people use for the need («سنگ نما», «شوره سنگ», «دندان درد», «لپ تاپ»), never colors,
+   sizes, finishes, brands, models, prices, cities, adjectives or marketing words («شکلاتی», «شکسته», «ارزان»).
+3. Learn the VOCABULARY of the confirmed buyers (their verbs and nouns) and compress it into 2-word phrases. Do not copy
+   whole sentences and do not return anything already in "Existing queries".
+4. Avoid the vocabulary pattern of rejected tweets (news, jokes, politics, seller ads, generic chatter).
+5. Prefer variations in the spirit of the best-performing queries (same topic noun, different companion word).
+6. No operators, quotes, hashtags, mentions, emojis or English words.
 
-4. If "Rejected Tweets" are listed, those are posts a query surfaced that were NOT buyers. Do not generate queries that
-   would match that kind of phrasing (news, jokes, politics, sellers advertising, generic chatter).
-5. If "Best performing queries" are listed, produce variations in their spirit, not copies.
+Return 4 to 6 phrases covering the same three formats as the base queries:
+ - problem: the person's own pain/symptom/frustration ([problem word]+[topic noun]), e.g. «شوره سنگ», «ترک سنگ»
+ - alternative: asking for advice/recommendation ([advice word]+[topic noun]), e.g. «پیشنهاد سنگبر», «تجربه ایمپلنت»
+ - solution: direct need/purchase intent ([action word]+[topic noun]), e.g. «خرید سنگ», «قیمت تراورتن»
 
 Return strictly JSON:
 {
   "expanded_queries": [
-    {"query": "...", "kind": "problem"},
-    {"query": "...", "kind": "alternative"},
-    {"query": "...", "kind": "solution"}
+    {"query": "two words", "kind": "problem"},
+    {"query": "two words", "kind": "alternative"},
+    {"query": "two words", "kind": "solution"}
   ]
 }
 """
@@ -88,7 +90,7 @@ def _format_expansion_prompt(product_title: str, category: str, existing_queries
         for q in winners:
             lines.append(f"- {q}")
 
-    lines.append("\nGenerate 4-6 NEW high-converting Persian Twitter search queries (no duplicates of existing).")
+    lines.append("\nGenerate 4-6 NEW generic Persian search phrases of 1-2 words each (no duplicates of existing queries).")
     return "\n".join(lines)
 
 
@@ -234,13 +236,13 @@ class ExemplarStore:
     def expansion_due(self, product_id: str, min_new: int = 2, min_interval_hours: float = 6.0) -> bool:
         """True when there is evidence and either no expansion ever ran, or enough new exemplars arrived since."""
         count = self.count_exemplars(product_id)
-        if count == 0:
-            return False
         with closing(sqlite3.connect(self.path)) as db:
             row = db.execute("SELECT last_at, exemplar_count FROM proqe_expansion_state WHERE product_id = ?",
                              (str(product_id),)).fetchone()
         if not row:
-            return True
+            return True      # cold start: the very first expansion works from the product alone, exemplars refine it later
+        if count == 0:
+            return False
         try:
             age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(row[0])).total_seconds() / 3600
         except ValueError:
@@ -502,7 +504,7 @@ def expand_queries_with_proqe(
             k = item.get("kind", "problem")
             if k not in {"problem", "complaint", "alternative", "solution", "intent"}:
                 k = "problem"
-            if len(q.split()) >= 2 and _FA.search(q):
+            if 1 <= len(q.split()) <= 2 and len(q) >= 5 and _FA.search(q):
                 expanded.append({"query": q, "kind": k})
 
     exemplar_store.mark_expanded(pid)
@@ -519,7 +521,26 @@ def load_proqe_queries(product_id: str, state_path: str | Path | None = None) ->
         state_path = os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3")
     try:
         store = ExemplarStore(state_path)
-        return store.get_expanded_queries(str(product_id))
+        return [q for q in store.get_expanded_queries(str(product_id)) if 1 <= len(q["query"].split()) <= 2]
     except Exception as exc:
         log.debug("Could not load ProQE queries for product %s: %s", product_id, exc)
         return []
+
+
+def purge_long_queries(state_path: str | Path, max_words: int = 2) -> dict[str, int]:
+    """Deletes every stored query longer than ``max_words`` positive words from the SQLite state (bandit + ProQE)."""
+    from workers.x_collector.intent_queries import positive_word_count
+
+    out = {"query_runs": 0, "proqe_expanded_queries": 0}
+    with closing(sqlite3.connect(state_path)) as db:
+        for table, col in (("query_runs", "query"), ("proqe_expanded_queries", "query")):
+            try:
+                rows = db.execute(f"SELECT DISTINCT {col} FROM {table}").fetchall()
+            except sqlite3.OperationalError:
+                continue
+            for (q,) in rows:
+                if positive_word_count(q) > max_words:
+                    db.execute(f"DELETE FROM {table} WHERE {col} = ?", (q,))
+                    out[table] += 1
+        db.commit()
+    return out

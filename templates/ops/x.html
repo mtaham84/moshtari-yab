@@ -5,7 +5,7 @@
 
 <div class="grid g4">
   <div class="card stat"><div class="label">پست جمع‌شده</div><div class="value">{{ o.posts|num }}</div>
-    <div class="sub">کل: {{ o.posts_total|num }} · در صف تحلیل: {{ o.pending|num }}{% if o.last_post %} · آخرین {{ o.last_post|date:"Y-m-d H:i" }}{% endif %}</div></div>
+    <div class="sub">کل: {{ o.posts_total|num }} · در صف تحلیل: {{ o.pending|num }}{% if o.last_post %} · آخرین {{ o.last_post|jalali_dt }}{% endif %}</div></div>
   <div class="card stat"><div class="label">نیاز پیدا‌شده</div><div class="value">{{ o.needs|num }}</div>
     <div class="sub">{{ o.open_needs|num }} باز · کل پست تحلیل‌شده تا الان: {{ o.analysed_total|num }}</div></div>
   <div class="card stat"><div class="label">فرصت</div><div class="value">{{ o.opportunities|num }}</div>
@@ -71,7 +71,7 @@
   <h2>کوئری‌ها ({{ queries|length }})</h2>
   <table><tr><th>کوئری</th><th>نوع</th><th>آخرین اجرا</th><th class="n">دریافتی</th><th class="n">جدید</th></tr>
   {% for q in queries %}<tr><td><code style="white-space:normal">{{ q.query }}</code></td><td>{{ q.kind }}</td>
-    <td class="muted">{{ q.last_run_at|default:"هنوز نه" }}</td><td class="n">{{ q.fetched|default:0|num }}</td><td class="n">{{ q.new_posts|default:0|num }}</td></tr>
+    <td class="muted">{% if q.last_run_at %}{{ q.last_run_at|jalali_dt }}{% else %}هنوز نه{% endif %}</td><td class="n">{{ q.fetched|default:0|num }}</td><td class="n">{{ q.new_posts|default:0|num }}</td></tr>
   {% empty %}<tr><td class="muted" colspan="5">—</td></tr>{% endfor %}</table>
 </div>
 
@@ -84,7 +84,7 @@
   <div class="card">
     <h2>آخرین پست‌ها</h2>
     <table>{% for p in o.recent %}<tr><td><a href="{{ p.url|default:'#' }}" target="_blank" rel="noopener">@{{ p.author_handle }}</a>
-      <div class="muted" style="font-size:.8rem">{{ p.text|truncatechars:160 }}</div></td><td class="muted n">{{ p.created_at|date:"m-d H:i" }}</td></tr>
+      <div class="muted" style="font-size:.8rem">{{ p.text|truncatechars:160 }}</div></td><td class="muted n">{{ p.created_at|jalali_dt }}</td></tr>
     {% empty %}<tr><td class="muted">—</td></tr>{% endfor %}</table>
   </div>
 </div>

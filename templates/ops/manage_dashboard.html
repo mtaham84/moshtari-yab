@@ -238,7 +238,7 @@
   </div>
   <div>
     <span class="pill" style="font-size:0.85rem; padding:6px 14px;">
-      <svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg> به‌روزرسانی زنده: {{ now|date:"Y/m/d H:i:s" }}
+      <svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg> به‌روزرسانی زنده: {{ now|jalali_dt }}
     </span>
   </div>
 </div>
@@ -893,7 +893,7 @@
             <td class="n" style="font-weight:700; color:var(--accent);">{{ acc.posts_found_count }}</td>
             <td class="jalali-time-cell">
               {% if acc.last_action_at %}
-                <span dir="ltr">{{ acc.last_action_at|date:"Y-m-d H:i" }}</span>
+                <span dir="ltr">{{ acc.last_action_at|jalali_dt }}</span>
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
@@ -962,7 +962,7 @@
             <td class="n">{{ run.fetched }}</td>
             <td class="n" style="font-weight:700; color:var(--accent);">{{ run.new_posts }}</td>
             <td class="jalali-time-cell">
-              <span dir="ltr">{{ run.ran_at|date:"Y-m-d H:i:s" }}</span>
+              <span dir="ltr">{{ run.ran_at|jalali_dt }}</span>
             </td>
           </tr>
           {% endfor %}

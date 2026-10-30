@@ -24,17 +24,30 @@
       <form class="inline" method="post" action="{% url 'ops:provider_delete' p.pk %}" onsubmit="return confirm('سرویس‌دهنده و همه‌ی مدل‌هایش حذف شوند؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form>
     </div>
   </div>
-  <table style="margin-top:10px"><tr><th>مدل</th><th>نقش</th><th class="n">ورودی $/1M</th><th class="n">خروجی $/1M</th><th class="n">اولویت</th><th class="n">RPM/TPM/RPD</th><th>وضعیت</th><th></th></tr>
+  <table style="margin-top:10px"><tr><th>مدل</th><th>نقش</th><th class="n">ورودی $/1M</th><th class="n">خروجی $/1M</th><th class="n">اولویت</th><th class="n">RPM/TPM/RPD</th><th class="n">تماس ۳۰ روز</th><th class="n">توکن</th><th class="n">هزینه ($ / تومان)</th><th>آخرین استفاده</th><th>وضعیت</th><th></th></tr>
   {% for m in p.models.all %}<tr>
     <td><code>{{ m.name }}</code>{% if m.label %} <span class="muted">{{ m.label }}</span>{% endif %}</td><td>{{ m.roles_display }}</td>
     <td class="n">{{ m.input_price_usd }}</td><td class="n">{{ m.output_price_usd }}</td><td class="n">{{ m.priority }}</td>
     <td class="n muted">{{ m.rpm|default:"∞" }}/{{ m.tpm|default:"∞" }}/{{ m.rpd|default:"∞" }}</td>
+    <td class="n">{% if m.usage %}{{ m.usage.calls|num }}{% else %}<span class="muted">۰</span>{% endif %}</td>
+    <td class="n">{% if m.usage %}{{ m.usage.tokens|num }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td class="n">{% if m.usage %}{{ m.usage.usd|usd }} / {{ m.usage.toman|toman }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td class="muted">{% if m.usage and m.usage.last_at %}{{ m.usage.last_at|jalali_dt }}{% else %}هنوز نه{% endif %}</td>
     <td><form class="inline" method="post" action="{% url 'ops:model_toggle' m.pk %}">{% csrf_token %}
       <button class="btn sm"><span class="st {% if m.is_active %}ok{% else %}PAUSED{% endif %}">{% if m.is_active %}فعال{% else %}غیرفعال{% endif %}</span></button></form></td>
     <td class="toolbar"><a class="btn sm" href="{% url 'ops:model_edit' m.pk %}">ویرایش</a>
       <form class="inline" method="post" action="{% url 'ops:model_delete' m.pk %}" onsubmit="return confirm('مدل حذف شود؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form></td>
-  </tr>{% empty %}<tr><td class="muted" colspan="8">مدلی ثبت نشده.</td></tr>{% endfor %}</table>
+  </tr>{% empty %}<tr><td class="muted" colspan="12">مدلی ثبت نشده.</td></tr>{% endfor %}</table>
 </div>
 {% endfor %}
+
+<div class="card" style="margin-top:14px">
+  <h2>مصرف همه‌ی مدل‌ها (۳۰ روز اخیر)</h2>
+  <p class="muted" style="margin-top:0">شامل تحلیل تلگرام و X و همچنین تحلیل کامنت‌های اینستاگرام (مثلاً Luna). مدلی که اینجا هست ولی در جدول بالا ثبت نشده، با نام دقیق آن ثبت نشده است.</p>
+  <table><tr><th>مدل</th><th class="n">تماس</th><th class="n">توکن</th><th class="n">$</th><th class="n">تومان</th><th>آخرین استفاده</th></tr>
+  {% for u in usage_all %}<tr><td><code>{{ u.key }}</code></td><td class="n">{{ u.calls|num }}</td><td class="n">{{ u.tokens|num }}</td>
+    <td class="n">{{ u.usd|usd }}</td><td class="n">{{ u.toman|toman }}</td><td class="muted">{{ u.last_at|jalali_dt }}</td></tr>
+  {% empty %}<tr><td class="muted" colspan="6">مصرفی ثبت نشده است.</td></tr>{% endfor %}</table>
+</div>
 <p class="muted">مدل embedding (‏NE_EMBED_MODEL) را هم می‌توانید با همان نام و بدون نقش این‌جا ثبت کنید تا قیمت و کلیدش از پنل خوانده شود. تغییر خود مدل embedding نیازمند ساخت دوباره‌ی بردارهاست و از .env انجام می‌شود.</p>
 {% endblock %}

@@ -18,43 +18,41 @@ def test_product_mode_is_exact_legacy_order():
     assert [item["query"] for item in generate_queries(product, "product")] == legacy
 
 
-def test_both_packs_names_and_intent_words_into_one_or_query(monkeypatch):
+def test_every_generated_query_has_at_most_two_words(monkeypatch):
+    from workers.x_collector.intent_queries import positive_word_count
+
     monkeypatch.delenv("X_QUERY_NEGATIVE_OPERATORS", raising=False)
     product = SimpleNamespace(title="آستین کنترل کننده انگشت Dagel Silver Pro - فروشگاه پدارول", product_type="",
                               category_path="کالای دیجیتال/لوازم گیمینگ", category_keywords=[],
-                              card=SimpleNamespace(aliases=["انگشتی گیمینگ", "کاور انگشت"]))
+                              card=SimpleNamespace(aliases=["انگشتی گیمینگ", "کاور انگشت", "آستین انگشت دست گیمینگ حرفه ای"]))
     queries = generate_queries(product, "both")
-    intent = [q["query"] for q in queries if q["kind"] == "intent"]
-    assert len(intent) == 1
-    assert intent[0].startswith('("انگشتی گیمینگ" OR "کاور انگشت" OR "لوازم گیمینگ"')
-    assert "(بخرم OR " in intent[0] and "می‌خوام" in intent[0] and "میخوام" in intent[0] and intent[0].endswith("lang:fa")
-    assert all("فروشگاه" not in q["query"] and "کالای دیجیتال" not in q["query"] for q in queries)
-    assert {"query": '"Dagel Silver" (خوبه OR بخرم OR بگیرم OR پیشنهاد OR نظرتون OR تجربه OR ارزش) lang:fa', "kind": "product"} in queries
+    assert queries
+    assert all(1 <= positive_word_count(q["query"]) <= 2 for q in queries)
+    assert all("فروشگاه" not in q["query"] for q in queries)
+    assert any(q["query"].startswith('"انگشتی گیمینگ"') for q in queries)
 
 
-def test_intent_queries_are_stable_capped_and_split_by_length(monkeypatch):
-    monkeypatch.setenv("X_QUERY_MAX_CHARS", "160")
+def test_queries_are_stable_capped_one_phrase_each():
     names = [f"اسم شماره {i}" for i in range(12)]
     product = SimpleNamespace(title="دستکش موتور گرم", category_path="پوشاک / دستکش موتور", category_keywords=[])
     first = generate_queries(product, "intent", terms={"names": names})
     assert first == generate_queries(product, "intent", terms={"names": names})
-    assert len(first) > 1 and len(first) <= 12
-    assert all(not q["query"].startswith("-") and len(q["query"]) <= 160 for q in first)
-    joined = " ".join(q["query"] for q in first)
-    assert all(f'"{name}"' in joined for name in names)
+    assert 1 <= len(first) <= 12
+    assert all(" OR " not in q["query"] for q in first)       # one phrase per query, never an OR blob
 
 
-def test_llm_terms_become_problem_and_model_queries_and_x_syntax_is_stripped(monkeypatch):
+def test_llm_terms_become_short_queries_and_x_syntax_is_stripped(monkeypatch):
     monkeypatch.setenv("X_QUERY_NEGATIVE_OPERATORS", "true")
     monkeypatch.delenv("X_QUERY_NEGATIVE_TERMS", raising=False)
     product = SimpleNamespace(title="ایرفون بلوتوثی Riversong مدل Airfly M7 EA251", product_type="", category_path="", category_keywords=[])
-    terms = {"names": ['هندزفری" OR lang:en', "ایرفون بی سیم"], "problems": ["صدای هندزفریم قطع میشه"], "model": "Airfly M7"}
+    terms = {"names": ['هندزفری" OR lang:en', "ایرفون بی سیم"], "problems": ["صدا قطع میشه", "صدای هندزفریم قطع میشه"], "model": "Airfly M7"}
     queries = generate_queries(product, "both", terms=terms)
-    kinds = {q["kind"]: q["query"] for q in queries}
-    assert kinds["intent"].startswith('(هندزفری lang en OR "ایرفون بی سیم"') or kinds["intent"].startswith('("هندزفری lang en" OR')
-    assert " OR lang:en" not in kinds["intent"]
-    assert kinds["problem"].startswith('"صدای هندزفریم قطع میشه" lang:fa -تخفیف')
-    assert kinds["product"].startswith('"Airfly M7" (خوبه OR ') and " lang:fa" in kinds["product"]
+    texts = [q["query"] for q in queries]
+    assert any(q.startswith('"ایرفون بلوتوثی"') for q in texts)          # core name from the title, 2 words
+    assert not any("OR lang:en" in q or "بی سیم" in q for q in texts)     # X syntax stripped; 3-word name rejected
+    assert not any(q.startswith('"صدا قطع') for q in texts)                # 3 words: rejected, not truncated
+    assert not any("صدای هندزفریم" in q for q in texts)                      # 4 words: rejected
+    assert any(q.startswith('"Airfly M7"') and "lang:fa" in q for q in texts)
 
 
 def test_model_term_needs_brand_and_model():
@@ -84,7 +82,7 @@ class FakeLLM:
             raise RuntimeError("quota")
         import json
         ids = [p["product_id"] for p in json.loads(user)["products"]]
-        return {"items": [{"product_id": i, "names": ["هندزفری", "یک دو سه چهار پنج"], "problems": ["خرید", "صدام قطع میشه"],
+        return {"items": [{"product_id": i, "names": ["هندزفری", "یک دو سه چهار پنج"], "problems": ["خرید", "صدام قطع"],
                            "model": "null"} for i in ids]}, {}
 
 
@@ -97,9 +95,9 @@ def test_llm_terms_are_sanitized_cached_and_regenerated_on_change(monkeypatch):
     store, llm = FakeStore(), FakeLLM()
     product = Product(product_id="7", title="ایرفون بلوتوثی")
     first = llm_terms([product], {}, store, llm, "m")
-    assert first["7"]["names"] == ["هندزفری"]
-    assert first["7"]["problems"] == ["صدام قطع میشه"]
-    assert first["7"]["pain_symptoms"] == ["صدام قطع میشه"]
+    assert first["7"]["names"] == ["هندزفری"]                    # the 5-word name is dropped
+    assert first["7"]["problems"] == ["صدام قطع"] or first["7"]["problems"] == []
+    assert all(len(x.split()) <= 2 for k in ("pain_symptoms", "advice_requests", "implicit_solutions", "names") for x in first["7"][k])
     assert first["7"]["model"] is None
     assert llm_terms([product], {}, store, llm, "m") == first and llm.calls == 1
     llm_terms([product.model_copy(update={"title": "ایرفون بلوتوثی جدید"})], {}, store, llm, "m")
@@ -163,65 +161,47 @@ def test_generic_words_are_not_search_terms():
 
 
 def test_product_queries_belong_to_one_product_and_keep_latin_names():
-    from workers.x_collector.intent_queries import product_queries
+    from workers.x_collector.intent_queries import positive_word_count, product_queries
 
     product = Product(product_id="9", business_id="3", title="اشتراک نوشن پلاس", discovery_priority=2)
-    terms = {"names": ["نوشن", "notion", "Notion AI", "اشتراک", "خرید اکانت نوشن"], "cues": ["پرمیوم", "موجود دارین", "از کجا"],
-             "negatives": ["تحویل آنی"], "problems": ["جزوه هام بهم ریخته"], "model": None}
+    terms = {"names": ["نوشن", "notion", "Notion AI", "اشتراک", "خرید اکانت نوشن"],
+             "negatives": ["تحویل آنی"], "problems": ["جزوه شلوغ"], "model": None}
     queries = product_queries(product, terms)
     assert all(q["product_ids"] == ["9"] and q["business_ids"] == ["3"] and q["priority"] == 2.0 for q in queries)
-    intent = next(q["query"] for q in queries if q["kind"] == "intent")
-    assert intent.startswith('(نوشن OR notion)')   # at most 2 names per query keeps each query focused
-    assert ' اشتراک ' not in intent.split(")")[0]                      # generic word alone is not a name
-    assert '(پرمیوم OR "موجود دارین" OR "از کجا")' in intent
-    assert '-"تحویل آنی"' in intent and "-تخفیف" in intent and intent.endswith("lang:fa")
-    assert any(q["kind"] == "problem" and "جزوه هام بهم ریخته" in q["query"] for q in queries)
+    assert all(1 <= positive_word_count(q["query"]) <= 2 for q in queries)
+    texts = " ".join(q["query"] for q in queries)
+    assert '"Notion AI"' in texts and "notion" in texts
+    assert "خرید اکانت نوشن" not in texts                        # 3 words
+    assert '-"تحویل آنی"' in texts and "-تخفیف" in texts and "lang:fa" in texts
+    assert any(q["kind"] == "problem" and "جزوه شلوغ" in q["query"] for q in queries)
 
 
-def test_product_queries_without_llm_use_default_cues():
-    from workers.x_collector.intent_queries import PRODUCT_MODE_CUES, product_queries
+def test_product_queries_without_llm_use_core_names_only():
+    from workers.x_collector.intent_queries import positive_word_count, product_queries
 
     queries = product_queries(Product(product_id="1", title="هندزفری بلوتوثی", product_type="هندزفری"))
     assert queries and all(q["product_ids"] == ["1"] for q in queries)
-    intent = next(q["query"] for q in queries if q["kind"] == "intent")
-    assert all(c in intent for c in ("بخرم", "موجود", '"از کجا"'))
-    assert len(PRODUCT_MODE_CUES) >= 10
+    assert all(positive_word_count(q["query"]) <= 2 for q in queries)
+    assert any(q["kind"] == "intent" for q in queries)
 
 
-def test_queries_generate_alternative_and_complaint_kinds():
-    from workers.x_collector.intent_queries import product_queries
+def test_three_formats_kinds_are_generated_from_llm_terms():
+    from workers.x_collector.intent_queries import positive_word_count, product_queries
 
     product = Product(product_id="20", title="نرم‌افزار حسابداری آنلاین", business_id="5")
-
-    # 1. Fallback cues when no LLM terms are provided
-    gen = generate_queries(product, mode="both")
-    kinds = {q["kind"] for q in gen}
-    assert "alternative" in kinds
-    assert "complaint" in kinds
-    assert "intent" in kinds
-    assert all(len(q["query"]) <= 400 for q in gen)
-
-    prod = product_queries(product)
-    p_kinds = {q["kind"] for q in prod}
-    assert "alternative" in p_kinds
-    assert "complaint" in p_kinds
-    assert all(len(q["query"]) <= 400 for q in prod)
-
-    # 2. With LLM terms provided
     terms = {
         "names": ["نرم‌افزار حسابداری"],
-        "cues": ["خرید اشتراک"],
         "negatives": ["استخدام"],
-        "problems": ["حساب کتابم دقیق نیست"],
-        "alternatives": ["جایگزین هلو", "به جای سپیدار"],
-        "complaints": ["از این برنامه حسابداری خسته شدم"],
+        "pain_symptoms": ["حساب کتاب", "اشتباه حسابداری"],
+        "advice_requests": ["پیشنهاد حسابدار", "معرفی نرم‌افزار"],
+        "implicit_solutions": ["خرید نرم‌افزار", "قیمت حسابداری"],
     }
-    prod_llm = product_queries(product, terms=terms)
-    alt_q = next(q for q in prod_llm if q["kind"] == "alternative")
-    cmp_q = next(q for q in prod_llm if q["kind"] == "complaint")
-    assert "جایگزین هلو" in alt_q["query"] or "به جای سپیدار" in alt_q["query"]
-    assert "خسته" in cmp_q["query"]
-    assert all(len(q["query"]) <= 400 for q in prod_llm)
+    prod = product_queries(product, terms=terms)
+    kinds = {q["kind"] for q in prod}
+    assert {"intent", "problem", "alternative", "solution"} <= kinds
+    assert all(1 <= positive_word_count(q["query"]) <= 2 and len(q["query"]) <= 400 for q in prod)
+    gen = generate_queries(product, mode="both", terms=terms)
+    assert {"problem", "alternative", "solution"} <= {q["kind"] for q in gen}
 
 
 def test_kind_weights_across_schedulers_and_worker():
