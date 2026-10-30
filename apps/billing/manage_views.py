@@ -15,10 +15,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as dj_timezone
 from django.views.decorators.http import require_POST, require_GET
 
+import zoneinfo
+
 from apps.businesses.models import Business
 from apps.billing.models import Wallet, WalletTransaction, BillingSettings
-from apps.discovery.models import (InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
-                                   InstagramSourceStat, TwitterEngineAccount)
+from apps.discovery.models import (
+    InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
+    InstagramSourceStat, TwitterEngineAccount, InstagramCrawledPost,
+    XCrawledPost, Opportunity, ProxyConfig
+)
+from apps.core.jalali import format_jalali_date
 
 logger = logging.getLogger("management")
 
@@ -222,7 +228,6 @@ def manage_dashboard(request):
 
     # 8. Proxy Pool & Configs
     try:
-        from apps.discovery.models import ProxyConfig
         proxy_configs = ProxyConfig.objects.all().order_by("local_port")
         proxy_configs_total = proxy_configs.count()
         proxy_configs_active = proxy_configs.filter(status="ACTIVE").count()
@@ -232,12 +237,6 @@ def manage_dashboard(request):
 
     # 9. Comprehensive Crawler & Query Intelligence Metrics
     try:
-        from apps.discovery.models import (
-            InstagramCrawledPost, XCrawledPost, Opportunity, InstagramSourceStat, InstagramEngineLead
-        )
-        from apps.core.jalali import format_jalali_date
-        import zoneinfo
-
         now_dt = dj_timezone.now()
         thirty_days_ago = now_dt - timedelta(days=30)
         tehran_tz = zoneinfo.ZoneInfo("Asia/Tehran")
