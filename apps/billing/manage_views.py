@@ -1038,6 +1038,54 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         account.save(update_fields=["status", "status_message"])
         return False, "CHALLENGED", "کوکی auth_token تنظیم نشده است."
 
+    import os
+    import shutil
+    import subprocess
+
+    executable = shutil.which("twitter") or shutil.which("twitter-cli") or ("/usr/local/bin/twitter" if os.path.exists("/usr/local/bin/twitter") else None)
+    if executable:
+        sub_env = os.environ.copy()
+        sub_env["TWITTER_AUTH_TOKEN"] = auth_token
+        sub_env["TWITTER_CT0"] = ct0
+        if account.proxy_url:
+            sub_env["TWITTER_PROXY"] = account.proxy_url
+        try:
+            completed = subprocess.run(
+                [executable, "search", "iran", "-t", "Latest", "--exclude", "retweets", "--max", "1", "--json"],
+                capture_output=True, text=True, encoding="utf-8", timeout=15, check=False, env=sub_env
+            )
+            try:
+                payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
+            except Exception:
+                payload = {}
+
+            if completed.returncode == 0 and payload.get("ok") is True:
+                account.status = "ACTIVE"
+                account.status_message = "متصل و فعال"
+                account.save(update_fields=["status", "status_message"])
+                return True, "ACTIVE", f"اتصال به اکانت @{account.username} تایید شد."
+            elif payload.get("ok") is False:
+                err = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+                code = str(err.get("code") or "")
+                if code == "rate_limited":
+                    account.status = "COOLDOWN"
+                    account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                    account.status_message = "محدودیت موقت نرخ درخواست (429)"
+                    account.save(update_fields=["status", "status_message", "cooldown_until"])
+                    return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
+                elif code in ("not_authenticated", "auth_failed"):
+                    account.status = "CHALLENGED"
+                    account.status_message = "سشن منقضی یا نامعتبر است (HTTP 401) — auth_token/ct0 جدید ثبت کنید"
+                    account.save(update_fields=["status", "status_message"])
+                    return False, "CHALLENGED", "سشن منقضی یا نامعتبر است. لطفاً auth_token و ct0 جدید را وارد نمایید."
+                else:
+                    msg = err.get("message") or completed.stderr or "خطای اجرای ابزار توییتر"
+                    return False, account.status, f"خطای تست توییتر: {msg}"
+        except subprocess.TimeoutExpired:
+            return False, account.status, "زمان پاسخ‌گویی موتور توییتر به پایان رسید (تایم‌اوت)."
+        except Exception:
+            pass
+
     try:
         from curl_cffi import requests
         headers = {
@@ -1067,7 +1115,6 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             account.save(update_fields=["status", "status_message", "cooldown_until"])
             return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
         else:
-            # Any other code (e.g. 404 from a changed endpoint) does not prove the session works: keep the status as is.
             return False, account.status, f"پاسخ نامشخص از توییتر (HTTP {r.status_code}); سشن تایید نشد."
     except Exception as exc:
         return False, account.status, f"خطای تست اتصال: {exc}"

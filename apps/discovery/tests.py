@@ -269,6 +269,44 @@ class PanelViewTests(TestCase):
         self.assertIn("دستکش گرم", body)
         self.assertNotIn("دستکش موتور", body)            # only the seller's own opportunities
 
+    def test_strict_tenant_isolation_prevents_viewing_other_tenant_products(self):
+        # A seller trying to query another tenant's product gets empty opportunities and 403 on export
+        r = self.client.get(reverse("discovery:opportunity_list"), {"product_id": self.q1.id})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.context["opportunities"]), 0)
+        self.assertEqual(r.context["selected_business"], self.biz)
+
+        r_exp = self.client.get(reverse("discovery:opportunity_export"), {"product_id": self.q1.id})
+        self.assertEqual(r_exp.status_code, 403)
+
+    def test_zero_opportunity_business_never_hijacks_other_tenant(self):
+        empty_user, empty_biz = seller("empty@example.com", "فروشگاه خالی")
+        c = Client()
+        c.force_login(empty_user)
+        r = c.get(reverse("discovery:opportunity_list"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context["selected_business"], empty_biz)
+        self.assertEqual(len(r.context["opportunities"]), 0)
+        self.assertNotEqual(r.context["selected_business"], self.biz)
+
+    def test_staff_product_query_auto_scopes_to_product_business(self):
+        admin_user = User.objects.create_superuser(username="admin_test", email="admintest@example.com", password="pass")
+        c = Client()
+        c.force_login(admin_user)
+
+        # Querying product p1 (owned by self.biz) scopes to self.biz
+        r1 = c.get(reverse("discovery:opportunity_list"), {"product_id": self.p1.id})
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r1.context["selected_business"], self.biz)
+        self.assertEqual(list(r1.context["opportunities"]), [self.mine])
+
+        # Querying product q1 (owned by self.other) scopes to self.other
+        theirs = Opportunity.objects.get(business=self.other)
+        r2 = c.get(reverse("discovery:opportunity_list"), {"product_id": self.q1.id})
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.context["selected_business"], self.other)
+        self.assertEqual(list(r2.context["opportunities"]), [theirs])
+
     def test_csv_export_escapes_formulas_and_keeps_persian_and_empty_marker(self):
         self.mine.customer.source_username = ""
         self.mine.customer.external_user_id = "telegram_=HYPERLINK(\"https://bad.invalid\")"

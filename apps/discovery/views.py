@@ -96,6 +96,10 @@ def api_analytics_report_view(request):
     with support for Persian/Shamsi start_date and end_date filtering.
     """
     business = getattr(request.user, "business", None)
+    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
+        b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
+        if b_found:
+            business = b_found
     if not business:
         return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=404)
 
@@ -115,6 +119,12 @@ def _filter_opportunities_queryset(business, params):
     Supports platform, status, catalog product filter, Jalali date range, search,
     and sorting by Jalali time or purchase intent score.
     """
+    if not business:
+        return Opportunity.objects.none(), {
+            "platform": "", "status": "", "product_id": None, "min_score": "",
+            "min_intent": "", "q": "", "date_from": "", "date_to": "", "sort": "newest", "hide_stale": False,
+        }
+
     qs = Opportunity.objects.filter(business=business).select_related(
         "customer", "category", "ai_analysis"
     ).prefetch_related("product_matches__product")
@@ -136,7 +146,10 @@ def _filter_opportunities_queryset(business, params):
     product_id_str = params.get("product_id", "").strip()
     selected_product_id = int(product_id_str) if product_id_str.isdigit() else None
     if selected_product_id:
-        qs = qs.filter(product_matches__product_id=selected_product_id)
+        qs = qs.filter(
+            product_matches__product_id=selected_product_id,
+            product_matches__product__business=business,
+        )
 
     # Search query
     q = params.get("q", "").strip()
@@ -216,27 +229,67 @@ def _filter_opportunities_queryset(business, params):
 def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
     all_businesses = None
-    if request.user.is_staff or request.user.is_superuser:
+    is_admin = request.user.is_staff or request.user.is_superuser
+
+    if is_admin:
         from django.db.models import Count
         all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
         requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_prod_id = request.GET.get("product_id", "").strip()
+
         if requested_biz_id.isdigit():
             b_found = Business.objects.filter(id=int(requested_biz_id)).first()
             if b_found:
                 business = b_found
-        elif not business or Opportunity.objects.filter(business=business).count() == 0:
-            # If current admin user's business has 0 opportunities, default to the first business with opportunities
-            first_biz_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().first()
-            if first_biz_with_opps:
-                business = first_biz_with_opps
-
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+        elif requested_prod_id.isdigit():
+            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
+            if prod and prod.business:
+                business = prod.business
+        elif not business:
+            first_biz = Business.objects.order_by("id").first()
+            if first_biz:
+                business = first_biz
+    else:
+        # Strict tenant isolation for regular sellers
+        if not business:
+            business = Business.objects.create(
+                user=request.user,
+                name=f"کسب‌وکار {request.user.first_name or request.user.username}",
+                business_type="PHYSICAL",
+                business_domain="عمومی"
+            )
+        requested_prod_id = request.GET.get("product_id", "").strip()
+        if requested_prod_id.isdigit():
+            if not Product.objects.filter(id=int(requested_prod_id), business=business).exists():
+                # Cross-tenant query attempt: do not leak any other tenant data!
+                qs = Opportunity.objects.none()
+                seller_products = Product.objects.filter(business=business).order_by("name")
+                paginator = Paginator(qs, 25)
+                page_obj = paginator.get_page(1)
+                context = {
+                    "opportunities": [],
+                    "page_obj": page_obj,
+                    "stats": {"total": 0, "filtered_count": 0, "high_intent": 0, "qualified": 0, "converted": 0, "telegram_count": 0, "x_count": 0, "instagram_count": 0, "divar_count": 0},
+                    "all_businesses": None,
+                    "selected_business": business,
+                    "seller_products": seller_products,
+                    "selected_platform": "",
+                    "selected_status": "",
+                    "selected_product_id": int(requested_prod_id),
+                    "selected_min_score": "",
+                    "selected_min_intent": "",
+                    "selected_sort": "newest",
+                    "hide_stale": False,
+                    "date_from": "",
+                    "date_to": "",
+                    "search_query": "",
+                    "view_mode": "table",
+                    "export_query_string": "",
+                    "pagination_base_url": "?page=",
+                    "pagination_range": [1],
+                    "latest_opportunity_id": 0,
+                }
+                return render(request, "discovery/opportunities_list.html", context)
 
     qs, filter_meta = _filter_opportunities_queryset(business, request.GET)
 
@@ -306,8 +359,13 @@ def opportunity_list_view(request):
     export_query = request.GET.copy()
     for key in ("view", "page"):
         export_query.pop(key, None)
+    if is_admin and business and getattr(request.user, "business", None) != business:
+        export_query["business_id"] = business.id
+
     pagination_query = request.GET.copy()
     pagination_query.pop("page", None)
+    if is_admin and business and getattr(request.user, "business", None) != business:
+        pagination_query["business_id"] = business.id
     pagination_query_string = pagination_query.urlencode()
     pagination_base_url = f"?{pagination_query_string}&page=" if pagination_query_string else "?page="
 
@@ -350,6 +408,28 @@ def opportunity_export_view(request):
     6. پیام ساجست شده برای مشتری
     """
     business = getattr(request.user, "business", None)
+    is_admin = request.user.is_staff or request.user.is_superuser
+    if is_admin:
+        requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_prod_id = request.GET.get("product_id", "").strip()
+        if requested_biz_id.isdigit():
+            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
+            if b_found:
+                business = b_found
+        elif requested_prod_id.isdigit():
+            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
+            if prod and prod.business:
+                business = prod.business
+        elif not business:
+            business = Business.objects.order_by("id").first()
+    else:
+        if not business:
+            return HttpResponse("کسب‌وکار یافت نشد.", status=404)
+        requested_prod_id = request.GET.get("product_id", "").strip()
+        if requested_prod_id.isdigit():
+            if not Product.objects.filter(id=int(requested_prod_id), business=business).exists():
+                return HttpResponse("محصول در این فروشگاه یافت نشد.", status=403)
+
     if not business:
         return HttpResponse("کسب‌وکار یافت نشد.", status=404)
 
@@ -500,16 +580,17 @@ def opportunity_export_view(request):
 @login_required
 def opportunity_detail_view(request, pk):
     business = getattr(request.user, "business", None)
-    opportunity = get_object_or_404(
-        Opportunity.objects.select_related(
-            "customer", "category", "ai_analysis"
-        ).prefetch_related(
-            "product_matches__product",
-            "evidence_items"
-        ),
-        pk=pk,
-        business=business
+    qs = Opportunity.objects.select_related(
+        "business", "customer", "category", "ai_analysis"
+    ).prefetch_related(
+        "product_matches__product",
+        "evidence_items"
     )
+    if request.user.is_staff or request.user.is_superuser:
+        opportunity = get_object_or_404(qs, pk=pk)
+        business = opportunity.business
+    else:
+        opportunity = get_object_or_404(qs, pk=pk, business=business)
 
     matches = list(opportunity.product_matches.select_related("product").order_by("rank"))
     try:   # reverse one-to-one: missing row raises instead of returning None
@@ -613,8 +694,12 @@ def opportunity_rewrite_view(request, pk):
 def opportunity_reply_suggestions_view(request, pk):
     """Generate/regenerate, edit or mark a human-reviewed X/Instagram draft as sent. Never sends it."""
     business = getattr(request.user, "business", None)
-    opportunity = get_object_or_404(Opportunity.objects.select_related("business", "customer", "ai_analysis"),
-                                    pk=pk, business=business)
+    if request.user.is_staff or request.user.is_superuser:
+        opportunity = get_object_or_404(Opportunity.objects.select_related("business", "customer", "ai_analysis"), pk=pk)
+        business = opportunity.business
+    else:
+        opportunity = get_object_or_404(Opportunity.objects.select_related("business", "customer", "ai_analysis"),
+                                        pk=pk, business=business)
     raw_pid = (request.POST.get("product_id") or "").strip()
     matches = opportunity.product_matches.select_related("product").order_by("rank")
     match = matches.filter(product_id=raw_pid).first() if raw_pid.isdigit() else matches.first()
@@ -673,6 +758,18 @@ def opportunity_reply_suggestions_view(request, pk):
 def opportunity_new_count_view(request):
     """Polled every 20 s by the opportunities list: how many opportunities arrived after ``after`` (an id)."""
     business = getattr(request.user, "business", None)
+    if request.user.is_staff or request.user.is_superuser:
+        requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_prod_id = request.GET.get("product_id", "").strip()
+        if requested_biz_id.isdigit():
+            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
+            if b_found:
+                business = b_found
+        elif requested_prod_id.isdigit():
+            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
+            if prod and prod.business:
+                business = prod.business
+
     raw = (request.GET.get("after") or "0").strip()
     after = int(raw) if raw.isdigit() else 0
     qs = Opportunity.objects.filter(business=business, id__gt=after) if business else Opportunity.objects.none()
@@ -685,7 +782,10 @@ def opportunity_status_update_view(request, pk):
         return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
 
     business = getattr(request.user, "business", None)
-    opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
+    if request.user.is_staff or request.user.is_superuser:
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+    else:
+        opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
 
     new_status = request.POST.get("status")
     if not new_status and request.body:
@@ -735,7 +835,10 @@ def opportunity_feedback_view(request, pk):
         return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
 
     business = getattr(request.user, "business", None)
-    opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
+    if request.user.is_staff or request.user.is_superuser:
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+    else:
+        opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
     feedback = request.POST.get("feedback", "").strip()
     if feedback not in {"relevant", "irrelevant"}:
         return JsonResponse({"status": "error", "message": "بازخورد نامعتبر است."}, status=400)
