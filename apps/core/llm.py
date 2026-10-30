@@ -41,6 +41,8 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
 
     candidates = []
     for m in models:
+        if "embed" in m.name.lower():
+            continue
         if m.provider and m.provider.base_url and m.provider.api_key:
             candidates.append((m.name, m.provider.base_url.rstrip("/"), m.provider.api_key))
 

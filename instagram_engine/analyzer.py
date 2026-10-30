@@ -141,6 +141,8 @@ def _call_llm_with_usage(payload: dict, timeout: float = 25.0) -> Dict[str, Any]
         from apps.billing.models import AIModel
         db_models = list(AIModel.objects.filter(is_active=True, provider__is_active=True).select_related("provider").order_by("priority"))
         for m in db_models:
+            if "embed" in m.name.lower():
+                continue
             if m.provider and m.provider.base_url and m.provider.api_key:
                 candidates.append((m.name, m.provider.base_url.rstrip("/"), m.provider.api_key))
     except Exception:
