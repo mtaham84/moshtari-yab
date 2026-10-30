@@ -260,6 +260,7 @@ class OutreachBillingDatabaseTests(TestCase):
     def test_wallet_blocked_skips_generation_and_success_creates_billing_entry(self):
         from apps.discovery.services import generate_opportunity_reply_suggestions
         from apps.core.models import LLMUsageLog
+        from apps.billing.models import Wallet
         from django.utils import timezone
         from unittest.mock import patch
 
@@ -267,6 +268,9 @@ class OutreachBillingDatabaseTests(TestCase):
         with patch("apps.billing.services.is_blocked", return_value=True), patch("apps.core.llm.chat_json", fake_chat):
             self.assertIsNone(generate_opportunity_reply_suggestions(self.opportunity, self.match, force=True))
         fake_chat.assert_not_called()
+        wallet = Wallet.objects.get(business=self.business)
+        wallet.balance_toman = 5000
+        wallet.save(update_fields=["balance_toman"])
 
         def log_and_reply(*args, **kwargs):
             LLMUsageLog.objects.create(model="gpt-6-luna", purpose="outreach_suggestion",
