@@ -145,6 +145,26 @@ services:
       - ./shared:/app/shared
     restart: unless-stopped
 
+  ig-outreach:
+    <<: *app
+    environment:
+      <<: *app-env
+    command: ["python", "manage.py", "run_instagram_outreach", "--tenant", "tenant_4", "--loop", "--batch-size", "5", "--interval", "15", "--delay-min", "240", "--delay-max", "480", "--max-daily-dms", "18"]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - ./backups:/app/backups
+      - media:/app/media
+      - ./apps:/app/apps
+      - ./templates:/app/templates
+      - ./instagram_engine:/app/instagram_engine
+      - ./workers:/app/workers
+      - ./need_engine:/app/need_engine
+      - ./shared:/app/shared
+    restart: unless-stopped
+
   retention:
     <<: *app
     profiles: ["maintenance"]
