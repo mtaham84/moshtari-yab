@@ -19,5 +19,8 @@ urlpatterns = [
     path("onboarding/api/finish/", onboarding.api_finish, name="ob_finish"),
     path("shop/edit/", shop.shop_edit_view, name="shop_edit"),
     path("shop/<str:slug>/", shop.shop_view, name="shop"),
+    path("outreach/", views.outreach_view, name="outreach"),
+    path("outreach/save-pitch/", views.save_pitch_view, name="save_pitch"),
+    path("outreach/add-account/", views.add_outreach_account_view, name="add_outreach_account"),
     path("settings/style-sample/", views.style_sample_view, name="style_sample"),
 ]

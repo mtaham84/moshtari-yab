@@ -365,7 +365,8 @@
   <button class="tab-btn" onclick="openTab('scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> مخزن اکانت‌های اینستاگرام ({{ scrapers_total }})</button>
   <button class="tab-btn" onclick="openTab('twitter-scrapers', this)"><svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg> مخزن اکانت‌ها و کرول‌های توییتر / X ({{ twitter_scrapers_total }})</button>
   <button class="tab-btn" onclick="openTab('leads', this)"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> صف لیدهای پالایش‌شده اینستاگرام ({{ total_leads }})</button>
-  <button class="tab-btn" onclick="openTab('senders', this)"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
+  <button class="tab-btn" onclick="openTab('outreach', this)"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> پیام‌رسانی و دایرکت‌های اینستاگرام ({{ dms_sent_total }})</button>
+  <button class="tab-btn" onclick="openTab('senders', this)"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
   <button class="tab-btn" onclick="openTab('proxies', this)"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> پروکسی‌ها ({{ proxy_configs_active }}/{{ proxy_configs_total }})</button>
 </div>
 
@@ -1131,6 +1132,172 @@
     هنوز کانفیگی ثبت نشده است. اکانت‌ها فعلاً از پروکسی مشترک (xray:8080 / xray:1080) استفاده می‌کنند.
   </div>
   {% endif %}
+</div>
+
+<!-- TAB: INSTAGRAM OUTREACH & DMS -->
+<div id="tab-outreach" class="tab-pane">
+  <div class="card" style="margin-bottom: 20px;">
+    <div class="ops-head">
+      <div>
+        <h2 style="display:flex; align-items:center; gap:8px;">
+          <svg class="ico" aria-hidden="true" style="color:#d946ef;"><use href="#i-mail"/></svg>
+          مرکز مانیتورینگ و کنترل پیام‌رسانی هوشمند اینستاگرام (Instagram Outreach Engine)
+        </h2>
+        <p class="muted" style="margin:2px 0 0;">
+          وضعیت زنده ارسال دایرکت به خریداران بالقوه، تفکیک فرستنده‌ها، تاخیرهای بیولوژیک و رعایت سقف ضد اسپم
+        </p>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="badge-status active" style="font-size:0.85rem; padding:6px 14px;">
+          <span style="width:8px; height:8px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+          سرویس فعال در پس‌زمینه (Service Active)
+        </span>
+      </div>
+    </div>
+
+    <!-- 4 Stats Cards -->
+    <div class="kpi-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:14px; margin-top:16px;">
+      <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:14px;">
+        <div style="font-size:0.82rem; color:var(--muted); font-weight:600;">کل دایرکت‌های ارسال‌شده</div>
+        <div style="font-size:1.6rem; font-weight:800; color:#0f172a; margin-top:4px;">{{ dms_sent_total }}</div>
+        <div style="font-size:0.75rem; color:#10b981; margin-top:2px;">تحویل داده شده به اینستاگرام</div>
+      </div>
+      <div style="background:#fdf2f8; border:1px solid #fbcfe8; border-radius:10px; padding:14px;">
+        <div style="font-size:0.82rem; color:#9d174d; font-weight:600;">اکانت‌های فرستنده فعال</div>
+        <div style="font-size:1.6rem; font-weight:800; color:#be185d; margin-top:4px;">{{ senders_active }} <span style="font-size:0.9rem; font-weight:400; color:#9d174d;">از {{ senders_total }}</span></div>
+        <div style="font-size:0.75rem; color:#be185d; margin-top:2px;">دیوایس مجزا + پروکسی اختصاصی</div>
+      </div>
+      <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:14px;">
+        <div style="font-size:0.82rem; color:#1e40af; font-weight:600;">لیدهای در صف ارسال (NEW)</div>
+        <div style="font-size:1.6rem; font-weight:800; color:#1d4ed8; margin-top:4px;">{{ outreach_pending_count }}</div>
+        <div style="font-size:0.75rem; color:#2563eb; margin-top:2px;">اولویت‌بندی بر اساس بالاترین احتمال خرید</div>
+      </div>
+      <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px;">
+        <div style="font-size:0.82rem; color:#166534; font-weight:600;">تدابیر ضد مسدودی (Anti-Ban)</div>
+        <div style="font-size:1.05rem; font-weight:700; color:#15803d; margin-top:8px;">وقفه ۴ تا ۸ دقیقه</div>
+        <div style="font-size:0.75rem; color:#166534; margin-top:2px;">شبیه‌سازی تایپ + بازدید پروفایل</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Senders Overview -->
+  <div class="card" style="margin-bottom: 20px;">
+    <div class="ops-head">
+      <div>
+        <h3 style="margin:0;"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> وضعیت استخر اکانت‌های فرستنده (Sender Pool)</h3>
+        <p class="muted" style="margin:2px 0 0;">تفکیک هویت مشاور، دیوایس سخت‌افزاری شبیه‌سازی‌شده و سهمیه مجاز روزانه</p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>اکانت اینستاگرام</th>
+            <th>مستأجر / کسب‌وکار</th>
+            <th>دیوایس اختصاصی</th>
+            <th>پروکسی خروجی</th>
+            <th>وضعیت اتصال</th>
+            <th>سهمیه مصرفی امروز</th>
+            <th>آخرین فعالیت</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in senders %}
+          <tr>
+            <td style="font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                <span style="width:8px; height:8px; border-radius:50%; background:{% if s.status == 'ACTIVE' %}#10b981{% else %}#ef4444{% endif %};"></span>
+                @{{ s.username }}
+              </span>
+            </td>
+            <td>
+              <span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:600;">{{ s.tenant_id }}</span>
+            </td>
+            <td>
+              <span class="badge" style="background:{{ s.device_info.color }}15; color:{{ s.device_info.color }}; font-weight:600;">
+                {{ s.device_info.name }}
+              </span>
+            </td>
+            <td style="direction:ltr; text-align:right; font-family:monospace; font-size:0.8rem; color:var(--muted);">
+              {{ s.proxy_url|default:"اتصال مستقیم" }}
+            </td>
+            <td>
+              <span class="badge-status {{ s.status|lower }}">{{ s.get_status_display }}</span>
+            </td>
+            <td style="font-weight:700; color:{% if s.daily_action_count >= 15 %}#ea580c{% else %}#10b981{% endif %};">
+              {{ s.daily_action_count }} / 18 پیام
+            </td>
+            <td class="jalali-time-cell">
+              {% if s.last_action_at %}{{ s.last_action_at|jalali_datetime }}{% else %}<span class="muted">-</span>{% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="text-center muted" style="padding:24px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Live Delivered DMs Log -->
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h3 style="margin:0;"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> گزارش زنده آخرین دایرکت‌های ارسالی</h3>
+        <p class="muted" style="margin:2px 0 0;">پیام‌های خصوصی که مستقیماً به دایرکت مشتریان بالقوه تحویل داده شده‌اند</p>
+      </div>
+      <div>
+        <span class="muted" style="font-size:0.82rem;">نمایش آخرین ۵۰ پیام موفق</span>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>شناسه</th>
+            <th>مشتری هدف (@username)</th>
+            <th>مستأجر</th>
+            <th>قصد خرید (Intent)</th>
+            <th>خلاصه نیاز خریدار</th>
+            <th>زمان ارسال (به وقت تهران)</th>
+            <th>وضعیت تحویل</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lead in outreach_dms_list %}
+          <tr>
+            <td style="font-family:monospace; font-size:0.8rem; color:var(--muted);">#{{ lead.id }}</td>
+            <td style="font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
+              <a href="https://instagram.com/{{ lead.username }}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">
+                @{{ lead.username }} ↗
+              </a>
+            </td>
+            <td><span class="badge" style="background:#f1f5f9; color:#475569;">{{ lead.tenant_id }}</span></td>
+            <td>
+              <span class="intent-badge intent-high" style="background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:4px; font-weight:700;">
+                {{ lead.intent_score|floatformat:2 }}
+              </span>
+            </td>
+            <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ lead.comment_text }}">
+              {{ lead.comment_text }}
+            </td>
+            <td class="jalali-time-cell">
+              {{ lead.updated_at|jalali_datetime }}
+            </td>
+            <td>
+              <span class="badge-status active" style="font-size:0.78rem;">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                دایرکت ارسال شد
+              </span>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="text-center muted" style="padding:24px;">تاکنون پیامی ارسال نشده است.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <div id="tab-senders" class="tab-pane">

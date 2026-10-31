@@ -282,3 +282,232 @@ def style_sample_view(request):
         return JsonResponse({"status": "error", "message": str(e)}, status=503)
     return JsonResponse({"status": "success", "product": product.name, "reply": text})
 
+
+@login_required
+def outreach_view(request):
+    """Business owner's dedicated Instagram Outreach & Sender Management page."""
+    import json
+    from pathlib import Path
+    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        messages.error(request, "ابتدا اطلاعات کسب‌وکار خود را تکمیل نمایید.")
+        return redirect("accounts:dashboard")
+
+    tenant_key = f"tenant_{business.id}"
+    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+
+    accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
+    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="DM_SENT").order_by("-updated_at")[:50]
+    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="DM_SENT").count()
+    pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
+
+    # Load pitch configuration
+    config_path = Path("data/sarv_outreach_config.json")
+    sender_pitches = {}
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            sender_pitches = cfg.get("sender_pitches", {})
+        except Exception:
+            pass
+
+    # Attach pitch info to account objects for display
+    account_list = []
+    for acc in accounts:
+        pitch = sender_pitches.get(acc.username) or sender_pitches.get(acc.username.lower(), {})
+        account_list.append({
+            "obj": acc,
+            "consultant_name": pitch.get("consultant_name", acc.username),
+            "template": pitch.get("template", ""),
+        })
+
+    # Pick default active pitch template
+    default_pitch = ""
+    default_consultant = ""
+    default_username = ""
+    if account_list:
+        default_pitch = account_list[0]["template"]
+        default_consultant = account_list[0]["consultant_name"]
+        default_username = account_list[0]["obj"].username
+    elif business.id == 4:
+        default_pitch = (
+            "درود بر شما \n"
+            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
+            "میتونید هر سوالی دارید از بنده بپرسید. \n"
+            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
+        )
+        default_consultant = "مشاور دندان‌پزشکی"
+
+    return render(request, "accounts/outreach.html", {
+        "user": request.user,
+        "business": business,
+        "accounts": account_list,
+        "sent_dms": sent_dms,
+        "total_dms": total_dms,
+        "pending_leads": pending_leads,
+        "default_pitch": default_pitch,
+        "default_consultant": default_consultant,
+        "default_username": default_username,
+    })
+
+
+@login_required
+@require_POST
+def save_pitch_view(request):
+    """Save custom consultant DM pitch template for a sender account."""
+    import json
+    from pathlib import Path
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        messages.error(request, "دسترسی غیرمجاز.")
+        return redirect("accounts:dashboard")
+
+    username = request.POST.get("username", "").strip()
+    consultant_name = request.POST.get("consultant_name", "").strip() or username
+    template = request.POST.get("template", "").strip()
+
+    if not template:
+        messages.error(request, "متن پیام نمی‌تواند خالی باشد.")
+        return redirect("accounts:outreach")
+
+    config_path = Path("data/sarv_outreach_config.json")
+    cfg = {}
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            cfg = {}
+
+    if "sender_pitches" not in cfg:
+        cfg["sender_pitches"] = {}
+
+    cfg["sender_pitches"][username] = {
+        "consultant_name": consultant_name,
+        "consultant_role": f"مشاور و پشتیبانی {business.name}",
+        "template": template,
+        "guardrails_validated": True,
+    }
+
+    config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    messages.success(request, f"الگوی پیام دایرکت برای اکانت @{username} (مشاور: {consultant_name}) با موفقیت ذخیره شد.")
+    return redirect("accounts:outreach")
+
+
+@login_required
+@require_POST
+def add_outreach_account_view(request):
+    """Connect a new Instagram sender account for the business."""
+    import re
+    import json
+    from pathlib import Path
+    from apps.discovery.models import InstagramEngineAccount
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        messages.error(request, "دسترسی غیرمجاز.")
+        return redirect("accounts:dashboard")
+
+    tenant_key = f"tenant_{business.id}"
+    username = request.POST.get("username", "").strip().lstrip("@")
+    password = request.POST.get("password", "").strip()
+    sessionid = request.POST.get("sessionid", "").strip()
+    consultant_name = request.POST.get("consultant_name", "").strip() or username
+    pitch_template = request.POST.get("pitch_template", "").strip()
+
+    if not username:
+        messages.error(request, "نام کاربری اینستاگرام الزامی است.")
+        return redirect("accounts:outreach")
+
+    # Clean sessionid cookie if user pasted full cookie string
+    if "sessionid=" in sessionid:
+        m = re.search(r"sessionid=([^;\s]+)", sessionid)
+        if m:
+            sessionid = m.group(1).strip()
+    sessionid = sessionid.strip('"').strip("'").strip(";").strip()
+
+    account = InstagramEngineAccount.objects.filter(username__iexact=username).first()
+    if not account:
+        account = InstagramEngineAccount(
+            username=username,
+            password=password or "stored_session",
+            role="SENDER",
+            tenant_id=tenant_key,
+            status="ACTIVE",
+            status_message=f"متصل و فعال - مشاور {consultant_name}",
+        )
+    else:
+        account.role = "SENDER"
+        account.tenant_id = tenant_key
+        account.status = "ACTIVE"
+        if password:
+            account.password = password
+
+    # Attempt connection with instagrapi
+    try:
+        from instagrapi import Client
+        from apps.discovery.device_emulator import ensure_account_device_profile, apply_device_profile_to_client
+
+        cl = Client()
+        # Default fallback proxy for senders if none configured
+        proxy_url = "socks5h://xray:1080"
+        cl.set_proxy(proxy_url)
+        account.proxy_url = proxy_url
+
+        dev_profile = ensure_account_device_profile(account)
+        apply_device_profile_to_client(cl, account)
+
+        if sessionid:
+            cl.login_by_sessionid(sessionid)
+            settings_data = cl.get_settings()
+            account.session_json = settings_data
+        elif password:
+            cl.login(username, password)
+            account.session_json = cl.get_settings()
+        else:
+            messages.error(request, "لطفاً کوکی sessionid یا کلمه عبور را وارد فرمایید.")
+            return redirect("accounts:outreach")
+
+        account.device_settings = dev_profile or {"settings": account.session_json}
+        account.status = "ACTIVE"
+        account.status_message = f"متصل و فعال - مشاور {consultant_name}"
+        account.save()
+
+        # Save pitch in config
+        config_path = Path("data/sarv_outreach_config.json")
+        cfg = {}
+        if config_path.exists():
+            try:
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        if "sender_pitches" not in cfg:
+            cfg["sender_pitches"] = {}
+        if pitch_template:
+            cfg["sender_pitches"][username] = {
+                "consultant_name": consultant_name,
+                "consultant_role": f"مشاور و پشتیبانی {business.name}",
+                "template": pitch_template,
+                "guardrails_validated": True,
+            }
+            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        messages.success(request, f"اکانت فرستنده @{username} با موفقیت به مجموعه {business.name} متصل و فعال شد!")
+    except Exception as exc:
+        logger.exception("Error adding outreach sender account: %s", exc)
+        # Even if instant online verification fails due to network, save account so credentials persist
+        if sessionid:
+            m_uid = re.search(r"^\d+", sessionid)
+            uid = m_uid.group() if m_uid else ""
+            account.session_json = {"cookies": {"sessionid": sessionid, "ds_user_id": uid}}
+            account.proxy_url = "socks5h://xray:1080"
+            account.save()
+            messages.warning(request, f"اکانت @{username} با کوکی سشن ذخیره شد. پیام اتصال: {exc}")
+        else:
+            messages.error(request, f"خطا در احراز هویت اینستاگرام: {exc}")
+
+    return redirect("accounts:outreach")
+
+

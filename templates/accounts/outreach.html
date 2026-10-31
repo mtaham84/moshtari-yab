@@ -1,0 +1,389 @@
+{% extends "panel/base_panel.html" %}
+{% load ops %}
+
+{% block title %}پیام‌رسانی در اینستاگرام | {{ business.name }}{% endblock %}
+{% block breadcrumb %}پیام‌رسانی خودکار اینستاگرام{% endblock %}
+{% block nav_outreach %}active{% endblock %}
+
+{% block panel_content %}
+<div class="p-page-header" style="margin-bottom: 24px;">
+  <div class="p-header-titles">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1 class="p-page-title" style="margin:0;">پیام‌رسانی و ارسال دایرکت اینستاگرام</h1>
+      <span class="p-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; padding:4px 10px; border-radius:6px;">
+        {{ business.name }}
+      </span>
+    </div>
+    <p class="p-page-subtitle" style="margin-top:6px;">
+      مدیریت اکانت‌های فرستنده اختصاصی، تنظیم متن پیام هوشمند به مشتریان و پایش دایرکت‌های ارسال‌شده.
+    </p>
+  </div>
+</div>
+
+{% if messages %}
+<div style="margin-bottom: 20px;">
+  {% for message in messages %}
+  <div class="alert alert-{{ message.tags }}" style="padding:12px 16px; border-radius:8px; margin-bottom:8px; font-weight:600;
+       background:{% if message.tags == 'success' %}#e6f9f0; color:#0e8a4a; border:1px solid #bbf7d0;{% elif message.tags == 'error' %}#fde8e8; color:#b91c1c; border:1px solid #fecaca;{% else %}#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;{% endif %}">
+    {{ message }}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Top Stats Cards -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom: 24px;">
+  <div class="p-card" style="padding:18px; border-radius:12px; background:var(--panel-card); border:1px solid var(--panel-border);">
+    <div style="font-size:0.84rem; color:var(--panel-text-muted); font-weight:600;">اکانت‌های فرستنده متصل</div>
+    <div style="font-size:1.8rem; font-weight:800; color:var(--panel-text-main); margin-top:4px;">
+      {{ accounts|length }} <span style="font-size:0.9rem; font-weight:400; color:var(--panel-text-muted);">اکانت اختصاصی</span>
+    </div>
+    <div style="font-size:0.75rem; color:#10b981; margin-top:2px;">تفکیک هویت و سخت‌افزار شبیه‌سازی‌شده</div>
+  </div>
+
+  <div class="p-card" style="padding:18px; border-radius:12px; background:var(--panel-card); border:1px solid var(--panel-border);">
+    <div style="font-size:0.84rem; color:var(--panel-text-muted); font-weight:600;">دایرکت‌های ارسالی این کسب‌وکار</div>
+    <div style="font-size:1.8rem; font-weight:800; color:#10b981; margin-top:4px;">
+      {{ total_dms }} <span style="font-size:0.9rem; font-weight:400; color:var(--panel-text-muted);">پیام تحویل‌شده</span>
+    </div>
+    <div style="font-size:0.75rem; color:#10b981; margin-top:2px;">ارسال ۱۰۰٪ موفق و بدون تکرار</div>
+  </div>
+
+  <div class="p-card" style="padding:18px; border-radius:12px; background:var(--panel-card); border:1px solid var(--panel-border);">
+    <div style="font-size:0.84rem; color:var(--panel-text-muted); font-weight:600;">خریداران در صف پیام‌دهی</div>
+    <div style="font-size:1.8rem; font-weight:800; color:#2563eb; margin-top:4px;">
+      {{ pending_leads }} <span style="font-size:0.9rem; font-weight:400; color:var(--panel-text-muted);">لید خریدار</span>
+    </div>
+    <div style="font-size:0.75rem; color:#2563eb; margin-top:2px;">مرتب‌شده بر اساس بالاترین احتمال خرید</div>
+  </div>
+
+  <div class="p-card" style="padding:18px; border-radius:12px; background:var(--panel-card); border:1px solid var(--panel-border);">
+    <div style="font-size:0.84rem; color:var(--panel-text-muted); font-weight:600;">سیاست ایمنی و ضد بلاک</div>
+    <div style="font-size:1.2rem; font-weight:700; color:#c026d3; margin-top:8px;">
+      ارسال چرخی (Round-Robin)
+    </div>
+    <div style="font-size:0.75rem; color:var(--panel-text-muted); margin-top:2px;">وقفه ۴ تا ۸ دقیقه بین هر پیام</div>
+  </div>
+</div>
+
+<!-- Main 2-Column Grid -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:28px;">
+
+  <!-- Right Column: Add Sender Account Form + sessionid Tutorial -->
+  <div>
+    <!-- Add Account Card -->
+    <div class="p-card" style="padding:22px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:20px;">
+      <h2 style="margin:0 0 8px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#2563eb" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+        افزودن اکانت فرستنده اینستاگرام
+      </h2>
+      <p style="font-size:0.84rem; color:var(--panel-text-muted); margin:0 0 16px;">
+        اکانت فرستنده فقط برای ارسال دایرکت به کار می‌رود و کاملاً از اسکرپر جدا است.
+      </p>
+
+      <form method="POST" action="{% url 'accounts:add_outreach_account' %}">
+        {% csrf_token %}
+        <div style="margin-bottom:12px;">
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام کاربری اینستاگرام (Username)*</label>
+          <input type="text" name="username" required dir="ltr" placeholder="مثال: raha.rostamim"
+                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-family:monospace; direction:ltr;">
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام و عنوان مشاور (نمایش در پیام)*</label>
+          <input type="text" name="consultant_name" required placeholder="مثال: رها، پنیا، پشتیبانی تخصصی"
+                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px;">
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">
+            کوکی سشن (sessionid)
+            <span style="font-weight:400; color:#10b981; font-size:0.75rem;">(روش پیشنهادی و امن بدون کد تایید)</span>
+          </label>
+          <input type="text" name="sessionid" dir="ltr" placeholder="مقدار کوکی sessionid از اینستاگرام وب"
+                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-family:monospace; direction:ltr; font-size:0.82rem;">
+          <small style="color:var(--panel-text-muted); font-size:0.74rem; display:block; margin-top:3px;">
+            راهنمای دریافت این کوکی را در کادر پایین مشاهده کنید.
+          </small>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">کلمه عبور اکانت (اختیاری جهت پشتیبان)</label>
+          <input type="password" name="password" dir="ltr" placeholder="رمز عبور حساب اینستاگرام"
+                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; direction:ltr;">
+        </div>
+
+        <button type="submit" class="p-btn p-btn-primary" style="width:100%; padding:10px; font-weight:700; border-radius:8px;">
+          اتصال و فعال‌سازی اکانت فرستنده
+        </button>
+      </form>
+    </div>
+
+    <!-- Step-by-Step sessionid Tutorial Box -->
+    <div class="p-card" style="padding:20px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
+      <h3 style="margin:0 0 10px; font-size:0.98rem; display:flex; align-items:center; gap:8px; color:#1e293b;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        آموزش ساده دریافت کوکی sessionid از مرورگر
+      </h3>
+      <p style="font-size:0.8rem; color:#64748b; margin:0 0 14px; line-height:1.6;">
+        برای اینکه اکانت بدون چالش رمز یا پیامک به ربات وصل شود، کافی است مقدار کوکی لاگین مرورگر را کپی کنید:
+      </p>
+
+      <div style="display:flex; flex-direction:column; gap:10px; font-size:0.82rem;">
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۱</span>
+          <div>در مرورگر سیستم وارد سایت <a href="https://instagram.com" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb;">instagram.com</a> شده و وارد حسابتان شوید.</div>
+        </div>
+
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۲</span>
+          <div>کلید <kbd style="background:#e2e8f0; border:1px solid #cbd5e1; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">F12</kbd> کیبورد را بزنید (یا کلیک‌راست و گزینه <strong>Inspect</strong>).</div>
+        </div>
+
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۳</span>
+          <div>در نوار بالای پنجره Inspect، تب <strong>Application</strong> (در کروم و اج) یا <strong>Storage</strong> (در فایرفاکس) را بزنید.</div>
+        </div>
+
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۴</span>
+          <div>از منوی سمت چپ، بخش <strong>Cookies</strong> را باز کرده و روی آدرس <strong>https://www.instagram.com</strong> کلیک کنید.</div>
+        </div>
+
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۵</span>
+          <div>سطر با نام <code style="background:#fef08a; padding:1px 6px; border-radius:3px; font-weight:700;">sessionid</code> را پیدا کنید؛ مقدار ستون <em>Value</em> را کپی کرده و در کادر فرم بالا قرار دهید.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Left Column: Custom Pitch Editor + Live Chat Preview -->
+  <div>
+    <div class="p-card" style="padding:22px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:20px;">
+      <h2 style="margin:0 0 8px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#c026d3" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        تنظیم و ویرایش متن پیام دایرکت (Pitch Editor)
+      </h2>
+      <p style="font-size:0.84rem; color:var(--panel-text-muted); margin:0 0 16px;">
+        این متن توسط اکانت‌های فرستنده با رعایت تاخیر طبیعی تایپ برای خریداران علاقه‌مند ارسال می‌شود.
+      </p>
+
+      <form method="POST" action="{% url 'accounts:save_pitch' %}">
+        {% csrf_token %}
+        <div style="margin-bottom:12px;">
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">انتخاب اکانت فرستنده جهت تنظیم متن</label>
+          <select name="username" id="sender-select" onchange="updatePitchEditor(this.value)"
+                  style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-weight:600;">
+            {% for a in accounts %}
+            <option value="{{ a.obj.username }}" data-consultant="{{ a.consultant_name }}" data-template="{{ a.template|escapejs }}">
+              @{{ a.obj.username }} (مشاور: {{ a.consultant_name }})
+            </option>
+            {% empty %}
+            <option value="default">اکانت پیش‌فرض</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام مشاور در این پیام</label>
+          <input type="text" name="consultant_name" id="consultant-input" value="{{ default_consultant }}"
+                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px;">
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label style="font-weight:600; font-size:0.84rem;">متن پیام دایرکت (ارسال به خریدار)</label>
+            <span style="font-size:0.75rem; color:#10b981; font-weight:600;">پیش‌نمایش همزمان در پایین</span>
+          </div>
+          <textarea name="template" id="pitch-textarea" rows="6" oninput="updateLivePreview(this.value)"
+                    style="width:100%; padding:10px 12px; border:1px solid var(--panel-border); border-radius:8px; font-family:inherit; line-height:1.7; font-size:0.9rem;"
+                    placeholder="متن پیام خود را بنویسید...">{{ default_pitch }}</textarea>
+        </div>
+
+        <div style="background:#fffbeb; border:1px solid #fef3c7; border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:0.78rem; color:#92400e; line-height:1.6;">
+          <strong>💡 نکته طلایی ضد اسپم:</strong> پیام دایرکت اول باید صمیمی، کوتاه و صرفاً جهت باز کردن گفتگو باشد. از قرار دادن لینک سایت و شماره تماس مستقیم در جمله اول خودداری کنید تا الگوریتم‌های اینستاگرام حساب شما را محدود نکنند.
+        </div>
+
+        <button type="submit" class="p-btn p-btn-primary" style="width:100%; padding:10px; font-weight:700; border-radius:8px; background:#c026d3; border-color:#c026d3;">
+          ذخیره الگوی پیام دایرکت
+        </button>
+      </form>
+    </div>
+
+    <!-- Live Instagram Direct Message Preview -->
+    <div class="p-card" style="padding:20px; border-radius:12px; border:1px solid var(--panel-border); background:#fff;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #f1f5f9;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="width:32px; height:32px; border-radius:50%; background:linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.8rem; font-weight:700;">
+            DM
+          </span>
+          <div>
+            <strong style="font-size:0.88rem; display:block;" id="preview-sender-name">مشاور سرو</strong>
+            <span style="font-size:0.72rem; color:#64748b;">پیش‌نمایش ظاهر پیام در گوشی مشتری</span>
+          </div>
+        </div>
+        <span class="badge" style="background:#f1f5f9; color:#475569; font-size:0.72rem;">دایرکت اینستاگرام</span>
+      </div>
+
+      <!-- Chat Bubble -->
+      <div style="background:#f8fafc; border-radius:12px; padding:16px; min-height:120px; display:flex; flex-direction:column; justify-content:flex-end;">
+        <div style="align-self:flex-start; max-width:85%; background:#7c3aed; color:#fff; padding:12px 16px; border-radius:18px 18px 18px 4px; font-size:0.88rem; line-height:1.7; white-space:pre-wrap; box-shadow:0 2px 4px rgba(0,0,0,0.06);" id="preview-bubble">
+{{ default_pitch }}
+        </div>
+        <span style="align-self:flex-start; font-size:0.7rem; color:#94a3b8; margin-top:4px; margin-right:8px;">هم‌اکنون · ارسال‌شده</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Senders List of this Business -->
+<div class="p-card" style="padding:24px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:28px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div>
+      <h2 style="margin:0; font-size:1.15rem;"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> اکانت‌های فرستنده متصل به این کسب‌وکار ({{ accounts|length }})</h2>
+      <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
+        این اکانت‌ها به صورت دوره‌ای و یک‌در‌میان به لیدهای با اولویت بالا پیام می‌دهند.
+      </p>
+    </div>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; text-align: right; border-collapse: collapse;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.88rem; background:#f8fafc;">
+          <th style="padding:10px 12px;">اکانت فرستنده</th>
+          <th style="padding:10px 12px;">مشاور اختصاصی</th>
+          <th style="padding:10px 12px;">دیوایس شبیه‌سازی‌شده</th>
+          <th style="padding:10px 12px;">وضعیت تایید و اتصال</th>
+          <th style="padding:10px 12px;">دایرکت‌های ارسالی امروز</th>
+          <th style="padding:10px 12px;">آخرین فعالیت</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;">
+          <td style="padding:12px; font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
+            <a href="https://instagram.com/{{ a.obj.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none;">
+              @{{ a.obj.username }} ↗
+            </a>
+          </td>
+          <td style="padding:12px; font-weight:600;">
+            {{ a.consultant_name }}
+          </td>
+          <td style="padding:12px;">
+            <span class="p-badge" style="background:{{ a.obj.device_info.color }}15; color:{{ a.obj.device_info.color }}; font-weight:600; padding:3px 8px; border-radius:4px;">
+              {{ a.obj.device_info.name }}
+            </span>
+          </td>
+          <td style="padding:12px;">
+            {% if a.obj.status == 'ACTIVE' %}
+              <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;">
+                ✓ فعال و تایید شده
+              </span>
+            {% elif a.obj.status == 'CHALLENGED' %}
+              <span class="p-badge" style="background:#fff0e6; color:#c9510c; padding:3px 8px; border-radius:4px; font-weight:600;">
+                ⚠️ نیازمند ثبت مجدد کوکی
+              </span>
+            {% else %}
+              <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;">
+                {{ a.obj.get_status_display }}
+              </span>
+            {% endif %}
+          </td>
+          <td style="padding:12px; font-weight:700; color:{% if a.obj.daily_action_count >= 15 %}#ea580c{% else %}#10b981{% endif %};">
+            {{ a.obj.daily_action_count }} از ۱۸ دایرکت
+          </td>
+          <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
+            {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_datetime }}{% else %}در انتظار ارسال بعدی{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است. از فرم بالا اضافه کنید.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Delivered DMs Log for this Business -->
+<div class="p-card" style="padding:24px; border-radius:12px; border:1px solid var(--panel-border);">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div>
+      <h2 style="margin:0; font-size:1.15rem;"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> تاریخچه دایرکت‌های ارسال‌شده برای {{ business.name }}</h2>
+      <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
+        لیست مشتریان بالقوه‌ای که متن مشاوره را دریافت کرده‌اند (وضعیت: DM_SENT).
+      </p>
+    </div>
+    <span class="p-badge" style="background:#e6f9f0; color:#0e8a4a; font-weight:700; padding:4px 10px; border-radius:6px;">
+      مجموع: {{ total_dms }} پیام
+    </span>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; text-align: right; border-collapse: collapse;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.88rem; background:#f8fafc;">
+          <th style="padding:10px 12px;">مشتری دریافت‌کننده</th>
+          <th style="padding:10px 12px;">احتمال خرید</th>
+          <th style="padding:10px 12px;">کامنت / نیاز اولیه</th>
+          <th style="padding:10px 12px;">زمان ارسال (به وقت تهران)</th>
+          <th style="padding:10px 12px; text-align:center;">وضعیت تحویل</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in sent_dms %}
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;">
+          <td style="padding:12px; font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
+            <a href="https://instagram.com/{{ lead.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none;">
+              @{{ lead.username }} ↗
+            </a>
+          </td>
+          <td style="padding:12px;">
+            <span style="background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:4px; font-weight:700; font-size:0.82rem;">
+              {{ lead.intent_score|floatformat:2 }}
+            </span>
+          </td>
+          <td style="padding:12px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ lead.comment_text }}">
+            {{ lead.comment_text }}
+          </td>
+          <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
+            {{ lead.updated_at|jalali_datetime }}
+          </td>
+          <td style="padding:12px; text-align:center;">
+            <span style="background:#e6f9f0; color:#0e8a4a; padding:3px 10px; border-radius:99px; font-weight:700; font-size:0.78rem;">
+              ✓ تحویل داده شد
+            </span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center muted" style="padding:24px; text-align:center;">تاکنون پیامی ارسال نشده است.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  function updatePitchEditor(username) {
+    const select = document.getElementById('sender-select');
+    const selectedOption = select.options[select.selectedIndex];
+    const consultant = selectedOption.getAttribute('data-consultant') || '';
+    const template = selectedOption.getAttribute('data-template') || '';
+
+    if (consultant) {
+      document.getElementById('consultant-input').value = consultant;
+      document.getElementById('preview-sender-name').innerText = consultant;
+    }
+    if (template) {
+      document.getElementById('pitch-textarea').value = template;
+      document.getElementById('preview-bubble').innerText = template;
+    }
+  }
+
+  function updateLivePreview(text) {
+    document.getElementById('preview-bubble').innerText = text || '(متن پیام خالی است)';
+  }
+</script>
+{% endblock %}

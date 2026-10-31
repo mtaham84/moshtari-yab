@@ -402,6 +402,9 @@ def manage_dashboard(request):
         "queries_top_rated": queries_top_rated,
         "queries_top_gainers": queries_top_gainers,
         "queries_top_losers": queries_top_losers,
+        "outreach_dms_list": InstagramEngineLead.objects.filter(status="DM_SENT").order_by("-updated_at")[:60],
+        "outreach_pending_count": InstagramEngineLead.objects.filter(status="NEW").count(),
+        "outreach_failed_count": InstagramEngineLead.objects.filter(status="FAILED").count(),
         "now": dj_timezone.now(),
     }
     return render(request, "ops/manage_dashboard.html", context)

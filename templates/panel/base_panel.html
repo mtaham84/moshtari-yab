@@ -221,6 +221,9 @@
         <a href="{% url 'discovery:instagram_pages' %}" class="sidebar-link {% block nav_instagram_pages %}{% endblock %}">
           <div class="sidebar-link-content"><span class="sidebar-link-icon"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg></span><span>صفحه‌های اینستاگرام</span></div>
         </a>
+        <a href="{% url 'accounts:outreach' %}" class="sidebar-link {% block nav_outreach %}{% endblock %}">
+          <div class="sidebar-link-content"><span class="sidebar-link-icon"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg></span><span>پیام‌رسانی در اینستاگرام</span></div>
+        </a>
         {% if X_SELLER_UI %}
         <a href="{% url 'discovery:x_search' %}" class="sidebar-link {% block nav_x_management %}{% endblock %}">
           <div class="sidebar-link-content">
