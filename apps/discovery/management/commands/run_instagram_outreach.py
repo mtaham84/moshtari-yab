@@ -45,14 +45,31 @@ logger = logging.getLogger("instagram_outreach")
 
 CONFIG_FILE = Path("data/sarv_outreach_config.json")
 
+DEFAULT_SENDER_PITCHES = {
+    "raha.rostamim": {
+        "consultant_name": "رها",
+        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
+        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+    },
+    "pania.mehrim": {
+        "consultant_name": "پنیا",
+        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
+        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+    },
+}
+
 
 def load_outreach_config() -> dict:
+    pitches = dict(DEFAULT_SENDER_PITCHES)
     if CONFIG_FILE.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            for u, p in cfg.get("sender_pitches", {}).items():
+                pitches[u.lower()] = p
+            return cfg
         except Exception as exc:
             logger.warning(f"Could not load {CONFIG_FILE}: {exc}")
-    return {}
+    return {"sender_pitches": pitches}
 
 
 class Command(BaseCommand):
@@ -249,16 +266,20 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING("ساعت کاری به پایان رسید. توقف بچ."))
                     break
 
-                # Refresh senders list
-                current_senders = get_available_senders()
-                if not current_senders:
-                    self.stdout.write(self.style.WARNING("ظرفیت مجاز تمام اکانت‌های فرستنده امروز پر شد."))
-                    break
+                # Pick sender round-robin across available senders
+                sender = available_senders[idx % len(available_senders)]
+                # Refresh from DB to have latest quota/status
+                sender.refresh_from_db()
+                if sender.daily_action_count >= max_daily_dms or sender.status != "ACTIVE":
+                    self.stdout.write(self.style.WARNING(f"اکانت @{sender.username} دیگر در دسترس نیست. چرخش به اکانت بعدی..."))
+                    continue
 
-                # Pick sender round-robin / least recently active
-                sender = current_senders[idx % len(current_senders)]
                 sender_user = sender.username
-                pitch_info = sender_pitches.get(sender_user, {})
+                pitch_info = (
+                    sender_pitches.get(sender_user)
+                    or sender_pitches.get(sender_user.lower())
+                    or DEFAULT_SENDER_PITCHES.get(sender_user.lower(), {})
+                )
                 consultant_name = pitch_info.get("consultant_name", sender_user)
                 pitch_text = pitch_info.get("template", "")
 
