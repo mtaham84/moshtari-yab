@@ -346,6 +346,19 @@ def manage_dashboard(request):
         approved_x_tweets = []
         queries_top_rated = queries_top_gainers = queries_top_losers = []
 
+    # Business-specific tenant filtering for outreach tab
+    business_id_filter = request.GET.get("outreach_biz", "").strip()
+    businesses_for_outreach = Business.objects.all().order_by("id")
+    selected_outreach_biz = None
+    if business_id_filter and business_id_filter.isdigit():
+        selected_outreach_biz = Business.objects.filter(id=int(business_id_filter)).first()
+        if selected_outreach_biz:
+            b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
+            senders = senders.filter(tenant_id__in=b_tenants)
+            leads = leads.filter(tenant_id__in=b_tenants)
+            senders_total = senders.count()
+            senders_active = senders.filter(status="ACTIVE").count()
+
     # Load outreach pitch config
     from pathlib import Path
     import json
@@ -381,8 +394,12 @@ def manage_dashboard(request):
         )
         default_consultant = "مشاور دندان‌پزشکی"
 
-    outreach_replied_leads = InstagramEngineLead.objects.filter(has_replied=True).order_by("-reply_at")[:50]
-    outreach_replied_count = InstagramEngineLead.objects.filter(has_replied=True).count()
+    outreach_replied_qs = InstagramEngineLead.objects.filter(has_replied=True)
+    if selected_outreach_biz:
+        b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
+        outreach_replied_qs = outreach_replied_qs.filter(tenant_id__in=b_tenants)
+    outreach_replied_leads = outreach_replied_qs.order_by("-reply_at")[:50]
+    outreach_replied_count = outreach_replied_qs.count()
 
     context = {
         "nav": "manage",
@@ -398,6 +415,9 @@ def manage_dashboard(request):
         "senders": senders,
         "senders_total": senders_total,
         "senders_active": senders_active,
+        "businesses_for_outreach": businesses_for_outreach,
+        "selected_outreach_biz": selected_outreach_biz,
+        "selected_business_id": business_id_filter,
         "accounts_with_pitches": accounts_with_pitches,
         "default_pitch": default_pitch,
         "default_consultant": default_consultant,

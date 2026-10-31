@@ -425,7 +425,12 @@ def add_outreach_account_view(request):
         messages.error(request, "دسترسی غیرمجاز.")
         return redirect("accounts:dashboard")
 
-    tenant_key = f"tenant_{business.id}"
+    target_tenant = request.POST.get("tenant_id", "").strip()
+    if request.user.is_superuser and target_tenant:
+        tenant_key = target_tenant
+    else:
+        tenant_key = f"tenant_{business.id}"
+
     username = request.POST.get("username", "").strip().lstrip("@")
     password = request.POST.get("password", "").strip()
     sessionid = request.POST.get("sessionid", "").strip()
