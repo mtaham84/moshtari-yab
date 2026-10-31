@@ -458,20 +458,21 @@ class Command(BaseCommand):
                         clients_cache.pop(sender.username, None)
                         self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} وارد چالش شد. از مدار خارج شد."))
                     elif "1404006" in exc_str or "message controls" in exc_str:
-                        # Recipient's privacy settings block stranger message requests
+                        # Recipient's privacy settings block stranger message requests (not sender's fault)
                         self.stdout.write(self.style.WARNING(
-                            f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} دریافت پیام از غریبه‌ها را مسدود کرده است."
+                            f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} دریافت پیام از غریبه‌ها را مسدود کرده است (رد شد)."
                         ))
                         lead.status = "SKIPPED"
                         lead.comment_text = (lead.comment_text or "") + "\n[محدودیت کاربر]: مسدود بودن دایرکت اکانت‌های ناشناس"
                         lead.save(update_fields=["status", "comment_text", "updated_at"])
-                        if consec_err >= 2:
-                            cooldown_hours = 3
-                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
-                            sender.status_message = f"استراحت محافظتی ضد بلاک ({cooldown_hours} ساعت)"
+                        # Only take a short breather if multiple recipients in a row are restricted
+                        if consec_err >= 4:
+                            cooldown_minutes = 45
+                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=cooldown_minutes)
+                            sender.status_message = f"استراحت کوتاه ({cooldown_minutes} دقیقه پس از چند مخاطب مسدود)"
                             sender.save(update_fields=["cooldown_until", "status_message"])
                             clients_cache.pop(sender.username, None)
-                            self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} به دلیل ۲ خطای متوالی جهت ایمنی به استراحت رفت."))
+                            self.stderr.write(self.style.WARNING(f"   ⏳ اکانت @{sender.username} جهت ایمنی {cooldown_minutes} دقیقه استراحت می‌کند."))
                     elif "feedback" in exc_str or "please wait" in exc_str or "rate limit" in exc_str or "403" in exc_str:
                         if consec_err >= 2 or "feedback" in exc_str:
                             cooldown_hours = 4

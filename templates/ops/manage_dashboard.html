@@ -1481,6 +1481,7 @@
             <th>وضعیت اتصال</th>
             <th>سهمیه مصرفی امروز</th>
             <th>آخرین فعالیت</th>
+            <th style="text-align:center;">عملیات و ویرایش ⚙️</th>
           </tr>
         </thead>
         <tbody>
@@ -1512,9 +1513,23 @@
             <td class="jalali-time-cell">
               {% if s.last_action_at %}{{ s.last_action_at|jalali_dt }}{% else %}<span class="muted">-</span>{% endif %}
             </td>
+            <td style="text-align:center; white-space:nowrap;">
+              <button type="button" class="btn sm" onclick="openSenderEditModal({{ s.id }}, '{{ s.username }}', '{{ s.tenant_id }}', '{{ s.account_tier|default:'NEW' }}', {{ s.daily_limit|default:9 }}, '{{ s.proxy_url|default:'' }}', '{{ s.status }}', '{% for ap in accounts_with_pitches %}{% if ap.obj.id == s.id %}{{ ap.consultant_name|escapejs }}{% endif %}{% endfor %}')"
+                      style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:4px 9px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                      title="ویرایش سشن، نام مشاور، رده و تنظیمات">
+                ویرایش سشن ⚙️
+              </button>
+              {% if s.cooldown_until or s.status == 'COOLDOWN' or s.status == 'CHALLENGED' %}
+              <button type="button" class="btn sm" onclick="clearSenderCooldown({{ s.id }}, '{{ s.username }}')"
+                      style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:4px 9px; font-size:0.78rem; font-weight:700; border-radius:6px; margin-right:4px; cursor:pointer;"
+                      title="خروج فوری از استراحت و فعال‌سازی">
+                فعال‌سازی فوری ⚡
+              </button>
+              {% endif %}
+            </td>
           </tr>
           {% empty %}
-          <tr><td colspan="7" class="text-center muted" style="padding:24px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</td></tr>
+          <tr><td colspan="8" class="text-center muted" style="padding:24px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -2175,6 +2190,104 @@
   </div>
 </div>
 
+<!-- Modal: Comprehensive Edit Sender Account -->
+<div id="senderEditModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; width:100%; height:100%; z-index:999999; background:rgba(0,0,0,0.65); backdrop-filter:blur(3px); align-items:center; justify-content:center;" onclick="if(event.target===this)closeSenderEditModal();">
+  <div style="background:#fff; border-radius:14px; max-width:550px; width:92%; padding:24px; box-shadow:0 20px 40px rgba(0,0,0,0.3); max-height:90vh; overflow-y:auto; position:relative; text-align:right;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:12px; margin-bottom:16px;">
+      <h3 style="margin:0; font-size:1.1rem; color:#0f172a; display:flex; align-items:center; gap:8px;">
+        ⚙️ ویرایش اکانت فرستنده اینستاگرام
+        <span id="senderModalUsername" style="color:#2563eb; font-family:monospace; direction:ltr;"></span>
+      </h3>
+      <button type="button" onclick="closeSenderEditModal()" style="background:none; border:none; font-size:1.4rem; cursor:pointer; color:#64748b;">✕</button>
+    </div>
+
+    <form id="senderEditForm" method="POST" onsubmit="submitSenderEdit(event)">
+      {% csrf_token %}
+      <input type="hidden" id="editSenderId" name="sender_id">
+
+      <div style="margin-bottom:12px;">
+        <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">
+          🔑 کوکی سشن جدید (sessionid)
+          <span style="font-weight:400; font-size:0.75rem; color:#64748b;">— جهت تمدید یا تغییر سشن بدون نیاز به پسورد</span>
+        </label>
+        <input type="text" id="editSenderSessionid" name="sessionid" dir="ltr" placeholder="مقدار sessionid از کوکی‌های مرورگر..."
+               style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-family:monospace; font-size:0.84rem;">
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+        <div>
+          <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">نام مشاور در پیام</label>
+          <input type="text" id="editSenderConsultant" name="consultant_name" placeholder="مثال: رها"
+                 style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem;">
+        </div>
+        <div>
+          <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">کسب‌وکار / مستأجر (Tenant)</label>
+          <select id="editSenderTenant" name="tenant_id" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem; background:#f8fafc;">
+            {% for b in businesses_for_outreach %}
+            <option value="tenant_{{ b.id }}">{{ b.name }} (tenant_{{ b.id }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+        <div>
+          <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">رده اکانت (Dealism Tier)</label>
+          <select id="editSenderTier" name="account_tier" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem;">
+            <option value="NEW">🔵 اکانت شخصی و تازه (۹ پیام در ۵-۶ ساعت)</option>
+            <option value="MEDIUM">🟡 اکانت متوسط (۱۵ تا ۲۵ پیام در روز)</option>
+            <option value="AGED">🟢 اکانت قدیمی (۳۰ تا ۵۰ پیام در روز)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">سقف پیام روزانه (سفارشی)</label>
+          <input type="number" id="editSenderDailyLimit" name="daily_limit" min="1" max="100"
+                 style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem;">
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+        <div>
+          <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">وضعیت اکانت</label>
+          <select id="editSenderStatus" name="status" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem;">
+            <option value="ACTIVE">فعال و آماده ارسال (ACTIVE)</option>
+            <option value="COOLDOWN">استراحت موقت (COOLDOWN)</option>
+            <option value="CHALLENGED">نیازمند تایید هویت (CHALLENGED)</option>
+            <option value="DISABLED">غیرفعال دستی (DISABLED)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">رمز عبور (اختیاری)</label>
+          <input type="password" id="editSenderPassword" name="password" placeholder="تنها در صورت تغییر وارد کنید"
+                 style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="font-weight:700; font-size:0.82rem; display:block; margin-bottom:4px; color:#334155;">پروکسی اختصاصی</label>
+        <input type="text" id="editSenderProxy" name="proxy_url" dir="ltr" placeholder="socks5h://xray:1095"
+               style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-family:monospace; font-size:0.84rem;">
+      </div>
+
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px; margin-bottom:16px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:0.82rem; font-weight:700; color:#0f172a; cursor:pointer;">
+          <input type="checkbox" id="editSenderClearCooldown" name="clear_cooldown" value="1" checked>
+          <span>⚡ لغو زمان استراحت و فعال‌سازی فوری اکانت (Reset Cooldown)</span>
+        </label>
+      </div>
+
+      <div id="editSenderError" style="color:#ef4444; font-size:0.82rem; margin-bottom:10px; display:none;"></div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn" onclick="closeSenderEditModal()" style="padding:8px 16px;">انصراف</button>
+        <button type="submit" id="editSenderSubmitBtn" class="btn" style="background:#2563eb; color:#fff; font-weight:700; padding:8px 20px; border-radius:6px;">
+          ذخیره تغییرات اکانت 💾
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Client-side Scripts -->
 <script>
   function openTab(tabName, btn) {
@@ -2719,6 +2832,95 @@
       btn.innerText = '🤖 نگارش ۳ متن هوشمند با هوش مصنوعی';
     });
   }
+
+  window.openSenderEditModal = function(id, username, tenantId, tier, dailyLimit, proxy, status, consultant) {
+    document.getElementById('editSenderId').value = id;
+    document.getElementById('senderModalUsername').innerText = '@' + username;
+    document.getElementById('editSenderSessionid').value = '';
+    document.getElementById('editSenderPassword').value = '';
+    document.getElementById('editSenderConsultant').value = consultant || '';
+    document.getElementById('editSenderTenant').value = tenantId || 'tenant_4';
+    document.getElementById('editSenderTier').value = tier || 'NEW';
+    document.getElementById('editSenderDailyLimit').value = dailyLimit || 9;
+    document.getElementById('editSenderProxy').value = proxy || '';
+    document.getElementById('editSenderStatus').value = status || 'ACTIVE';
+    document.getElementById('editSenderClearCooldown').checked = true;
+    document.getElementById('editSenderError').style.display = 'none';
+    document.getElementById('editSenderError').innerText = '';
+
+    const modal = document.getElementById('senderEditModal');
+    modal.style.display = 'flex';
+    document.getElementById('editSenderSessionid').focus();
+  };
+
+  window.closeSenderEditModal = function() {
+    document.getElementById('senderEditModal').style.display = 'none';
+  };
+
+  window.submitSenderEdit = function(e) {
+    e.preventDefault();
+    const id = document.getElementById('editSenderId').value;
+    const btn = document.getElementById('editSenderSubmitBtn');
+    const errEl = document.getElementById('editSenderError');
+    const form = document.getElementById('senderEditForm');
+
+    btn.disabled = true;
+    const origText = btn.innerText;
+    btn.innerText = 'در حال ذخیره و تست سشن...';
+    errEl.style.display = 'none';
+
+    const formData = new FormData(form);
+
+    fetch(`/manage/senders/${id}/edit/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerText = origText;
+      if (data.success) {
+        closeSenderEditModal();
+        alert('✓ ' + data.message);
+        window.location.reload();
+      } else {
+        errEl.innerText = data.message || 'خطا در ویرایش اکانت.';
+        errEl.style.display = 'block';
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerText = origText;
+      errEl.innerText = 'خطای ارتباط: ' + err;
+      errEl.style.display = 'block';
+    });
+  };
+
+  window.clearSenderCooldown = function(id, username) {
+    if (!confirm(`آیا مایلید وضعیت استراحت اکانت @${username} فوراً لغو شده و اکانت آماده ارسال شود؟`)) return;
+
+    fetch(`/manage/senders/${id}/clear-cooldown/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        alert('✓ ' + data.message);
+        window.location.reload();
+      } else {
+        alert('خطا: ' + (data.message || 'عملیات ناموفق بود'));
+      }
+    })
+    .catch(err => alert('خطای ارتباط: ' + err));
+  };
   });
 </script>
 {% endblock %}
