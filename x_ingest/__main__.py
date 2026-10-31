@@ -164,18 +164,21 @@ def load(path: str | Path, dsn: str | None = None) -> int:
 SEARCH_RUNS_DDL = """CREATE TABLE IF NOT EXISTS {schema}.x_search_runs (
     run_id BIGSERIAL PRIMARY KEY, ran_at TIMESTAMPTZ NOT NULL DEFAULT now(), product_id TEXT NOT NULL, query TEXT NOT NULL,
     fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0);
+ALTER TABLE {schema}.x_search_runs ADD COLUMN IF NOT EXISTS stats JSONB;
 CREATE INDEX IF NOT EXISTS x_search_runs_product_idx ON {schema}.x_search_runs (product_id, ran_at DESC)"""
 
 
 def record_search_runs(searches: list[dict], dsn: str | None = None) -> int:
     """One row per (search, product): the seller-facing «what was searched and what came back» log."""
     import psycopg
+    from psycopg.types.json import Jsonb
 
     schema = os.environ.get("NE_CRAWLER_SCHEMA", "crawler")
     if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
         raise ValueError("NE_CRAWLER_SCHEMA must be a simple SQL schema name")
     rows = [(s.get("ran_at") or datetime.now().astimezone().isoformat(), str(pid), str(s.get("query") or "")[:500],
-             int(s.get("fetched") or 0), int((s.get("new_by_product") or {}).get(str(pid), 0)))
+             int(s.get("fetched") or 0), int((s.get("new_by_product") or {}).get(str(pid), 0)),
+             Jsonb(s.get("stats")) if s.get("stats") else None)
             for s in searches for pid in s.get("product_ids") or []]
     if not rows:
         return 0
@@ -184,7 +187,7 @@ def record_search_runs(searches: list[dict], dsn: str | None = None) -> int:
         for stmt in SEARCH_RUNS_DDL.format(schema=schema).split(";"):
             conn.execute(stmt)
         with conn.cursor() as c:
-            c.executemany(f"INSERT INTO {schema}.x_search_runs (ran_at, product_id, query, fetched, new_posts) VALUES (%s,%s,%s,%s,%s)",
+            c.executemany(f"INSERT INTO {schema}.x_search_runs (ran_at, product_id, query, fetched, new_posts, stats) VALUES (%s,%s,%s,%s,%s,%s)",
                           rows)
     return len(rows)
 

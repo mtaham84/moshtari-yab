@@ -18,7 +18,7 @@ def test_product_mode_is_exact_legacy_order():
     assert [item["query"] for item in generate_queries(product, "product")] == legacy
 
 
-def test_every_generated_query_has_at_most_three_words(monkeypatch):
+def test_every_generated_query_has_at_most_six_words(monkeypatch):
     from workers.x_collector.intent_queries import positive_word_count
 
     monkeypatch.delenv("X_QUERY_NEGATIVE_OPERATORS", raising=False)
@@ -27,10 +27,10 @@ def test_every_generated_query_has_at_most_three_words(monkeypatch):
                               card=SimpleNamespace(aliases=["انگشتی گیمینگ", "کاور انگشت", "آستین انگشت دست گیمینگ حرفه ای"]))
     queries = generate_queries(product, "both")
     assert queries
-    assert all(1 <= positive_word_count(q["query"]) <= 3 for q in queries)
+    assert all(1 <= positive_word_count(q["query"]) <= 6 for q in queries)
     assert all("فروشگاه" not in q["query"] for q in queries)
     assert any(q["query"].startswith('"انگشتی گیمینگ"') for q in queries)
-    assert not any("حرفه ای" in q["query"] for q in queries)          # 5 words: rejected
+    assert not any("حرفه ای" in q["query"] for q in queries)          # 6+ words: rejected
 
 
 def test_queries_are_stable_capped_one_phrase_each():
@@ -46,13 +46,13 @@ def test_llm_terms_become_short_queries_and_x_syntax_is_stripped(monkeypatch):
     monkeypatch.setenv("X_QUERY_NEGATIVE_OPERATORS", "true")
     monkeypatch.delenv("X_QUERY_NEGATIVE_TERMS", raising=False)
     product = SimpleNamespace(title="ایرفون بلوتوثی Riversong مدل Airfly M7 EA251", product_type="", category_path="", category_keywords=[])
-    terms = {"names": ['هندزفری" OR lang:en', "ایرفون بی سیم"], "problems": ["صدا قطع میشه", "صدای هندزفریم قطع میشه"], "model": "Airfly M7"}
+    terms = {"names": ['هندزفری" OR lang:en', "ایرفون بی سیم"], "problems": ["صدا قطع میشه", "صدای هندزفریم بی سیم همیشه قطع میشه عزیزم"], "model": "Airfly M7"}
     queries = generate_queries(product, "both", terms=terms)
     texts = [q["query"] for q in queries]
     assert any(q.startswith('"ایرفون بی سیم"') for q in texts)            # 3 words are allowed now
     assert any(q.startswith('"صدا قطع میشه"') for q in texts)
     assert not any("OR lang:en" in q for q in texts)                         # X syntax stripped
-    assert not any("صدای هندزفریم" in q for q in texts)                      # 4 words: rejected, never truncated
+    assert not any("همیشه قطع میشه عزیزم" in q for q in texts)              # 7 words: rejected, never truncated
     assert any(q.startswith('"Airfly M7"') and "lang:fa" in q for q in texts)
 
 
@@ -254,3 +254,36 @@ def test_too_broad_phrases_are_rejected_but_specific_ones_pass():
 
     out = short_terms(["لباس", "خرید لباس", "پوشاک", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش", "کت", "خدمات"], 10)
     assert out == ["خرید لباس", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش"]
+
+
+def test_entity_blind_need_triplets_sanitized_and_queried():
+    from need_engine.schemas import Product
+    from workers.x_collector.llm_terms import sanitize
+    from workers.x_collector.intent_queries import phrase_candidates, product_queries
+
+    raw = {
+        "need_triplets": [
+            {"context": "کار با رایانه و ابزار دیجیتال", "trigger": "خیره شدن طولانی به صفحه", "pain": "خستگی چشم"},
+            {"context": "برنامه‌نویسی و رندر سنگین", "trigger": "اجرای همزمان شبیه‌ساز", "pain": "داغ شدن سیستم"}
+        ],
+        "explicit_intent": ["خرید لپتاپ مهندسی"],
+        "advice_seeking": ["لپتاپ برای رندر چی خوبه"],
+        "problem_based": ["داغ شدن لپتاپ موقع رندر"],
+        "price_budget": ["قیمت لپتاپ استوک"],
+        "experience_comparison": ["تجربه کار با مک بوک"],
+        "names": ["لپتاپ استوک"],
+    }
+    sanitized = sanitize(raw)
+    assert len(sanitized["need_triplets"]) == 2
+    assert sanitized["need_triplets"][0]["pain"] == "خستگی چشم"
+    assert sanitized["need_triplets"][1]["pain"] == "داغ شدن سیستم"
+
+    product = Product(product_id="101", business_id="2", title="لپتاپ استوک مهندسی")
+    candidates = phrase_candidates(product, sanitized)
+    candidate_phrases = [c[0] for c in candidates]
+    assert "خستگی چشم" in candidate_phrases
+    assert "داغ شدن سیستم" in candidate_phrases
+
+    queries = product_queries(product, sanitized)
+    assert 1 <= len(queries) <= 15
+
