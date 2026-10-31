@@ -338,8 +338,7 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
             continue
 
         cl = Client()
-        cl.request_timeout = 15
-        cl.delay_range = [1, 2]
+        cl.delay_range = [0.2, 0.5]
         if sender.proxy_url:
             cl.set_proxy(sender.proxy_url)
 
@@ -348,9 +347,9 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
             cl.login_by_sessionid(sessionid)
             current_user_id = str(cl.user_id)
 
-            # Fetch recent direct message threads (single page, up to 15)
-            threads = cl.direct_threads(amount=15)
-            for th in threads:
+            # Fast single chunk fetch (max 10 recent threads without paging loop)
+            threads, _ = cl.direct_threads_chunk(thread_message_limit=5)
+            for th in threads[:10]:
                 messages = getattr(th, "messages", [])
                 if not messages:
                     continue

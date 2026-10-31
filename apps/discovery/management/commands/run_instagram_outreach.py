@@ -207,7 +207,9 @@ class Command(BaseCommand):
             if ignore_circadian:
                 return True
             now_tehran = datetime.now(TEHRAN_TZ)
-            return 9 <= now_tehran.hour < 23
+            mins = now_tehran.hour * 60 + now_tehran.minute
+            # Natural active hours: 08:30 AM to 02:00 AM Tehran time (pauses during deep sleep: 02:00 to 08:30)
+            return (8 * 60 + 30) <= mins or mins < (2 * 60)
 
         def get_available_senders() -> List[InstagramEngineAccount]:
             now = django_tz.now()
@@ -267,22 +269,9 @@ class Command(BaseCommand):
             if not is_within_circadian_hours():
                 now_tehran_str = datetime.now(TEHRAN_TZ).strftime("%H:%M")
                 self.stdout.write(self.style.WARNING(
-                    f"💤 [CIRCADIAN PAUSE] ساعت محلی تهران {now_tehran_str} است. ارسال فقط در ساعات ۹:۰۰ تا ۲۳:۰۰ مجاز است."
+                    f"💤 [CIRCADIAN PAUSE] ساعت محلی تهران {now_tehran_str} است. ارسال در ساعات استراحت شبانه (۰۲:۰۰ تا ۰۸:۳۰) متوقف است."
                 ))
                 return 0
-
-            # 1. Automatic Reply Checking
-            self.stdout.write("📬 [پایش دایرکت‌ها]: بررسی پاسخ‌های دریافتی از مشتریان...")
-            try:
-                reply_res = check_and_sync_lead_replies(tenant_ids)
-                if reply_res.get("replies_found", 0) > 0:
-                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
-                    for d in reply_res.get("details", []):
-                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
-                else:
-                    self.stdout.write("   صندوق دایرکت‌ها بررسی شد (پاسخ جدیدی ثبت نشده است).")
-            except Exception as reply_err:
-                self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
 
             available_senders = get_available_senders()
             if not available_senders:
@@ -514,6 +503,16 @@ class Command(BaseCommand):
                     else:
                         lead.status = "FAILED"
                         lead.save(update_fields=["status", "updated_at"])
+
+            # 📬 Automatic Reply Checking (Runs after DM sending so it never blocks outbound messages)
+            try:
+                reply_res = check_and_sync_lead_replies(tenant_ids)
+                if reply_res.get("replies_found", 0) > 0:
+                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
+                    for d in reply_res.get("details", []):
+                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
+            except Exception as reply_err:
+                self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
 
             return sent_in_batch
 
