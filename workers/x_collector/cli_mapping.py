@@ -4,11 +4,19 @@ import os
 
 CLI_COMMAND = os.getenv("X_CLI_CMD", "twitter")
 CLI_SEARCH_SUBCOMMAND = os.getenv("X_CLI_SEARCH_SUBCOMMAND", "search")
-CLI_TIME_FILTER = "Latest"
+# Search mode must strictly be "top" (topic-centric, relevant and engaged tweets), matching the X app Top tab
+CLI_TIME_FILTER = "top"
 CLI_EXCLUDE_RETWEETS_FLAG = "--exclude"
 CLI_EXCLUDE_RETWEETS_VALUE = "retweets"
 CLI_LIMIT_FLAG = "--max"
 CLI_OUTPUT_FLAG = os.getenv("X_CLI_OUTPUT_FLAG", "--json")
+
+X_SEARCH_CONFIG = {
+    "search_mode": "top",
+    "date_range": "past_week",
+    "language": "fa",
+    "target_posts": 40,
+}
 
 # Candidate output keys are also UNVERIFIED; adapt only this mapping to the
 # installed upstream CLI's actual JSON response.

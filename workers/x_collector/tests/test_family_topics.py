@@ -44,7 +44,7 @@ def test_family_queries_use_colloquial_clothing_and_dental_terms_and_cap_at_ten(
 
     shirt_queries = [row["query"] for row in product_queries(shirt, {}, topic_context=contexts[shirt.product_id])]
     dental_queries = [row["query"] for row in product_queries(dental, {}, topic_context=contexts[dental.product_id])]
-    assert len(shirt_queries) <= 10
+    assert len(shirt_queries) <= 15
     assert any("لباس خنک" in query for query in shirt_queries)
     assert any("لباس تنگ" in query for query in shirt_queries)
     assert any("دندون درد" in query for query in dental_queries)

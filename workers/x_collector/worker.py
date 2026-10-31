@@ -323,11 +323,22 @@ class XCollector:
                                 stop_reason = "ALL_ACCOUNTS_UNAVAILABLE"
                                 break
 
-                        fetch_limit = min(max(min_inspect, self.max_per_query), daily_remaining - len(collected)) if not is_test_client else min(self.max_per_query, daily_remaining - len(collected))
-                        raw_items = mock_records if mock_records is not None else self.client.search(
-                            search_query, fetch_limit,
-                            account=current_account)
-                        fetched_count = len(raw_items)
+                        search_stats = None
+                        if hasattr(self.client, "search_top_past_week") and mock_records is None and not is_test_client:
+                            target_limit = min(40, daily_remaining - len(collected))
+                            raw_items, search_stats = self.client.search_top_past_week(
+                                query,
+                                target_posts=target_limit,
+                                account=current_account,
+                                global_seen_ids={k.split('|')[0] for k in already_written},
+                            )
+                            fetched_count = len(raw_items)
+                        else:
+                            fetch_limit = min(max(min_inspect, self.max_per_query), daily_remaining - len(collected)) if not is_test_client else min(self.max_per_query, daily_remaining - len(collected))
+                            raw_items = mock_records if mock_records is not None else self.client.search(
+                                search_query, fetch_limit,
+                                account=current_account)
+                            fetched_count = len(raw_items)
                         if current_account and hasattr(self, "account_pool") and self.account_pool:
                             self.account_pool.record_success(current_account, posts_count=fetched_count)
                         breaker.success()
@@ -344,8 +355,8 @@ class XCollector:
                                 continue
                             candidates.append(record)
 
-                        # If fewer than min_qualifying tweets found, expand inspection up to max_inspect
-                        if len(candidates) < min_qualifying and mock_records is None and not is_test_client and fetched_count < max_inspect:
+                        # If fewer than min_qualifying tweets found, expand inspection up to max_inspect (only for legacy client)
+                        if len(candidates) < min_qualifying and mock_records is None and not is_test_client and fetched_count < max_inspect and search_stats is None:
                             expand_limit = min(max_inspect, daily_remaining - len(collected))
                             if expand_limit > fetch_limit:
                                 log.info("Query '%s' yielded only %d qualifying tweets (< %d); expanding search up to %d tweets",
@@ -387,16 +398,20 @@ class XCollector:
 
                             added_count = len(collected) - new_before
                             if added_count > 0:
-                                self._update_x_source_stat(query, query_sellers.get(query) or [], success=True, leads=added_count)
                                 self._record_search(query, query_products, query_sellers, mock_records,
-                                                    raw_items, collected, new_before, started_at)
+                                                    raw_items, collected, new_before, started_at, stats=search_stats)
                                 self.state.record_lead_success(query, leads_count=added_count)
+                            else:
+                                self._record_search(query, query_products, query_sellers, mock_records,
+                                                    raw_items, collected, len(collected), started_at, stats=search_stats)
                             capped = len(collected) >= daily_remaining
                             self.state.record_query(query, fetched_count, added_count,
                                                     started_at=None if capped else started_at)
                             break
                         else:
                             # 0 new candidates found. Protect duplicate tweets & enforce 10-day / 2-strike rule.
+                            self._record_search(query, query_products, query_sellers, mock_records,
+                                                raw_items, collected, len(collected), started_at, stats=search_stats)
                             last_lead_dt = self.state.last_lead_time(query)
                             eval_stats = self.state.get_query_eval_stats(query)
                             total_eval_fetched = eval_stats.get("eval_fetched", 0) + fetched_count
@@ -407,7 +422,6 @@ class XCollector:
                                 strikes = self.state.record_evaluation_failure(query, heavy_beta=3.0)
                                 log.warning("Query '%s' failed 10-day evaluation: 0 leads in %.1f days across %d inspected tweets (strike %d/2)",
                                             query, days_since_success, total_eval_fetched, strikes)
-                                self._update_x_source_stat(query, query_sellers.get(query) or [], success=False, leads=0)
                                 self.state.record_query(query, fetched_count, 0, started_at=started_at)
                             else:
                                 log.info("Query '%s' yielded 0 fresh candidates (seen=%d, days_since_lead=%.1f, eval_fetched=%d); keeping query active without penalty",
@@ -493,7 +507,7 @@ class XCollector:
             stream.truncate(offset)
 
     def _record_search(self, query, query_products, query_sellers, mock_records, raw_items,
-                       collected, new_before, started_at) -> None:
+                       collected, new_before, started_at, stats: dict[str, Any] | None = None) -> None:
         if mock_records is not None or not (query_products.get(query) or query_sellers.get(query)):
             return
         new_by_product: dict[str, int] = {}
@@ -501,9 +515,12 @@ class XCollector:
             if record.get("product_id"):
                 product_id = record["product_id"]
                 new_by_product[product_id] = new_by_product.get(product_id, 0) + 1
-        self.searches.append({"query": query, "product_ids": query_products.get(query) or [],
-                              "business_ids": query_sellers.get(query) or [], "fetched": len(raw_items),
-                              "new_by_product": new_by_product, "ran_at": started_at.isoformat()})
+        entry = {"query": query, "product_ids": query_products.get(query) or [],
+                 "business_ids": query_sellers.get(query) or [], "fetched": len(raw_items),
+                 "new_by_product": new_by_product, "ran_at": started_at.isoformat()}
+        if stats:
+            entry["stats"] = stats
+        self.searches.append(entry)
 
     def _update_x_source_stat(self, query: str, sellers: list[str], success: bool, leads: int = 0) -> None:
         try:

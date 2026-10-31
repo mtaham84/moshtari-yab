@@ -105,7 +105,7 @@ def _dedupe_terms(values: list[Any], min_words: int, max_words: int) -> list[str
 
 
 # ── short phrase rule ─────────────────────────────────────────────────────────────────────────────────────────
-MAX_PHRASE_WORDS = 3
+MAX_PHRASE_WORDS = 6
 _OPERATOR = re.compile(r"(?:^|\s)(?:lang|since_time|since|until|from|to|min_faves|min_retweets|filter):\S+", re.I)
 _NEG = re.compile(r'(?:^|\s)-(?:"[^"]*"|\S+)')
 
@@ -148,16 +148,17 @@ def is_too_broad(words: list[str]) -> bool:
     return all(w in GENERIC_FILLER | ACTION_WORDS for w in clean)
 
 
-def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[str]:
-    """1–3 word phrases only. Longer phrases are REJECTED (never truncated: a cut sentence is garbage), single
+def short_terms(values: Any, cap: int = 8, strip_noise: bool = False, max_words: int | None = None) -> list[str]:
+    """1–6 word phrases only. Longer phrases are REJECTED (never truncated: a cut sentence is garbage), single
     generic words («اشتراک», «محصول») are rejected, duplicates (after normalisation) are dropped."""
     out, seen = [], set()
     generic = {norm(g) for g in GENERIC_SINGLE}
+    limit_w = max_words or MAX_PHRASE_WORDS
     for value in values if isinstance(values, (list, tuple)) else []:
         words = clean_term(value).split()
         while strip_noise and words and norm(words[0]) in _LEADING_NOISE and len(words) > 1:
             words = words[1:]   # product names: «خرید اکانت نوشن» → «اکانت نوشن»; buyer phrases keep «خرید …»
-        if not 1 <= len(words) <= MAX_PHRASE_WORDS:
+        if not 1 <= len(words) <= limit_w:
             continue
         term = " ".join(words)
         term = re.sub(r"دندان(?=\s|$)", "دندون", term)
@@ -178,18 +179,33 @@ def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[st
 
 
 def phrase_candidates(product: Any, terms: dict[str, Any] | None, card: Any = None) -> list[tuple[str, str]]:
-    """[(phrase, kind)] — every phrase 1–3 words. kind: intent (core topic names), problem, alternative, solution, product."""
+    """[(phrase, kind)] — every phrase 1–6 words across 5 categories (A-E)."""
     terms = terms or {}
     out: list[tuple[str, str]] = []
-    names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 4, strip_noise=True)
+    names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 4, strip_noise=True, max_words=3)
     out += [(p, "intent") for p in names]
-    pain = short_terms(list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or [])
+    
+    # Category C: Problem-Based Intent
+    pain = short_terms(list(terms.get("problem_based") or []) + list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or [])
                        + list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 8)
     out += [(p, "problem") for p in pain]
-    advice = short_terms(list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 8)
+
+    # Category B: Advice Seeking
+    advice = short_terms(list(terms.get("advice_seeking") or []) + list(terms.get("advice_requests") or []) + list(terms.get("alternatives") or []), 8)
     out += [(p, "alternative") for p in advice]
-    solutions = short_terms(list(terms.get("implicit_solutions") or []), 8)
-    out += [(p, "solution") for p in solutions]
+
+    # Category A: Explicit Purchase Intent
+    explicit = short_terms(list(terms.get("explicit_intent") or []) + list(terms.get("implicit_solutions") or []), 8)
+    out += [(p, "solution") for p in explicit]
+    
+    # Category D: Price & Budget
+    price = short_terms(list(terms.get("price_budget") or []), 8)
+    out += [(p, "price_budget") for p in price]
+    
+    # Category E: Experience & Comparison
+    exp = short_terms(list(terms.get("experience_comparison") or []), 8)
+    out += [(p, "experience_comparison") for p in exp]
+    
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
     if model and len(model) >= 3 and len(model.split()) <= MAX_PHRASE_WORDS:
         out.append((model, "product"))
@@ -295,23 +311,42 @@ def _short_terms(values: Any, cap: int, max_words: int = 3) -> list[str]:
 
 
 
-# kind -> prompt format. A: pain & frustration, B: advice seeking, C: demand / solution / direct intent
-QUERY_FORMAT = {"problem": "A", "complaint": "A", "alternative": "B", "solution": "C", "intent": "C", "product": "C"}
+# kind -> prompt format:
+# A: Explicit Purchase Intent (intent, solution, product)
+# B: Advice Seeking (alternative)
+# C: Problem-Based Intent (problem, complaint)
+# D: Price & Budget (price_budget)
+# E: Experience & Comparison (experience_comparison)
+QUERY_FORMAT = {
+    "intent": "A",
+    "solution": "A",
+    "product": "A",
+    "alternative": "B",
+    "problem": "C",
+    "complaint": "C",
+    "price_budget": "D",
+    "experience_comparison": "E",
+}
 
 
 def balanced_pick(candidates: list[dict[str, Any]], reference: str, total: int, per_format: int) -> list[dict[str, Any]]:
-    """Up to ``per_format`` MMR-diverse queries from each of the three formats, topped up to ``total``.
-    Strongly prioritizes 2-word queries."""
+    """Up to ``per_format`` MMR-diverse queries from each of the 5 formats (A-E), topped up to ``total``.
+    Prioritizes natural 2-6 word queries."""
     from shared.mmr import select_by_mmr
-    buckets: dict[str, list[dict[str, Any]]] = {"A": [], "B": [], "C": []}
+    formats = ("A", "B", "C", "D", "E")
+    buckets: dict[str, list[dict[str, Any]]] = {fmt: [] for fmt in formats}
     for item in candidates:
-        buckets[QUERY_FORMAT.get(item.get("kind"), "C")].append(item)
+        fmt = QUERY_FORMAT.get(item.get("kind"), "A")
+        if fmt in buckets:
+            buckets[fmt].append(item)
+        else:
+            buckets.setdefault(fmt, []).append(item)
 
     def pref_key(item: dict[str, Any]) -> int:
         n = positive_word_count(item.get("query", ""))
-        return 0 if n == 2 else (1 if n == 3 else 2)
+        return 0 if 2 <= n <= 4 else (1 if 1 <= n <= 6 else 2)
 
-    for fmt in ("A", "B", "C"):
+    for fmt in formats:
         buckets[fmt].sort(key=pref_key)
 
     def mmr(items: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
@@ -319,7 +354,7 @@ def balanced_pick(candidates: list[dict[str, Any]], reference: str, total: int, 
         return select_by_mmr(sorted_items, lambda i: i["query"], reference_context=reference, top_k=k, lambda_param=0.65) if sorted_items and k > 0 else []
 
     picked: list[dict[str, Any]] = []
-    for fmt in ("A", "B", "C"):
+    for fmt in formats:
         picked += mmr(buckets[fmt], per_format)
     taken = {id(x) for x in picked}
     rest = [c for c in candidates if id(c) not in taken]
@@ -334,8 +369,8 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = min(10, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "10")))))
-    per_format = min(10, max(1, int(os.getenv("X_QUERY_PER_FORMAT", "4"))))
+    max_count = min(15, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "10")))))
+    per_format = min(10, max(1, int(os.getenv("X_QUERY_PER_FORMAT", "3"))))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])
     model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
@@ -382,4 +417,4 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
 
     # Keep enough pain, style/use-case and direct-topic phrases; MMR removes near-duplicates before the hard family cap.
     target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
-    return balanced_pick(raw_candidates, target_ref, min(10, max(1, max_count)), per_format)
+    return balanced_pick(raw_candidates, target_ref, min(15, max(1, max_count)), per_format)
