@@ -526,6 +526,9 @@ def manage_account_add(request):
     role = request.POST.get("role", "SCRAPER").strip().upper()
     proxy_url = request.POST.get("proxy_url", "").strip() or None
     tenant_id = request.POST.get("tenant_id", "tenant_default").strip()
+    account_tier = request.POST.get("account_tier", "NEW").strip()
+    custom_daily = request.POST.get("daily_limit", "").strip()
+    consultant_name = request.POST.get("consultant_name", "").strip()
 
     if not username or (not password and not sessionid):
         err_msg = "نام کاربری و (کلمه عبور یا کوکی sessionid) اینستاگرام الزامی است."
@@ -536,6 +539,11 @@ def manage_account_add(request):
 
     if role not in ("SCRAPER", "SENDER"):
         role = "SCRAPER"
+
+    from apps.discovery.outreach_service import get_tier_specs
+    tier_specs = get_tier_specs(account_tier)
+    daily_lim = int(custom_daily) if custom_daily.isdigit() else tier_specs["default_daily"]
+    hourly_lim = tier_specs["hourly_speed"]
 
     # Check if account already exists
     existing = InstagramEngineAccount.objects.filter(username__iexact=username).first()
@@ -552,6 +560,9 @@ def manage_account_add(request):
             account.password = password
         account.role = role
         account.tenant_id = tenant_id
+        account.account_tier = account_tier
+        account.daily_limit = daily_lim
+        account.hourly_limit = hourly_lim
         if proxy_url:
             account.proxy_url = proxy_url
         account.status = "CHALLENGED"
@@ -562,9 +573,29 @@ def manage_account_add(request):
             username=username,
             password=password or "session_only",
             role=role,
+            account_tier=account_tier,
+            daily_limit=daily_lim,
+            hourly_limit=hourly_lim,
             proxy_url=proxy_url,
             status="CHALLENGED",
         )
+
+    if consultant_name and role == "SENDER":
+        try:
+            import json
+            from pathlib import Path
+            config_path = Path("data/sarv_outreach_config.json")
+            cfg = {}
+            if config_path.exists():
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            if "sender_pitches" not in cfg:
+                cfg["sender_pitches"] = {}
+            if username not in cfg["sender_pitches"]:
+                cfg["sender_pitches"][username] = {}
+            cfg["sender_pitches"][username]["consultant_name"] = consultant_name
+            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except Exception as p_err:
+            logger.warning(f"Could not save consultant name for {username}: {p_err}")
 
     # 1. Test Proxy Reachability if specified
     proxy_ok = True

@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from apps.businesses.models import Business, MessageStyle
@@ -624,6 +624,150 @@ def send_followup_view(request):
     else:
         messages.error(request, f"خطا در ارسال پیام دوم: {res.get('error')}")
     return redirect("accounts:outreach")
+
+
+@login_required
+@require_POST
+def edit_outreach_account_view(request, pk):
+    """
+    Business owner or staff edits session cookie, consultant name, tier, daily limit, password.
+    """
+    import re
+    import json
+    from pathlib import Path
+    from apps.discovery.models import InstagramEngineAccount
+    from apps.discovery.outreach_service import get_tier_specs
+    from instagrapi import Client
+    from apps.discovery.device_emulator import ensure_account_device_profile, apply_device_profile_to_client
+
+    business = getattr(request.user, "business", None)
+    if not business and not request.user.is_superuser:
+        return JsonResponse({"success": False, "message": "دسترسی غیرمجاز."}, status=403)
+
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    if not request.user.is_superuser:
+        b_tenants = [f"tenant_{business.id}"]
+        if business.id == 4:
+            b_tenants.append("sarv")
+        if account.tenant_id not in b_tenants:
+            return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
+
+    sessionid = (request.POST.get("sessionid") or "").strip()
+    password = (request.POST.get("password") or "").strip()
+    consultant_name = (request.POST.get("consultant_name") or "").strip()
+    account_tier = (request.POST.get("account_tier") or "").strip()
+    daily_limit = (request.POST.get("daily_limit") or "").strip()
+    clear_cooldown = request.POST.get("clear_cooldown") in ("1", "true", "True", "on")
+
+    updated_fields = []
+
+    if password:
+        account.password = password
+        updated_fields.append("password")
+
+    if account_tier in ("NEW", "MEDIUM", "AGED"):
+        account.account_tier = account_tier
+        tier_specs = get_tier_specs(account_tier)
+        account.hourly_limit = tier_specs["hourly_speed"]
+        updated_fields.extend(["account_tier", "hourly_limit"])
+
+    if daily_limit and daily_limit.isdigit():
+        account.daily_limit = int(daily_limit)
+        updated_fields.append("daily_limit")
+
+    if clear_cooldown:
+        account.cooldown_until = None
+        account.status = "ACTIVE"
+        account.status_message = "رفع محدودیت دستی انجام شد"
+        updated_fields.extend(["cooldown_until", "status", "status_message"])
+
+    # Update session cookie if provided
+    session_success = False
+    if sessionid:
+        if "sessionid=" in sessionid:
+            m = re.search(r"sessionid=([^;\s]+)", sessionid)
+            if m:
+                sessionid = m.group(1).strip()
+        sessionid = sessionid.strip('"').strip("'").strip(";").strip()
+
+        cl = Client()
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
+        else:
+            cl.set_proxy("socks5h://xray:1080")
+
+        dev_profile = ensure_account_device_profile(account)
+        try:
+            apply_device_profile_to_client(cl, account)
+            cl.login_by_sessionid(sessionid)
+            settings = cl.get_settings()
+            account.session_json = settings
+            account.device_settings = dev_profile or {"settings": settings}
+            account.status = "ACTIVE"
+            account.cooldown_until = None
+            account.status_message = "سشن جدید با موفقیت فعال شد"
+            updated_fields.extend(["session_json", "device_settings", "status", "status_message", "cooldown_until"])
+            session_success = True
+        except Exception as exc:
+            m_uid = re.search(r"^\d+", sessionid)
+            uid = m_uid.group() if m_uid else ""
+            account.session_json = {"cookies": {"sessionid": sessionid, "ds_user_id": uid}}
+            account.status = "ACTIVE"
+            account.cooldown_until = None
+            account.status_message = "کوکی ذخیره شد"
+            updated_fields.extend(["session_json", "status", "status_message", "cooldown_until"])
+
+    if updated_fields:
+        account.save(update_fields=list(set(updated_fields)))
+
+    if consultant_name:
+        config_path = Path("data/sarv_outreach_config.json")
+        cfg = {}
+        if config_path.exists():
+            try:
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        if "sender_pitches" not in cfg:
+            cfg["sender_pitches"] = {}
+        if account.username not in cfg["sender_pitches"]:
+            cfg["sender_pitches"][account.username] = {}
+        cfg["sender_pitches"][account.username]["consultant_name"] = consultant_name
+        config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    return JsonResponse({
+        "success": True,
+        "message": f"اطلاعات و سشن اکانت @{account.username} با موفقیت به‌روزرسانی شد.",
+        "status": account.status,
+    })
+
+
+@login_required
+@require_POST
+def clear_outreach_cooldown_view(request, pk):
+    """Clears cooldown and activates sender account for business owner."""
+    business = getattr(request.user, "business", None)
+    if not business and not request.user.is_superuser:
+        return JsonResponse({"success": False, "message": "دسترسی غیرمجاز."}, status=403)
+
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    if not request.user.is_superuser:
+        b_tenants = [f"tenant_{business.id}"]
+        if business.id == 4:
+            b_tenants.append("sarv")
+        if account.tenant_id not in b_tenants:
+            return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
+
+    account.cooldown_until = None
+    account.status = "ACTIVE"
+    account.status_message = "آماده به کار (استراحت دستی لغو شد)"
+    account.save(update_fields=["cooldown_until", "status", "status_message"])
+
+    return JsonResponse({
+        "success": True,
+        "message": f"محدودیت و استراحت اکانت @{account.username} برداشته شد و فعال گردید.",
+    })
+
 
 
 

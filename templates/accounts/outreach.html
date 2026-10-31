@@ -503,21 +503,22 @@
           <th style="padding:10px 12px;">وضعیت تایید و اتصال</th>
           <th style="padding:10px 12px;">دایرکت‌های ارسالی امروز</th>
           <th style="padding:10px 12px;">آخرین فعالیت</th>
+          <th style="padding:10px 12px; text-align:center;">عملیات و مدیریت سشن</th>
         </tr>
       </thead>
       <tbody>
         {% for a in accounts %}
-        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;">
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;" id="outreach-row-{{ a.obj.id }}">
           <td style="padding:12px; font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
             <a href="https://instagram.com/{{ a.obj.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none;">
               @{{ a.obj.username }} ↗
             </a>
           </td>
-          <td style="padding:12px; font-weight:600;">
+          <td style="padding:12px; font-weight:600;" id="outreach-consultant-{{ a.obj.id }}">
             {{ a.consultant_name }}
           </td>
           <td style="padding:12px;">
-            <span class="p-badge" style="background:{{ a.obj.tier_info.bg_color }}; color:{{ a.obj.tier_info.color }}; font-weight:700; padding:4px 8px; border-radius:4px; font-size:0.78rem;">
+            <span class="p-badge" id="outreach-tier-{{ a.obj.id }}" style="background:{{ a.obj.tier_info.bg_color }}; color:{{ a.obj.tier_info.color }}; font-weight:700; padding:4px 8px; border-radius:4px; font-size:0.78rem;">
               {{ a.obj.tier_info.title }}
             </span>
           </td>
@@ -529,14 +530,18 @@
               {{ a.obj.device_info.name }}
             </span>
           </td>
-          <td style="padding:12px;">
+          <td style="padding:12px;" id="outreach-status-{{ a.obj.id }}">
             {% if a.obj.status == 'ACTIVE' %}
               <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;">
                 ✓ فعال و متصل
               </span>
             {% elif a.obj.status == 'CHALLENGED' %}
               <span class="p-badge" style="background:#fff0e6; color:#c9510c; padding:3px 8px; border-radius:4px; font-weight:600;">
-                ⚠️ نیازمند ثبت مجدد کوکی
+                ⚠️ نیازمند ثبت مجدد سشن
+              </span>
+            {% elif a.obj.status == 'COOLDOWN' %}
+              <span class="p-badge" style="background:#fef9c3; color:#854d0e; padding:3px 8px; border-radius:4px; font-weight:600;">
+                استراحت تا {{ a.obj.cooldown_until|time:"H:i" }}
               </span>
             {% else %}
               <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;">
@@ -544,15 +549,32 @@
               </span>
             {% endif %}
           </td>
-          <td style="padding:12px; font-weight:700; color:{% if a.obj.daily_action_count >= a.obj.daily_limit %}#ea580c{% else %}#10b981{% endif %};">
+          <td style="padding:12px; font-weight:700; color:{% if a.obj.daily_action_count >= a.obj.daily_limit %}#ea580c{% else %}#10b981{% endif %};" id="outreach-limit-{{ a.obj.id }}">
             {{ a.obj.daily_action_count }} از {{ a.obj.daily_limit|default:"18" }} پیام
           </td>
           <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
             {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_dt }}{% else %}در انتظار ارسال بعدی{% endif %}
           </td>
+          <td style="padding:12px; text-align:center; white-space:nowrap;">
+            <div style="display:flex; gap:6px; justify-content:center; flex-wrap:wrap;">
+              <button type="button" class="p-btn sm" onclick="openOutreachEditModal({{ a.obj.id }}, '{{ a.obj.username }}', '{{ a.obj.account_tier|default:'NEW' }}', {{ a.obj.daily_limit|default:18 }}, '{{ a.consultant_name|escapejs }}', '{{ a.obj.status }}')"
+                      style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                      title="ویرایش کوکی سشن و تنظیمات">
+                ویرایش سشن ⚙️
+              </button>
+              {% if a.obj.cooldown_until or a.obj.status == 'COOLDOWN' or a.obj.status == 'CHALLENGED' %}
+              <button type="button" class="p-btn sm" onclick="clearOutreachCooldown({{ a.obj.id }}, '{{ a.obj.username }}')"
+                      id="outreach-clear-btn-{{ a.obj.id }}"
+                      style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                      title="رفع محدودیت و استراحت فوری">
+                رفع محدودیت ⚡
+              </button>
+              {% endif %}
+            </div>
+          </td>
         </tr>
         {% empty %}
-        <tr><td colspan="8" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است. از فرم بالا اضافه کنید.</td></tr>
+        <tr><td colspan="9" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است. از فرم بالا اضافه کنید.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -752,5 +774,183 @@
     div.innerText = text;
     return div.innerHTML;
   }
+
+  // Sender Account Edit Modal & Cooldown Reset
+  window.openOutreachEditModal = function(id, username, tier, dailyLimit, consultant, status) {
+    document.getElementById('editOutreachId').value = id;
+    document.getElementById('outreachModalUsername').innerText = '@' + username;
+    document.getElementById('editOutreachSessionid').value = '';
+    document.getElementById('editOutreachPassword').value = '';
+    document.getElementById('editOutreachConsultant').value = consultant || '';
+    document.getElementById('editOutreachTier').value = tier || 'NEW';
+    document.getElementById('editOutreachDailyLimit').value = dailyLimit || 18;
+    document.getElementById('editOutreachClearCooldown').checked = true;
+    document.getElementById('editOutreachError').style.display = 'none';
+    document.getElementById('editOutreachError').innerText = '';
+
+    const modal = document.getElementById('outreachEditModal');
+    modal.style.display = 'flex';
+    document.getElementById('editOutreachSessionid').focus();
+  };
+
+  window.closeOutreachEditModal = function() {
+    document.getElementById('outreachEditModal').style.display = 'none';
+  };
+
+  window.submitOutreachEdit = function(e) {
+    e.preventDefault();
+    const id = document.getElementById('editOutreachId').value;
+    const btn = document.getElementById('editOutreachSubmitBtn');
+    const errEl = document.getElementById('editOutreachError');
+    const form = document.getElementById('outreachEditForm');
+
+    btn.disabled = true;
+    const origText = btn.innerText;
+    btn.innerText = 'در حال ذخیره و احراز سشن...';
+    errEl.style.display = 'none';
+
+    const formData = new FormData(form);
+
+    fetch(`/accounts/outreach/senders/${id}/edit/`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerText = origText;
+      if (data.success) {
+        closeOutreachEditModal();
+        alert(data.message || 'اطلاعات با موفقیت ذخیره شد.');
+        window.location.reload();
+      } else {
+        errEl.innerText = data.message || 'خطا در ویرایش اکانت.';
+        errEl.style.display = 'block';
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerText = origText;
+      errEl.innerText = 'خطای ارتباط با سرور: ' + err;
+      errEl.style.display = 'block';
+    });
+  };
+
+  window.clearOutreachCooldown = function(id, username) {
+    if (!confirm(`آیا می‌خواهید استراحت و محدودیت اکانت @${username} را لغو کرده و آن را فوراً فعال کنید؟`)) {
+      return;
+    }
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    fetch(`/accounts/outreach/senders/${id}/clear-cooldown/`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        alert(data.message || 'محدودیت با موفقیت برداشته شد.');
+        window.location.reload();
+      } else {
+        alert('خطا: ' + (data.message || 'عملیات ناموفق بود.'));
+      }
+    })
+    .catch(err => alert('خطا در ارتباط با سرور: ' + err));
+  };
 </script>
+
+<!-- Outreach Sender Edit Modal -->
+<div id="outreachEditModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:rgba(15,23,42,0.65); z-index:99999; align-items:center; justify-content:center; padding:16px; backdrop-filter:blur(3px);">
+  <div style="background:#fff; border-radius:14px; max-width:540px; width:100%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); overflow:hidden; border:1px solid #cbd5e1; animation:fadeIn 0.15s ease-out;">
+    <div style="background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color:#fff; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0; font-size:1.05rem; display:flex; align-items:center; gap:8px;">
+          <span>⚙️ ویرایش سشن و مشخصات اکانت</span>
+          <span id="outreachModalUsername" style="color:#67e8f9; font-family:monospace; font-weight:800;"></span>
+        </h3>
+        <p style="margin:4px 0 0; font-size:0.75rem; color:#94a3b8;">
+          به‌روزرسانی کوکی سشن اینستاگرام جهت فعال‌سازی مجدد بدون چالش یا بازنشانی مشخصات
+        </p>
+      </div>
+      <button type="button" onclick="closeOutreachEditModal()" style="background:none; border:none; color:#cbd5e1; font-size:1.5rem; cursor:pointer; line-height:1;">&times;</button>
+    </div>
+
+    <form id="outreachEditForm" onsubmit="submitOutreachEdit(event)" style="padding:20px;">
+      {% csrf_token %}
+      <input type="hidden" name="account_id" id="editOutreachId">
+
+      <div id="editOutreachError" style="display:none; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:10px 14px; border-radius:8px; font-size:0.82rem; margin-bottom:14px;"></div>
+
+      <div style="margin-bottom:14px;">
+        <label style="font-weight:700; font-size:0.84rem; display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span>کوکی جدید sessionid اینستاگرام</span>
+          <span style="font-size:0.74rem; color:#10b981; font-weight:600;">(کلید رفع چالش و فعال‌سازی فوری)</span>
+        </label>
+        <input type="text" name="sessionid" id="editOutreachSessionid" dir="ltr"
+               placeholder="مقدار کوکی sessionid از مرورگر وب"
+               style="width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-family:monospace; font-size:0.82rem;">
+        <small style="color:#64748b; font-size:0.72rem; display:block; margin-top:3px;">
+          در صورت خالی گذاشتن، سشن قبلی دست‌نخورده باقی می‌ماند.
+        </small>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+        <div>
+          <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">نام مشاور در پیام‌ها</label>
+          <input type="text" name="consultant_name" id="editOutreachConsultant"
+                 placeholder="مثال: رها، مشاور درمان"
+                 style="width:100%; padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.84rem;">
+        </div>
+        <div>
+          <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">کلمه عبور (اختیاری)</label>
+          <input type="password" name="password" id="editOutreachPassword" dir="ltr"
+                 placeholder="در صورت تغییر رمز عبور"
+                 style="width:100%; padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.84rem;">
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1.3fr 1fr; gap:12px; margin-bottom:14px;">
+        <div>
+          <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">رده و سن اکانت (Dealism)</label>
+          <select name="account_tier" id="editOutreachTier"
+                  style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; font-weight:600;">
+            <option value="NEW">🔵 اکانت جدید (زیر ۳ ماه) — ۱۰-۲۰ پیام</option>
+            <option value="MEDIUM">🟡 اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰-۵۰ پیام</option>
+            <option value="AGED">🟢 اکانت قدیمی (بالای ۱ سال) — ۵۰-۱۰۰ پیام</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">سقف روزانه پیام</label>
+          <input type="number" name="daily_limit" id="editOutreachDailyLimit" min="5" max="100"
+                 style="width:100%; padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.84rem;">
+        </div>
+      </div>
+
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:18px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem; font-weight:600; color:#0f172a; margin:0;">
+          <input type="checkbox" name="clear_cooldown" id="editOutreachClearCooldown" value="1" checked style="width:16px; height:16px;">
+          <span>لغو استراحت / رفع محدودیت دستی و فعال‌سازی فوری اکانت (Clear Cooldown)</span>
+        </label>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" onclick="closeOutreachEditModal()"
+                style="padding:9px 16px; border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:8px; font-weight:600; cursor:pointer; font-size:0.84rem;">
+          انصراف
+        </button>
+        <button type="submit" id="editOutreachSubmitBtn"
+                style="padding:9px 20px; background:#2563eb; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer; font-size:0.84rem;">
+          ذخیره تغییرات و فعال‌سازی 💾
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
