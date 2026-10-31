@@ -859,6 +859,156 @@ def manage_account_set_session(request, pk):
 
 @manage_access_required
 @require_POST
+def manage_sender_account_edit(request, pk):
+    """
+    Comprehensive editor for an outreach sender account:
+    Updates session cookie (sessionid), password, tenant_id, consultant_name, tier, daily_limit, proxy, status.
+    """
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    username = request.POST.get("username", "").strip().lstrip("@")
+    tenant_id = request.POST.get("tenant_id", "").strip()
+    password = request.POST.get("password", "").strip()
+    sessionid = request.POST.get("sessionid", "").strip()
+    consultant_name = request.POST.get("consultant_name", "").strip()
+    account_tier = request.POST.get("account_tier", "").strip()
+    daily_limit = request.POST.get("daily_limit", "").strip()
+    proxy_url = request.POST.get("proxy_url", "").strip()
+    status = request.POST.get("status", "").strip()
+    clear_cooldown = request.POST.get("clear_cooldown") in ("1", "true", "True", "on")
+
+    updated_fields = []
+
+    if username and username != account.username:
+        account.username = username
+        updated_fields.append("username")
+
+    if tenant_id and tenant_id != account.tenant_id:
+        account.tenant_id = tenant_id
+        updated_fields.append("tenant_id")
+
+    if password:
+        account.password = password
+        updated_fields.append("password")
+
+    if proxy_url != account.proxy_url:
+        account.proxy_url = proxy_url
+        updated_fields.append("proxy_url")
+
+    from apps.discovery.outreach_service import get_tier_specs
+    if account_tier in ("NEW", "MEDIUM", "AGED"):
+        account.account_tier = account_tier
+        tier_specs = get_tier_specs(account_tier)
+        account.hourly_limit = tier_specs["hourly_speed"]
+        updated_fields.extend(["account_tier", "hourly_limit"])
+
+    if daily_limit and daily_limit.isdigit():
+        account.daily_limit = int(daily_limit)
+        updated_fields.append("daily_limit")
+
+    if status in ("ACTIVE", "CHALLENGED", "COOLDOWN", "DISABLED", "BANNED"):
+        account.status = status
+        updated_fields.append("status")
+
+    if clear_cooldown:
+        account.cooldown_until = None
+        account.status_message = "استراحت دستی بازنشانی شد"
+        if account.status == "COOLDOWN":
+            account.status = "ACTIVE"
+            updated_fields.append("status")
+        updated_fields.extend(["cooldown_until", "status_message"])
+
+    # Update session cookie if provided
+    session_updated = False
+    if sessionid:
+        if "sessionid=" in sessionid:
+            import re
+            m = re.search(r"sessionid=([^;\s]+)", sessionid)
+            if m:
+                sessionid = m.group(1).strip()
+        sessionid = sessionid.strip('"').strip("'").strip(";").strip()
+
+        from instagrapi import Client
+        cl = Client()
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
+
+        from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
+        dev_profile = ensure_account_device_profile(account)
+        try:
+            apply_device_profile_to_client(cl, account)
+            cl.login_by_sessionid(sessionid)
+            settings = cl.get_settings()
+            account.session_json = settings
+            account.device_settings = dev_profile or {"settings": settings}
+            account.status = "ACTIVE"
+            account.status_message = "سشن جدید با موفقیت فعال شد"
+            account.cooldown_until = None
+            updated_fields.extend(["session_json", "device_settings", "status", "status_message", "cooldown_until"])
+            session_updated = True
+        except Exception as exc:
+            from apps.discovery.ig_session import redact
+            account.status = "CHALLENGED"
+            account.status_message = f"سشن نامعتبر: {redact(exc, 140)}"
+            updated_fields.extend(["status", "status_message"])
+
+    # Update pitch consultant name if provided
+    if consultant_name:
+        from pathlib import Path
+        import json
+        config_path = Path("data/sarv_outreach_config.json")
+        try:
+            cfg = {}
+            if config_path.exists():
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            if "sender_pitches" not in cfg:
+                cfg["sender_pitches"] = {}
+            curr = cfg["sender_pitches"].get(account.username, {})
+            curr["consultant_name"] = consultant_name
+            cfg["sender_pitches"][account.username] = curr
+            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except Exception as p_err:
+            logger.warning(f"Could not update pitch consultant name for @{account.username}: {p_err}")
+
+    if updated_fields:
+        account.save(update_fields=list(set(updated_fields)))
+
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    if is_ajax:
+        return JsonResponse({
+            "success": True,
+            "message": f"اطلاعات اکانت @{account.username} با موفقیت به‌روزرسانی شد.",
+            "status": account.status,
+            "session_updated": session_updated,
+        })
+    messages.success(request, f"اکانت @{account.username} با موفقیت ویرایش شد.")
+    return redirect("/manage/?tab=outreach")
+
+
+@manage_access_required
+@require_POST
+def manage_sender_clear_cooldown(request, pk):
+    """Resets protective cooldown and sets account back to ACTIVE."""
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    account.cooldown_until = None
+    account.status_message = "آماده به کار (استراحت دستی لغو شد)"
+    if account.status == "COOLDOWN":
+        account.status = "ACTIVE"
+    account.save(update_fields=["cooldown_until", "status_message", "status"])
+
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    if is_ajax:
+        return JsonResponse({
+            "success": True,
+            "message": f"استراحت اکانت @{account.username} لغو شد و اکانت مجدداً فعال گردید.",
+            "status": account.status,
+        })
+    messages.success(request, f"استراحت اکانت @{account.username} لغو شد.")
+    return redirect("/manage/?tab=outreach")
+
+
+@manage_access_required
+@require_POST
 def manage_account_test(request, pk):
     """
     Performs a real-time connectivity and status health check on an account.
