@@ -1,0 +1,163 @@
+{% load ops %}
+<!-- SenderAccountCard Component (Mobile Card View <768px) -->
+<li role="listitem" class="responsive-card sender-card" data-id="{{ a.obj.id }}" id="outreach-mobile-card-{{ a.obj.id }}">
+  <!-- Header: Primary Identifier + Status Badge -->
+  <div class="responsive-card-header">
+    <div class="responsive-card-id-group">
+      <!-- Instagram Avatar Icon -->
+      <div style="width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); display: grid; place-content: center; color: #fff; flex-shrink: 0;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+      </div>
+
+      <!-- Account Info -->
+      <div>
+        <h3 class="responsive-card-title">
+          <a href="https://instagram.com/{{ a.obj.username }}" target="_blank" rel="noopener" style="color: #38bdf8; text-decoration: none;" aria-label="مشاهده پروفایل @{{ a.obj.username }} در اینستاگرام">
+            @{{ a.obj.username }} ↗
+          </a>
+        </h3>
+        <div style="font-size: 0.8rem; color: var(--ui-muted); margin-top: 2px;" id="outreach-mobile-consultant-{{ a.obj.id }}">
+          مشاور: <strong style="color: var(--ui-text);">{{ a.consultant_name|default:"عمومی" }}</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Badge -->
+    <div class="responsive-card-badges" id="outreach-mobile-status-{{ a.obj.id }}">
+      {% if a.obj.status == 'ACTIVE' %}
+        <span class="p-badge" style="background: rgba(16, 185, 129, 0.18); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700; font-size: 0.76rem;">
+          ✓ فعال و متصل
+        </span>
+      {% elif a.obj.status == 'CHALLENGED' %}
+        <span class="p-badge" style="background: rgba(245, 158, 11, 0.18); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700; font-size: 0.76rem;">
+          ⚠️ نیازمند ثبت سشن
+        </span>
+      {% elif a.obj.status == 'COOLDOWN' %}
+        <span class="p-badge" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.35); font-weight: 700; font-size: 0.76rem;">
+          استراحت تا {{ a.obj.cooldown_until|time:"H:i" }}
+        </span>
+      {% else %}
+        <span class="p-badge" style="background: rgba(239, 68, 68, 0.18); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700; font-size: 0.76rem;">
+          {{ a.obj.get_status_display }}
+        </span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Body: 3-4 Key Primary Fields -->
+  <div class="responsive-card-body">
+    <!-- Field 1: Dealism Tier -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        رده و سن اکانت:
+      </span>
+      <span class="card-kv-value" id="outreach-mobile-tier-{{ a.obj.id }}">
+        <span class="p-badge" style="background: {{ a.obj.tier_info.bg_color }}; color: {{ a.obj.tier_info.color }}; font-weight: 700; font-size: 0.76rem; padding: 3px 8px; border-radius: 6px;">
+          {{ a.obj.tier_info.title }}
+        </span>
+      </span>
+    </div>
+
+    <!-- Field 2: Daily Quota -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+        ارسال‌های امروز:
+      </span>
+      <span class="card-kv-value" id="outreach-mobile-limit-{{ a.obj.id }}" style="color: {% if a.obj.daily_action_count >= a.obj.daily_limit %}#ea580c{% else %}#10b981{% endif %}; font-size: 0.95rem;">
+        {{ a.obj.daily_action_count }} از {{ a.obj.daily_limit|default:"18" }} پیام
+      </span>
+    </div>
+
+    <!-- Field 3: Hourly Speed & Dealism Pacing -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        سرعت ساعتی مجاز:
+      </span>
+      <span class="card-kv-value" style="font-size: 0.82rem; color: var(--ui-muted);">
+        {{ a.obj.hourly_limit|default:"3" }} پیام/ساعت ({{ a.obj.tier_info.delay_desc }})
+      </span>
+    </div>
+
+    <!-- Field 4: Last Action -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        آخرین فعالیت:
+      </span>
+      <span class="card-kv-value" style="font-size: 0.8rem; font-family: monospace; color: var(--ui-muted);">
+        {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_dt }}{% else %}در انتظار ارسال اول{% endif %}
+      </span>
+    </div>
+  </div>
+
+  <!-- Collapsible Secondary Details -->
+  <details class="card-collapsible">
+    <summary>
+      <span>تنظیمات فنی، دیوایس و سشن</span>
+      <svg class="card-summary-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </summary>
+    <div class="card-collapsible-content">
+      <!-- Simulated Device -->
+      <div class="card-kv-row">
+        <span class="card-kv-label">دیوایس شبیه‌سازی‌شده:</span>
+        <span class="card-kv-value">
+          <span class="p-badge" style="background: {{ a.obj.device_info.color }}18; color: {{ a.obj.device_info.color }}; font-weight: 600; font-size: 0.76rem;">
+            {{ a.obj.device_info.name }}
+          </span>
+        </span>
+      </div>
+
+      <!-- Proxy -->
+      <div class="card-kv-row">
+        <span class="card-kv-label">پروکسی اختصاصی:</span>
+        <span class="card-kv-value" style="font-family: monospace; direction: ltr; font-size: 0.78rem;">
+          {{ a.obj.proxy_url|default:"بدون پروکسی (مستقیم)" }}
+        </span>
+      </div>
+
+      <!-- Session Cookies Status -->
+      <div class="card-kv-row">
+        <span class="card-kv-label">وضعیت کوکی سشن:</span>
+        <span class="card-kv-value">
+          {% if a.obj.session_json %}
+            <span style="color: #10b981; font-weight: 700;">✓ ذخیره‌شده و آماده</span>
+          {% else %}
+            <span style="color: #f59e0b; font-weight: 700;">⚠️ فاقد کوکی سشن</span>
+          {% endif %}
+        </span>
+      </div>
+
+      <!-- Status Message -->
+      {% if a.obj.status_message %}
+      <div style="background: rgba(0,0,0,0.25); border-inline-start: 2px solid var(--ui-muted); padding: 6px 10px; border-radius: 4px; font-size: 0.78rem; color: var(--ui-muted); margin-top: 4px;">
+        <strong>آخرین پیام سیستم:</strong> {{ a.obj.status_message }}
+      </div>
+      {% endif %}
+    </div>
+  </details>
+
+  <!-- Footer: Touch-Optimized Quick Actions -->
+  <div class="responsive-card-footer">
+    <!-- Action 1: Edit Session Modal (44px touch target) -->
+    <button type="button" class="card-btn card-btn-secondary" onclick="openOutreachEditModal({{ a.obj.id }}, '{{ a.obj.username }}', '{{ a.obj.account_tier|default:'NEW' }}', {{ a.obj.daily_limit|default:18 }}, '{{ a.consultant_name|escapejs }}', '{{ a.obj.status }}')" aria-label="ویرایش سشن و مشخصات اکانت @{{ a.obj.username }}">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      <span>ویرایش سشن ⚙️</span>
+    </button>
+
+    <!-- Action 2: Clear Cooldown / Reset Restrictions (if active) -->
+    {% if a.obj.cooldown_until or a.obj.status == 'COOLDOWN' or a.obj.status == 'CHALLENGED' %}
+      <button type="button" class="card-btn card-btn-danger" onclick="clearOutreachCooldown({{ a.obj.id }}, '{{ a.obj.username }}')" id="outreach-mobile-clear-btn-{{ a.obj.id }}" aria-label="رفع استراحت و فعال‌سازی فوری @{{ a.obj.username }}">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>رفع محدودیت ⚡</span>
+      </button>
+    {% endif %}
+
+    <!-- Action 3: Instagram Direct Profile Link (Icon only) -->
+    <a href="https://instagram.com/{{ a.obj.username }}" target="_blank" rel="noopener" class="card-btn card-btn-secondary card-btn-icon-only" aria-label="باز کردن صفحه اینستاگرام @{{ a.obj.username }}" title="مشاهده پروفایل در اینستاگرام">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+    </a>
+  </div>
+</li>

@@ -1,0 +1,488 @@
+/* ==========================================================================
+   Responsive "Table on Desktop (>=768px), Cards on Mobile (<768px)" Pattern
+   Peyda UI - Universal Responsive Data Table & Card Architecture
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Breakpoint Switching Logic (Pure CSS Media Queries - No JS Sniffing)
+   -------------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .responsive-table-desktop {
+    display: block !important;
+  }
+  .responsive-cards-mobile {
+    display: none !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .responsive-table-desktop {
+    display: none !important;
+  }
+  .responsive-cards-mobile {
+    display: flex !important;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+    margin-block-start: 12px;
+    overflow-x: hidden; /* Prevent horizontal scrolling anywhere on mobile */
+  }
+}
+
+/* --------------------------------------------------------------------------
+   2. Semantic List & Card Shell
+   -------------------------------------------------------------------------- */
+.responsive-card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.responsive-card {
+  background: var(--ui-glass, rgba(255, 255, 255, 0.08));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--ui-edge-soft, rgba(255, 255, 255, 0.16));
+  border-radius: var(--ui-radius-sm, 14px);
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+  text-align: start; /* RTL-safe logical alignment */
+}
+
+.responsive-card:focus-within {
+  border-color: var(--ui-accent, #f5a524);
+  box-shadow: 0 0 0 1px var(--ui-accent, #f5a524), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.responsive-card.is-selected {
+  border-color: var(--ui-accent, #f5a524);
+  background: rgba(245, 165, 36, 0.08);
+}
+
+/* --------------------------------------------------------------------------
+   3. Card Header: Primary Identifier + Status Badge
+   -------------------------------------------------------------------------- */
+.responsive-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-block-end: 10px;
+  border-block-end: 1px solid var(--panel-border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.responsive-card-id-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.card-select-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  border: 2px solid var(--ui-edge, rgba(255, 255, 255, 0.4));
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  display: grid;
+  place-content: center;
+  transition: all 0.15s ease;
+  margin: 0;
+}
+
+.card-select-checkbox:checked {
+  background: var(--ui-accent, #f5a524);
+  border-color: var(--ui-accent, #f5a524);
+}
+
+.card-select-checkbox:checked::after {
+  content: "";
+  width: 6px;
+  height: 10px;
+  border: solid #000;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+  margin-top: -2px;
+}
+
+.card-select-checkbox:focus-visible {
+  outline: 2px solid var(--ui-accent, #f5a524);
+  outline-offset: 2px;
+}
+
+.responsive-card-title {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--ui-text, #ffffff);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: start;
+}
+
+.responsive-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+   4. Card Body: Primary Label/Value Pairs (3-4 Key Fields)
+   -------------------------------------------------------------------------- */
+.responsive-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-kv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: 4px;
+  font-size: 0.86rem;
+  gap: 12px;
+}
+
+.card-kv-label {
+  color: var(--ui-muted, rgba(255, 255, 255, 0.72));
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.card-kv-value {
+  color: var(--ui-text, #ffffff);
+  font-weight: 700;
+  text-align: end;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------------------------
+   5. Collapsible "Details" Section (Expand / Collapse per Card)
+   -------------------------------------------------------------------------- */
+.card-collapsible {
+  margin-block-start: 4px;
+  border: 1px solid var(--panel-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.card-collapsible summary {
+  list-style: none;
+  cursor: pointer;
+  padding-inline: 14px;
+  padding-block: 10px;
+  min-height: 44px; /* Touch target minimum 44px */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ui-accent, #f5a524);
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.card-collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.card-collapsible summary:hover,
+.card-collapsible summary:focus-visible {
+  background: rgba(245, 165, 36, 0.1);
+  outline: none;
+}
+
+.card-collapsible summary:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ui-accent, #f5a524);
+}
+
+.card-summary-chevron {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.25s ease;
+  flex-shrink: 0;
+}
+
+.card-collapsible[open] .card-summary-chevron {
+  transform: rotate(180deg);
+}
+
+.card-collapsible-content {
+  padding-inline: 14px;
+  padding-block: 12px 14px;
+  border-block-start: 1px dashed var(--panel-border-subtle, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------------
+   6. Card Footer: Touch-Optimized Quick Actions (Min 44x44px, >=8px Spacing)
+   -------------------------------------------------------------------------- */
+.responsive-card-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px; /* >= 8px spacing */
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--panel-border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.card-btn {
+  min-height: 44px; /* Minimum 44px touch target */
+  min-width: 44px;
+  padding-inline: 14px;
+  padding-block: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  border: 1px solid transparent;
+  flex: 1 1 auto; /* Flexibly fit mobile width */
+  text-align: center;
+}
+
+.card-btn:active {
+  transform: scale(0.96);
+  opacity: 0.9;
+}
+
+.card-btn:focus-visible {
+  outline: 2px solid var(--ui-accent, #f5a524);
+  outline-offset: 2px;
+}
+
+.card-btn-primary {
+  background: var(--brand-gradient, linear-gradient(135deg, #f5a524, #ff7a3d));
+  color: #000000 !important;
+  border: none;
+  box-shadow: 0 4px 14px rgba(245, 165, 36, 0.35);
+}
+
+.card-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ui-text, #ffffff) !important;
+  border: 1px solid var(--ui-edge-soft, rgba(255, 255, 255, 0.2));
+}
+
+.card-btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.card-btn-icon-only {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+/* More (⋯) Menu Dropdown on Mobile */
+.card-more-menu-wrapper {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 44px;
+}
+
+.card-more-dropdown {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  inset-inline-end: 0;
+  min-width: 180px;
+  background: #181a24;
+  border: 1px solid var(--ui-edge, rgba(255, 255, 255, 0.25));
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  z-index: 150;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card-more-menu-wrapper.is-open .card-more-dropdown {
+  display: flex;
+}
+
+.card-more-dropdown a,
+.card-more-dropdown button {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 12px;
+  padding-block: 8px;
+  border-radius: 8px;
+  color: var(--ui-text, #ffffff);
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  text-decoration: none;
+  width: 100%;
+  cursor: pointer;
+  text-align: start;
+}
+
+.card-more-dropdown a:hover,
+.card-more-dropdown button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* --------------------------------------------------------------------------
+   7. Mobile Sticky Bulk Action Bar
+   -------------------------------------------------------------------------- */
+.sticky-bulk-bar {
+  position: fixed;
+  bottom: 16px;
+  inset-inline-start: 16px;
+  inset-inline-end: 16px;
+  z-index: 200;
+  background: rgba(18, 20, 29, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--ui-accent, #f5a524);
+  border-radius: 14px;
+  padding-inline: 16px;
+  padding-block: 10px;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.65);
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transform: translateY(120%);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sticky-bulk-bar.is-visible {
+  display: flex;
+  transform: translateY(0);
+}
+
+.bulk-count-badge {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--ui-text, #ffffff);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   8. Skeletons & Empty State
+   -------------------------------------------------------------------------- */
+.card-skeleton {
+  min-height: 140px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 75%);
+  background-size: 200% 100%;
+  animation: card-shimmer 1.8s infinite;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+@keyframes card-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.card-empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--panel-border, rgba(255, 255, 255, 0.15));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--ui-muted, rgba(255, 255, 255, 0.7));
+}
+
+.card-empty-state h4 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ui-text, #ffffff);
+  font-weight: 800;
+}
+
+.card-empty-state p {
+  margin: 0;
+  font-size: 0.86rem;
+  max-width: 380px;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   9. Mobile Pagination Controls
+   -------------------------------------------------------------------------- */
+.mobile-card-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-block: 14px;
+  margin-block-start: 8px;
+}
+
+.mobile-page-btn {
+  min-height: 44px;
+  padding-inline: 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-page-btn.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.mobile-page-indicator {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ui-muted, rgba(255, 255, 255, 0.75));
+}

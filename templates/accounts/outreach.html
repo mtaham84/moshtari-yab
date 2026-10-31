@@ -491,93 +491,111 @@
     </div>
   </div>
 
-  <div style="overflow-x: auto;">
-    <table style="width: 100%; text-align: right; border-collapse: collapse;">
-      <thead>
-        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.88rem; background:#f8fafc;">
-          <th style="padding:10px 12px;">اکانت فرستنده</th>
-          <th style="padding:10px 12px;">مشاور اختصاصی</th>
-          <th style="padding:10px 12px;">رده و سن اکانت (Dealism)</th>
-          <th style="padding:10px 12px;">سرعت ساعتی مجاز</th>
-          <th style="padding:10px 12px;">دیوایس شبیه‌سازی‌شده</th>
-          <th style="padding:10px 12px;">وضعیت تایید و اتصال</th>
-          <th style="padding:10px 12px;">دایرکت‌های ارسالی امروز</th>
-          <th style="padding:10px 12px;">آخرین فعالیت</th>
-          <th style="padding:10px 12px; text-align:center;">عملیات و مدیریت سشن</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for a in accounts %}
-        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;" id="outreach-row-{{ a.obj.id }}">
-          <td style="padding:12px; font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
-            <a href="https://instagram.com/{{ a.obj.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none;">
-              @{{ a.obj.username }} ↗
-            </a>
-          </td>
-          <td style="padding:12px; font-weight:600;" id="outreach-consultant-{{ a.obj.id }}">
-            {{ a.consultant_name }}
-          </td>
-          <td style="padding:12px;">
-            <span class="p-badge" id="outreach-tier-{{ a.obj.id }}" style="background:{{ a.obj.tier_info.bg_color }}; color:{{ a.obj.tier_info.color }}; font-weight:700; padding:4px 8px; border-radius:4px; font-size:0.78rem;">
-              {{ a.obj.tier_info.title }}
-            </span>
-          </td>
-          <td style="padding:12px; font-size:0.82rem; color:#475569;">
-            {{ a.obj.hourly_limit|default:"3" }} پیام/ساعت ({{ a.obj.tier_info.delay_desc }})
-          </td>
-          <td style="padding:12px;">
-            <span class="p-badge" style="background:{{ a.obj.device_info.color }}15; color:{{ a.obj.device_info.color }}; font-weight:600; padding:3px 8px; border-radius:4px;">
-              {{ a.obj.device_info.name }}
-            </span>
-          </td>
-          <td style="padding:12px;" id="outreach-status-{{ a.obj.id }}">
-            {% if a.obj.status == 'ACTIVE' %}
-              <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;">
-                ✓ فعال و متصل
+  <!-- Desktop & Tablet Table (>= 768px) -->
+  <div class="responsive-table-desktop">
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; text-align: right; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--panel-border); font-size:0.88rem; background:#f8fafc;">
+            <th style="padding:10px 12px;">اکانت فرستنده</th>
+            <th style="padding:10px 12px;">مشاور اختصاصی</th>
+            <th style="padding:10px 12px;">رده و سن اکانت (Dealism)</th>
+            <th style="padding:10px 12px;">سرعت ساعتی مجاز</th>
+            <th style="padding:10px 12px;">دیوایس شبیه‌سازی‌شده</th>
+            <th style="padding:10px 12px;">وضعیت تایید و اتصال</th>
+            <th style="padding:10px 12px;">دایرکت‌های ارسالی امروز</th>
+            <th style="padding:10px 12px;">آخرین فعالیت</th>
+            <th style="padding:10px 12px; text-align:center;">عملیات و مدیریت سشن</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in accounts %}
+          <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;" id="outreach-row-{{ a.obj.id }}">
+            <td style="padding:12px; font-weight:700; font-family:monospace; direction:ltr; text-align:right;">
+              <a href="https://instagram.com/{{ a.obj.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none;">
+                @{{ a.obj.username }} ↗
+              </a>
+            </td>
+            <td style="padding:12px; font-weight:600;" id="outreach-consultant-{{ a.obj.id }}">
+              {{ a.consultant_name }}
+            </td>
+            <td style="padding:12px;">
+              <span class="p-badge" id="outreach-tier-{{ a.obj.id }}" style="background:{{ a.obj.tier_info.bg_color }}; color:{{ a.obj.tier_info.color }}; font-weight:700; padding:4px 8px; border-radius:4px; font-size:0.78rem;">
+                {{ a.obj.tier_info.title }}
               </span>
-            {% elif a.obj.status == 'CHALLENGED' %}
-              <span class="p-badge" style="background:#fff0e6; color:#c9510c; padding:3px 8px; border-radius:4px; font-weight:600;">
-                ⚠️ نیازمند ثبت مجدد سشن
+            </td>
+            <td style="padding:12px; font-size:0.82rem; color:#475569;">
+              {{ a.obj.hourly_limit|default:"3" }} پیام/ساعت ({{ a.obj.tier_info.delay_desc }})
+            </td>
+            <td style="padding:12px;">
+              <span class="p-badge" style="background:{{ a.obj.device_info.color }}15; color:{{ a.obj.device_info.color }}; font-weight:600; padding:3px 8px; border-radius:4px;">
+                {{ a.obj.device_info.name }}
               </span>
-            {% elif a.obj.status == 'COOLDOWN' %}
-              <span class="p-badge" style="background:#fef9c3; color:#854d0e; padding:3px 8px; border-radius:4px; font-weight:600;">
-                استراحت تا {{ a.obj.cooldown_until|time:"H:i" }}
-              </span>
-            {% else %}
-              <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;">
-                {{ a.obj.get_status_display }}
-              </span>
-            {% endif %}
-          </td>
-          <td style="padding:12px; font-weight:700; color:{% if a.obj.daily_action_count >= a.obj.daily_limit %}#ea580c{% else %}#10b981{% endif %};" id="outreach-limit-{{ a.obj.id }}">
-            {{ a.obj.daily_action_count }} از {{ a.obj.daily_limit|default:"18" }} پیام
-          </td>
-          <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
-            {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_dt }}{% else %}در انتظار ارسال بعدی{% endif %}
-          </td>
-          <td style="padding:12px; text-align:center; white-space:nowrap;">
-            <div style="display:flex; gap:6px; justify-content:center; flex-wrap:wrap;">
-              <button type="button" class="p-btn sm" onclick="openOutreachEditModal({{ a.obj.id }}, '{{ a.obj.username }}', '{{ a.obj.account_tier|default:'NEW' }}', {{ a.obj.daily_limit|default:18 }}, '{{ a.consultant_name|escapejs }}', '{{ a.obj.status }}')"
-                      style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
-                      title="ویرایش کوکی سشن و تنظیمات">
-                ویرایش سشن ⚙️
-              </button>
-              {% if a.obj.cooldown_until or a.obj.status == 'COOLDOWN' or a.obj.status == 'CHALLENGED' %}
-              <button type="button" class="p-btn sm" onclick="clearOutreachCooldown({{ a.obj.id }}, '{{ a.obj.username }}')"
-                      id="outreach-clear-btn-{{ a.obj.id }}"
-                      style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
-                      title="رفع محدودیت و استراحت فوری">
-                رفع محدودیت ⚡
-              </button>
+            </td>
+            <td style="padding:12px;" id="outreach-status-{{ a.obj.id }}">
+              {% if a.obj.status == 'ACTIVE' %}
+                <span class="p-badge p-badge-success" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:4px; font-weight:600;">
+                  ✓ فعال و متصل
+                </span>
+              {% elif a.obj.status == 'CHALLENGED' %}
+                <span class="p-badge" style="background:#fff0e6; color:#c9510c; padding:3px 8px; border-radius:4px; font-weight:600;">
+                  ⚠️ نیازمند ثبت مجدد سشن
+                </span>
+              {% elif a.obj.status == 'COOLDOWN' %}
+                <span class="p-badge" style="background:#fef9c3; color:#854d0e; padding:3px 8px; border-radius:4px; font-weight:600;">
+                  استراحت تا {{ a.obj.cooldown_until|time:"H:i" }}
+                </span>
+              {% else %}
+                <span class="p-badge" style="background:#fde8e8; color:#b91c1c; padding:3px 8px; border-radius:4px; font-weight:600;">
+                  {{ a.obj.get_status_display }}
+                </span>
               {% endif %}
-            </div>
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="9" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است. از فرم بالا اضافه کنید.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            </td>
+            <td style="padding:12px; font-weight:700; color:{% if a.obj.daily_action_count >= a.obj.daily_limit %}#ea580c{% else %}#10b981{% endif %};" id="outreach-limit-{{ a.obj.id }}">
+              {{ a.obj.daily_action_count }} از {{ a.obj.daily_limit|default:"18" }} پیام
+            </td>
+            <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
+              {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_dt }}{% else %}در انتظار ارسال بعدی{% endif %}
+            </td>
+            <td style="padding:12px; text-align:center; white-space:nowrap;">
+              <div style="display:flex; gap:6px; justify-content:center; flex-wrap:wrap;">
+                <button type="button" class="p-btn sm" onclick="openOutreachEditModal({{ a.obj.id }}, '{{ a.obj.username }}', '{{ a.obj.account_tier|default:'NEW' }}', {{ a.obj.daily_limit|default:18 }}, '{{ a.consultant_name|escapejs }}', '{{ a.obj.status }}')"
+                        style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                        title="ویرایش کوکی سشن و تنظیمات">
+                  ویرایش سشن ⚙️
+                </button>
+                {% if a.obj.cooldown_until or a.obj.status == 'COOLDOWN' or a.obj.status == 'CHALLENGED' %}
+                <button type="button" class="p-btn sm" onclick="clearOutreachCooldown({{ a.obj.id }}, '{{ a.obj.username }}')"
+                        id="outreach-clear-btn-{{ a.obj.id }}"
+                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                        title="رفع محدودیت و استراحت فوری">
+                  رفع محدودیت ⚡
+                </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="9" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است. از فرم بالا اضافه کنید.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Mobile Cards View (< 768px - No Horizontal Scrolling) -->
+  <div class="responsive-cards-mobile" role="region" aria-label="اکانت‌های فرستنده در نمای موبایل">
+    <ul role="list" class="responsive-card-list">
+      {% for a in accounts %}
+        {% include "accounts/partials/sender_account_card.html" with a=a %}
+      {% empty %}
+        <li role="listitem" class="card-empty-state">
+          <svg class="ico" aria-hidden="true" style="width:36px;height:36px;color:var(--ui-muted);"><use href="#i-users"/></svg>
+          <h4>هنوز اکانت فرستنده‌ای ثبت نشده است</h4>
+          <p>از فرم بالا برای ثبت اکانت اینستاگرام جدید استفاده کنید.</p>
+        </li>
+      {% endfor %}
+    </ul>
   </div>
 </div>
 

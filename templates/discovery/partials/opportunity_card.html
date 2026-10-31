@@ -1,0 +1,260 @@
+{% load static %}
+<!-- OpportunityCard Component (Mobile Card View <768px) -->
+<li role="listitem" class="responsive-card opp-card" data-id="{{ opp.id }}">
+  <!-- Header: Primary Identifier + Status Badge -->
+  <div class="responsive-card-header">
+    <div class="responsive-card-id-group">
+      <!-- Bulk Selection Checkbox -->
+      <label style="display:flex;align-items:center;cursor:pointer;" title="انتخاب برای عملیات گروهی">
+        <input type="checkbox" class="card-select-checkbox item-select-checkbox" data-id="{{ opp.id }}" data-url="{% url 'discovery:opportunity_detail' opp.id %}" aria-label="انتخاب فرصت {{ opp.customer.display_identifier }}">
+      </label>
+
+      <!-- Customer Name & Handle -->
+      <div>
+        <h3 class="responsive-card-title">
+          {{ opp.customer.display_identifier }}
+        </h3>
+        {% if opp.customer.source_username %}
+          <div style="font-size: 0.78rem; color: #38bdf8; direction: ltr; text-align: start; margin-top: 2px;">
+            @{{ opp.customer.source_username|cut:'@' }}
+          </div>
+        {% elif opp.customer.phone_number %}
+          <div style="font-size: 0.78rem; color: #10b981; direction: ltr; text-align: start; margin-top: 2px; font-family: monospace;">
+            {{ opp.customer.phone_number }}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Badges Group -->
+    <div class="responsive-card-badges">
+      <!-- Source Platform Chip -->
+      {% if opp.source_platform == 'telegram' %}
+        <span class="p-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 0.74rem;">تلگرام</span>
+      {% elif opp.source_platform == 'x' %}
+        <span class="p-badge" style="background: rgba(15, 23, 42, 0.4); color: #1da1f2; border: 1px solid rgba(29, 161, 242, 0.35); font-size: 0.74rem;">X (توییتر)</span>
+      {% elif opp.source_platform == 'instagram' %}
+        <span class="p-badge" style="background: rgba(225, 48, 108, 0.15); color: #e1306c; border: 1px solid rgba(225, 48, 108, 0.35); font-size: 0.74rem;">اینستاگرام</span>
+      {% elif opp.source_platform == 'divar' %}
+        <span class="p-badge" style="background: rgba(192, 38, 38, 0.15); color: #ef4444; border: 1px solid rgba(192, 38, 38, 0.35); font-size: 0.74rem;">دیوار</span>
+      {% else %}
+        <span class="p-badge" style="font-size: 0.74rem;">سایر</span>
+      {% endif %}
+
+      <!-- Golden Badge -->
+      {% if opp.intent_score_percentage >= 90 %}
+        <span class="p-badge" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700; font-size: 0.74rem;">
+          🌟 طلایی
+        </span>
+      {% endif %}
+
+      <!-- Status Badge -->
+      {% if opp.status == 'QUALIFIED' %}
+        <span class="p-badge" style="background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.74rem;">تأیید شده</span>
+      {% elif opp.status == 'NEW' %}
+        <span class="p-badge" style="background: rgba(168, 85, 247, 0.18); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.74rem;">جدید</span>
+      {% elif opp.status == 'REVIEWED' %}
+        <span class="p-badge" style="background: rgba(234, 179, 8, 0.18); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); font-size: 0.74rem;">بررسی شده</span>
+      {% elif opp.status == 'CONTACTED' %}
+        <span class="p-badge" style="background: rgba(16, 185, 129, 0.18); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.74rem;">تماس گرفته</span>
+      {% elif opp.status == 'CONVERTED' %}
+        <span class="p-badge" style="background: rgba(16, 185, 129, 0.3); color: #34d399; font-weight: 800; border: 1px solid rgba(16, 185, 129, 0.5); font-size: 0.74rem;">مشتری نهایی</span>
+      {% elif opp.status == 'REJECTED' %}
+        <span class="p-badge" style="background: rgba(239, 68, 68, 0.18); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.74rem;">رد شده</span>
+      {% else %}
+        <span class="p-badge" style="font-size: 0.74rem;">{{ opp.get_status_display }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Body: 3-4 Key Primary Fields -->
+  <div class="responsive-card-body">
+    <!-- Field 1: Intent Score -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+        احتمال خرید (نیت مشتری):
+      </span>
+      <span class="card-kv-value" style="color: {% if opp.intent_score_percentage >= 80 %}#10b981{% elif opp.intent_score_percentage >= 60 %}#38bdf8{% else %}#f59e0b{% endif %}; font-size: 0.95rem;">
+        {{ opp.intent_score_percentage }}٪
+      </span>
+    </div>
+
+    <!-- Field 2: Target Product Match -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+        کالای پیشنهادی کاتالوگ:
+      </span>
+      <span class="card-kv-value">
+        {% if opp.primary_product_match %}
+          <strong style="color: var(--ui-text);">{{ opp.primary_product_match.product.name }}</strong>
+          <small style="color: #10b981; margin-inline-start: 4px;">({{ opp.product_fit_score_percentage }}٪ تطابق)</small>
+        {% else %}
+          <span style="color: var(--ui-muted); font-weight: normal;">بدون تطابق مشخص</span>
+        {% endif %}
+      </span>
+    </div>
+
+    <!-- Field 3: Need Summary -->
+    <div class="card-kv-row" style="align-items: flex-start;">
+      <span class="card-kv-label" style="padding-top: 2px;">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        نیاز استخراج‌شده:
+      </span>
+      <span class="card-kv-value" style="font-size: 0.82rem; font-weight: normal; color: var(--ui-text); line-height: 1.45; text-align: start; max-width: 65%;">
+        {{ opp.ai_analysis.need|default:opp.source_raw_message|truncatechars:110 }}
+      </span>
+    </div>
+
+    <!-- Field 4: Jalali Date -->
+    <div class="card-kv-row">
+      <span class="card-kv-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        زمان ثبت شمسی:
+      </span>
+      <span class="card-kv-value" style="font-size: 0.8rem; font-family: monospace; color: var(--ui-muted);">
+        {{ opp.created_at_jalali|default:"—" }}
+      </span>
+    </div>
+  </div>
+
+  <!-- Collapsible Secondary Details -->
+  <details class="card-collapsible">
+    <summary>
+      <span>نمایش جزئیات بیشتر، پیام کامل و منبع</span>
+      <svg class="card-summary-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </summary>
+    <div class="card-collapsible-content">
+      <!-- Full Raw Message -->
+      <div>
+        <strong style="color: var(--ui-muted); font-size: 0.78rem; display: block; margin-bottom: 4px;">متن کامل پیام مشتری:</strong>
+        <div style="background: rgba(0,0,0,0.3); border-inline-start: 3px solid var(--ui-accent, #f5a524); padding: 8px 12px; border-radius: 0 8px 8px 0; font-size: 0.84rem; line-height: 1.6; color: var(--ui-text); white-space: pre-line; word-break: break-word;">
+          {{ opp.source_raw_message|default:opp.ai_analysis.need }}
+        </div>
+      </div>
+
+      <!-- AI Selection Reason -->
+      {% if opp.ai_analysis.why_selected %}
+      <div>
+        <strong style="color: var(--ui-muted); font-size: 0.78rem; display: block; margin-bottom: 4px;">دلیل انتخاب این فرصت توسط هوش مصنوعی:</strong>
+        <p style="margin: 0; font-size: 0.82rem; color: var(--ui-muted);">{{ opp.ai_analysis.why_selected }}</p>
+      </div>
+      {% endif %}
+
+      <!-- Instagram/X Caption and Source Links -->
+      {% if opp.source_platform == 'instagram' %}
+        {% if opp.instagram_post_url or opp.customer_profile_url %}
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+          {% if opp.instagram_post_url %}
+            <a href="{{ opp.instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow" class="card-btn card-btn-secondary" style="min-height: 38px; font-size: 0.78rem;">
+              <span>مشاهده پست اینستاگرام</span> ↗
+            </a>
+          {% endif %}
+          {% if opp.customer_profile_url %}
+            <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" class="card-btn card-btn-secondary" style="min-height: 38px; font-size: 0.78rem; color: #e1306c !important;">
+              <span>پروفایل خریدار (دایرکت)</span> ↗
+            </a>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if opp.instagram_post_caption %}
+          <div style="background: rgba(2, 132, 199, 0.08); border-inline-start: 2px solid #0284c7; padding: 6px 10px; border-radius: 4px; font-size: 0.76rem; color: var(--ui-muted);">
+            <strong style="color: #0284c7;">کپشن پست:</strong> {{ opp.instagram_post_caption|truncatechars:180 }}
+          </div>
+        {% endif %}
+      {% elif opp.source_platform == 'x' %}
+        {% if opp.x_post_url or opp.customer_profile_url %}
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+          {% if opp.x_post_url %}
+            <a href="{{ opp.x_post_url }}" target="_blank" rel="noopener noreferrer" class="card-btn card-btn-secondary" style="min-height: 38px; font-size: 0.78rem; color: #1da1f2 !important;">
+              <span>مشاهده توییت در X</span> ↗
+            </a>
+          {% endif %}
+          {% if opp.customer_profile_url %}
+            <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer" class="card-btn card-btn-secondary" style="min-height: 38px; font-size: 0.78rem;">
+              <span>پروفایل نویسنده</span> ↗
+            </a>
+          {% endif %}
+        </div>
+        {% endif %}
+      {% endif %}
+
+      <!-- AI Draft Reply -->
+      {% if opp.ai_analysis.suggested_reply %}
+      <div style="margin-top: 4px;">
+        <strong style="color: var(--ui-accent, #f5a524); font-size: 0.78rem; display: block; margin-bottom: 4px;">پیش‌نویس پاسخ هوشمند:</strong>
+        <div style="background: rgba(245, 165, 36, 0.06); border: 1px solid rgba(245, 165, 36, 0.2); padding: 8px 12px; border-radius: 8px; font-size: 0.82rem; color: var(--ui-text); line-height: 1.6;" id="mobile-reply-text-{{ opp.id }}">
+          {{ opp.ai_analysis.suggested_reply }}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- AI Cost -->
+      <div style="font-size: 0.76rem; color: var(--ui-faint); margin-top: 4px;">
+        هزینه پردازش هوش مصنوعی: {{ opp.cost_toman_display }} تومان
+      </div>
+    </div>
+  </details>
+
+  <!-- Footer: Touch-Optimized Quick Actions -->
+  <div class="responsive-card-footer">
+    <!-- Action 1: View Details (Primary, 44px touch target) -->
+    <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="card-btn card-btn-primary" aria-label="مشاهده تحلیل کامل فرصت {{ opp.customer.display_identifier }}">
+      <span>جزئیات و پاسخ</span>
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </a>
+
+    <!-- Action 2: Copy Reply Draft (if present) -->
+    {% if opp.ai_analysis.suggested_reply %}
+      <button type="button" class="card-btn card-btn-secondary copy-reply-btn" data-target="mobile-reply-text-{{ opp.id }}" aria-label="کپی متن پیش‌نویس پاسخ">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        <span>کپی پاسخ</span>
+      </button>
+    {% endif %}
+
+    <!-- Action 3: Feedback Action (Relevant / Irrelevant) -->
+    {% if opp.feedback %}
+      <span class="p-badge" style="background: {% if opp.feedback == 'relevant' %}rgba(16, 185, 129, 0.2); color: #10b981;{% else %}rgba(239, 68, 68, 0.2); color: #f87171;{% endif %} min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding-inline: 12px; font-weight: 700; border-radius: 10px;">
+        {% if opp.feedback == 'relevant' %}✓ مرتبط{% else %}✗ نامرتبط{% endif %}
+      </span>
+    {% else %}
+      <button type="button" class="card-btn card-btn-secondary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}" aria-label="تأیید فرصت به عنوان مشتری مرتبط">
+        <span>مرتبط</span>
+      </button>
+      <button type="button" class="card-btn card-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}" aria-label="رد فرصت به عنوان نامرتبط">
+        <span>نامرتبط</span>
+      </button>
+    {% endif %}
+
+    <!-- Action 4: More (⋯) Menu -->
+    <div class="card-more-menu-wrapper">
+      <button type="button" class="card-btn card-btn-secondary card-btn-icon-only" onclick="toggleCardMoreMenu(this)" aria-label="منوی گزینه‌های بیشتر">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>
+      </button>
+      <div class="card-more-dropdown" role="menu">
+        {% if opp.customer_profile_url %}
+          <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer" role="menuitem">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <span>مشاهده پروفایل کاربر</span>
+          </a>
+        {% endif %}
+        {% if opp.source_platform == 'instagram' and opp.instagram_post_url %}
+          <a href="{{ opp.instagram_post_url }}" target="_blank" rel="noopener" role="menuitem">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+            <span>مشاهده پست در اینستاگرام</span>
+          </a>
+        {% elif opp.source_platform == 'x' and opp.x_post_url %}
+          <a href="{{ opp.x_post_url }}" target="_blank" rel="noopener" role="menuitem">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            <span>مشاهده توییت در X</span>
+          </a>
+        {% endif %}
+        <button type="button" onclick="copyCardDirectLink('{% url 'discovery:opportunity_detail' opp.id %}')" role="menuitem">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          <span>کپی لینک مستقیم فرصت</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</li>
