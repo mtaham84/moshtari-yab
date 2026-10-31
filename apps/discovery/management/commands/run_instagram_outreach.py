@@ -291,25 +291,30 @@ class Command(BaseCommand):
 
             self.stdout.write(f"👥 اکانت‌های فرستنده در دسترس: {[f'@{s.username} (امروز: {s.daily_action_count}/{s.daily_limit or 18} | این ساعت: {s.hourly_action_count or 0}/{s.hourly_limit or 3})' for s in available_senders]}")
 
-            # Fetch top priority NEW leads
+            # Fetch top priority NEW leads (candidate pool for filtering)
+            candidate_pool = max(batch_size * 20, 50)
             leads = list(
                 InstagramEngineLead.objects.filter(
                     tenant_id__in=tenant_ids,
                     status="NEW",
                     intent_score__gte=min_intent,
                 )
-                .order_by("-intent_score", "created_at")[:batch_size]
+                .order_by("-intent_score", "created_at")[:candidate_pool]
             )
 
             if not leads:
                 self.stdout.write(self.style.NOTICE(f"🏁 هیچ لید جدیدی (NEW) با امتیاز بالای {min_intent} برای ارسال وجود ندارد."))
                 return 0
 
-            self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(leads)} لید با اولویت بالا برای این بچ انتخاب شدند."))
+            self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(leads)} لید کاندیدا انتخاب شدند (هدف ارسال در این چرخه: {batch_size} دایرکت)."))
 
             sent_in_batch = 0
 
             for idx, lead in enumerate(leads):
+                if sent_in_batch >= batch_size:
+                    self.stdout.write(self.style.SUCCESS(f"🎉 سقف ارسال این چرخه ({batch_size} پیام) با موفقیت تکمیل شد."))
+                    break
+
                 # Re-check circadian window
                 if not is_within_circadian_hours():
                     self.stdout.write(self.style.WARNING("ساعت کاری به پایان رسید. توقف بچ."))
@@ -522,9 +527,15 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"🔄 حالت اجرای پیوسته فعال شد (فاصله بررسی بچ‌ها: {interval} دقیقه)...\n"))
         while True:
             try:
-                execute_batch()
+                sent = execute_batch()
             except Exception as batch_err:
                 self.stderr.write(self.style.ERROR(f"خطای کلی در حلقه اجرای بچ: {batch_err}"))
+                sent = 0
 
-            self.stdout.write(f"💤 استراحت چرخه ({interval} دقیقه تا بررسی مجدد صف لیدها)...")
-            time.sleep(interval * 60)
+            if sent and sent > 0:
+                self.stdout.write(f"💤 استراحت چرخه ({interval} دقیقه پس از ارسال موفق تا بررسی مجدد)...")
+                time.sleep(interval * 60)
+            else:
+                short_pause = 45
+                self.stdout.write(f"⏳ غربالگری صف ادامه دارد (مکث کوتاه {short_pause} ثانیه‌ای)...")
+                time.sleep(short_pause)
