@@ -1185,6 +1185,32 @@
     </div>
   </div>
 
+  <!-- Multi-Tenant Business Filter Bar -->
+  <div style="background:#fff; border:1px solid var(--border); border-radius:12px; padding:14px 18px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span style="font-weight:700; font-size:0.9rem; color:#334155;">🏢 فیلتر تفکیک کسب‌وکار / مستأجر:</span>
+      <form method="GET" action="" style="display:flex; align-items:center; gap:8px; margin:0;">
+        <input type="hidden" name="tab" value="outreach">
+        <select name="outreach_biz" onchange="this.form.submit()" style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:6px; font-weight:600; font-size:0.85rem; background:#f8fafc; color:#1e293b;">
+          <option value="" {% if not selected_business_id %}selected{% endif %}>همه کسب‌وکارها (نمایش کامل استخر)</option>
+          {% for b in businesses_for_outreach %}
+          <option value="{{ b.id }}" {% if selected_business_id == b.id|stringformat:"s" %}selected{% endif %}>
+            {{ b.name }} (tenant_{{ b.id }} - کاربر: {{ b.user.username }})
+          </option>
+          {% endfor %}
+        </select>
+        {% if selected_business_id %}
+        <a href="?tab=outreach" style="font-size:0.78rem; color:#ef4444; text-decoration:underline; font-weight:700;">حذف فیلتر ✕</a>
+        {% endif %}
+      </form>
+    </div>
+    {% if selected_outreach_biz %}
+    <div style="font-size:0.82rem; background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; border-radius:6px; padding:4px 12px; font-weight:700;">
+      ✓ نمایش تفکیک‌شده فقط برای: {{ selected_outreach_biz.name }} (tenant_{{ selected_outreach_biz.id }})
+    </div>
+    {% endif %}
+  </div>
+
   <!-- Super Anti-Ban Shield Banner -->
   <div style="background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color:#fff; border-radius:14px; padding:18px 22px; margin-bottom:20px; box-shadow:0 10px 25px -5px rgba(15, 23, 42, 0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
@@ -1242,6 +1268,17 @@
 
       <form method="POST" action="{% url 'accounts:add_outreach_account' %}">
         {% csrf_token %}
+        <div style="margin-bottom:10px;">
+          <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:3px;">کسب‌وکار / مستأجر مقصد (انتساب اکانت به بیزینس)*</label>
+          <select name="tenant_id" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:0.82rem; font-weight:600; background:#f8fafc;">
+            {% for b in businesses_for_outreach %}
+            <option value="tenant_{{ b.id }}" {% if b.id == 4 or selected_business_id == b.id|stringformat:"s" %}selected{% endif %}>
+              {{ b.name }} (tenant_{{ b.id }} - کاربر: {{ b.user.username }})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
         <div style="margin-bottom:10px;">
           <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:3px;">نام کاربری اینستاگرام (Username)*</label>
           <input type="text" name="username" required dir="ltr" placeholder="مثال: raha.rostamim"
