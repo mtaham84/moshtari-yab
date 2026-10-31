@@ -155,8 +155,10 @@ class LLMClient:
             post_body["model"] = "gemini-3.5-flash-lite"
         req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(post_body).encode(),
                                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy, "http": proxy})) if proxy else urllib.request.build_opener()
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with opener.open(req, timeout=timeout) as r:
                 return r.status, r.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             return e.code, e.read().decode("utf-8", "replace")
