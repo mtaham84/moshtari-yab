@@ -69,7 +69,7 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
         }
         post_model = model_name
         if "generativelanguage.googleapis.com" in base_url and post_model == "gpt-6-luna":
-            post_model = "gemini-3.1-flash-lite"
+            post_model = "gemini-3.5-flash-lite"
         body = json.dumps({
             "model": post_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
