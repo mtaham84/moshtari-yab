@@ -40,6 +40,7 @@ except Exception:
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.device_emulator import apply_device_profile_to_client
+from apps.discovery.outreach_service import check_and_sync_lead_replies, get_tier_specs
 
 logger = logging.getLogger("instagram_outreach")
 
@@ -203,11 +204,30 @@ class Command(BaseCommand):
 
         def get_available_senders() -> List[InstagramEngineAccount]:
             now = django_tz.now()
+            now_tehran = datetime.now(TEHRAN_TZ)
+
             # Reset daily counts if last action was on a previous day
+            # Reset hourly count if last action was in a previous hour
             for acc in InstagramEngineAccount.objects.filter(role="SENDER"):
-                if acc.last_action_at and acc.last_action_at.astimezone(TEHRAN_TZ).date() < datetime.now(TEHRAN_TZ).date():
+                updated = False
+                update_cols = []
+                if acc.last_action_at and acc.last_action_at.astimezone(TEHRAN_TZ).date() < now_tehran.date():
                     acc.daily_action_count = 0
-                    acc.save(update_fields=["daily_action_count"])
+                    update_cols.append("daily_action_count")
+                    updated = True
+
+                if acc.last_hour_reset and acc.last_hour_reset.astimezone(TEHRAN_TZ).hour != now_tehran.hour:
+                    acc.hourly_action_count = 0
+                    acc.last_hour_reset = now
+                    update_cols.extend(["hourly_action_count", "last_hour_reset"])
+                    updated = True
+                elif not acc.last_hour_reset:
+                    acc.last_hour_reset = now
+                    update_cols.append("last_hour_reset")
+                    updated = True
+
+                if updated:
+                    acc.save(update_fields=list(set(update_cols)))
 
             senders = InstagramEngineAccount.objects.filter(
                 role="SENDER",
@@ -222,7 +242,14 @@ class Command(BaseCommand):
                 cooldown_until__lte=now,
             )
 
-            available = [s for s in senders if s.daily_action_count < max_daily_dms]
+            # Check both daily limit and hourly rate according to Dealism benchmarks
+            available = []
+            for s in senders:
+                limit_daily = s.daily_limit or max_daily_dms or 18
+                limit_hourly = s.hourly_limit or 3
+                if s.daily_action_count < limit_daily and (s.hourly_action_count or 0) < limit_hourly:
+                    available.append(s)
+
             # Order by least recently used
             available.sort(key=lambda s: s.last_action_at or datetime.min.replace(tzinfo=timezone.utc))
             return available
@@ -235,12 +262,25 @@ class Command(BaseCommand):
                 ))
                 return 0
 
+            # 1. Automatic Reply Checking
+            self.stdout.write("📬 [پایش دایرکت‌ها]: بررسی پاسخ‌های دریافتی از مشتریان...")
+            try:
+                reply_res = check_and_sync_lead_replies(tenant_ids)
+                if reply_res.get("replies_found", 0) > 0:
+                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
+                    for d in reply_res.get("details", []):
+                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
+                else:
+                    self.stdout.write("   صندوق دایرکت‌ها بررسی شد (پاسخ جدیدی ثبت نشده است).")
+            except Exception as reply_err:
+                self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
+
             available_senders = get_available_senders()
             if not available_senders:
                 self.stdout.write(self.style.WARNING("⚠️ هیچ اکانت فرستنده (SENDER) با ظرفیت خالی در حال حاضر در دسترس نیست."))
                 return 0
 
-            self.stdout.write(f"👥 اکانت‌های فرستنده در دسترس: {[f'@{s.username} ({s.daily_action_count}/{max_daily_dms})' for s in available_senders]}")
+            self.stdout.write(f"👥 اکانت‌های فرستنده در دسترس: {[f'@{s.username} (امروز: {s.daily_action_count}/{s.daily_limit or 18} | این ساعت: {s.hourly_action_count or 0}/{s.hourly_limit or 3})' for s in available_senders]}")
 
             # Fetch top priority NEW leads
             leads = list(
@@ -306,10 +346,14 @@ class Command(BaseCommand):
                     self.stdout.write(f"   متن: {pitch_text[:120]}...")
                     with transaction.atomic():
                         lead.status = "DM_SENT"
-                        lead.save(update_fields=["status", "updated_at"])
+                        lead.sender_account = sender_user
+                        lead.initial_dm_text = pitch_text
+                        lead.initial_dm_at = django_tz.now()
+                        lead.save(update_fields=["status", "sender_account", "initial_dm_text", "initial_dm_at", "updated_at"])
                         sender.daily_action_count += 1
+                        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
                         sender.last_action_at = django_tz.now()
-                        sender.save(update_fields=["daily_action_count", "last_action_at"])
+                        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
                     sent_in_batch += 1
                     time.sleep(2)
                     continue
@@ -339,22 +383,40 @@ class Command(BaseCommand):
                     cl.direct_send(pitch_text, user_ids=[target_pk])
 
                     # Success: Update DB atomically
+                    now = django_tz.now()
                     with transaction.atomic():
                         lead.status = "DM_SENT"
-                        lead.save(update_fields=["status", "updated_at"])
+                        lead.sender_account = sender_user
+                        lead.initial_dm_text = pitch_text
+                        lead.initial_dm_at = now
+                        lead.conversation_history = [{
+                            "sender": sender_user,
+                            "direction": "out",
+                            "role": "initial_outreach",
+                            "text": pitch_text,
+                            "time": now.isoformat(),
+                        }]
+                        lead.save(update_fields=[
+                            "status", "sender_account", "initial_dm_text", "initial_dm_at",
+                            "conversation_history", "updated_at"
+                        ])
                         sender.daily_action_count += 1
-                        sender.last_action_at = django_tz.now()
+                        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
+                        sender.last_action_at = now
                         sender.status_message = "پیام با موفقیت ارسال شد"
-                        sender.save(update_fields=["daily_action_count", "last_action_at", "status_message"])
+                        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at", "status_message"])
 
                     sent_in_batch += 1
                     self.stdout.write(self.style.SUCCESS(f"   ✅ [ارسال موفق] دایرکت با موفقیت به @{lead.username} ارسال شد."))
 
-                    # Safety delay between consecutive DMs (4 to 8 minutes)
+                    # Dynamic Safety delay according to Dealism benchmarks
                     if idx + 1 < len(leads):
-                        safety_sleep = random.uniform(delay_min, delay_max)
+                        tier_specs = get_tier_specs(sender.account_tier)
+                        calc_min = tier_specs.get("min_delay_sec", delay_min)
+                        calc_max = tier_specs.get("max_delay_sec", delay_max)
+                        safety_sleep = random.uniform(calc_min, calc_max)
                         self.stdout.write(
-                            f"   ⏳ [وقفه ایمنی ضد بلاک]: {safety_sleep / 60.0:.1f} دقیقه ({int(safety_sleep)} ثانیه) تا پیام بعدی...\n"
+                            f"   ⏳ [وقفه ایمنی بر اساس رده {tier_specs['title']}]: {safety_sleep / 60.0:.1f} دقیقه ({int(safety_sleep)} ثانیه) تا پیام بعدی...\n"
                         )
                         time.sleep(safety_sleep)
 

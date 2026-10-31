@@ -298,10 +298,22 @@ def outreach_view(request):
     tenant_key = f"tenant_{business.id}"
     tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
 
+    from apps.discovery.outreach_service import TIER_LIMITS
+
     accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
-    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="DM_SENT").order_by("-updated_at")[:50]
-    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="DM_SENT").count()
+    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:50]
+    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
     pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
+
+    # Leads who replied to our direct outreach
+    replied_leads = InstagramEngineLead.objects.filter(
+        tenant_id__in=tenant_keys,
+        has_replied=True
+    ).order_by("-reply_at")[:50]
+    replied_count = InstagramEngineLead.objects.filter(
+        tenant_id__in=tenant_keys,
+        has_replied=True
+    ).count()
 
     # Load pitch configuration
     config_path = Path("data/sarv_outreach_config.json")
@@ -347,6 +359,9 @@ def outreach_view(request):
         "sent_dms": sent_dms,
         "total_dms": total_dms,
         "pending_leads": pending_leads,
+        "replied_leads": replied_leads,
+        "replied_count": replied_count,
+        "tier_limits": TIER_LIMITS,
         "default_pitch": default_pitch,
         "default_consultant": default_consultant,
         "default_username": default_username,
@@ -416,10 +431,17 @@ def add_outreach_account_view(request):
     sessionid = request.POST.get("sessionid", "").strip()
     consultant_name = request.POST.get("consultant_name", "").strip() or username
     pitch_template = request.POST.get("pitch_template", "").strip()
+    account_tier = request.POST.get("account_tier", "NEW").strip()
+    custom_daily = request.POST.get("daily_limit", "").strip()
 
     if not username:
         messages.error(request, "نام کاربری اینستاگرام الزامی است.")
         return redirect("accounts:outreach")
+
+    from apps.discovery.outreach_service import get_tier_specs
+    tier_specs = get_tier_specs(account_tier)
+    daily_lim = int(custom_daily) if custom_daily.isdigit() else tier_specs["default_daily"]
+    hourly_lim = tier_specs["hourly_speed"]
 
     # Clean sessionid cookie if user pasted full cookie string
     if "sessionid=" in sessionid:
@@ -435,12 +457,18 @@ def add_outreach_account_view(request):
             password=password or "stored_session",
             role="SENDER",
             tenant_id=tenant_key,
+            account_tier=account_tier,
+            daily_limit=daily_lim,
+            hourly_limit=hourly_lim,
             status="ACTIVE",
-            status_message=f"متصل و فعال - مشاور {consultant_name}",
+            status_message=f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})",
         )
     else:
         account.role = "SENDER"
         account.tenant_id = tenant_key
+        account.account_tier = account_tier
+        account.daily_limit = daily_lim
+        account.hourly_limit = hourly_lim
         account.status = "ACTIVE"
         if password:
             account.password = password
@@ -472,7 +500,7 @@ def add_outreach_account_view(request):
 
         account.device_settings = dev_profile or {"settings": account.session_json}
         account.status = "ACTIVE"
-        account.status_message = f"متصل و فعال - مشاور {consultant_name}"
+        account.status_message = f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})"
         account.save()
 
         # Save pitch in config
@@ -494,7 +522,7 @@ def add_outreach_account_view(request):
             }
             config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-        messages.success(request, f"اکانت فرستنده @{username} با موفقیت به مجموعه {business.name} متصل و فعال شد!")
+        messages.success(request, f"اکانت فرستنده @{username} با موفقیت به مجموعه {business.name} متصل و فعال شد! (رده: {tier_specs['title']} | سقف روزانه: {daily_lim} پیام)")
     except Exception as exc:
         logger.exception("Error adding outreach sender account: %s", exc)
         # Even if instant online verification fails due to network, save account so credentials persist
@@ -509,5 +537,88 @@ def add_outreach_account_view(request):
             messages.error(request, f"خطا در احراز هویت اینستاگرام: {exc}")
 
     return redirect("accounts:outreach")
+
+
+@login_required
+@require_POST
+def generate_pitches_ajax_view(request):
+    """Generate 3 high-converting AI pitch options based on business info and consultant persona."""
+    from django.http import JsonResponse
+    from apps.discovery.outreach_service import generate_ai_outreach_pitches
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        return JsonResponse({"success": False, "error": "کسب‌وکار یافت نشد."}, status=400)
+
+    consultant_name = request.POST.get("consultant_name", "").strip() or "مشاور"
+    tone_style = request.POST.get("tone_style", "friendly").strip()
+    focus_area = request.POST.get("focus_area", "").strip()
+
+    pitches = generate_ai_outreach_pitches(
+        business_name=business.name,
+        consultant_name=consultant_name,
+        business_desc=getattr(business, "description", "") or "",
+        tone_style=tone_style,
+        focus_area=focus_area,
+    )
+    return JsonResponse({"success": True, "pitches": pitches})
+
+
+@login_required
+def sync_replies_view(request):
+    """Check direct inbox for any replies from leads across all sender accounts."""
+    from django.http import JsonResponse
+    from apps.discovery.outreach_service import check_and_sync_lead_replies
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        return redirect("accounts:dashboard")
+
+    tenant_key = f"tenant_{business.id}"
+    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+
+    res = check_and_sync_lead_replies(tenant_keys)
+    if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.GET.get("format") == "json":
+        return JsonResponse({"success": True, "replies_found": res.get("replies_found", 0), "details": res.get("details", [])})
+
+    found = res.get("replies_found", 0)
+    if found > 0:
+        messages.success(request, f"پایش صندوق پیام‌ها انجام شد: {found} پاسخ جدید از خریداران دریافت و ثبت شد!")
+    else:
+        messages.info(request, "صندوق پیام‌ها پایش شد؛ پاسخ جدیدی تا این لحظه دریافت نشده است.")
+    return redirect("accounts:outreach")
+
+
+@login_required
+@require_POST
+def send_followup_view(request):
+    """Send a second / follow-up message to a lead from any selected sender account."""
+    from django.http import JsonResponse
+    from apps.discovery.outreach_service import send_second_followup_message
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        return redirect("accounts:dashboard")
+
+    lead_id = request.POST.get("lead_id")
+    sender_username = request.POST.get("sender_username", "").strip().lstrip("@")
+    message_text = request.POST.get("message_text", "").strip()
+
+    if not lead_id or not sender_username or not message_text:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "اطلاعات ارسالی ناقص است."}, status=400)
+        messages.error(request, "لطفاً اکانت فرستنده و متن پیام را وارد فرمایید.")
+        return redirect("accounts:outreach")
+
+    res = send_second_followup_message(int(lead_id), sender_username, message_text)
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse(res)
+
+    if res.get("success"):
+        messages.success(request, f"پیام دوم با موفقیت توسط @{sender_username} برای خریدار ارسال شد.")
+    else:
+        messages.error(request, f"خطا در ارسال پیام دوم: {res.get('error')}")
+    return redirect("accounts:outreach")
+
 
 

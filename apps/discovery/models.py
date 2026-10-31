@@ -1031,11 +1031,21 @@ class InstagramEngineAccount(models.Model):
         ("CHALLENGED", "نیازمند تایید / کد امنیتی (Challenge)"),
         ("BANNED", "مسدود شده (Banned)"),
     ]
+    TIER_CHOICES = [
+        ("NEW", "جدید (زیر ۳ ماه) - ۱۰ تا ۲۰ پیام در روز | ۲ تا ۳ در ساعت"),
+        ("MEDIUM", "متوسط (۳ تا ۱۲ ماه) - ۳۰ تا ۵۰ پیام در روز | ۵ تا ۱۰ در ساعت"),
+        ("AGED", "قدیمی و فعال (بالای ۱ سال) - ۵۰ تا ۱۰۰ پیام در روز | ۱۰ تا ۱۵ در ساعت"),
+    ]
 
     tenant_id = models.CharField(max_length=64, default="tenant_default", db_index=True, verbose_name="شناسه مستأجر / فروشگاه")
     username = models.CharField(max_length=100, unique=True, db_index=True, verbose_name="نام کاربری اینستاگرام")
     password = models.CharField(max_length=255, verbose_name="رمز عبور")
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="SCRAPER", db_index=True, verbose_name="نقش اکانت")
+    account_tier = models.CharField(max_length=20, choices=TIER_CHOICES, default="NEW", verbose_name="سن و رده اکانت")
+    daily_limit = models.PositiveIntegerField(default=18, verbose_name="سقف ارسال روزانه")
+    hourly_limit = models.PositiveIntegerField(default=3, verbose_name="حداکثر سرعت در ساعت")
+    hourly_action_count = models.PositiveIntegerField(default=0, verbose_name="تعداد عملیات در این ساعت")
+    last_hour_reset = models.DateTimeField(null=True, blank=True, verbose_name="زمان ریست شمارنده ساعتی")
     proxy_url = models.CharField(max_length=255, null=True, blank=True, verbose_name="پروکسی (SOCKS5/HTTP)")
     session_json = models.JSONField(null=True, blank=True, verbose_name="دیتای سشن")
     device_settings = models.JSONField(null=True, blank=True, verbose_name="تنظیمات سخت‌افزار")
@@ -1113,6 +1123,40 @@ class InstagramEngineAccount(models.Model):
             "color": color,
         }
 
+    @property
+    def tier_info(self) -> dict:
+        t = self.account_tier or "NEW"
+        if t == "AGED":
+            return {
+                "key": "AGED",
+                "title": "قدیمی و فعال (بالای ۱ سال)",
+                "daily_desc": "۵۰ تا ۱۰۰ پیام در روز",
+                "hourly_desc": "۱۰ تا ۱۵ در ساعت",
+                "delay_desc": "۴ تا ۶ دقیقه وقفه",
+                "color": "#15803d",
+                "bg_color": "#dcfce7",
+            }
+        elif t == "MEDIUM":
+            return {
+                "key": "MEDIUM",
+                "title": "متوسط (۳ تا ۱۲ ماه)",
+                "daily_desc": "۳۰ تا ۵۰ پیام در روز",
+                "hourly_desc": "۵ تا ۱۰ در ساعت",
+                "delay_desc": "۶ تا ۱۲ دقیقه وقفه",
+                "color": "#b45309",
+                "bg_color": "#fef3c7",
+            }
+        else:
+            return {
+                "key": "NEW",
+                "title": "جدید (زیر ۳ ماه)",
+                "daily_desc": "۱۰ تا ۲۰ پیام در روز",
+                "hourly_desc": "۲ تا ۳ در ساعت",
+                "delay_desc": "۲۰ تا ۳۰ دقیقه وقفه",
+                "color": "#1d4ed8",
+                "bg_color": "#dbeafe",
+            }
+
     def __str__(self):
         return f"@{self.username} ({self.get_role_display()} - {self.get_status_display()})"
 
@@ -1120,7 +1164,9 @@ class InstagramEngineAccount(models.Model):
 class InstagramEngineLead(models.Model):
     STATUS_CHOICES = [
         ("NEW", "جدید (در صف ارسال اولویت‌دار)"),
-        ("DM_SENT", "دایرکت ارسال شد"),
+        ("DM_SENT", "دایرکت ارسال شد (در انتظار پاسخ)"),
+        ("REPLIED", "پاسخ مشتری دریافت شد"),
+        ("FOLLOWUP_SENT", "پیام دوم ارسال شد"),
         ("FAILED", "ارسال ناموفق"),
         ("SKIPPED", "رد شده (نامعتبر یا گاردریل اسپم)"),
     ]
@@ -1139,6 +1185,19 @@ class InstagramEngineLead(models.Model):
     matched_cta = models.CharField(max_length=100, null=True, blank=True, verbose_name="کال‌تواکشن منطبق")
     intent_score = models.FloatField(default=0.85, db_index=True, verbose_name="ضریب احتمال خرید")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW", db_index=True, verbose_name="وضعیت لید")
+
+    # Outreach tracking & multi-turn conversations
+    sender_account = models.CharField(max_length=100, blank=True, default="", verbose_name="اکانت ارسال‌کننده پیام اول")
+    initial_dm_text = models.TextField(blank=True, default="", verbose_name="متن پیام اول ارسالی")
+    initial_dm_at = models.DateTimeField(null=True, blank=True, verbose_name="زمان ارسال پیام اول")
+    has_replied = models.BooleanField(default=False, db_index=True, verbose_name="پاسخ داده است")
+    reply_text = models.TextField(blank=True, default="", verbose_name="متن آخرین پاسخ مشتری")
+    reply_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان دریافت پاسخ")
+    second_message_text = models.TextField(blank=True, default="", verbose_name="متن پیام دوم / پیگیری")
+    second_sender_username = models.CharField(max_length=100, blank=True, default="", verbose_name="اکانت ارسال‌کننده پیام دوم")
+    second_message_at = models.DateTimeField(null=True, blank=True, verbose_name="زمان ارسال پیام دوم")
+    conversation_history = models.JSONField(default=list, blank=True, verbose_name="تاریخچه گفتگو")
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان استخراج")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
 

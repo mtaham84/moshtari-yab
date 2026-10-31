@@ -100,7 +100,8 @@ def manage_dashboard(request):
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]
     total_leads = InstagramEngineLead.objects.count()
-    dms_sent_total = InstagramEngineLead.objects.filter(status="DM_SENT").count()
+    dms_sent_total = InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+    dms_replied_total = InstagramEngineLead.objects.filter(has_replied=True).count()
     high_intent_leads = InstagramEngineLead.objects.filter(intent_score__gte=0.85).count()
 
     # 3. Settings & Exchange Rate
@@ -369,6 +370,7 @@ def manage_dashboard(request):
         "leads": leads,
         "total_leads": total_leads,
         "dms_sent_total": dms_sent_total,
+        "dms_replied_total": dms_replied_total,
         "high_intent_leads": high_intent_leads,
         "billing_settings": billing_settings,
         "usd_rate": usd_rate,

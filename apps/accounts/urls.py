@@ -22,5 +22,8 @@ urlpatterns = [
     path("outreach/", views.outreach_view, name="outreach"),
     path("outreach/save-pitch/", views.save_pitch_view, name="save_pitch"),
     path("outreach/add-account/", views.add_outreach_account_view, name="add_outreach_account"),
+    path("outreach/generate-pitches/", views.generate_pitches_ajax_view, name="generate_pitches_ajax"),
+    path("outreach/sync-replies/", views.sync_replies_view, name="sync_replies"),
+    path("outreach/send-followup/", views.send_followup_view, name="send_followup"),
     path("settings/style-sample/", views.style_sample_view, name="style_sample"),
 ]
