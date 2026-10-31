@@ -219,68 +219,68 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                 other_pk = str(other_users[0].pk) if other_users else msg_sender_id
                 other_username = other_users[0].username if other_users else ""
 
-                    # Match lead in database or auto-create from active direct thread
+                # Match lead in database or auto-create from active direct thread
+                lead = InstagramEngineLead.objects.filter(
+                    tenant_id__in=tenant_ids,
+                    ig_user_pk=other_pk,
+                ).first()
+
+                if not lead and other_username:
                     lead = InstagramEngineLead.objects.filter(
                         tenant_id__in=tenant_ids,
-                        ig_user_pk=other_pk,
+                        username__iexact=other_username,
                     ).first()
 
-                    if not lead and other_username:
-                        lead = InstagramEngineLead.objects.filter(
-                            tenant_id__in=tenant_ids,
-                            username__iexact=other_username,
-                        ).first()
+                if not lead and other_username:
+                    # Auto-create lead so any customer who replied is instantly visible
+                    tenant_id = sender.tenant_id if sender.tenant_id else tenant_ids[0]
+                    lead = InstagramEngineLead.objects.create(
+                        tenant_id=tenant_id,
+                        ig_user_pk=other_pk,
+                        username=other_username,
+                        profile_url=f"https://instagram.com/{other_username}",
+                        comment_text="مشتری با ارسال پیام در دایرکت پاسخ داده است",
+                        intent_score=0.98,
+                        status="REPLIED",
+                        sender_account=sender.username,
+                    )
 
-                    if not lead and other_username:
-                        # Auto-create lead so any customer who replied is instantly visible
-                        tenant_id = sender.tenant_id if sender.tenant_id else tenant_ids[0]
-                        lead = InstagramEngineLead.objects.create(
-                            tenant_id=tenant_id,
-                            ig_user_pk=other_pk,
-                            username=other_username,
-                            profile_url=f"https://instagram.com/{other_username}",
-                            comment_text="مشتری با ارسال پیام در دایرکت پاسخ داده است",
-                            intent_score=0.98,
-                            status="REPLIED",
-                            sender_account=sender.username,
-                        )
+                if lead:
+                    msg_text = str(latest_msg.text or "").strip()
+                    msg_time = latest_msg.timestamp or timezone.now()
 
-                    if lead:
-                        msg_text = str(latest_msg.text or "").strip()
-                        msg_time = latest_msg.timestamp or timezone.now()
+                    # Extract our initial message if available
+                    for m in reversed(messages):
+                        if str(m.user_id) == current_user_id and m.text:
+                            lead.initial_dm_text = lead.initial_dm_text or str(m.text)
+                            lead.initial_dm_at = lead.initial_dm_at or m.timestamp
+                            break
 
-                        # Extract our initial message if available
-                        for m in reversed(messages):
-                            if str(m.user_id) == current_user_id and m.text:
-                                lead.initial_dm_text = lead.initial_dm_text or str(m.text)
-                                lead.initial_dm_at = lead.initial_dm_at or m.timestamp
-                                break
+                    # Update lead if it's a new reply or unreplied state
+                    if not lead.has_replied or lead.reply_text != msg_text:
+                        lead.has_replied = True
+                        lead.status = "REPLIED"
+                        lead.reply_text = msg_text
+                        lead.reply_at = msg_time
+                        lead.sender_account = lead.sender_account or sender.username
 
-                        # Update lead if it's a new reply or unreplied state
-                        if not lead.has_replied or lead.reply_text != msg_text:
-                            lead.has_replied = True
-                            lead.status = "REPLIED"
-                            lead.reply_text = msg_text
-                            lead.reply_at = msg_time
-                            lead.sender_account = lead.sender_account or sender.username
+                        history = list(lead.conversation_history or [])
+                        history.append({
+                            "sender": lead.username,
+                            "direction": "in",
+                            "text": msg_text,
+                            "time": msg_time.isoformat() if hasattr(msg_time, "isoformat") else str(msg_time),
+                        })
+                        lead.conversation_history = history
+                        lead.save()
 
-                            history = list(lead.conversation_history or [])
-                            history.append({
-                                "sender": lead.username,
-                                "direction": "in",
-                                "text": msg_text,
-                                "time": msg_time.isoformat() if hasattr(msg_time, "isoformat") else str(msg_time),
-                            })
-                            lead.conversation_history = history
-                            lead.save()
-
-                            synced_count += 1
-                            details.append({
-                                "lead": lead.username,
-                                "sender": sender.username,
-                                "reply_text": msg_text[:80],
-                            })
-                            logger.info(f"✅ New reply detected from @{lead.username} to @{sender.username}: {msg_text[:50]}")
+                        synced_count += 1
+                        details.append({
+                            "lead": lead.username,
+                            "sender": sender.username,
+                            "reply_text": msg_text[:80],
+                        })
+                        logger.info(f"✅ New reply detected from @{lead.username} to @{sender.username}: {msg_text[:50]}")
 
         except Exception as exc:
             logger.warning(f"Error checking replies on sender @{sender.username}: {exc}")
