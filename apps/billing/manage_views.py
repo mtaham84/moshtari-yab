@@ -82,6 +82,14 @@ def manage_dashboard(request):
     senders_total = senders.count()
     senders_active = senders.filter(status="ACTIVE").count()
 
+    from apps.discovery.device_emulator import ensure_account_device_profile
+    for acc in list(scrapers) + list(senders):
+        if not acc.device_settings or not isinstance(acc.device_settings, dict) or not acc.device_settings.get("device_settings"):
+            try:
+                ensure_account_device_profile(acc)
+            except Exception:
+                pass
+
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]
     total_leads = InstagramEngineLead.objects.count()
@@ -437,12 +445,13 @@ def manage_account_add(request):
 
     username = request.POST.get("username", "").strip().lstrip("@")
     password = request.POST.get("password", "").strip()
+    sessionid = (request.POST.get("sessionid") or "").strip()
     role = request.POST.get("role", "SCRAPER").strip().upper()
     proxy_url = request.POST.get("proxy_url", "").strip() or None
     tenant_id = request.POST.get("tenant_id", "tenant_default").strip()
 
-    if not username or not password:
-        err_msg = "نام کاربری و کلمه عبور اینستاگرام الزامی است."
+    if not username or (not password and not sessionid):
+        err_msg = "نام کاربری و (کلمه عبور یا کوکی sessionid) اینستاگرام الزامی است."
         if is_ajax:
             return JsonResponse({"success": False, "requires_code": False, "message": err_msg})
         messages.error(request, err_msg)
@@ -462,17 +471,19 @@ def manage_account_add(request):
             return redirect("manage:dashboard")
         # Update credentials on existing account to allow re-authentication
         account = existing
-        account.password = password
+        if password:
+            account.password = password
         account.role = role
         account.tenant_id = tenant_id
-        account.proxy_url = proxy_url
+        if proxy_url:
+            account.proxy_url = proxy_url
         account.status = "CHALLENGED"
         account.save()
     else:
         account = InstagramEngineAccount.objects.create(
             tenant_id=tenant_id,
             username=username,
-            password=password,
+            password=password or "session_only",
             role=role,
             proxy_url=proxy_url,
             status="CHALLENGED",
@@ -712,27 +723,34 @@ def manage_account_set_session(request, pk):
     This bypasses username/password authentication hurdles and security challenges.
     """
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    sessionid = (request.POST.get("sessionid") or "").strip()
-    if not sessionid:
+    raw_sessionid = (request.POST.get("sessionid") or "").strip()
+    if not raw_sessionid:
         return JsonResponse({"success": False, "message": "لطفاً مقدار کوکی sessionid را وارد نمایید."})
+
+    # Clean sessionid in case full cookie header or key=value was pasted
+    sessionid = raw_sessionid
+    if "sessionid=" in sessionid:
+        import re
+        m = re.search(r"sessionid=([^;\s]+)", sessionid)
+        if m:
+            sessionid = m.group(1).strip()
+    sessionid = sessionid.strip('"').strip("'").strip(";").strip()
 
     from instagrapi import Client
     cl = Client()
     if account.proxy_url:
         cl.set_proxy(account.proxy_url)
 
-    if account.session_json:
-        try:
-            cl.set_settings(account.session_json)
-        except Exception:
-            pass
-
     from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
     dev_profile = ensure_account_device_profile(account)
     try:
         apply_device_profile_to_client(cl, account)
-    except Exception:
-        pass
+    except Exception as dev_err:
+        logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
+
+    # Note: Do NOT call cl.set_settings(account.session_json) here!
+    # Because old session_json contains expired Bearer authorization tokens and mismatched ds_user_id cookies
+    # which cause Instagram to reject the new sessionid with 401 Unauthorized or login_required!
 
     try:
         cl.login_by_sessionid(sessionid)
@@ -758,7 +776,7 @@ def manage_account_set_session(request, pk):
             "success": False,
             "deleted": False,
             "status": "CHALLENGED",
-            "message": f"سشن واردشده برای @{uname} معتبر نبود ({redact(exc, 160)}). اکانت در وضعیت چالش حفظ شد؛ می‌توانید سشن جدید وارد کنید یا در صورت تمایل آن را دستی حذف نمایید.",
+            "message": f"سشن واردشده برای @{uname} معتبر نبود ({redact(exc, 160)}). لطفاً مطمئن شوید کوکی sessionid را از مرورگری که در همان لحظه در اکانت لاگین است کپی کرده‌اید و در صورت داشتن پروکسی، اتصال پروکسی برقرار است.",
         })
 
 

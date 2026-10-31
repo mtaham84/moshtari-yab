@@ -79,3 +79,33 @@ class SessionReplacementTests(TestCase):
         self.assertTrue(out["success"])
         acc.refresh_from_db()
         self.assertEqual(acc.auth_token, "t" * 40)
+
+    def test_ig_raw_cookie_string_cleaned(self):
+        acc = self._ig()
+        fake = mock.MagicMock()
+        fake.get_settings.return_value = {"cookies": {"sessionid": "clean_val"}}
+        with mock.patch("instagrapi.Client", return_value=fake):
+            res = self.client.post(
+                f"/manage/accounts/{acc.pk}/session/",
+                {"sessionid": "sessionid=clean_val; ds_user_id=12345;"},
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+            ).json()
+            self.assertTrue(res["success"])
+            fake.login_by_sessionid.assert_called_with("clean_val")
+
+    def test_device_info_property(self):
+        acc = InstagramEngineAccount(username="test_dev", device_settings={
+            "device_name": "Samsung Galaxy S24 Ultra",
+            "device_settings": {
+                "manufacturer": "Samsung",
+                "model": "SM-S928B",
+                "device": "e3q",
+                "android_release": "14",
+                "resolution": "1440x3120"
+            }
+        })
+        info = acc.device_info
+        self.assertEqual(info["name"], "Samsung Galaxy S24 Ultra")
+        self.assertEqual(info["model"], "SM-S928B")
+        self.assertEqual(info["android_release"], "14")
+        self.assertIn("1440x3120", info["resolution"])

@@ -131,7 +131,7 @@ class EngineConfig:
         "explicit": 1.0, "recommendation": 0.8, "comparison": 0.6, "general": 0.0,
     })
     x_embed_min_sim: float = _f("NE_X_EMBED_MIN_SIM", 0.30)
-    x_embed_gate: str = _f("NE_X_EMBED_GATE", "shadow")
+    x_embed_gate: str = _f("NE_X_EMBED_GATE", "off")
     x_max_posts_per_author_per_run: int = _f("NE_X_MAX_POSTS_PER_AUTHOR_PER_RUN", 3)
     x_batch_size: int = _f("NE_X_BATCH_SIZE", 8)
     x_batch_max_chars: int = _f("NE_X_BATCH_MAX_CHARS", 6000)

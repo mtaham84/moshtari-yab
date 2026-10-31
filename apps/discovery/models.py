@@ -1063,6 +1063,56 @@ class InstagramEngineAccount(models.Model):
             return False
         return True
 
+    @property
+    def device_info(self) -> dict:
+        """Normalized device profile representation for dashboard and logging."""
+        ds = self.device_settings or {}
+        inner = ds.get("device_settings") if isinstance(ds.get("device_settings"), dict) else ds
+        model = inner.get("model") or ds.get("model") or ""
+        manufacturer = inner.get("manufacturer") or ds.get("manufacturer") or ""
+        device = inner.get("device") or ds.get("device") or model
+        android_release = inner.get("android_release") or ds.get("android_release") or "14"
+        resolution = inner.get("resolution") or ds.get("resolution") or ""
+        dpi = inner.get("dpi") or ds.get("dpi") or ""
+        name = ds.get("device_name") or ""
+
+        if not name:
+            if model == "SM-S928B":
+                name = "سامسونگ Galaxy S24 Ultra"
+            elif model == "SM-S916B":
+                name = "سامسونگ Galaxy S23+"
+            elif model in ("Pixel 8 Pro", "husky"):
+                name = "گوگل Pixel 8 Pro"
+            elif model in ("Pixel 7 Pro", "cheetah"):
+                name = "گوگل Pixel 7 Pro"
+            elif model == "23116PN5BC":
+                name = "شیائومی 14 Pro"
+            elif model == "CPH2581":
+                name = "وان‌پلاس 12"
+            elif model == "XQ-DQ72":
+                name = "سونی Xperia 1 V"
+            elif model:
+                name = f"{manufacturer.split('/')[0].strip().title()} {model}"
+            else:
+                name = "دیوایس شبیه‌سازی‌شده"
+
+        color = "#1d4ed8" if ("سامسونگ" in name or "Samsung" in manufacturer) else \
+                "#15803d" if ("گوگل" in name or "Pixel" in model) else \
+                "#ea580c" if ("شیائومی" in name or "Xiaomi" in manufacturer) else \
+                "#dc2626" if ("وان‌پلاس" in name or "OnePlus" in manufacturer) else \
+                "#7c3aed" if ("سونی" in name or "Sony" in manufacturer) else "#0369a1"
+
+        return {
+            "name": name,
+            "model": model,
+            "device": device,
+            "manufacturer": manufacturer.split('/')[0].strip().title(),
+            "android_release": str(android_release),
+            "resolution": resolution,
+            "dpi": dpi,
+            "color": color,
+        }
+
     def __str__(self):
         return f"@{self.username} ({self.get_role_display()} - {self.get_status_display()})"
 
