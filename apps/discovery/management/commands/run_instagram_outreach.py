@@ -183,13 +183,16 @@ class Command(BaseCommand):
             from requests.adapters import HTTPAdapter
 
             class TimeoutHTTPAdapter(HTTPAdapter):
-                def __init__(self, timeout=12, *args, **kwargs):
-                    self.timeout = timeout
+                def __init__(self, connect_timeout=10, read_timeout=15, post_read_timeout=35, *args, **kwargs):
+                    self.connect_timeout = connect_timeout
+                    self.read_timeout = read_timeout
+                    self.post_read_timeout = post_read_timeout
                     super().__init__(*args, **kwargs)
 
                 def send(self, request, **kwargs):
                     if kwargs.get("timeout") is None:
-                        kwargs["timeout"] = self.timeout
+                        rt = self.post_read_timeout if request.method == "POST" else self.read_timeout
+                        kwargs["timeout"] = (self.connect_timeout, rt)
                     return super().send(request, **kwargs)
 
             cl = Client()
@@ -198,7 +201,7 @@ class Command(BaseCommand):
             if account.proxy_url:
                 cl.set_proxy(account.proxy_url)
 
-            adapter = TimeoutHTTPAdapter(timeout=12)
+            adapter = TimeoutHTTPAdapter(connect_timeout=10, read_timeout=15, post_read_timeout=35)
             cl.private.mount("https://", adapter)
             cl.private.mount("http://", adapter)
 
