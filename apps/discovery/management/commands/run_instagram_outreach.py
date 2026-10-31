@@ -315,14 +315,27 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING("ساعت کاری به پایان رسید. توقف بچ."))
                     break
 
-                # Pick sender round-robin across available senders
-                sender = available_senders[idx % len(available_senders)]
-                # Refresh from DB to have latest quota/status
-                sender.refresh_from_db()
-                if sender.daily_action_count >= max_daily_dms or sender.status != "ACTIVE":
-                    self.stdout.write(self.style.WARNING(f"اکانت @{sender.username} دیگر در دسترس نیست. چرخش به اکانت بعدی..."))
-                    continue
+                # Pick active sender with remaining daily and hourly quota
+                chosen_sender = None
+                candidates = available_senders[idx % len(available_senders):] + available_senders[:idx % len(available_senders)]
+                for cand in candidates:
+                    cand.refresh_from_db()
+                    cand_daily_limit = cand.daily_limit or max_daily_dms or 18
+                    cand_hourly_limit = cand.hourly_limit or 3
+                    if (
+                        cand.status == "ACTIVE"
+                        and cand.daily_action_count < cand_daily_limit
+                        and (cand.hourly_action_count or 0) < cand_hourly_limit
+                        and (not cand.cooldown_until or cand.cooldown_until <= django_tz.now())
+                    ):
+                        chosen_sender = cand
+                        break
 
+                if not chosen_sender:
+                    self.stdout.write(self.style.WARNING("⚠️ هیچ اکانت فرستنده‌ای در این لحظه دارای کوتای ارسال خالی نیست. پایان بچ."))
+                    break
+
+                sender = chosen_sender
                 sender_user = sender.username
                 pitch_info = (
                     sender_pitches.get(sender_user)
@@ -340,13 +353,14 @@ class Command(BaseCommand):
                     business_name="مجموعه تخصصی سرو",
                 )
 
+                limit_display = sender.daily_limit or max_daily_dms or 18
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
                     f"| احتمال خرید: {int(lead.intent_score * 100)}% | نیاز: {lead.comment_text[:40]}"
                 )
                 self.stdout.write(
-                    f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{max_daily_dms}"
+                    f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
                 )
 
                 if dry_run:
@@ -457,31 +471,40 @@ class Command(BaseCommand):
                         sender.save(update_fields=["status", "status_message"])
                         clients_cache.pop(sender.username, None)
                         self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} وارد چالش شد. از مدار خارج شد."))
-                    elif "1404006" in exc_str or "message controls" in exc_str:
-                        # Recipient's privacy settings block stranger message requests (not sender's fault)
+                    elif "1404006" in exc_str:
+                        # Error 1404006: Meta's temporary action block on this sender sending DMs to non-followers
+                        self.stderr.write(self.style.ERROR(
+                            f"   ⚠️ [محدودیت دایرکت 1404006]: اکانت @{sender.username} دارای محدودیت ارسال دایرکت به غیرفالوور است. انتقال به استراحت و تعویض اکانت."
+                        ))
+                        cooldown_hours = 3
+                        sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
+                        sender.status = "COOLDOWN"
+                        sender.status_message = f"محدودیت موقت دایرکت (1404006) - استراحت {cooldown_hours} ساعته"
+                        sender.save(update_fields=["cooldown_until", "status", "status_message"])
+                        clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
+                        # Lead remains NEW so another active sender can deliver it
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
+                    elif "message controls" in exc_str:
                         self.stdout.write(self.style.WARNING(
-                            f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} دریافت پیام از غریبه‌ها را مسدود کرده است (رد شد)."
+                            f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} تنظیمات پیام را مسدود کرده است (رد شد)."
                         ))
                         lead.status = "SKIPPED"
                         lead.comment_text = (lead.comment_text or "") + "\n[محدودیت کاربر]: مسدود بودن دایرکت اکانت‌های ناشناس"
                         lead.save(update_fields=["status", "comment_text", "updated_at"])
-                        # Only take a short breather if multiple recipients in a row are restricted
-                        if consec_err >= 4:
-                            cooldown_minutes = 45
-                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=cooldown_minutes)
-                            sender.status_message = f"استراحت کوتاه ({cooldown_minutes} دقیقه پس از چند مخاطب مسدود)"
-                            sender.save(update_fields=["cooldown_until", "status_message"])
-                            clients_cache.pop(sender.username, None)
-                            self.stderr.write(self.style.WARNING(f"   ⏳ اکانت @{sender.username} جهت ایمنی {cooldown_minutes} دقیقه استراحت می‌کند."))
                     elif "feedback" in exc_str or "please wait" in exc_str or "rate limit" in exc_str or "403" in exc_str:
-                        if consec_err >= 2 or "feedback" in exc_str:
-                            cooldown_hours = 4
-                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
-                            sender.status_message = f"محدودیت موقت اینستاگرام (استراحت {cooldown_hours} ساعته)"
-                            sender.save(update_fields=["cooldown_until", "status_message"])
-                            clients_cache.pop(sender.username, None)
-                            self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} در حالت استراحت موقت قرار گرفت."))
-                        lead.status = "FAILED"
+                        cooldown_hours = 3
+                        sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
+                        sender.status = "COOLDOWN"
+                        sender.status_message = f"محدودیت موقت اینستاگرام (استراحت {cooldown_hours} ساعته)"
+                        sender.save(update_fields=["cooldown_until", "status", "status_message"])
+                        clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
+                        self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} در حالت استراحت موقت قرار گرفت."))
+                        lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
                     else:
                         lead.status = "FAILED"
