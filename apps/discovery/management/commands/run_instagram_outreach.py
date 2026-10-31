@@ -119,20 +119,20 @@ class Command(BaseCommand):
         parser.add_argument(
             "--delay-min",
             type=int,
-            default=240,
-            help="Minimum delay in seconds between consecutive DMs (default: 240s / 4m).",
+            default=1500,
+            help="Minimum delay in seconds between consecutive DMs (default: 1500s / 25m).",
         )
         parser.add_argument(
             "--delay-max",
             type=int,
-            default=480,
-            help="Maximum delay in seconds between consecutive DMs (default: 480s / 8m).",
+            default=3000,
+            help="Maximum delay in seconds between consecutive DMs (default: 3000s / 50m).",
         )
         parser.add_argument(
             "--max-daily-dms",
             type=int,
-            default=18,
-            help="Maximum daily DMs per sender account (default: 18).",
+            default=9,
+            help="Maximum daily DMs per sender account (default: 9 DMs in 5-6 hours).",
         )
         parser.add_argument(
             "--ignore-circadian",

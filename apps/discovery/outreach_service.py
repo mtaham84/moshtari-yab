@@ -15,38 +15,41 @@ from django.utils import timezone
 
 logger = logging.getLogger("instagram_outreach")
 
-# Dealism Rate Limit Benchmarks
+# Dealism Rate Limit Benchmarks (Optimized for Personal Accounts)
 TIER_LIMITS = {
     "NEW": {
-        "title": "اکانت جدید (زیر ۱ تا ۳ ماه)",
-        "min_daily": 10,
-        "max_daily": 20,
-        "default_daily": 15,
-        "hourly_speed": 3,
-        "min_delay_sec": 1200,  # 20 minutes
-        "max_delay_sec": 1800,  # 30 minutes
+        "title": "اکانت شخصی و تازه (حداکثر ایمنی ضد بلاک)",
+        "min_daily": 8,
+        "max_daily": 10,
+        "default_daily": 9,
+        "hourly_speed": 2,  # حداکثر ۱ تا ۲ پیام در ساعت
+        "min_delay_sec": 1500,  # 25 minutes
+        "max_delay_sec": 3000,  # 50 minutes (کاملاً تصادفی و متغیر)
+        "delay_desc": "۲۵ تا ۵۰ دقیقه وقفه متغیر و رندوم (۹ پیام در ۵ الی ۶ ساعت)",
         "color": "#1d4ed8",
         "bg_color": "#dbeafe",
     },
     "MEDIUM": {
         "title": "اکانت متوسط (۳ تا ۱۲ ماه)",
-        "min_daily": 30,
-        "max_daily": 50,
-        "default_daily": 40,
-        "hourly_speed": 8,
-        "min_delay_sec": 360,   # 6 minutes
-        "max_delay_sec": 720,   # 12 minutes
+        "min_daily": 15,
+        "max_daily": 25,
+        "default_daily": 18,
+        "hourly_speed": 4,
+        "min_delay_sec": 720,   # 12 minutes
+        "max_delay_sec": 1500,  # 25 minutes
+        "delay_desc": "۱۲ تا ۲۵ دقیقه وقفه متغیر",
         "color": "#b45309",
         "bg_color": "#fef3c7",
     },
     "AGED": {
         "title": "اکانت قدیمی و فعال (بالای ۱ سال)",
-        "min_daily": 50,
-        "max_daily": 100,
-        "default_daily": 75,
-        "hourly_speed": 12,
-        "min_delay_sec": 240,   # 4 minutes
-        "max_delay_sec": 360,   # 6 minutes
+        "min_daily": 30,
+        "max_daily": 50,
+        "default_daily": 35,
+        "hourly_speed": 6,
+        "min_delay_sec": 480,   # 8 minutes
+        "max_delay_sec": 900,   # 15 minutes
+        "delay_desc": "۸ تا ۱۵ دقیقه وقفه متغیر",
         "color": "#15803d",
         "bg_color": "#dcfce7",
     },
@@ -203,17 +206,20 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                 if not messages:
                     continue
 
-                latest_msg = messages[0]
+                # Find any message in this thread from the customer
+                customer_messages = [m for m in messages if str(m.user_id) != current_user_id and (getattr(m, "text", "") or "").strip()]
+                if not customer_messages:
+                    continue
+
+                latest_msg = customer_messages[0]
                 msg_sender_id = str(latest_msg.user_id)
 
-                # If the latest message was sent by the customer (not our bot account)
-                if msg_sender_id != current_user_id:
-                    # Find other participant in thread
-                    other_users = getattr(th, "users", [])
-                    other_pk = str(other_users[0].pk) if other_users else msg_sender_id
-                    other_username = other_users[0].username if other_users else ""
+                # Find other participant in thread
+                other_users = getattr(th, "users", [])
+                other_pk = str(other_users[0].pk) if other_users else msg_sender_id
+                other_username = other_users[0].username if other_users else ""
 
-                    # Match lead in database
+                    # Match lead in database or auto-create from active direct thread
                     lead = InstagramEngineLead.objects.filter(
                         tenant_id__in=tenant_ids,
                         ig_user_pk=other_pk,
@@ -225,11 +231,32 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                             username__iexact=other_username,
                         ).first()
 
+                    if not lead and other_username:
+                        # Auto-create lead so any customer who replied is instantly visible
+                        tenant_id = sender.tenant_id if sender.tenant_id else tenant_ids[0]
+                        lead = InstagramEngineLead.objects.create(
+                            tenant_id=tenant_id,
+                            ig_user_pk=other_pk,
+                            username=other_username,
+                            profile_url=f"https://instagram.com/{other_username}",
+                            comment_text="مشتری با ارسال پیام در دایرکت پاسخ داده است",
+                            intent_score=0.98,
+                            status="REPLIED",
+                            sender_account=sender.username,
+                        )
+
                     if lead:
                         msg_text = str(latest_msg.text or "").strip()
                         msg_time = latest_msg.timestamp or timezone.now()
 
-                        # Update lead if it's a new reply
+                        # Extract our initial message if available
+                        for m in reversed(messages):
+                            if str(m.user_id) == current_user_id and m.text:
+                                lead.initial_dm_text = lead.initial_dm_text or str(m.text)
+                                lead.initial_dm_at = lead.initial_dm_at or m.timestamp
+                                break
+
+                        # Update lead if it's a new reply or unreplied state
                         if not lead.has_replied or lead.reply_text != msg_text:
                             lead.has_replied = True
                             lead.status = "REPLIED"
@@ -245,10 +272,7 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                                 "time": msg_time.isoformat() if hasattr(msg_time, "isoformat") else str(msg_time),
                             })
                             lead.conversation_history = history
-                            lead.save(update_fields=[
-                                "has_replied", "status", "reply_text", "reply_at",
-                                "sender_account", "conversation_history", "updated_at"
-                            ])
+                            lead.save()
 
                             synced_count += 1
                             details.append({

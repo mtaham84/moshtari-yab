@@ -149,7 +149,7 @@ services:
     <<: *app
     environment:
       <<: *app-env
-    command: ["python", "manage.py", "run_instagram_outreach", "--tenant", "tenant_4", "--loop", "--batch-size", "5", "--interval", "15", "--delay-min", "240", "--delay-max", "480", "--max-daily-dms", "18"]
+    command: ["python", "manage.py", "run_instagram_outreach", "--tenant", "tenant_4", "--loop", "--batch-size", "2", "--interval", "20", "--delay-min", "1500", "--delay-max", "3000", "--max-daily-dms", "9"]
     depends_on:
       web:
         condition: service_healthy

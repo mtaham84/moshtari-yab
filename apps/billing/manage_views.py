@@ -346,6 +346,44 @@ def manage_dashboard(request):
         approved_x_tweets = []
         queries_top_rated = queries_top_gainers = queries_top_losers = []
 
+    # Load outreach pitch config
+    from pathlib import Path
+    import json
+    config_path = Path("data/sarv_outreach_config.json")
+    sender_pitches = {}
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            sender_pitches = cfg.get("sender_pitches", {})
+        except Exception:
+            pass
+
+    accounts_with_pitches = []
+    for s in senders:
+        p = sender_pitches.get(s.username) or sender_pitches.get(s.username.lower(), {})
+        accounts_with_pitches.append({
+            "obj": s,
+            "consultant_name": p.get("consultant_name", s.username),
+            "template": p.get("template", ""),
+        })
+
+    default_pitch = ""
+    default_consultant = ""
+    if accounts_with_pitches:
+        default_pitch = accounts_with_pitches[0]["template"]
+        default_consultant = accounts_with_pitches[0]["consultant_name"]
+    if not default_pitch:
+        default_pitch = (
+            "درود بر شما \n"
+            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
+            "میتونید هر سوالی دارید از بنده بپرسید. \n"
+            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
+        )
+        default_consultant = "مشاور دندان‌پزشکی"
+
+    outreach_replied_leads = InstagramEngineLead.objects.filter(has_replied=True).order_by("-reply_at")[:50]
+    outreach_replied_count = InstagramEngineLead.objects.filter(has_replied=True).count()
+
     context = {
         "nav": "manage",
         "proxy_configs": proxy_configs,
@@ -360,6 +398,11 @@ def manage_dashboard(request):
         "senders": senders,
         "senders_total": senders_total,
         "senders_active": senders_active,
+        "accounts_with_pitches": accounts_with_pitches,
+        "default_pitch": default_pitch,
+        "default_consultant": default_consultant,
+        "outreach_replied_leads": outreach_replied_leads,
+        "outreach_replied_count": outreach_replied_count,
         "twitter_scrapers": twitter_scrapers,
         "twitter_scrapers_total": twitter_scrapers_total,
         "twitter_scrapers_active": twitter_scrapers_active,
@@ -404,7 +447,7 @@ def manage_dashboard(request):
         "queries_top_rated": queries_top_rated,
         "queries_top_gainers": queries_top_gainers,
         "queries_top_losers": queries_top_losers,
-        "outreach_dms_list": InstagramEngineLead.objects.filter(status="DM_SENT").order_by("-updated_at")[:60],
+        "outreach_dms_list": InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:60],
         "outreach_pending_count": InstagramEngineLead.objects.filter(status="NEW").count(),
         "outreach_failed_count": InstagramEngineLead.objects.filter(status="FAILED").count(),
         "now": dj_timezone.now(),
