@@ -355,7 +355,9 @@ def manage_dashboard(request):
         if selected_outreach_biz:
             b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
             senders = senders.filter(tenant_id__in=b_tenants)
-            leads = leads.filter(tenant_id__in=b_tenants)
+            leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).order_by("-intent_score", "created_at")[:60]
+            total_leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).count()
+            dms_sent_total = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
             senders_total = senders.count()
             senders_active = senders.filter(status="ACTIVE").count()
 
