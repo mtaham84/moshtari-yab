@@ -1228,7 +1228,7 @@
               {{ s.daily_action_count }} / 18 پیام
             </td>
             <td class="jalali-time-cell">
-              {% if s.last_action_at %}{{ s.last_action_at|jalali_datetime }}{% else %}<span class="muted">-</span>{% endif %}
+              {% if s.last_action_at %}{{ s.last_action_at|jalali_dt }}{% else %}<span class="muted">-</span>{% endif %}
             </td>
           </tr>
           {% empty %}
@@ -1282,7 +1282,7 @@
               {{ lead.comment_text }}
             </td>
             <td class="jalali-time-cell">
-              {{ lead.updated_at|jalali_datetime }}
+              {{ lead.updated_at|jalali_dt }}
             </td>
             <td>
               <span class="badge-status active" style="font-size:0.78rem;">

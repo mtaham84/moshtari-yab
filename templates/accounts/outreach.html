@@ -296,7 +296,7 @@
             {{ a.obj.daily_action_count }} از ۱۸ دایرکت
           </td>
           <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
-            {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_datetime }}{% else %}در انتظار ارسال بعدی{% endif %}
+            {% if a.obj.last_action_at %}{{ a.obj.last_action_at|jalali_dt }}{% else %}در انتظار ارسال بعدی{% endif %}
           </td>
         </tr>
         {% empty %}
@@ -349,7 +349,7 @@
             {{ lead.comment_text }}
           </td>
           <td style="padding:12px; color:var(--panel-text-muted); font-size:0.82rem;">
-            {{ lead.updated_at|jalali_datetime }}
+            {{ lead.updated_at|jalali_dt }}
           </td>
           <td style="padding:12px; text-align:center;">
             <span style="background:#e6f9f0; color:#0e8a4a; padding:3px 10px; border-radius:99px; font-weight:700; font-size:0.78rem;">
