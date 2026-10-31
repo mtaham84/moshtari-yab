@@ -185,9 +185,15 @@ def phrase_candidates(product: Any, terms: dict[str, Any] | None, card: Any = No
     names = short_terms(list(terms.get("names") or []) + core_terms(product, card), 4, strip_noise=True, max_words=3)
     out += [(p, "intent") for p in names]
     
-    # Category C: Problem-Based Intent
+    # Category C: Problem-Based Intent (including Entity-Blind need triplets)
+    triplet_pains = []
+    for t in (terms.get("need_triplets") or terms.get("triplets") or []):
+        if isinstance(t, dict):
+            p = t.get("pain") or t.get("symptom")
+            if p and isinstance(p, str):
+                triplet_pains.append(p)
     pain = short_terms(list(terms.get("problem_based") or []) + list(terms.get("pain_symptoms") or []) + list(terms.get("problems") or [])
-                       + list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []), 8)
+                       + list(terms.get("dissatisfactions") or []) + list(terms.get("complaints") or []) + triplet_pains, 8)
     out += [(p, "problem") for p in pain]
 
     # Category B: Advice Seeking
@@ -369,7 +375,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = min(15, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "10")))))
+    max_count = min(15, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "15")))))
     per_format = min(10, max(1, int(os.getenv("X_QUERY_PER_FORMAT", "3"))))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     llm_names = list(terms.get("names") or [])

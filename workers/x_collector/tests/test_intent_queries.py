@@ -254,3 +254,36 @@ def test_too_broad_phrases_are_rejected_but_specific_ones_pass():
 
     out = short_terms(["لباس", "خرید لباس", "پوشاک", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش", "کت", "خدمات"], 10)
     assert out == ["خرید لباس", "جوراب", "لباس مجلسی مردانه", "دامن چرم", "قیمت کفش"]
+
+
+def test_entity_blind_need_triplets_sanitized_and_queried():
+    from need_engine.schemas import Product
+    from workers.x_collector.llm_terms import sanitize
+    from workers.x_collector.intent_queries import phrase_candidates, product_queries
+
+    raw = {
+        "need_triplets": [
+            {"context": "کار با رایانه و ابزار دیجیتال", "trigger": "خیره شدن طولانی به صفحه", "pain": "خستگی چشم"},
+            {"context": "برنامه‌نویسی و رندر سنگین", "trigger": "اجرای همزمان شبیه‌ساز", "pain": "داغ شدن سیستم"}
+        ],
+        "explicit_intent": ["خرید لپتاپ مهندسی"],
+        "advice_seeking": ["لپتاپ برای رندر چی خوبه"],
+        "problem_based": ["داغ شدن لپتاپ موقع رندر"],
+        "price_budget": ["قیمت لپتاپ استوک"],
+        "experience_comparison": ["تجربه کار با مک بوک"],
+        "names": ["لپتاپ استوک"],
+    }
+    sanitized = sanitize(raw)
+    assert len(sanitized["need_triplets"]) == 2
+    assert sanitized["need_triplets"][0]["pain"] == "خستگی چشم"
+    assert sanitized["need_triplets"][1]["pain"] == "داغ شدن سیستم"
+
+    product = Product(product_id="101", business_id="2", title="لپتاپ استوک مهندسی")
+    candidates = phrase_candidates(product, sanitized)
+    candidate_phrases = [c[0] for c in candidates]
+    assert "خستگی چشم" in candidate_phrases
+    assert "داغ شدن سیستم" in candidate_phrases
+
+    queries = product_queries(product, sanitized)
+    assert 1 <= len(queries) <= 15
+
