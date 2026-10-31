@@ -152,7 +152,7 @@ class LLMClient:
         base_url, api_key = self.registry.endpoint(model_name)
         post_body = dict(body)
         if "generativelanguage.googleapis.com" in base_url and post_body.get("model") == "gpt-6-luna":
-            post_body["model"] = "gemini-3.1-flash-lite"
+            post_body["model"] = "gemini-3.5-flash-lite"
         req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(post_body).encode(),
                                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         try:
