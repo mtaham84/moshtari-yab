@@ -54,19 +54,20 @@ class EngineConfig:
     # ── LLM (OpenAI-compatible endpoint; Gemini by default) ────────────────
     llm_base_url: str = _f("NE_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
     llm_api_key: str = field(default_factory=lambda: os.environ.get("NE_LLM_API_KEY") or os.environ.get("GEMINI_API_KEY", ""))
-    extract_model: str = _f("NE_EXTRACT_MODEL", "gemini-3.5-flash-lite")   # product cards + need cards
-    verify_model: str = _f("NE_VERIFY_MODEL", "gemini-3.5-flash-lite")     # checklist verification
-    reply_model: str = _f("NE_REPLY_MODEL", "gemini-3.5-flash-lite")       # reply drafts
+    extract_model: str = _f("NE_EXTRACT_MODEL", "gpt-6-luna")              # product cards + need cards
+    verify_model: str = _f("NE_VERIFY_MODEL", "gpt-6-luna")                # checklist verification
+    reply_model: str = _f("NE_REPLY_MODEL", "gpt-6-luna")                  # reply drafts
     reasoning_effort: str = _f("NE_REASONING_EFFORT", "")                   # e.g. "low"; empty = provider default
     llm_timeout: int = _f("NE_LLM_TIMEOUT", 150)
     llm_max_retries: int = _f("NE_LLM_MAX_RETRIES", 6)
     max_workers: int = _f("NE_MAX_WORKERS", 2)
     # USD per 1M tokens (input, output)
     prices: dict = _f("NE_PRICES", {
-        "gemini-3.5-flash-lite": [0.30, 2.50], "gemini-3.5-flash": [1.50, 9.00], "gemini-2.5-flash-lite": [0.10, 0.40],
+        "gpt-6-luna": [0.10, 0.50], "gemini-3.5-flash-lite": [0.30, 2.50], "gemini-3.5-flash": [1.50, 9.00], "gemini-2.5-flash-lite": [0.10, 0.40],
     })
     # rpm / tpm / rpd per model (None = unlimited). Copy real numbers from AI Studio → Rate limits.
     rate_limits: dict = _f("NE_RATE_LIMITS", {
+        "gpt-6-luna": {"rpm": 15, "tpm": 300000, "rpd": None},
         "gemini-3.5-flash-lite": {"rpm": 10, "tpm": 200000, "rpd": 500},
         "gemini-3.5-flash": {"rpm": 5, "tpm": 200000, "rpd": 100},
         "gemini-2.5-flash-lite": {"rpm": 15, "tpm": 250000, "rpd": 1000},
@@ -116,7 +117,7 @@ class EngineConfig:
     x_fit_yes_score: float = _f("NE_X_FIT_YES_SCORE", 0.9)      # per-product mode: match score of fit yes / partly
     x_fit_partly_score: float = _f("NE_X_FIT_PARTLY_SCORE", 0.7)
     x_max_per_run: int = _f("NE_X_MAX_PER_RUN", 200)
-    x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 65.0)
+    x_min_match_score: float = _f("NE_X_MIN_MATCH_SCORE", 30.0)
     x_prefilter: str = _f("NE_X_PREFILTER", "shadow")
     x_min_chars: int = _f("NE_X_MIN_CHARS", 15)
     x_min_persian_ratio: float = _f("NE_X_MIN_PERSIAN_RATIO", 0.5)
@@ -129,8 +130,8 @@ class EngineConfig:
     x_intent_weights: dict = _f("NE_X_INTENT_WEIGHTS", {
         "explicit": 1.0, "recommendation": 0.8, "comparison": 0.6, "general": 0.0,
     })
-    x_embed_min_sim: float = _f("NE_X_EMBED_MIN_SIM", 0.35)
-    x_embed_gate: str = _f("NE_X_EMBED_GATE", "shadow")
+    x_embed_min_sim: float = _f("NE_X_EMBED_MIN_SIM", 0.30)
+    x_embed_gate: str = _f("NE_X_EMBED_GATE", "off")
     x_max_posts_per_author_per_run: int = _f("NE_X_MAX_POSTS_PER_AUTHOR_PER_RUN", 3)
     x_batch_size: int = _f("NE_X_BATCH_SIZE", 8)
     x_batch_max_chars: int = _f("NE_X_BATCH_MAX_CHARS", 6000)

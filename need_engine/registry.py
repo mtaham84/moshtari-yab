@@ -35,7 +35,7 @@ def role_of(stage: str) -> str | None:
         return "verify"
     if s.startswith("reply") or "rewrite" in s:
         return "reply"
-    if s in ("need_extraction", "product_cards", "product_extract") or "extract" in s:
+    if s in ("need_extraction", "product_cards", "product_extract") or "extract" in s or "expand" in s:
         return "extract"
     return None
 

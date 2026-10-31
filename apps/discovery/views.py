@@ -846,6 +846,15 @@ def opportunity_feedback_view(request, pk):
     if reason and reason not in dict(SELLER_FEEDBACK_REASON_CHOICES):
         return JsonResponse({"status": "error", "message": "دلیل بازخورد نامعتبر است."}, status=400)
 
+    # Prevent submitting feedback more than once
+    if opportunity.feedback in {"relevant", "irrelevant"}:
+        return JsonResponse({
+            "status": "already_submitted",
+            "message": "برای این پیام قبلاً بازخورد ثبت شده است و امکان ثبت مجدد وجود ندارد.",
+            "feedback": opportunity.feedback,
+            "new_status": opportunity.status
+        }, status=400)
+
     metadata = dict(opportunity.trace_metadata or {})
     metadata["seller_feedback"] = feedback
     opportunity.feedback = feedback
@@ -855,12 +864,80 @@ def opportunity_feedback_view(request, pk):
     metadata["seller_feedback_reason"] = reason
     opportunity.trace_metadata = metadata
     update_fields = ["feedback", "feedback_at", "feedback_reason", "trace_metadata", "updated_at"]
-    if opportunity.source_platform == "x":
+
+    if feedback == "relevant":
+        opportunity.status = "QUALIFIED"
+        update_fields.append("status")
+    elif feedback == "irrelevant":
+        opportunity.status = "REJECTED"
+        update_fields.append("status")
+
+    if opportunity.source_platform == "instagram":
+        ig_meta = metadata.get("instagram", {})
+        s_type = ig_meta.get("source_type")
+        s_label = ig_meta.get("source_label")
+        if s_type and s_label:
+            from apps.discovery.models import InstagramSourceStat
+            stat = InstagramSourceStat.objects.filter(
+                business=business,
+                source_type=s_type,
+                label=s_label[:100]
+            ).first()
+            if stat:
+                if feedback == "relevant":
+                    stat.alpha += 2.0
+                    stat.leads += 1
+                    stat.save(update_fields=["alpha", "leads"])
+                elif feedback == "irrelevant":
+                    stat.beta += 3.0
+                    stat.save(update_fields=["beta"])
+                    # Auto-retire defective query if seller repeatedly rejects leads from it
+                    if stat.beta >= 8.0 and stat.alpha <= 1.5:
+                        from apps.discovery.management.commands.run_instagram_scraper import Command as ScraperCommand
+                        ScraperCommand()._retire_and_delete_source(
+                            business=business,
+                            source_type=s_type,
+                            label=s_label
+                        )
+    elif opportunity.source_platform == "x":
         opportunity.lead_feedback = "good" if feedback == "relevant" else "bad_not_buyer"
         opportunity.lead_feedback_at = opportunity.feedback_at
         update_fields.extend(["lead_feedback", "lead_feedback_at"])
+        # Update X query stats via Thompson Sampling
+        x_query = opportunity.source_query or ""
+        if x_query:
+            from apps.discovery.models import InstagramSourceStat
+            stat = InstagramSourceStat.objects.filter(
+                business=business,
+                source_type="x_query",
+                label=x_query[:100]
+            ).first()
+            if not stat and business:
+                stat = InstagramSourceStat.objects.create(
+                    business=business,
+                    family_id=f"x_{business.pk}",
+                    source_type="x_query",
+                    label=x_query[:100],
+                    alpha=1.0,
+                    beta=1.0
+                )
+            if stat:
+                if feedback == "relevant":
+                    stat.alpha += 2.0
+                    stat.leads += 1
+                    stat.save(update_fields=["alpha", "leads"])
+                elif feedback == "irrelevant":
+                    stat.beta += 3.0
+                    stat.save(update_fields=["beta"])
+
     opportunity.save(update_fields=update_fields)
-    return JsonResponse({"status": "success", "feedback": feedback, "reason": reason})
+    return JsonResponse({
+        "status": "success",
+        "message": "بازخورد با موفقیت ثبت شد و در یادگیری سیستم اعمال گردید.",
+        "feedback": feedback,
+        "reason": reason,
+        "new_status": opportunity.status
+    })
 
 
 @login_required

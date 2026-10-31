@@ -235,6 +235,7 @@
           <option value="85" {% if selected_min_score == '85' %}selected{% endif %}>انطباق خیلی بالا (≥ ۸۵٪)</option>
           <option value="70" {% if selected_min_score == '70' %}selected{% endif %}>انطباق بالا (≥ ۷۰٪)</option>
           <option value="50" {% if selected_min_score == '50' %}selected{% endif %}>انطباق متوسط (≥ ۵۰٪)</option>
+          <option value="30" {% if selected_min_score == '30' %}selected{% endif %}>مشتری بالقوه (≥ ۳۰٪)</option>
         </select>
       </div>
 
@@ -392,12 +393,9 @@
               {% endif %}
             </div>
             {% if opp.instagram_post_caption %}
-              <details style="margin-top: 4px;">
-                <summary style="font-size: 0.73rem; color: var(--stone-text-muted); cursor: pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> پیش‌نمایش کپشن پست</summary>
-                <p style="font-size: 0.74rem; background: var(--stone-surface-sunken); padding: 6px 8px; border-radius: 6px; margin-top: 4px; line-height: 1.4; color: var(--panel-text-main);">
-                  {{ opp.instagram_post_caption|truncatechars:180 }}
-                </p>
-              </details>
+              <div style="margin-top: 6px; font-size: 0.77rem; background: var(--stone-surface-sunken); border-right: 2px solid #0284c7; padding: 6px 10px; border-radius: 4px; line-height: 1.45; color: var(--panel-text-main);">
+                <span style="font-weight: 700; color: #0284c7;"><svg class="ico" aria-hidden="true" style="width: 12px; height: 12px;"><use href="#i-doc"/></svg> کپشن پست:</span> {{ opp.instagram_post_caption|truncatechars:200 }}
+              </div>
             {% endif %}
           {% elif opp.source_platform == 'x' %}
             <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
@@ -457,11 +455,19 @@
               <span>جزئیات</span>
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </a>
-            <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
-              <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
-            </select>
-            <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مشتری واقعی</button>
-            <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
+            {% if opp.feedback %}
+              <span class="p-badge" style="background: {% if opp.feedback == 'relevant' %}rgba(16, 185, 129, 0.15); color: #047857{% else %}rgba(239, 68, 68, 0.15); color: #DC2626{% endif %}; font-size: 0.78rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;">
+                ثبت‌شده: {% if opp.feedback == 'relevant' %}مرتبط{% else %}نامرتبط{% endif %}
+              </span>
+            {% else %}
+              <div class="feedback-actions" style="display: inline-flex; align-items: center; gap: 6px;">
+                <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+                  <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+                </select>
+                <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مرتبط</button>
+                <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
+              </div>
+            {% endif %}
             <span class="opp-cost" title="هزینه‌ی هوش مصنوعی برای این فرصت">هزینه‌ی هوش مصنوعی: {{ opp.cost_toman_display }} تومان</span>
           </div>
         </div>
@@ -586,12 +592,9 @@
               <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست در اینستاگرام ↗
             </a>
             {% if opp.instagram_post_caption %}
-              <details>
-                <summary style="font-size: 0.74rem; color: var(--stone-text-muted); cursor: pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> پیش‌نمایش کپشن</summary>
-                <div style="font-size: 0.75rem; background: #fff; padding: 6px; border-radius: 6px; margin-top: 4px; border: 1px solid var(--panel-border-subtle); line-height: 1.4; max-width: 380px;">
-                  {{ opp.instagram_post_caption|truncatechars:180 }}
-                </div>
-              </details>
+              <div style="margin-top: 6px; width: 100%; font-size: 0.77rem; background: rgba(2, 132, 199, 0.05); border-right: 2px solid #0284c7; padding: 6px 10px; border-radius: 4px; line-height: 1.45; color: var(--panel-text-main);">
+                <span style="font-weight: 700; color: #0284c7;"><svg class="ico" aria-hidden="true" style="width: 12px; height: 12px;"><use href="#i-doc"/></svg> کپشن پست:</span> {{ opp.instagram_post_caption|truncatechars:200 }}
+              </div>
             {% endif %}
           </div>
         {% elif opp.source_platform == 'x' and opp.x_post_url %}
@@ -621,12 +624,19 @@
           <span style="font-size: 0.76rem; color: var(--stone-text-muted);">• تاریخ ثبت: {{ opp.created_at_jalali }}</span>
         </div>
 
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-          <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
-            <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
-          </select>
-          <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مشتری واقعی</button>
-          <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
+        {% if opp.feedback %}
+          <span class="p-badge" style="background: {% if opp.feedback == 'relevant' %}rgba(16, 185, 129, 0.15); color: #047857{% else %}rgba(239, 68, 68, 0.15); color: #DC2626{% endif %}; font-size: 0.8rem; font-weight: 700; padding: 5px 12px; border-radius: 6px;">
+            ثبت‌شده: {% if opp.feedback == 'relevant' %}مرتبط{% else %}نامرتبط{% endif %}
+          </span>
+        {% else %}
+          <div class="feedback-actions" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+              <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+            </select>
+            <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مرتبط</button>
+            <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
+          </div>
+        {% endif %}
           <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary" style="padding: 6px 14px; font-size: 0.82rem;">
             <span>مشاهده تحلیل کامل و پیش‌نویس پاسخ</span>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
@@ -676,9 +686,27 @@
 <!-- Client-side Interactive Helpers -->
 <script>
 (() => {
+  function showFeedbackSuccessToast(msg) {
+    let toast = document.getElementById('global-feedback-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'global-feedback-toast';
+      toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#047857;color:#fff;padding:10px 20px;border-radius:8px;font-size:0.86rem;font-weight:700;box-shadow:0 10px 25px rgba(0,0,0,0.25);z-index:9999;transition:all 0.3s ease;display:flex;align-items:center;gap:8px;pointer-events:none;';
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = `<span>✓</span> <span>${msg}</span>`;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(-50%) translateY(10px)';
+    }, 4000);
+  }
+
   document.querySelectorAll('.list-feedback-button').forEach(button => {
     button.addEventListener('click', () => {
       const row = button.closest('article, .opportunity-card');
+      const container = button.closest('.feedback-actions') || row;
       const reason = row?.querySelector('.feedback-reason')?.value || '';
       row?.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = true; });
       fetch(button.dataset.endpoint, {
@@ -687,9 +715,16 @@
         body: 'feedback=' + encodeURIComponent(button.dataset.feedback) + '&reason=' + encodeURIComponent(reason)
       }).then(response => response.json()).then(data => {
         if (data.status !== 'success') throw new Error(data.message || 'ذخیره بازخورد ناموفق بود.');
-        row.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = item.dataset.feedback === button.dataset.feedback; });
-      }).catch(() => {
+        const fbLabel = data.feedback === 'relevant' ? 'مرتبط' : 'نامرتبط';
+        const colorBg = data.feedback === 'relevant' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+        const colorText = data.feedback === 'relevant' ? '#047857' : '#DC2626';
+        if (container) {
+          container.innerHTML = `<span class="p-badge" style="background: ${colorBg}; color: ${colorText}; font-size: 0.8rem; font-weight: 700; padding: 5px 12px; border-radius: 6px;">✓ بازخورد ثبت شد: ${fbLabel}</span>`;
+        }
+        showFeedbackSuccessToast(data.message || 'بازخورد با موفقیت ثبت شد و در یادگیری سیستم اعمال گردید.');
+      }).catch(err => {
         row?.querySelectorAll('.list-feedback-button').forEach(item => { item.disabled = false; });
+        alert(err.message || 'خطا در ذخیره بازخورد');
       });
     });
   });

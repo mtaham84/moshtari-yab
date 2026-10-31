@@ -16,7 +16,7 @@ from need_engine.text import norm
 from workers.x_collector.families import build_families
 
 INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT = max(1, int(os.getenv("INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT", "8")))
-INSTAGRAM_PAGE_MIN_COMMENTS = max(1, int(os.getenv("INSTAGRAM_PAGE_MIN_COMMENTS", "20")))
+INSTAGRAM_PAGE_MIN_COMMENTS = max(1, int(os.getenv("INSTAGRAM_PAGE_MIN_COMMENTS", "10")))
 INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE = max(1, int(os.getenv("INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE", "4")))
 INSTAGRAM_DAILY_REQUEST_BUDGET = max(1, int(os.getenv("INSTAGRAM_DAILY_REQUEST_BUDGET", "150")))
 PLAN_SYSTEM = """You are a senior Instagram discovery strategist for Persian-speaking (Iran) sellers. A FAMILY is one seller + one category
@@ -78,7 +78,7 @@ def _phrases(value: Any, *, limit: int, words_max: int = 3, max_len: int = 60) -
     return out
 
 
-def _validate_plan(data: Any) -> dict[str, list[str]]:
+def _validate_plan(data: Any, family=None) -> dict[str, list[str]]:
     if not isinstance(data, dict):
         raise ValueError("پاسخ طرح اینستاگرام معتبر نیست")
     fields = {
@@ -92,9 +92,43 @@ def _validate_plan(data: Any) -> dict[str, list[str]]:
                      if not _WEAK_SEARCH_WORDS.intersection(norm(phrase).split())]
     mega = {"لباس", "فروشگاه", "تخفیف", "پوشاک", "shop", "store", "fashion"}
     plan["hashtags"] = [tag for tag in plan["hashtags"] if " " not in tag and tag.casefold() not in mega]
-    if (len(plan["hashtags"]) < 6 or len(plan["keywords"]) < 4 or len(plan["page_search_terms"]) < 4
-            or len(plan["buyer_signals"]) < 6):
-        raise ValueError("پاسخ طرح اینستاگرام ناقص است")
+
+    # Backfill buyer_signals if below 6
+    if len(plan["buyer_signals"]) < 6:
+        for sig in GENERIC_BUYER_SIGNALS:
+            if sig not in plan["buyer_signals"]:
+                plan["buyer_signals"].append(sig)
+            if len(plan["buyer_signals"]) >= 6:
+                break
+
+    # Backfill hashtags if below 6 from family context
+    if family and len(plan["hashtags"]) < 6:
+        fam_words = [re.sub(r"\s+", "_", t.strip()) for t in (getattr(family, "titles", []) or [])]
+        for fw in fam_words:
+            clean = re.sub(r"[^\w_]", "", fw)
+            if clean and clean not in mega and clean not in plan["hashtags"] and len(clean) >= 3:
+                plan["hashtags"].append(clean)
+            if len(plan["hashtags"]) >= 6:
+                break
+
+    # Backfill keywords if below 4 from family context
+    if family and len(plan["keywords"]) < 4:
+        for t in (getattr(family, "titles", []) or []):
+            clean = " ".join([w for w in t.split() if norm(w) not in _WEAK_SEARCH_WORDS and len(w) > 2][:3])
+            if clean and clean not in plan["keywords"]:
+                plan["keywords"].append(clean)
+            if len(plan["keywords"]) >= 4:
+                break
+
+    # Backfill page_search_terms if below 4
+    if family and len(plan["page_search_terms"]) < 4:
+        for t in (getattr(family, "titles", []) or []) + [getattr(family, "title", "")]:
+            cand = f"فروشگاه {t}"[:40]
+            if cand not in plan["page_search_terms"]:
+                plan["page_search_terms"].append(cand)
+            if len(plan["page_search_terms"]) >= 4:
+                break
+
     return plan
 
 
@@ -126,7 +160,7 @@ def ensure_family_plan(business, family, call_llm: Callable | None = None):
     }
     result = call_llm(PLAN_SYSTEM, json.dumps(payload, ensure_ascii=False), purpose="instagram_family_plan",
                       business_id=business.pk)
-    plan = _validate_plan(result)
+    plan = _validate_plan(result, family=family)
     with transaction.atomic():
         row, _ = InstagramFamilyPlan.objects.update_or_create(
             business=business, family_id=family.product_id,
@@ -208,7 +242,7 @@ def sample_sources(business, candidates: list[DiscoverySource], limit: int, *, r
     scored.sort(key=lambda pair: pair[0], reverse=True)
     pinned, seen_types = [], set()
     for _, source in scored:
-        if source.manual and source.source_type not in seen_types:
+        if source.manual and (source.source_type == "page" or source.source_type not in seen_types):
             pinned.append(source)
             seen_types.add(source.source_type)
             if len(pinned) >= limit:
@@ -231,12 +265,120 @@ def record_source_result(business, source: DiscoverySource, leads: int, status: 
     row.requests += 1
     row.leads += max(0, int(leads))
     if leads:
-        row.alpha += int(leads)
+        # LLM autonomous soft reward when buyer leads are found (gentle increment)
+        row.alpha += min(1.0, 0.3 * float(leads))
     else:
-        row.beta += 0.25 if status in {"FAILED", "THROTTLED"} else 0.5
+        # LLM autonomous soft penalty when crawl finds 0 leads or fails (gentle increment)
+        row.beta += 0.15 if status in {"FAILED", "THROTTLED"} else 0.20
     row.last_run_at = timezone.now()
     row.save(update_fields=["requests", "leads", "alpha", "beta", "last_run_at"])
     return row
+
+
+def expand_queries_from_top_sources(business, plan, family=None, retired_label: str = "") -> list[str]:
+    """
+    Generate new candidate discovery queries (hashtags/keywords) inspired by
+    top-performing queries for this family and business, using LLM.
+    """
+    from .models import InstagramSourceStat
+    from apps.core.llm import chat_json
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not business or not plan:
+        return []
+
+    # 1. Fetch top performing queries
+    top_stats = list(InstagramSourceStat.objects.filter(
+        business=business,
+        family_id=plan.family_id,
+        alpha__gte=1.5
+    ).order_by("-alpha", "-leads")[:6])
+
+    successful_labels = [s.label for s in top_stats if s.label != retired_label]
+    if not successful_labels:
+        # Fallback to existing tags or keywords
+        successful_labels = (list(plan.hashtags or []) + list(plan.keywords or []))[:4]
+
+    family_path = getattr(family, "category_path", "") if family else ""
+    product_titles = (getattr(family, "titles", []) or [])[:6] if family else []
+    if not product_titles and business:
+        from apps.products.models import Product
+        product_titles = list(Product.objects.filter(business=business, status="ACTIVE").values_list("name", flat=True)[:6])
+
+    prompt_system = """You are an Instagram query expansion expert for Iranian retail/wholesale sellers.
+Based on successful discovery queries and product context, generate 2-3 NEW, high-performing Persian hashtags and keywords.
+Guidelines:
+- Return strictly valid JSON: {"new_hashtags": ["tag1", "tag2"], "new_keywords": ["term1", "term2"]}
+- New queries must be inspired by the intent of the successful queries, but NOT duplicate them.
+- Avoid banned generic mega-words (like لباس, پوشاک, فروشگاه).
+- Hashtags without # sign, 1-3 words separated by underscore.
+- Keywords: 1-3 words colloquial Persian phrases used by buyers.
+"""
+    user_payload = {
+        "family_path": family_path,
+        "product_titles": product_titles,
+        "top_performing_queries": successful_labels,
+        "retired_unqualified_query": retired_label or "",
+        "existing_hashtags": plan.hashtags or [],
+        "existing_keywords": plan.keywords or [],
+    }
+
+    try:
+        res = chat_json(
+            prompt_system,
+            json.dumps(user_payload, ensure_ascii=False),
+            purpose="expand_instagram_queries",
+            business_id=business.pk
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to expand queries via LLM: {exc}")
+        return []
+
+    if not isinstance(res, dict):
+        return []
+
+    new_tags = _phrases(res.get("new_hashtags"), limit=3, words_max=3, max_len=40)
+    new_kw = _phrases(res.get("new_keywords"), limit=3, words_max=3, max_len=60)
+
+    mega = {"لباس", "فروشگاه", "تخفیف", "پوشاک", "shop", "store", "fashion"}
+    added = []
+
+    current_tags = list(plan.hashtags or [])
+    for tag in new_tags:
+        clean_tag = tag.replace(" ", "_").casefold()
+        if clean_tag not in mega and clean_tag not in [t.casefold() for t in current_tags]:
+            current_tags.append(tag)
+            added.append(f"#{tag}")
+            InstagramSourceStat.objects.get_or_create(
+                business=business,
+                family_id=plan.family_id,
+                source_type="hashtag",
+                label=tag[:100],
+                defaults={"alpha": 1.0, "beta": 1.0}
+            )
+
+    current_kw = list(plan.keywords or [])
+    for kw in new_kw:
+        clean_kw = kw.casefold()
+        if clean_kw not in [k.casefold() for k in current_kw]:
+            current_kw.append(kw)
+            added.append(kw)
+            InstagramSourceStat.objects.get_or_create(
+                business=business,
+                family_id=plan.family_id,
+                source_type="keyword",
+                label=kw[:100],
+                defaults={"alpha": 1.0, "beta": 1.0}
+            )
+
+    if added:
+        plan.hashtags = current_tags
+        plan.keywords = current_kw
+        plan.save(update_fields=["hashtags", "keywords"])
+        logger.info(f"Expanded queries for family {plan.family_id}: {added}")
+
+    return added
 
 
 def cheap_buyer_match(text: str, buyer_signals: list[str], negative_signals: list[str] | None = None) -> bool:

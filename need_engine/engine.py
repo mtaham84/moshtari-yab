@@ -509,8 +509,8 @@ class NeedEngine:
         if x_prefilter_enabled(self.cfg) and prefilter_setting == "on":
             self.store.drop_x_pending([m for m in pending if m not in kept], decisions, mode="on")
         # Stage 4: Embedding gate in product mode (NE_X_MODE=product / before LLM)
-        embed_mode = getattr(self.cfg, "x_embed_gate", "shadow") or prefilter_setting
-        if product_id is not None and self.cfg.x_mode in {"product", "both"} and embed_mode != "off" and kept:
+        embed_mode = getattr(self.cfg, "x_embed_gate", "off")
+        if product_id is not None and self.cfg.x_mode in {"product", "both"} and embed_mode not in {"off", "disabled", "none", ""} and kept:
             p_idx = self.catalog.pid_index.get(product_id)
             if p_idx is not None:
                 pvecs = self.catalog.product_vectors(product_id)
@@ -586,7 +586,12 @@ class NeedEngine:
                 return
             self.store.update_need(n)
             return
-        score = self.cfg.x_fit_yes_score if fit == "yes" else self.cfg.x_fit_partly_score
+        if fit == "yes":
+            score = self.cfg.x_fit_yes_score
+        elif getattr(n, "strength", "") == "weak":
+            score = max(0.40, min(self.cfg.x_fit_partly_score, 0.50))
+        else:
+            score = self.cfg.x_fit_partly_score
         mp = MatchedProduct(product_id=pid, match_score=score, similarity=1.0,
                             verdict=Verdict(solves=fit, reason=reason or None))
         prev = self.store.emitted(n.need_id)

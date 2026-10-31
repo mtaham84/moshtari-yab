@@ -140,6 +140,8 @@ def test_x_buyer_gate_requires_confirmed_intent_medium_strength_and_author_evide
     assert _confirmed_x_buyer(candidate, [1], "x_1", {1: author_post})
     assert not _confirmed_x_buyer({**candidate, "buyer_intent_confirmed": False}, [1], "x_1", {1: author_post})
     assert not _confirmed_x_buyer({**candidate, "strength": "weak"}, [1], "x_1", {1: author_post})
+    assert _confirmed_x_buyer({**candidate, "strength": "weak"}, [1], "x_1", {1: author_post}, min_strength="weak")
+    assert _confirmed_x_buyer({**candidate, "label": "implicit_need"}, [1], "x_1", {1: author_post})
     assert not _confirmed_x_buyer(candidate, [2], "x_1", {2: other_post})
     assert not _confirmed_x_buyer({**candidate, "label": "curiosity"}, [1], "x_1", {1: author_post})
     assert not _confirmed_x_buyer({**candidate, "author_type": "organization"}, [1], "x_1", {1: author_post})

@@ -22,10 +22,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone as dj_timezone
 from django.views.decorators.http import require_POST, require_GET
 
+import zoneinfo
+
 from apps.businesses.models import Business
 from apps.billing.models import Wallet, WalletTransaction, BillingSettings
-from apps.discovery.models import (InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
-                                   InstagramSourceStat, TwitterEngineAccount)
+from apps.discovery.models import (
+    InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
+    InstagramSourceStat, TwitterEngineAccount, InstagramCrawledPost,
+    XCrawledPost, Opportunity, ProxyConfig
+)
+from apps.core.jalali import format_jalali_date
 
 logger = logging.getLogger("management")
 
@@ -82,6 +88,14 @@ def manage_dashboard(request):
     senders = InstagramEngineAccount.objects.filter(role="SENDER").order_by("-id")
     senders_total = senders.count()
     senders_active = senders.filter(status="ACTIVE").count()
+
+    from apps.discovery.device_emulator import ensure_account_device_profile
+    for acc in list(scrapers) + list(senders):
+        if not acc.device_settings or not isinstance(acc.device_settings, dict) or not acc.device_settings.get("device_settings"):
+            try:
+                ensure_account_device_profile(acc)
+            except Exception:
+                pass
 
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]
@@ -229,13 +243,107 @@ def manage_dashboard(request):
 
     # 8. Proxy Pool & Configs
     try:
-        from apps.discovery.models import ProxyConfig
         proxy_configs = ProxyConfig.objects.all().order_by("local_port")
         proxy_configs_total = proxy_configs.count()
         proxy_configs_active = proxy_configs.filter(status="ACTIVE").count()
     except Exception:
         proxy_configs = []
         proxy_configs_total = proxy_configs_active = 0
+
+    # 9. Comprehensive Crawler & Query Intelligence Metrics
+    try:
+        now_dt = dj_timezone.now()
+        thirty_days_ago = now_dt - timedelta(days=30)
+        tehran_tz = zoneinfo.ZoneInfo("Asia/Tehran")
+
+        # 1. Instagram Crawl & Quality KPIs
+        ig_posts_total = InstagramCrawledPost.objects.count()
+        ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago).count()
+        ig_posts_rejected = max(0, ig_posts_total - ig_posts_approved)
+        ig_comments_total = InstagramCrawledPost.objects.aggregate(s=Sum("comment_count"))["s"] or 0
+        ig_comments_approved = InstagramEngineLead.objects.count()
+        ig_comments_rejected = max(0, ig_comments_total - ig_comments_approved)
+
+        # Approved Instagram Posts
+        approved_ig_posts = list(
+            InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago)
+            .order_by("-crawled_at")[:40]
+        )
+        for p in approved_ig_posts:
+            p.post_url = f"https://www.instagram.com/p/{p.media_code}/" if p.media_code else ""
+            p.posted_jalali = format_jalali_date(p.posted_at.astimezone(tehran_tz).date(), persian_digits=True) if p.posted_at else "—"
+            p.crawled_jalali = format_jalali_date(p.crawled_at.astimezone(tehran_tz).date(), persian_digits=True) if p.crawled_at else "—"
+
+        # 2. Twitter / X Crawl & Quality KPIs
+        x_tweets_inspected = XCrawledPost.objects.count()
+        x_opps_qs = Opportunity.objects.filter(source_platform="x")
+        x_leads_count = x_opps_qs.count()
+        x_tweets_approved = x_opps_qs.exclude(status="REJECTED").count()
+        x_tweets_rejected = max(0, x_tweets_inspected - x_tweets_approved)
+
+        # Approved Twitter Tweets
+        approved_x_tweets = list(
+            x_opps_qs.exclude(status="REJECTED")
+            .select_related("customer", "ai_analysis", "category", "business")
+            .order_by("-created_at")[:40]
+        )
+        for t in approved_x_tweets:
+            t.created_jalali = format_jalali_date(t.created_at.astimezone(tehran_tz).date(), persian_digits=True) if t.created_at else "—"
+            handle = t.customer.source_username.lstrip("@") if (t.customer and t.customer.source_username) else ""
+            t.author_handle_clean = handle
+            if handle and t.source_message_id:
+                t.tweet_url = f"https://x.com/{handle}/status/{t.source_message_id}"
+            elif t.source_message_id:
+                t.tweet_url = f"https://x.com/i/web/status/{t.source_message_id}"
+            elif handle:
+                t.tweet_url = f"https://x.com/{handle}"
+            else:
+                t.tweet_url = ""
+
+        # 3. Query Intelligence (Bayesian Thompson Sampling)
+        all_stats_qs = InstagramSourceStat.objects.select_related("business").all()
+        query_items = []
+        for s in all_stats_qs:
+            total_ev = s.alpha + s.beta
+            score = round((s.alpha / total_ev) * 100.0, 1) if total_ev > 0 else 50.0
+            delta = round(score - 50.0, 1)
+            type_title = (
+                "کوئری X (توییتر)" if s.source_type == "x_query"
+                else "هشتگ اینستاگرام" if s.source_type == "hashtag"
+                else "کلیدواژه اینستاگرام" if s.source_type == "keyword"
+                else "صفحه هدف اینستاگرام" if s.source_type == "page"
+                else s.source_type
+            )
+            platform_name = "X (توییتر)" if s.source_type == "x_query" else "اینستاگرام"
+            last_run_jalali = format_jalali_date(s.last_run_at.astimezone(tehran_tz).date(), persian_digits=True) if s.last_run_at else "—"
+            query_items.append({
+                "id": s.id,
+                "label": s.label,
+                "business_name": s.business.name if s.business else "عمومی",
+                "source_type": s.source_type,
+                "type_title": type_title,
+                "platform": platform_name,
+                "alpha": round(s.alpha, 2),
+                "beta": round(s.beta, 2),
+                "requests": s.requests,
+                "leads": s.leads,
+                "score": score,
+                "delta": delta,
+                "last_run_jalali": last_run_jalali,
+            })
+
+        queries_top_rated = sorted(query_items, key=lambda x: (-x["score"], -x["leads"]))
+        queries_top_gainers = sorted([q for q in query_items if q["delta"] > 0], key=lambda x: -x["delta"])
+        queries_top_losers = sorted([q for q in query_items if q["delta"] < 0], key=lambda x: x["delta"])
+
+    except Exception as exc:
+        logger.warning("Could not calculate crawler audit metrics: %s", exc)
+        ig_posts_total = ig_posts_approved = ig_posts_rejected = 0
+        ig_comments_total = ig_comments_approved = ig_comments_rejected = 0
+        approved_ig_posts = []
+        x_tweets_inspected = x_tweets_approved = x_leads_count = x_tweets_rejected = 0
+        approved_x_tweets = []
+        queries_top_rated = queries_top_gainers = queries_top_losers = []
 
     context = {
         "nav": "manage",
@@ -279,6 +387,21 @@ def manage_dashboard(request):
         "businesses": businesses,
         "crawl_executions": InstagramCrawlExecution.objects.all().select_related("business", "account").order_by("-crawled_at")[:60],
         "instagram_source_stats": InstagramSourceStat.objects.select_related("business").order_by("-last_run_at", "business_id")[:150],
+        "ig_posts_total": ig_posts_total,
+        "ig_posts_approved": ig_posts_approved,
+        "ig_posts_rejected": ig_posts_rejected,
+        "ig_comments_total": ig_comments_total,
+        "ig_comments_approved": ig_comments_approved,
+        "ig_comments_rejected": ig_comments_rejected,
+        "approved_ig_posts": approved_ig_posts,
+        "x_tweets_inspected": x_tweets_inspected,
+        "x_tweets_approved": x_tweets_approved,
+        "x_leads_count": x_leads_count,
+        "x_tweets_rejected": x_tweets_rejected,
+        "approved_x_tweets": approved_x_tweets,
+        "queries_top_rated": queries_top_rated,
+        "queries_top_gainers": queries_top_gainers,
+        "queries_top_losers": queries_top_losers,
         "now": dj_timezone.now(),
     }
     return render(request, "ops/manage_dashboard.html", context)
@@ -329,12 +452,13 @@ def manage_account_add(request):
 
     username = request.POST.get("username", "").strip().lstrip("@")
     password = request.POST.get("password", "").strip()
+    sessionid = (request.POST.get("sessionid") or "").strip()
     role = request.POST.get("role", "SCRAPER").strip().upper()
     proxy_url = request.POST.get("proxy_url", "").strip() or None
     tenant_id = request.POST.get("tenant_id", "tenant_default").strip()
 
-    if not username or not password:
-        err_msg = "نام کاربری و کلمه عبور اینستاگرام الزامی است."
+    if not username or (not password and not sessionid):
+        err_msg = "نام کاربری و (کلمه عبور یا کوکی sessionid) اینستاگرام الزامی است."
         if is_ajax:
             return JsonResponse({"success": False, "requires_code": False, "message": err_msg})
         messages.error(request, err_msg)
@@ -354,17 +478,19 @@ def manage_account_add(request):
             return redirect("manage:dashboard")
         # Update credentials on existing account to allow re-authentication
         account = existing
-        account.password = password
+        if password:
+            account.password = password
         account.role = role
         account.tenant_id = tenant_id
-        account.proxy_url = proxy_url
+        if proxy_url:
+            account.proxy_url = proxy_url
         account.status = "CHALLENGED"
         account.save()
     else:
         account = InstagramEngineAccount.objects.create(
             tenant_id=tenant_id,
             username=username,
-            password=password,
+            password=password or "session_only",
             role=role,
             proxy_url=proxy_url,
             status="CHALLENGED",
@@ -604,27 +730,34 @@ def manage_account_set_session(request, pk):
     This bypasses username/password authentication hurdles and security challenges.
     """
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    sessionid = (request.POST.get("sessionid") or "").strip()
-    if not sessionid:
+    raw_sessionid = (request.POST.get("sessionid") or "").strip()
+    if not raw_sessionid:
         return JsonResponse({"success": False, "message": "لطفاً مقدار کوکی sessionid را وارد نمایید."})
+
+    # Clean sessionid in case full cookie header or key=value was pasted
+    sessionid = raw_sessionid
+    if "sessionid=" in sessionid:
+        import re
+        m = re.search(r"sessionid=([^;\s]+)", sessionid)
+        if m:
+            sessionid = m.group(1).strip()
+    sessionid = sessionid.strip('"').strip("'").strip(";").strip()
 
     from instagrapi import Client
     cl = Client()
     if account.proxy_url:
         cl.set_proxy(account.proxy_url)
 
-    if account.session_json:
-        try:
-            cl.set_settings(account.session_json)
-        except Exception:
-            pass
-
     from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
     dev_profile = ensure_account_device_profile(account)
     try:
         apply_device_profile_to_client(cl, account)
-    except Exception:
-        pass
+    except Exception as dev_err:
+        logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
+
+    # Note: Do NOT call cl.set_settings(account.session_json) here!
+    # Because old session_json contains expired Bearer authorization tokens and mismatched ds_user_id cookies
+    # which cause Instagram to reject the new sessionid with 401 Unauthorized or login_required!
 
     try:
         cl.login_by_sessionid(sessionid)
@@ -650,7 +783,7 @@ def manage_account_set_session(request, pk):
             "success": False,
             "deleted": False,
             "status": "CHALLENGED",
-            "message": f"سشن واردشده برای @{uname} معتبر نبود ({redact(exc, 160)}). اکانت در وضعیت چالش حفظ شد؛ می‌توانید سشن جدید وارد کنید یا در صورت تمایل آن را دستی حذف نمایید.",
+            "message": f"سشن واردشده برای @{uname} معتبر نبود ({redact(exc, 160)}). لطفاً مطمئن شوید کوکی sessionid را از مرورگری که در همان لحظه در اکانت لاگین است کپی کرده‌اید و در صورت داشتن پروکسی، اتصال پروکسی برقرار است.",
         })
 
 

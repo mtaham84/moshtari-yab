@@ -33,12 +33,19 @@ class TwitterAccount:
     def is_available(self) -> bool:
         if not self.is_active or self.status in {"BANNED", "DISABLED", "CHALLENGED"}:
             return False
+        now = datetime.now(timezone.utc)
         if self.cooldown_until:
-            now = datetime.now(timezone.utc)
             cd = self.cooldown_until if self.cooldown_until.tzinfo else self.cooldown_until.replace(tzinfo=timezone.utc)
             if cd > now:
                 return False
+            self.cooldown_until = None
+            if self.status == "COOLDOWN":
+                self.status = "ACTIVE"
+        max_daily = int(os.getenv("X_ACCOUNT_MAX_DAILY_ACTIONS", "250"))
+        if self.daily_actions >= max_daily:
+            return False
         return True
+
 
 
 def _env_account() -> "TwitterAccount | None":
@@ -143,18 +150,32 @@ class TwitterAccountPool:
             log.warning("Failed to seed initial Twitter accounts: %s", exc)
 
     def get_next_account(self) -> TwitterAccount | None:
-        """Selects the next available healthy account using round-robin logic."""
+        """Selects the next available healthy account, balancing daily load equally across accounts."""
         if not self.accounts:
             self.refresh()
+        now = datetime.now(timezone.utc)
+        for acc in self.accounts:
+            if acc.last_action_at:
+                last_act = acc.last_action_at if acc.last_action_at.tzinfo else acc.last_action_at.replace(tzinfo=timezone.utc)
+                if last_act.date() < now.date():
+                    acc.daily_actions = 0
+            if acc.cooldown_until:
+                cd = acc.cooldown_until if acc.cooldown_until.tzinfo else acc.cooldown_until.replace(tzinfo=timezone.utc)
+                if cd <= now:
+                    acc.cooldown_until = None
+                    if acc.status == "COOLDOWN":
+                        acc.status = "ACTIVE"
+
         available = [acc for acc in self.accounts if acc.is_available()]
         if not available:
             return None
 
-        # Round-robin
-        self._current_index = self._current_index % len(available)
-        account = available[self._current_index]
-        self._current_index = (self._current_index + 1) % len(available)
-        return account
+        # Sort by daily_actions ascending so queries are distributed equally among all active accounts.
+        # Ties broken by last_action_at ascending (least recently used) and then account ID.
+        epoch_start = datetime.min.replace(tzinfo=timezone.utc)
+        available.sort(key=lambda a: (a.daily_actions, a.last_action_at or epoch_start, a.id))
+        return available[0]
+
 
     def record_rate_limit(self, account: TwitterAccount, cooldown_seconds: int = 900) -> None:
         """Sets an account in cooldown and persists to database."""

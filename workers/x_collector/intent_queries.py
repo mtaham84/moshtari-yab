@@ -123,21 +123,29 @@ def is_short_query(query: str) -> bool:
     return 1 <= n <= MAX_PHRASE_WORDS
 
 
-# words that describe nothing by themselves: «لباس» alone is hopeless, «لباس مجلسی مردانه» or «جوراب» is a real topic
-BROAD_WORDS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "کیف", "لوازم", "ساعت", "کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
-                                  "مد", "ابزار", "وسیله", "وسایل", "چیز", "چیزی", "جنس", "برند", "کیفیت", "ارزان", "گران",
-                                  "بهترین", "خوب", "جدید", "اصل", "اصلی", "ویژه", "عمده", "تکی", "آنلاین", "اینترنتی")}
+# Purely generic filler words that have no topical product substance
+GENERIC_FILLER = {norm(w) for w in ("کالا", "محصول", "محصولات", "خدمات", "سرویس", "فروشگاه", "مغازه",
+                                    "وسیله", "وسایل", "چیز", "چیزی", "جنس", "برند", "کیفیت",
+                                    "بهترین", "خوب", "جدید", "اصل", "اصلی", "ویژه", "تکی", "آنلاین", "اینترنتی")}
+# Topic nouns that are valid when combined with other words (e.g. "لباس مردانه", "خرید لباس")
+CATEGORY_NOUNS = {norm(w) for w in ("لباس", "پوشاک", "کفش", "کیف", "ساعت", "ابزار", "مد")}
+BROAD_WORDS = GENERIC_FILLER | CATEGORY_NOUNS
 AUDIENCE_WORDS = {norm(w) for w in ("مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی")}
 ACTION_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام", "دنبال", "میخوام",
                                    "می‌خوام", "نیاز", "فروش", "تهیه", "بخرم", "راهنمایی", "مشاوره", "نظر", "پیدا", "کردن")}
-WEAK_QUERY_WORDS = {norm(w) for w in ("خرید", "قیمت", "سفارش", "پیشنهاد", "معرفی", "تجربه", "کجا", "کدوم", "کدام",
-                                       "تخفیف", "ارسال", "فروش", "رایگان", "موجود", "موجوده", "چنده", "ارزان", "گرون")}
+WEAK_QUERY_WORDS = {norm(w) for w in ("رایگان", "مفت", "نامناسب", "بدفرم", "بی‌کیفیت", "آشغال", "خرابکاری")}
 
 
 def is_too_broad(words: list[str]) -> bool:
-    """Reject phrases whose remaining topic is only a generic category or audience («خرید لباس مردانه»)."""
-    content = [norm(w) for w in words if norm(w) not in ACTION_WORDS | AUDIENCE_WORDS]
-    return not content or all(w in BROAD_WORDS for w in content)
+    """Reject phrases that describe no product or specific topic at all (e.g. lone 'لباس' or 'خرید آنلاین').
+    Realistic buyer phrases like 'خرید لباس مردانه', 'پوشاک مردانه', 'لباس مردانه', 'پیراهن مردانه' are valid."""
+    clean = [norm(w) for w in words]
+    if not clean:
+        return True
+    if len(clean) == 1:
+        return clean[0] in BROAD_WORDS | ACTION_WORDS | AUDIENCE_WORDS
+    # Reject if all words are purely abstract filler + actions with no topic or category
+    return all(w in GENERIC_FILLER | ACTION_WORDS for w in clean)
 
 
 def short_terms(values: Any, cap: int = 8, strip_noise: bool = False) -> list[str]:
@@ -292,20 +300,30 @@ QUERY_FORMAT = {"problem": "A", "complaint": "A", "alternative": "B", "solution"
 
 
 def balanced_pick(candidates: list[dict[str, Any]], reference: str, total: int, per_format: int) -> list[dict[str, Any]]:
-    """Up to ``per_format`` MMR-diverse queries from each of the three formats, topped up to ``total``."""
+    """Up to ``per_format`` MMR-diverse queries from each of the three formats, topped up to ``total``.
+    Strongly prioritizes 2-word queries."""
     from shared.mmr import select_by_mmr
     buckets: dict[str, list[dict[str, Any]]] = {"A": [], "B": [], "C": []}
     for item in candidates:
         buckets[QUERY_FORMAT.get(item.get("kind"), "C")].append(item)
 
+    def pref_key(item: dict[str, Any]) -> int:
+        n = positive_word_count(item.get("query", ""))
+        return 0 if n == 2 else (1 if n == 3 else 2)
+
+    for fmt in ("A", "B", "C"):
+        buckets[fmt].sort(key=pref_key)
+
     def mmr(items: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
-        return select_by_mmr(items, lambda i: i["query"], reference_context=reference, top_k=k, lambda_param=0.65) if items and k > 0 else []
+        sorted_items = sorted(items, key=pref_key)
+        return select_by_mmr(sorted_items, lambda i: i["query"], reference_context=reference, top_k=k, lambda_param=0.65) if sorted_items and k > 0 else []
 
     picked: list[dict[str, Any]] = []
     for fmt in ("A", "B", "C"):
         picked += mmr(buckets[fmt], per_format)
     taken = {id(x) for x in picked}
     rest = [c for c in candidates if id(c) not in taken]
+    rest.sort(key=pref_key)
     picked += mmr(rest, total - len(picked))
     return picked[:total]
 

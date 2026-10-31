@@ -159,12 +159,12 @@
               </a>
             </div>
             {% if opportunity.instagram_post_caption %}
-              <details style="width: 100%; margin-top: 4px;">
-                <summary style="font-size: 0.8rem; color: var(--stone-text-muted); cursor: pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> مشاهده کامل متن کپشن پست مبدأ</summary>
-                <div style="font-size: 0.82rem; line-height: 1.6; background: rgba(255, 255, 255, 0.8); padding: 10px 14px; border-radius: 8px; margin-top: 6px; border: 1px solid var(--panel-border-subtle); max-height: 220px; overflow-y: auto;">
-                  {{ opportunity.instagram_post_caption }}
+              <div style="margin-top: 8px; font-size: 0.82rem; line-height: 1.6; background: rgba(2, 132, 199, 0.04); border-right: 3px solid #0284c7; padding: 10px 14px; border-radius: 6px; border-top: 1px solid var(--panel-border-subtle); border-bottom: 1px solid var(--panel-border-subtle); border-left: 1px solid var(--panel-border-subtle); max-height: 220px; overflow-y: auto;">
+                <div style="font-weight: 700; color: #0284c7; margin-bottom: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
+                  <svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> متن کپشن پست مبدأ:
                 </div>
-              </details>
+                {{ opportunity.instagram_post_caption }}
+              </div>
             {% endif %}
           </div>
         {% endif %}
@@ -375,18 +375,28 @@
       <h3 style="font-size: 0.95rem; color: var(--panel-text-main); margin: 0 0 12px 0; font-weight: 700;">
         پیشنهاد مشتری چقدر مرتبط بود؟
       </h3>
-      <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-        <button type="button" class="p-btn p-btn-sm p-btn-primary feedback-button" data-feedback="relevant">مشتری واقعی</button>
-        <button type="button" class="p-btn p-btn-sm p-btn-secondary feedback-button" data-feedback="irrelevant">نامرتبط</button>
+      {% if opportunity.feedback %}
+        <div style="background: {% if opportunity.feedback == 'relevant' %}rgba(16, 185, 129, 0.12){% else %}rgba(239, 68, 68, 0.12){% endif %}; border: 1px solid {% if opportunity.feedback == 'relevant' %}rgba(16, 185, 129, 0.3){% else %}rgba(239, 68, 68, 0.3){% endif %}; border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-size: 0.82rem; color: {% if opportunity.feedback == 'relevant' %}#047857{% else %}#DC2626{% endif %}; font-weight: 700;">
+          ✓ بازخورد قبلاً ثبت شده است: {% if opportunity.feedback == 'relevant' %}مرتبط{% else %}نامرتبط{% endif %}
+        </div>
+      {% else %}
+        <div id="feedback-input-container">
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button type="button" class="p-btn p-btn-sm p-btn-primary feedback-button" data-feedback="relevant">مرتبط</button>
+            <button type="button" class="p-btn p-btn-sm p-btn-secondary feedback-button" data-feedback="irrelevant">نامرتبط</button>
+          </div>
+          <select id="feedback-reason" class="p-input" style="margin-bottom: 12px; width: 100%;">
+            <option value="">دلیل (اختیاری)</option>
+            <option value="not_a_buyer">قصد خرید نداشت</option>
+            <option value="wrong_product">محصول اشتباه بود</option>
+            <option value="already_bought">قبلاً خریده بود</option>
+            <option value="spam">هرزنامه یا تبلیغ</option>
+          </select>
+        </div>
+      {% endif %}
+      <div id="feedback-toast" style="display: none; margin-bottom: 16px; font-size: 0.82rem; color: #047857; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 8px 12px; border-radius: 6px; text-align: center; font-weight: 700;">
+        ✓ بازخورد با موفقیت ثبت شد و در یادگیری سیستم اعمال گردید.
       </div>
-      <select id="feedback-reason" class="p-input" style="margin-bottom: 12px; width: 100%;">
-        <option value="">دلیل (اختیاری)</option>
-        <option value="not_a_buyer">قصد خرید نداشت</option>
-        <option value="wrong_product">محصول اشتباه بود</option>
-        <option value="already_bought">قبلاً خریده بود</option>
-        <option value="spam">هرزنامه یا تبلیغ</option>
-      </select>
-      <div id="feedback-toast" style="display: none; margin-bottom: 16px; font-size: 0.76rem; color: #10B981; text-align: center;">بازخورد ذخیره شد.</div>
       <h3 style="font-size: 0.95rem; color: var(--panel-text-main); margin: 0 0 12px 0; font-weight: 700;">
         وضعیت پیگیری فرصت
       </h3>
@@ -524,22 +534,36 @@ document.addEventListener("DOMContentLoaded", function() {
   document.querySelectorAll(".feedback-button").forEach(function(button) {
     button.addEventListener("click", function() {
       document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = true; });
+      const reasonEl = document.getElementById("feedback-reason");
+      const reasonVal = reasonEl ? reasonEl.value : "";
       fetch("{% url 'discovery:opportunity_feedback' opportunity.id %}", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded", "X-CSRFToken": "{{ csrf_token }}"},
         body: "feedback=" + encodeURIComponent(button.dataset.feedback) +
-          "&reason=" + encodeURIComponent(document.getElementById("feedback-reason").value)
+          "&reason=" + encodeURIComponent(reasonVal)
       }).then(function(response) { return response.json(); }).then(function(data) {
         if (data.status === "success") {
-          document.getElementById("feedback-toast").style.display = "block";
-          document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = item !== button; });
+          const toast = document.getElementById("feedback-toast");
+          if (toast) {
+            toast.textContent = "✓ " + (data.message || "بازخورد با موفقیت ثبت شد و در یادگیری سیستم اعمال گردید.");
+            toast.style.display = "block";
+          }
+          const container = document.getElementById("feedback-input-container");
+          if (container) {
+            const fbLabel = data.feedback === "relevant" ? "مرتبط" : "نامرتبط";
+            const colorBg = data.feedback === "relevant" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)";
+            const colorBorder = data.feedback === "relevant" ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)";
+            const colorText = data.feedback === "relevant" ? "#047857" : "#DC2626";
+            container.innerHTML = `<div style="background:${colorBg};border:1px solid ${colorBorder};border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:${colorText};font-weight:700;">✓ بازخورد ثبت شد: ${fbLabel}</div>`;
+          }
+          document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = true; });
         } else {
           document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = false; });
           alert(data.message || "ذخیره بازخورد ناموفق بود.");
         }
-      }).catch(function() {
+      }).catch(function(err) {
         document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = false; });
-        alert("ذخیره بازخورد ناموفق بود.");
+        alert(err.message || "ذخیره بازخورد ناموفق بود.");
       });
     });
   });

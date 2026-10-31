@@ -137,6 +137,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     raw_toman_dec = cost_usd_dec * usd_rate
     # Final price charged to customer = Raw Toman + 150% markup
     final_toman = int(round(raw_toman_dec * (1 + markup_pct / 100)))
+    tokens_used = int((ai_meta.get("tokens_used") or (ai_meta.get("tokens_in", 0) + ai_meta.get("tokens_out", 0))) if ai_meta else 0)
 
     with transaction.atomic():
         customer, _ = Customer.objects.get_or_create(
@@ -207,6 +208,8 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                         "post_url": lead.source_post_url or f"https://www.instagram.com/p/{post_code}/",
                         "post_caption": lead.post_caption_snippet or "",
                         "matched_cta": lead.matched_cta or "",
+                        "source_type": ai_meta.get("source_type", "") if ai_meta else "",
+                        "source_label": ai_meta.get("source_label", "") if ai_meta else "",
                         "ig_user_pk": str(lead.ig_user_pk),
                         "lead_id": lead.id,
                         "billing": {
@@ -219,6 +222,16 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                 }
             }
         )
+
+        if not created and isinstance(opp.trace_metadata, dict):
+            ig_m = dict(opp.trace_metadata.get("instagram", {}))
+            if not ig_m.get("post_caption") and lead.post_caption_snippet:
+                ig_m["post_caption"] = lead.post_caption_snippet
+            if ai_meta and ai_meta.get("source_type"):
+                ig_m["source_type"] = ai_meta["source_type"]
+                ig_m["source_label"] = ai_meta.get("source_label", "")
+            opp.trace_metadata["instagram"] = ig_m
+            opp.save(update_fields=["trace_metadata"])
 
         intent_flt = float(lead.intent_score or (ai_meta.get("intent_score") if ai_meta else 0.90) or 0.90)
         prod_name = matched_product.name if matched_product else "محصول مورد نظر"
