@@ -24,21 +24,24 @@ import logging
 import random
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
 from django.db import transaction
-import pytz
+
+try:
+    from zoneinfo import ZoneInfo
+    TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+except Exception:
+    TEHRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.device_emulator import apply_device_profile_to_client
 
 logger = logging.getLogger("instagram_outreach")
-
-TEHRAN_TZ = pytz.timezone("Asia/Tehran")
 
 CONFIG_FILE = Path("data/sarv_outreach_config.json")
 
