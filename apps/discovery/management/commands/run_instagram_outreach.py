@@ -40,7 +40,14 @@ except Exception:
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.device_emulator import apply_device_profile_to_client
-from apps.discovery.outreach_service import check_and_sync_lead_replies, get_tier_specs
+from apps.discovery.outreach_service import (
+    check_and_sync_lead_replies,
+    get_tier_specs,
+    qualify_recipient_profile,
+    perform_organic_warmup,
+    build_bulletproof_message,
+    parse_spintax,
+)
 
 logger = logging.getLogger("instagram_outreach")
 
@@ -254,6 +261,8 @@ class Command(BaseCommand):
             available.sort(key=lambda s: s.last_action_at or datetime.min.replace(tzinfo=timezone.utc))
             return available
 
+        sender_consecutive_errors: Dict[str, int] = {}
+
         def execute_batch() -> int:
             if not is_within_circadian_hours():
                 now_tehran_str = datetime.now(TEHRAN_TZ).strftime("%H:%M")
@@ -321,16 +330,15 @@ class Command(BaseCommand):
                     or DEFAULT_SENDER_PITCHES.get(sender_user.lower(), {})
                 )
                 consultant_name = pitch_info.get("consultant_name", sender_user)
-                pitch_text = pitch_info.get("template", "")
+                raw_template = pitch_info.get("template", "")
 
-                if not pitch_text:
-                    # Fallback natural message if no config found
-                    clean_name = (lead.full_name or lead.username or "").split()[0]
-                    pitch_text = (
-                        f"درود بر شما {clean_name} عزیز\n"
-                        f"بنده {consultant_name} هستم مشاور و پشتیبانی تخصصی دندان‌پزشکی.\n"
-                        f"در مورد کامنتتون سوالی داشتید در خدمتم."
-                    )
+                # 🛡️ Anti-Spam Shield: generate 100% unique Spintax text with tailored topic
+                pitch_text = build_bulletproof_message(
+                    pitch_template=raw_template,
+                    lead=lead,
+                    consultant_name=consultant_name,
+                    business_name="مجموعه تخصصی سرو",
+                )
 
                 self.stdout.write("-" * 65)
                 self.stdout.write(
@@ -358,28 +366,41 @@ class Command(BaseCommand):
                     time.sleep(2)
                     continue
 
-                # Live execution
+                # Live execution with Super Shield
                 try:
                     cl = get_or_create_client(sender)
 
-                    # Step 1: Human Warm-up (Profile Visit)
-                    self.stdout.write(f"   [۱/۳] 👤 شبیه‌سازی باز کردن پروفایل @{lead.username} توسط @{sender_user}...")
-                    try:
-                        cl.user_info_by_username(lead.username)
-                    except Exception as visit_err:
-                        logger.debug(f"Profile visit notice for @{lead.username}: {visit_err}")
+                    # 🛡️ Step 1: Pre-Flight Safety Qualification
+                    self.stdout.write(f"   [۱/۴] 🔍 بررسی ایمنی اکانت مقصد @{lead.username} توسط گاردریل...")
+                    qualify = qualify_recipient_profile(cl, lead.username)
+                    if not qualify["eligible"]:
+                        self.stdout.write(self.style.WARNING(
+                            f"   ⏭️ [سپر ضد بلاک]: ارسال به @{lead.username} لغو شد: {qualify['reason']}"
+                        ))
+                        lead.status = "SKIPPED"
+                        lead.comment_text = (lead.comment_text or "") + f"\n[گاردریل ضد بلاک]: {qualify['reason']}"
+                        lead.save(update_fields=["status", "comment_text", "updated_at"])
+                        continue
 
-                    # Step 2: Human Typing Delay (15 to 35 seconds)
-                    typing_delay = random.uniform(15.0, 35.0)
-                    self.stdout.write(f"   [۲/۳] ⌨️ شبیه‌سازی تایپ انسانی ({typing_delay:.1f} ثانیه)...")
+                    target_pk = qualify.get("target_pk")
+                    if not target_pk:
+                        target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else cl.user_id_from_username(lead.username)
+
+                    # 🛡️ Step 2: Organic Human Warm-Up (Like recent post + View story)
+                    self.stdout.write(f"   [۲/۴] ❤️ تعامل طبیعی انسانی با پیج @{lead.username}...")
+                    warmup_res = perform_organic_warmup(cl, target_pk, lead.username)
+                    if warmup_res.get("liked_post"):
+                        self.stdout.write("      ❤️ لایک پست اخیر مخاطب انجام شد (ارسال اعلان در گوشی کاربر).")
+                    if warmup_res.get("viewed_story"):
+                        self.stdout.write("      👁️ استوری فعال مخاطب مشاهده شد.")
+
+                    # 🛡️ Step 3: Human Typing Jitter
+                    typing_delay = random.uniform(15.0, 32.0)
+                    self.stdout.write(f"   [۳/۴] ⌨️ شبیه‌سازی تایپ انسانی ({typing_delay:.1f} ثانیه)...")
                     time.sleep(typing_delay)
 
-                    # Step 3: Direct Send Message
-                    self.stdout.write(f"   [۳/۳] ✉️ ارسال دایرکت از طرف {consultant_name} (@{sender_user})...")
-                    target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None
-                    if not target_pk:
-                        target_pk = cl.user_id_from_username(lead.username)
-
+                    # 🛡️ Step 4: Direct Send Message
+                    self.stdout.write(f"   [۴/۴] ✉️ ارسال دایرکت ضد اسپم از طرف {consultant_name} (@{sender_user})...")
                     cl.direct_send(pitch_text, user_ids=[target_pk])
 
                     # Success: Update DB atomically
@@ -406,8 +427,10 @@ class Command(BaseCommand):
                         sender.status_message = "پیام با موفقیت ارسال شد"
                         sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at", "status_message"])
 
+                    # Reset consecutive errors on successful send
+                    sender_consecutive_errors[sender.username] = 0
                     sent_in_batch += 1
-                    self.stdout.write(self.style.SUCCESS(f"   ✅ [ارسال موفق] دایرکت با موفقیت به @{lead.username} ارسال شد."))
+                    self.stdout.write(self.style.SUCCESS(f"   ✅ [ارسال موفق و ایمن] دایرکت با موفقیت به @{lead.username} ارسال شد."))
 
                     # Dynamic Safety delay according to Dealism benchmarks
                     if idx + 1 < len(leads):
@@ -424,6 +447,9 @@ class Command(BaseCommand):
                     self.stderr.write(self.style.ERROR(f"   ❌ خطا در ارسال دایرکت به @{lead.username}: {exc}"))
                     exc_str = str(exc).lower()
 
+                    consec_err = sender_consecutive_errors.get(sender.username, 0) + 1
+                    sender_consecutive_errors[sender.username] = consec_err
+
                     # Check for rate limit / challenge / action block
                     if "challenge" in exc_str or "checkpoint" in exc_str:
                         sender.status = "CHALLENGED"
@@ -431,15 +457,32 @@ class Command(BaseCommand):
                         sender.save(update_fields=["status", "status_message"])
                         clients_cache.pop(sender.username, None)
                         self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} وارد چالش شد. از مدار خارج شد."))
-                    elif "feedback" in exc_str or "please wait" in exc_str or "rate limit" in exc_str:
-                        cooldown_hours = 6
-                        sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
-                        sender.status_message = f"محدودیت موقت اینستاگرام (استراحت {cooldown_hours} ساعته)"
-                        sender.save(update_fields=["cooldown_until", "status_message"])
-                        clients_cache.pop(sender.username, None)
-                        self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} در حالت استراحت موقت قرار گرفت."))
+                    elif "1404006" in exc_str or "message controls" in exc_str:
+                        # Recipient's privacy settings block stranger message requests
+                        self.stdout.write(self.style.WARNING(
+                            f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} دریافت پیام از غریبه‌ها را مسدود کرده است."
+                        ))
+                        lead.status = "SKIPPED"
+                        lead.comment_text = (lead.comment_text or "") + "\n[محدودیت کاربر]: مسدود بودن دایرکت اکانت‌های ناشناس"
+                        lead.save(update_fields=["status", "comment_text", "updated_at"])
+                        if consec_err >= 2:
+                            cooldown_hours = 3
+                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
+                            sender.status_message = f"استراحت محافظتی ضد بلاک ({cooldown_hours} ساعت)"
+                            sender.save(update_fields=["cooldown_until", "status_message"])
+                            clients_cache.pop(sender.username, None)
+                            self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} به دلیل ۲ خطای متوالی جهت ایمنی به استراحت رفت."))
+                    elif "feedback" in exc_str or "please wait" in exc_str or "rate limit" in exc_str or "403" in exc_str:
+                        if consec_err >= 2 or "feedback" in exc_str:
+                            cooldown_hours = 4
+                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
+                            sender.status_message = f"محدودیت موقت اینستاگرام (استراحت {cooldown_hours} ساعته)"
+                            sender.save(update_fields=["cooldown_until", "status_message"])
+                            clients_cache.pop(sender.username, None)
+                            self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} در حالت استراحت موقت قرار گرفت."))
+                        lead.status = "FAILED"
+                        lead.save(update_fields=["status", "updated_at"])
                     else:
-                        # Mark lead as FAILED to prevent indefinite stuck loop
                         lead.status = "FAILED"
                         lead.save(update_fields=["status", "updated_at"])
 

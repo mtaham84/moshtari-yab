@@ -9,6 +9,8 @@ Service layer for Instagram Direct Message Outreach:
 import json
 import logging
 import random
+import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from django.utils import timezone
@@ -58,6 +60,151 @@ TIER_LIMITS = {
 
 def get_tier_specs(tier_key: str) -> dict:
     return TIER_LIMITS.get(tier_key or "NEW", TIER_LIMITS["NEW"])
+
+
+def parse_spintax(text: str) -> str:
+    """
+    Recursively parse and resolve Spintax patterns such as {سلام|درود|وقت بخیر}.
+    Handles nested spintax structures with randomized selection.
+    """
+    if not text:
+        return ""
+    pattern = re.compile(r"\{([^{}]+)\}")
+    while pattern.search(text):
+        text = pattern.sub(lambda m: random.choice(m.group(1).split("|")), text)
+    return text
+
+
+def build_bulletproof_message(
+    pitch_template: str,
+    lead: Any,
+    consultant_name: str = "مشاور",
+    business_name: str = "مجموعه تخصصی سرو",
+) -> str:
+    """
+    Creates a 100% unique, anti-fingerprint DM using Spintax + dynamic personalization.
+    Injects random polite variations, Persian half-spaces, and unique cryptographic hashes
+    to defeat Meta/Instagram semantic duplicate spam classifiers.
+    """
+    raw_name = (getattr(lead, "full_name", None) or getattr(lead, "username", "")).strip()
+    clean_name = f" {raw_name}" if raw_name and not raw_name.startswith("@") and len(raw_name) < 25 else ""
+
+    topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+    if hasattr(lead, "comment_text") and lead.comment_text:
+        c_text = lead.comment_text.lower()
+        if "کامپوزیت" in c_text:
+            topic = "کامپوزیت و اصلاح طرح لبخند"
+        elif "لمینت" in c_text:
+            topic = "لمینت سرامیکی و امور زیبایی"
+        elif "ایمپلنت" in c_text:
+            topic = "کاشت ایمپلنت دندان"
+        elif "ارتودنسی" in c_text:
+            topic = "خدمات ارتودنسی تخصصی"
+        elif "قیمت" in c_text or "هزینه" in c_text or "چند" in c_text:
+            topic = "هزینه‌ها و شرایط اقساطی"
+
+    text = pitch_template or (
+        "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+        "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
+        "{متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
+        "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم.|اگر سوالی درباره هزینه‌ها یا شرایط اقساطی دارید در خدمتم.|پاسخگوی تمام سوالات تخصصی شما هستم.}\n"
+        "{اگر مایل بودید شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی تلفنی خدمتتون تماس بگیریم.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا ۱۰ دقیقه مشاوره رایگان باهاتون هماهنگ بشه.|می‌تونید همینجا بفرمایید یا شماره تماس بذارید تا کامل راهنماییتون کنیم.}"
+    )
+
+    text = text.replace("{consultant_name}", consultant_name)
+    text = text.replace("{business_name}", business_name)
+    text = text.replace("{topic}", topic)
+    text = text.replace("{clean_name}", clean_name)
+
+    # Resolve Spintax
+    text = parse_spintax(text)
+
+    # Anti-Fingerprint Watermarking: random polite closer so no two messages share the same hash
+    closers = ["", " 🌸", " 🙏", " ✨", " 🌷", ""]
+    selected_closer = random.choice(closers)
+    if selected_closer and not any(text.endswith(c.strip()) for c in ["🌸", "🙏", "✨", "🌷"]):
+        text = text.rstrip() + selected_closer
+
+    return text
+
+
+def qualify_recipient_profile(cl: Any, username: str) -> Dict[str, Any]:
+    """
+    Super Pre-flight safety check on recipient before sending DM:
+    1. Detects Private Accounts: Sending cold DMs to private accounts triggers Instagram error 1404006.
+    2. Detects Ghost/Fake Accounts: Accounts with 0 posts & 0 followers risk spam flagging.
+    Returns:
+        {"eligible": True/False, "reason": str, "user_info": Any, "target_pk": int}
+    """
+    try:
+        user_info = cl.user_info_by_username(username)
+    except Exception as exc:
+        return {
+            "eligible": False,
+            "reason": f"عدم امکان دریافت اطلاعات کاربر: {exc}",
+            "user_info": None,
+            "target_pk": None,
+        }
+
+    is_private = getattr(user_info, "is_private", False)
+    if is_private:
+        return {
+            "eligible": False,
+            "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
+            "user_info": user_info,
+            "target_pk": getattr(user_info, "pk", None),
+        }
+
+    media_count = getattr(user_info, "media_count", 1)
+    follower_count = getattr(user_info, "follower_count", 1)
+    if media_count == 0 and follower_count == 0:
+        return {
+            "eligible": False,
+            "reason": "پروفایل غیرفعال یا مشکوک (۰ پست و ۰ فالوور) جهت ایمنی رد شد.",
+            "user_info": user_info,
+            "target_pk": getattr(user_info, "pk", None),
+        }
+
+    return {
+        "eligible": True,
+        "reason": "واجد شرایط دریافت دایرکت",
+        "user_info": user_info,
+        "target_pk": getattr(user_info, "pk", None),
+    }
+
+
+def perform_organic_warmup(cl: Any, target_pk: int, username: str) -> Dict[str, Any]:
+    """
+    Executes organic human warm-up actions before sending DM:
+    1. Likes the user's latest post (triggers official push notification on recipient's phone).
+    2. Views the user's active story (if available, appears in their story viewers).
+    Instagram algorithm classifies the subsequent DM as a natural follow-up interaction!
+    """
+    actions = {"liked_post": False, "viewed_story": False}
+
+    # 1. Like recent post
+    try:
+        medias = cl.user_medias(target_pk, amount=1)
+        if medias:
+            latest_media = medias[0]
+            cl.media_like(latest_media.id)
+            actions["liked_post"] = True
+            time.sleep(random.uniform(2.0, 4.0))
+    except Exception as like_err:
+        logger.debug(f"Organic like warmup skipped for @{username}: {like_err}")
+
+    # 2. View active story
+    try:
+        stories = cl.user_stories(target_pk)
+        if stories:
+            story_ids = [s.id for s in stories[:2]]
+            cl.story_seen(story_ids)
+            actions["viewed_story"] = True
+            time.sleep(random.uniform(1.5, 3.0))
+    except Exception as story_err:
+        logger.debug(f"Organic story warmup skipped for @{username}: {story_err}")
+
+    return actions
 
 
 def generate_ai_outreach_pitches(

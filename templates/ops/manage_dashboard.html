@@ -1185,6 +1185,38 @@
     </div>
   </div>
 
+  <!-- Super Anti-Ban Shield Banner -->
+  <div style="background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color:#fff; border-radius:14px; padding:18px 22px; margin-bottom:20px; box-shadow:0 10px 25px -5px rgba(15, 23, 42, 0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+      <div>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+          <span style="background:#10b981; color:#fff; font-size:0.75rem; font-weight:800; padding:3px 10px; border-radius:20px; display:inline-flex; align-items:center; gap:5px;">
+            <span style="width:7px; height:7px; background:#fff; border-radius:50%;"></span>
+            سپر سوپر ضد بلاک فعال است (Super Anti-Ban Shield)
+          </span>
+          <span style="color:#94a3b8; font-size:0.8rem;">گارانتی ایمنی اکانت‌های شخصی اینستاگرام</span>
+        </div>
+        <h3 style="margin:0; font-size:1.15rem; color:#f8fafc; font-weight:800;">
+          سیستم ۵ لایه هوشمند ضد بلاک و بدون محدودیت اینستاگرام
+        </h3>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
+          🛡️ فیلتر خودکار اکانت‌های خصوصی
+        </span>
+        <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
+          ❤️ لایک + استوری ارگانیک قبل از پیام
+        </span>
+        <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
+          🎲 موتور Spintax (متن ۱۰۰٪ یکتا)
+        </span>
+        <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
+          ⚡ مدارشکن هوشمند استراحت خودکار
+        </span>
+      </div>
+    </div>
+  </div>
+
   <!-- Direct Link to Seller Dedicated Outreach Hub -->
   <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:12px; padding:14px 18px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
     <div>
@@ -1437,8 +1469,8 @@
             <td>
               <span class="badge-status {{ s.status|lower }}">{{ s.get_status_display }}</span>
             </td>
-            <td style="font-weight:700; color:{% if s.daily_action_count >= 15 %}#ea580c{% else %}#10b981{% endif %};">
-              {{ s.daily_action_count }} / 18 پیام
+            <td style="font-weight:700; color:{% if s.daily_action_count >= s.daily_limit|default:9 %}#ea580c{% else %}#10b981{% endif %};">
+              {{ s.daily_action_count }} / {{ s.daily_limit|default:9 }} پیام (سقف امن)
             </td>
             <td class="jalali-time-cell">
               {% if s.last_action_at %}{{ s.last_action_at|jalali_dt }}{% else %}<span class="muted">-</span>{% endif %}
