@@ -128,48 +128,79 @@ def build_bulletproof_message(
     return text
 
 
-def qualify_recipient_profile(cl: Any, username: str) -> Dict[str, Any]:
+def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] = None) -> Dict[str, Any]:
     """
     Super Pre-flight safety check on recipient before sending DM:
+    Uses mobile private API only (never falls back to slow/blocked public web scraping).
     1. Detects Private Accounts: Sending cold DMs to private accounts triggers Instagram error 1404006.
     2. Detects Ghost/Fake Accounts: Accounts with 0 posts & 0 followers risk spam flagging.
     Returns:
         {"eligible": True/False, "reason": str, "user_info": Any, "target_pk": int}
     """
-    try:
-        user_info = cl.user_info_by_username(username)
-    except Exception as exc:
+    user_data = None
+    numeric_pk = int(target_pk) if target_pk and str(target_pk).isdigit() else None
+
+    # 1. Try mobile private user info by numeric PK
+    if numeric_pk:
+        try:
+            res = cl.private_request(f"users/{numeric_pk}/info/", params={"entry_point": "profile", "from_module": "profile"})
+            if isinstance(res, dict) and res.get("status") == "ok" and "user" in res:
+                user_data = res["user"]
+        except Exception as pk_err:
+            logger.debug(f"Private user info by PK {numeric_pk} failed: {pk_err}")
+
+    # 2. If no data, try private usernameinfo
+    if not user_data and username:
+        try:
+            res = cl.private_request(f"users/{username}/usernameinfo/")
+            if isinstance(res, dict) and res.get("status") == "ok" and "user" in res:
+                user_data = res["user"]
+        except Exception as un_err:
+            logger.debug(f"Private usernameinfo for {username} failed: {un_err}")
+
+    if user_data:
+        is_private = bool(user_data.get("is_private", False))
+        resolved_pk = int(user_data.get("pk") or numeric_pk or 0)
+        media_count = int(user_data.get("media_count", 1))
+        follower_count = int(user_data.get("follower_count", 1))
+
+        if is_private:
+            return {
+                "eligible": False,
+                "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
+                "user_info": user_data,
+                "target_pk": resolved_pk,
+            }
+
+        if media_count == 0 and follower_count == 0:
+            return {
+                "eligible": False,
+                "reason": "پروفایل غیرفعال یا مشکوک (۰ پست و ۰ فالوور) جهت ایمنی رد شد.",
+                "user_info": user_data,
+                "target_pk": resolved_pk,
+            }
+
         return {
-            "eligible": False,
-            "reason": f"عدم امکان دریافت اطلاعات کاربر: {exc}",
+            "eligible": True,
+            "reason": "واجد شرایط دریافت دایرکت",
+            "user_info": user_data,
+            "target_pk": resolved_pk,
+        }
+
+    # If user lookup returned fail / not found, but we already have a verified numeric PK from comment
+    if numeric_pk:
+        return {
+            "eligible": True,
+            "reason": "واجد شرایط دریافت دایرکت بر اساس PK معتبر کاربری",
             "user_info": None,
-            "target_pk": None,
-        }
-
-    is_private = getattr(user_info, "is_private", False)
-    if is_private:
-        return {
-            "eligible": False,
-            "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
-            "user_info": user_info,
-            "target_pk": getattr(user_info, "pk", None),
-        }
-
-    media_count = getattr(user_info, "media_count", 1)
-    follower_count = getattr(user_info, "follower_count", 1)
-    if media_count == 0 and follower_count == 0:
-        return {
-            "eligible": False,
-            "reason": "پروفایل غیرفعال یا مشکوک (۰ پست و ۰ فالوور) جهت ایمنی رد شد.",
-            "user_info": user_info,
-            "target_pk": getattr(user_info, "pk", None),
+            "target_pk": numeric_pk,
         }
 
     return {
-        "eligible": True,
-        "reason": "واجد شرایط دریافت دایرکت",
-        "user_info": user_info,
-        "target_pk": getattr(user_info, "pk", None),
+        "eligible": False,
+        "reason": "عدم امکان احراز هویت شناسه کاربر در اینستاگرام",
+        "user_info": None,
+        "target_pk": None,
     }
 
 

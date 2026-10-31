@@ -180,15 +180,27 @@ class Command(BaseCommand):
                 return clients_cache[account.username]
 
             from instagrapi import Client
+            from requests.adapters import HTTPAdapter
+
+            class TimeoutHTTPAdapter(HTTPAdapter):
+                def __init__(self, timeout=12, *args, **kwargs):
+                    self.timeout = timeout
+                    super().__init__(*args, **kwargs)
+
+                def send(self, request, **kwargs):
+                    if kwargs.get("timeout") is None:
+                        kwargs["timeout"] = self.timeout
+                    return super().send(request, **kwargs)
 
             cl = Client()
+            cl.public_request_retries_count = 0
+            cl.public_request_retries_timeout = 0
             if account.proxy_url:
                 cl.set_proxy(account.proxy_url)
 
-            try:
-                apply_device_profile_to_client(cl, account)
-            except Exception as dev_err:
-                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
+            adapter = TimeoutHTTPAdapter(timeout=12)
+            cl.private.mount("https://", adapter)
+            cl.private.mount("http://", adapter)
 
             if account.session_json:
                 cookies = account.session_json.get("cookies", {})
@@ -199,6 +211,13 @@ class Command(BaseCommand):
                     except Exception as login_err:
                         self.stderr.write(f"Error logging in by sessionid for @{account.username}: {login_err}")
                         raise
+
+            try:
+                apply_device_profile_to_client(cl, account)
+                cl.private.mount("https://", adapter)
+                cl.private.mount("http://", adapter)
+            except Exception as dev_err:
+                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             clients_cache[account.username] = cl
             return cl
@@ -380,7 +399,7 @@ class Command(BaseCommand):
 
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
                     self.stdout.write(f"   [۱/۴] 🔍 بررسی ایمنی اکانت مقصد @{lead.username} توسط گاردریل...")
-                    qualify = qualify_recipient_profile(cl, lead.username)
+                    qualify = qualify_recipient_profile(cl, lead.username, target_pk=lead.ig_user_pk)
                     if not qualify["eligible"]:
                         self.stdout.write(self.style.WARNING(
                             f"   ⏭️ [سپر ضد بلاک]: ارسال به @{lead.username} لغو شد: {qualify['reason']}"
@@ -390,9 +409,12 @@ class Command(BaseCommand):
                         lead.save(update_fields=["status", "comment_text", "updated_at"])
                         continue
 
-                    target_pk = qualify.get("target_pk")
+                    target_pk = qualify.get("target_pk") or (int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None)
                     if not target_pk:
-                        target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else cl.user_id_from_username(lead.username)
+                        self.stdout.write(self.style.WARNING(f"   ⚠️ عدم امکان تعیین PK معتبر برای @{lead.username}. رد شد."))
+                        lead.status = "SKIPPED"
+                        lead.save(update_fields=["status", "updated_at"])
+                        continue
 
                     # 🛡️ Step 2: Organic Human Warm-Up (Like recent post + View story)
                     self.stdout.write(f"   [۲/۴] ❤️ تعامل طبیعی انسانی با پیج @{lead.username}...")
