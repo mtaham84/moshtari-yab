@@ -76,8 +76,8 @@ def parse_spintax(text: str) -> str:
 
 
 def build_bulletproof_message(
-    pitch_template: str,
-    lead: Any,
+    pitch_template: str = "",
+    lead: Any = None,
     consultant_name: str = "مشاور",
     business_name: str = "مجموعه تخصصی سرو",
 ) -> str:
@@ -207,33 +207,21 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
 def perform_organic_warmup(cl: Any, target_pk: int, username: str) -> Dict[str, Any]:
     """
     Executes organic human warm-up actions before sending DM:
-    1. Likes the user's latest post (triggers official push notification on recipient's phone).
-    2. Views the user's active story (if available, appears in their story viewers).
+    Likes the user's latest post (triggers official push notification on recipient's phone).
     Instagram algorithm classifies the subsequent DM as a natural follow-up interaction!
     """
     actions = {"liked_post": False, "viewed_story": False}
 
-    # 1. Like recent post
+    # Like recent post
     try:
         medias = cl.user_medias(target_pk, amount=1)
         if medias:
             latest_media = medias[0]
             cl.media_like(latest_media.id)
             actions["liked_post"] = True
-            time.sleep(random.uniform(2.0, 4.0))
+            time.sleep(random.uniform(1.5, 3.0))
     except Exception as like_err:
         logger.debug(f"Organic like warmup skipped for @{username}: {like_err}")
-
-    # 2. View active story
-    try:
-        stories = cl.user_stories(target_pk)
-        if stories:
-            story_ids = [s.id for s in stories[:2]]
-            cl.story_seen(story_ids)
-            actions["viewed_story"] = True
-            time.sleep(random.uniform(1.5, 3.0))
-    except Exception as story_err:
-        logger.debug(f"Organic story warmup skipped for @{username}: {story_err}")
 
     return actions
 
