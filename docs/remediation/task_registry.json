@@ -8,7 +8,8 @@
     "DONE": 38,
     "BLOCKED": 0,
     "DEFERRED": 1,
-    "N/A": 0
+    "N/A": 0,
+    "completed_tasks": 83
   },
   "tasks": [
     {
@@ -1682,13 +1683,13 @@
         "کاندید نامعلوم در لیست حذف قرار نگیرد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/DEAD_CODE_MANIFEST.md, docs/remediation/tasks/P08.21.md",
       "report_path": "docs/remediation/tasks/P08.21.md"
     },
     {
