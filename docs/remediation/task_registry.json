@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 91
+    "completed_tasks": 92
   },
   "tasks": [
     {
@@ -1863,13 +1863,13 @@
         "هیچ خطای امنیت/مالی critical فعال بدون مهار پشت متن deferred پنهان نشده باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/RELEASE_READINESS_MATRIX.md, apps/core/test_p10_01_release_readiness.py, docs/remediation/tasks/P10.01.md",
       "report_path": "docs/remediation/tasks/P10.01.md"
     },
     {
