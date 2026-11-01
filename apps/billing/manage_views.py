@@ -380,13 +380,15 @@ def manage_dashboard(request):
         default_pitch = accounts_with_pitches[0]["template"]
         default_consultant = accounts_with_pitches[0]["consultant_name"]
     if not default_pitch:
+        biz_name = selected_outreach_biz.name if selected_outreach_biz else "مجموعه"
+        biz_domain = getattr(selected_outreach_biz, "business_domain", "") or "خدمات و محصولات"
         default_pitch = (
-            "درود بر شما \n"
-            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
-            "میتونید هر سوالی دارید از بنده بپرسید. \n"
-            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
+            "درود بر شما\n"
+            f"بنده کارشناس پشتیبانی و مشاوره تخصصی {biz_name} هستم.\n"
+            f"متوجه شدم پیگیر {biz_domain} بودید.\n"
+            "خوشحال می‌شم در صورت وجود هرگونه سؤال یا نیاز به راهنمایی در خدمتتون باشم."
         )
-        default_consultant = "مشاور دندان‌پزشکی"
+        default_consultant = "مشاور و کارشناس فروش"
 
     outreach_replied_qs = InstagramEngineLead.objects.filter(has_replied=True)
     if selected_outreach_biz:

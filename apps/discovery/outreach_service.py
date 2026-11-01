@@ -80,7 +80,7 @@ def build_bulletproof_message(
     pitch_template: str,
     lead: Any,
     consultant_name: str = "مشاور",
-    business_name: str = "مجموعه تخصصی سرو",
+    business_name: str = "مجموعه",
 ) -> str:
     """
     Creates a 100% unique, anti-fingerprint DM using Spintax + dynamic personalization.
@@ -90,17 +90,32 @@ def build_bulletproof_message(
     raw_name = (getattr(lead, "full_name", None) or getattr(lead, "username", "")).strip()
     clean_name = f" {raw_name}" if raw_name and not raw_name.startswith("@") and len(raw_name) < 25 else ""
 
-    topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+    # Dynamic topic inference without hardcoded single-customer assumptions
+    topic = "خدمات و محصولات مجموعه"
+    if hasattr(lead, "domain") and getattr(lead, "domain"):
+        topic = getattr(lead, "domain")
+    elif hasattr(lead, "category") and getattr(lead, "category"):
+        topic = getattr(lead, "category")
+
     if hasattr(lead, "comment_text") and lead.comment_text:
         c_text = lead.comment_text.lower()
-        if "کامپوزیت" in c_text:
-            topic = "کامپوزیت و اصلاح طرح لبخند"
-        elif "لمینت" in c_text:
-            topic = "لمینت سرامیکی و امور زیبایی"
-        elif "ایمپلنت" in c_text:
-            topic = "کاشت ایمپلنت دندان"
-        elif "ارتودنسی" in c_text:
-            topic = "خدمات ارتودنسی تخصصی"
+        if any(w in c_text for w in ("دندان", "کامپوزیت", "لمینت", "ایمپلنت", "ارتودنسی")):
+            if "کامپوزیت" in c_text:
+                topic = "کامپوزیت و اصلاح طرح لبخند"
+            elif "لمینت" in c_text:
+                topic = "لمینت سرامیکی و امور زیبایی"
+            elif "ایمپلنت" in c_text:
+                topic = "کاشت ایمپلنت دندان"
+            elif "ارتودنسی" in c_text:
+                topic = "خدمات ارتودنسی تخصصی"
+            else:
+                topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+        elif any(w in c_text for w in ("لپتاپ", "لپ تاپ", "کامپیوتر", "مکبوک")):
+            topic = "خرید لپ‌تاپ و تجهیزات دیجیتال"
+        elif any(w in c_text for w in ("کنکور", "مشاوره", "آزمون", "قلم‌چی", "ماز")):
+            topic = "مشاوره تحصیلی و خدمات کنکور"
+        elif any(w in c_text for w in ("سنگ", "ساختمان", "تراورتن", "نما")):
+            topic = "تأمین سنگ ساختمانی و نما"
         elif "قیمت" in c_text or "هزینه" in c_text or "چند" in c_text:
             topic = "هزینه‌ها و شرایط اقساطی"
 
@@ -564,13 +579,13 @@ def send_second_followup_message(
 DEFAULT_SENDER_PITCHES = {
     "raha.rostamim": {
         "consultant_name": "رها",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی {business_name} ، متوجه شدم پیگیر امور {topic} بودید\nمیتونید هر سوالی دارید از بنده بپرسید. \nدر صورت تمایل شماره تماس بگذارید تا برای مشاوره تخصصی خدمتتون تماس بگیریم.",
     },
     "pania.mehrim": {
         "consultant_name": "پنیا",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی {business_name} ، متوجه شدم پیگیر امور {topic} بودید\nمیتونید هر سوالی دارید از بنده بپرسید \nدر صورت تمایل شماره تماس بگذارید تا برای مشاوره تخصصی خدمتتون تماس بگیریم.",
     },
 }
 

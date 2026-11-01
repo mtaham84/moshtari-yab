@@ -21,6 +21,7 @@ Features:
 
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -57,13 +58,13 @@ CONFIG_FILE = Path("data/sarv_outreach_config.json")
 DEFAULT_SENDER_PITCHES = {
     "raha.rostamim": {
         "consultant_name": "رها",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی {business_name} ، متوجه شدم پیگیر امور {topic} بودید\nمیتونید هر سوالی دارید از بنده بپرسید. \nدر صورت تمایل شماره تماس بگذارید تا برای مشاوره تخصصی خدمتتون تماس بگیریم.",
     },
     "pania.mehrim": {
         "consultant_name": "پنیا",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی {business_name} ، متوجه شدم پیگیر امور {topic} بودید\nمیتونید هر سوالی دارید از بنده بپرسید \nدر صورت تمایل شماره تماس بگذارید تا برای مشاوره تخصصی خدمتتون تماس بگیریم.",
     },
 }
 
@@ -96,8 +97,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--tenant",
             type=str,
-            default="tenant_4",
-            help="Tenant ID or keyword (e.g. 'tenant_4' or 'sarv'). Default: tenant_4",
+            default=os.environ.get("IG_OUTREACH_TENANT", ""),
+            help="Tenant ID or keyword. Default: from IG_OUTREACH_TENANT env or required.",
         )
         parser.add_argument(
             "--dry-run",
@@ -162,7 +163,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        tenant = options["tenant"]
+        tenant = (options.get("tenant") or "").strip()
+        if not tenant:
+            self.stdout.write(self.style.WARNING("⚠️ هیچ شناسه‌ای برای مستأجر (--tenant یا IG_OUTREACH_TENANT) تعیین نشده است. اجرای ورکر متوقف گردید."))
+            return
+
         dry_run = options["dry_run"]
         loop = options["loop"]
         once = options["once"]

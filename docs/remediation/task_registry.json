@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 87
+    "completed_tasks": 88
   },
   "tasks": [
     {
@@ -1783,13 +1783,13 @@
         "sender مشترک درست کار و config ناقص باعث ارسال تصادفی نشود."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docker-compose.yml, apps/discovery/management/commands/run_instagram_outreach.py, apps/discovery/outreach_service.py, apps/discovery/tests/test_p09_03_decouple_hardcoded_tenant.py, docs/remediation/tasks/P09.03.md",
       "report_path": "docs/remediation/tasks/P09.03.md"
     },
     {

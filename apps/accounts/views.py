@@ -209,14 +209,15 @@ def outreach_view(request):
         default_pitch = account_list[0]["template"]
         default_consultant = account_list[0]["consultant_name"]
         default_username = account_list[0]["obj"].username
-    elif business.id == 4:
+    else:
+        biz_domain = getattr(business, "business_domain", "") or "خدمات و محصولات"
         default_pitch = (
-            "درود بر شما \n"
-            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
-            "میتونید هر سوالی دارید از بنده بپرسید. \n"
-            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
+            "درود بر شما\n"
+            f"بنده کارشناس پشتیبانی و مشاوره تخصصی {business.name} هستم.\n"
+            f"متوجه شدم پیگیر {biz_domain} بودید.\n"
+            "خوشحال می‌شم در صورت وجود هرگونه سؤال یا نیاز به راهنمایی در خدمتتون باشم."
         )
-        default_consultant = "مشاور دندان‌پزشکی"
+        default_consultant = "مشاور و کارشناس فروش"
 
     return render(request, "accounts/outreach.html", {
         "user": request.user,
