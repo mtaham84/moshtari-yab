@@ -1622,13 +1622,13 @@
         "غیرمدیر، key masking و validation امن باشند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/tasks/P08.18.md, apps/billing/provider_service.py, apps/billing/tests/test_p08_18_provider_service.py",
       "report_path": "docs/remediation/tasks/P08.18.md"
     },
     {

@@ -18,7 +18,7 @@ from apps.businesses.models import Business
 from apps.discovery.models import MonitoredCommunity
 from apps.discovery.sources import GLOBAL, normalize_link
 
-from . import services
+from . import provider_service, services
 from .forms import AIModelForm, BillingSettingsForm, GlobalSourceForm, ProviderForm, WalletTransactionForm
 from .models import AIModel, BillingSettings, Provider, Wallet, WalletTransaction
 
@@ -149,45 +149,49 @@ def costs(request):
     })
 
 
-# ── providers & models ─────────────────────────────────────────────────────────
+# ── providers & models (refactored with provider_service - P08.18) ─────────────
 @staff_required
 def providers(request):
-    usage = {u["key"]: u for u in services.model_usage(30)}
-    providers_qs = list(Provider.objects.prefetch_related("models"))
-    for prov in providers_qs:
-        for m in prov.models.all():
-            m.usage = usage.get(m.name)
+    providers_qs, usage_all, orphan_hint = provider_service.list_providers_with_usage(30)
     return render(request, "ops/providers.html", {
-        "nav": "providers", "providers": providers_qs, "usage_all": list(usage.values()),
-        "orphan_hint": not Provider.objects.exists(),
+        "nav": "providers",
+        "providers": providers_qs,
+        "usage_all": usage_all,
+        "orphan_hint": orphan_hint,
     })
 
 
 @staff_required
 def provider_edit(request, pk=None):
     obj = get_object_or_404(Provider, pk=pk) if pk else None
-    form = ProviderForm(request.POST or None, instance=obj)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "سرویس‌دهنده ذخیره شد.")
-        return redirect("ops:providers")
-    return render(request, "ops/form.html", {"nav": "providers", "form": form, "back": "ops:providers",
-                                              "title": f"ویرایش {obj.name}" if obj else "سرویس‌دهنده‌ی جدید"})
+    if request.method == "POST":
+        provider, form = provider_service.save_provider_form(request.POST, instance=obj)
+        if provider:
+            messages.success(request, "سرویس‌دهنده ذخیره شد.")
+            return redirect("ops:providers")
+    else:
+        form = ProviderForm(instance=obj)
+    return render(request, "ops/form.html", {
+        "nav": "providers",
+        "form": form,
+        "back": "ops:providers",
+        "title": f"ویرایش {obj.name}" if obj else "سرویس‌دهنده‌ی جدید",
+    })
 
 
 @staff_required
 @require_POST
 def provider_delete(request, pk):
     obj = get_object_or_404(Provider, pk=pk)
-    obj.delete()
-    messages.success(request, f"«{obj.name}» و مدل‌هایش حذف شدند.")
+    msg = provider_service.delete_provider(obj)
+    messages.success(request, msg)
     return redirect("ops:providers")
 
 
 @staff_required
 @require_POST
 def provider_test(request, pk):
-    ok, msg = services.test_provider(get_object_or_404(Provider, pk=pk))
+    ok, msg = provider_service.test_provider_connectivity(get_object_or_404(Provider, pk=pk))
     (messages.success if ok else messages.error)(request, msg)
     return redirect("ops:providers")
 
@@ -195,7 +199,7 @@ def provider_test(request, pk):
 @staff_required
 @require_POST
 def provider_import_env(request):
-    provider, n = services.import_from_env()
+    provider, n = provider_service.import_provider_from_env()
     messages.success(request, f"«{provider.name}» با {n} مدل از تنظیمات فعلی ساخته شد. قیمت‌ها را بررسی کنید.")
     return redirect("ops:providers")
 
@@ -204,21 +208,27 @@ def provider_import_env(request):
 def model_edit(request, pk=None):
     obj = get_object_or_404(AIModel, pk=pk) if pk else None
     initial = {"provider": request.GET.get("provider")} if not obj else None
-    form = AIModelForm(request.POST or None, instance=obj, initial=initial)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "مدل ذخیره شد؛ موتور حداکثر تا یک دقیقه‌ی دیگر از آن استفاده می‌کند.")
-        return redirect("ops:providers")
-    return render(request, "ops/form.html", {"nav": "providers", "form": form, "back": "ops:providers",
-                                              "title": f"ویرایش مدل {obj.name}" if obj else "مدل جدید"})
+    if request.method == "POST":
+        model, form = provider_service.save_aimodel_form(request.POST, instance=obj, initial=initial)
+        if model:
+            messages.success(request, "مدل ذخیره شد؛ موتور حداکثر تا یک دقیقه‌ی دیگر از آن استفاده می‌کند.")
+            return redirect("ops:providers")
+    else:
+        form = AIModelForm(instance=obj, initial=initial)
+    return render(request, "ops/form.html", {
+        "nav": "providers",
+        "form": form,
+        "back": "ops:providers",
+        "title": f"ویرایش مدل {obj.name}" if obj else "مدل جدید",
+    })
 
 
 @staff_required
 @require_POST
 def model_delete(request, pk):
     obj = get_object_or_404(AIModel, pk=pk)
-    obj.delete()
-    messages.success(request, f"مدل «{obj.name}» حذف شد.")
+    msg = provider_service.delete_aimodel(obj)
+    messages.success(request, msg)
     return redirect("ops:providers")
 
 
@@ -226,8 +236,7 @@ def model_delete(request, pk):
 @require_POST
 def model_toggle(request, pk):
     obj = get_object_or_404(AIModel, pk=pk)
-    obj.is_active = not obj.is_active
-    obj.save(update_fields=["is_active", "updated_at"])
+    provider_service.toggle_aimodel(obj)
     return redirect("ops:providers")
 
 
