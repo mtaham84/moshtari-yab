@@ -9,16 +9,12 @@
 
   <header class="auth-header">
     <a class="brand" href="{% url 'core:landing' %}" aria-label="بازگشت به صفحه اصلی">
-      <div class="brand-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          <path d="M11 8v6M8 11h6"></path>
-        </svg>
+      <div class="brand-icon" style="background: transparent !important; box-shadow: none !important; padding: 2px;">
+        <img src="{% static 'images/brand/peyda-mark-dark.png' %}" alt="Peyda Logo" width="34" height="34" style="display: block; object-fit: contain;">
       </div>
       <div class="brand-text">
-        <span class="brand-name">مشتری‌یاب</span>
-        <span class="brand-tagline">فضای کاری کشف مشتری</span>
+        <span class="brand-name">پیدا <small style="font-size: 0.72rem; opacity: 0.8; font-weight: 700; letter-spacing: 0.5px;">PEYDA</small></span>
+        <span class="brand-tagline">سامانه هوشمند کشف مشتری (Lead Finder)</span>
       </div>
     </a>
   </header>
