@@ -9,7 +9,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -237,6 +237,24 @@ def model_delete(request, pk):
 def model_toggle(request, pk):
     obj = get_object_or_404(AIModel, pk=pk)
     provider_service.toggle_aimodel(obj)
+    return redirect("ops:providers")
+
+
+@staff_required
+@require_POST
+def model_priority_update(request, pk):
+    obj = get_object_or_404(AIModel, pk=pk)
+    priority_raw = request.POST.get("priority", "")
+    new_priority, err = provider_service.update_aimodel_priority(obj, priority_raw)
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest" or request.content_type == "application/json"
+    if err:
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": err}, status=400)
+        messages.error(request, err)
+    else:
+        if is_ajax:
+            return JsonResponse({"status": "success", "model_id": obj.pk, "priority": new_priority})
+        messages.success(request, f"اولویت مدل «{obj.name}» به {new_priority} تغییر یافت.")
     return redirect("ops:providers")
 
 

@@ -1,0 +1,61 @@
+{% load ops %}
+<table class="model-priority-table" data-provider-id="{{ p.pk }}" style="margin-top:10px">
+  <thead>
+    <tr>
+      <th>مدل</th>
+      <th>نقش</th>
+      <th class="n">ورودی $/1M</th>
+      <th class="n">خروجی $/1M</th>
+      <th class="n" style="min-width: 110px;">اولویت</th>
+      <th class="n">RPM/TPM/RPD</th>
+      <th class="n">تماس ۳۰ روز</th>
+      <th class="n">توکن</th>
+      <th class="n">هزینه ($ / تومان)</th>
+      <th>آخرین استفاده</th>
+      <th>وضعیت</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in p.models.all %}
+    <tr class="model-row" data-model-id="{{ m.pk }}" data-priority="{{ m.priority }}">
+      <td><code>{{ m.name }}</code>{% if m.label %} <span class="muted">{{ m.label }}</span>{% endif %}</td>
+      <td>{{ m.roles_display }}</td>
+      <td class="n">{{ m.input_price_usd }}</td>
+      <td class="n">{{ m.output_price_usd }}</td>
+      <td class="n priority-cell">
+        <form class="inline priority-form" method="post" action="{% url 'ops:model_priority_update' m.pk %}">
+          {% csrf_token %}
+          <div style="display: inline-flex; align-items: center; gap: 4px;">
+            <input type="number" name="priority" value="{{ m.priority }}" min="0" max="1000"
+                   class="ops-input sm priority-input"
+                   style="width: 55px; text-align: center; padding: 2px 4px; font-size: 0.85rem;"
+                   aria-label="اولویت مدل {{ m.name }}">
+            <button type="submit" class="btn sm priority-save-btn" style="padding: 2px 6px; font-size: 0.75rem;" title="ذخیره اولویت">✓</button>
+          </div>
+        </form>
+      </td>
+      <td class="n muted">{{ m.rpm|default:"∞" }}/{{ m.tpm|default:"∞" }}/{{ m.rpd|default:"∞" }}</td>
+      <td class="n">{% if m.usage %}{{ m.usage.calls|num }}{% else %}<span class="muted">۰</span>{% endif %}</td>
+      <td class="n">{% if m.usage %}{{ m.usage.tokens|num }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="n">{% if m.usage %}{{ m.usage.usd|usd }} / {{ m.usage.toman|toman }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="muted">{% if m.usage and m.usage.last_at %}{{ m.usage.last_at|jalali_dt }}{% else %}هنوز نه{% endif %}</td>
+      <td>
+        <form class="inline" method="post" action="{% url 'ops:model_toggle' m.pk %}">
+          {% csrf_token %}
+          <button class="btn sm"><span class="st {% if m.is_active %}ok{% else %}PAUSED{% endif %}">{% if m.is_active %}فعال{% else %}غیرفعال{% endif %}</span></button>
+        </form>
+      </td>
+      <td class="toolbar">
+        <a class="btn sm" href="{% url 'ops:model_edit' m.pk %}">ویرایش</a>
+        <form class="inline delete-model-form" method="post" action="{% url 'ops:model_delete' m.pk %}" data-confirm="مدل «{{ m.name }}» حذف شود؟">
+          {% csrf_token %}
+          <button type="submit" class="btn sm danger">حذف</button>
+        </form>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td class="muted" colspan="12">مدلی ثبت نشده.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

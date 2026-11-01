@@ -1642,13 +1642,13 @@
         "CSP/DOM fix قبلی از بین نرود."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/tasks/P08.19.md, templates/ops/components/_model_priority_table.html, apps/billing/tests/test_p08_19_model_priority_component.py",
       "report_path": "docs/remediation/tasks/P08.19.md"
     },
     {

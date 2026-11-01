@@ -101,3 +101,22 @@ def toggle_aimodel(model: AIModel) -> bool:
     model.is_active = not model.is_active
     model.save(update_fields=["is_active", "updated_at"])
     return model.is_active
+
+
+def update_aimodel_priority(model: AIModel, priority_val: Any) -> tuple[int | None, str | None]:
+    """
+    Validates and updates an AIModel's priority.
+    Priority must be an integer between 0 and 1000.
+    Returns (new_priority, error_message).
+    """
+    try:
+        priority_int = int(str(priority_val).strip())
+        if not (0 <= priority_int <= 1000):
+            return None, "اولویت باید عددی بین ۰ تا ۱۰۰۰ باشد."
+    except (ValueError, TypeError):
+        return None, "مقدار اولویت نامعتبر است."
+
+    model.priority = priority_int
+    model.save(update_fields=["priority", "updated_at"])
+    return model.priority, None
+

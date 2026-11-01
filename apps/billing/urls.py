@@ -17,6 +17,7 @@ urlpatterns = [
     path("models/<int:pk>/", views.model_edit, name="model_edit"),
     path("models/<int:pk>/delete/", views.model_delete, name="model_delete"),
     path("models/<int:pk>/toggle/", views.model_toggle, name="model_toggle"),
+    path("models/<int:pk>/priority/", views.model_priority_update, name="model_priority_update"),
     path("wallets/", views.wallets, name="wallets"),
     path("wallets/charge/", views.charge_now, name="charge_now"),
     path("wallets/<int:business_id>/", views.wallet_detail, name="wallet_detail"),

@@ -13,7 +13,7 @@
 {% if orphan_hint %}<div class="msg">هنوز سرویس‌دهنده‌ای ثبت نشده. با «ایمپورت از ‎.env» تنظیمات فعلی موتور به این‌جا منتقل می‌شود.</div>{% endif %}
 
 {% for p in providers %}
-<div class="card provider">
+<div class="card provider" data-provider-id="{{ p.pk }}">
   <div class="provider-head">
     <div><h2 style="margin:0">{{ p.name }} {% if not p.is_active %}<span class="pill">غیرفعال</span>{% endif %}</h2>
       <div class="muted"><code>{{ p.base_url }}</code> · کلید: <code>{{ p.masked_key }}</code>{% if p.notes %} · {{ p.notes }}{% endif %}</div></div>
@@ -21,23 +21,10 @@
       <a class="btn sm primary" href="{% url 'ops:model_new' %}?provider={{ p.pk }}">+ مدل</a>
       <form class="inline" method="post" action="{% url 'ops:provider_test' p.pk %}">{% csrf_token %}<button class="btn sm">تست اتصال</button></form>
       <a class="btn sm" href="{% url 'ops:provider_edit' p.pk %}">ویرایش</a>
-      <form class="inline" method="post" action="{% url 'ops:provider_delete' p.pk %}" onsubmit="return confirm('سرویس‌دهنده و همه‌ی مدل‌هایش حذف شوند؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form>
+      <form class="inline delete-provider-form" method="post" action="{% url 'ops:provider_delete' p.pk %}" data-confirm="سرویس‌دهنده و همه‌ی مدل‌هایش حذف شوند؟">{% csrf_token %}<button type="submit" class="btn sm danger">حذف</button></form>
     </div>
   </div>
-  <table style="margin-top:10px"><tr><th>مدل</th><th>نقش</th><th class="n">ورودی $/1M</th><th class="n">خروجی $/1M</th><th class="n">اولویت</th><th class="n">RPM/TPM/RPD</th><th class="n">تماس ۳۰ روز</th><th class="n">توکن</th><th class="n">هزینه ($ / تومان)</th><th>آخرین استفاده</th><th>وضعیت</th><th></th></tr>
-  {% for m in p.models.all %}<tr>
-    <td><code>{{ m.name }}</code>{% if m.label %} <span class="muted">{{ m.label }}</span>{% endif %}</td><td>{{ m.roles_display }}</td>
-    <td class="n">{{ m.input_price_usd }}</td><td class="n">{{ m.output_price_usd }}</td><td class="n">{{ m.priority }}</td>
-    <td class="n muted">{{ m.rpm|default:"∞" }}/{{ m.tpm|default:"∞" }}/{{ m.rpd|default:"∞" }}</td>
-    <td class="n">{% if m.usage %}{{ m.usage.calls|num }}{% else %}<span class="muted">۰</span>{% endif %}</td>
-    <td class="n">{% if m.usage %}{{ m.usage.tokens|num }}{% else %}<span class="muted">—</span>{% endif %}</td>
-    <td class="n">{% if m.usage %}{{ m.usage.usd|usd }} / {{ m.usage.toman|toman }}{% else %}<span class="muted">—</span>{% endif %}</td>
-    <td class="muted">{% if m.usage and m.usage.last_at %}{{ m.usage.last_at|jalali_dt }}{% else %}هنوز نه{% endif %}</td>
-    <td><form class="inline" method="post" action="{% url 'ops:model_toggle' m.pk %}">{% csrf_token %}
-      <button class="btn sm"><span class="st {% if m.is_active %}ok{% else %}PAUSED{% endif %}">{% if m.is_active %}فعال{% else %}غیرفعال{% endif %}</span></button></form></td>
-    <td class="toolbar"><a class="btn sm" href="{% url 'ops:model_edit' m.pk %}">ویرایش</a>
-      <form class="inline" method="post" action="{% url 'ops:model_delete' m.pk %}" onsubmit="return confirm('مدل حذف شود؟')">{% csrf_token %}<button class="btn sm danger">حذف</button></form></td>
-  </tr>{% empty %}<tr><td class="muted" colspan="12">مدلی ثبت نشده.</td></tr>{% endfor %}</table>
+  {% include "ops/components/_model_priority_table.html" with p=p %}
 </div>
 {% endfor %}
 
@@ -50,4 +37,69 @@
   {% empty %}<tr><td class="muted" colspan="6">مصرفی ثبت نشده است.</td></tr>{% endfor %}</table>
 </div>
 <p class="muted">مدل embedding (‏NE_EMBED_MODEL) را هم می‌توانید با همان نام و بدون نقش این‌جا ثبت کنید تا قیمت و کلیدش از پنل خوانده شود. تغییر خود مدل embedding نیازمند ساخت دوباره‌ی بردارهاست و از .env انجام می‌شود.</p>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  // 1. Unobtrusive confirmation handler for forms with data-confirm (CSP compliance)
+  document.addEventListener("submit", function(e) {
+    var form = e.target;
+    var confirmMsg = form.getAttribute("data-confirm");
+    if (confirmMsg) {
+      if (!window.confirm(confirmMsg)) {
+        e.preventDefault();
+        return false;
+      }
+    }
+  });
+
+  // 2. Ajax priority update handler with safe textContent updates
+  document.querySelectorAll(".priority-form").forEach(function(form) {
+    form.addEventListener("submit", function(e) {
+      if (!window.fetch) return; // Fallback to standard form submit
+      e.preventDefault();
+      var btn = form.querySelector(".priority-save-btn");
+      var input = form.querySelector(".priority-input");
+      var originalBtnText = btn.textContent;
+      btn.textContent = "…";
+      btn.disabled = true;
+
+      var formData = new FormData(form);
+      fetch(form.action, {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-Requested-With": "XMLHttpRequest"
+        }
+      })
+      .then(function(res) {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        btn.textContent = "✓";
+        btn.style.color = "#059669";
+        var row = form.closest(".model-row");
+        if (row && data.priority !== undefined) {
+          row.setAttribute("data-priority", data.priority);
+          input.value = data.priority;
+        }
+        setTimeout(function() {
+          btn.textContent = originalBtnText;
+          btn.style.color = "";
+          btn.disabled = false;
+        }, 1200);
+      })
+      .catch(function(err) {
+        btn.textContent = "✕";
+        btn.style.color = "#dc2626";
+        setTimeout(function() {
+          btn.textContent = originalBtnText;
+          btn.style.color = "";
+          btn.disabled = false;
+        }, 2000);
+      });
+    });
+  });
+});
+</script>
 {% endblock %}
