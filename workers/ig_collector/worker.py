@@ -32,6 +32,7 @@ from instagram_discovery.post_label_store import (
 from instagram_discovery.post_metrics import sample_confident_audit_posts
 from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
 from .planner import build_collection_plan
+from .adapter import InstagramCollectionAdapter
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -322,9 +323,11 @@ class InstagramCollector:
                  lexicon: PersianIntentLexicon | None = None,
                  knowledge_reader: InstagramKnowledgeReader | None = None,
                  jev: JevCommentEvaluator | None = None,
-                 post_label_store: PostLabelStore | None = None):
+                 post_label_store: PostLabelStore | None = None,
+                 adapter: InstagramCollectionAdapter | None = None):
         root = Path(__file__).resolve().parents[2]
         self.backend = backend
+        self.adapter = adapter or InstagramCollectionAdapter(self.backend, self._with_retry)
         self.output_dir = _resolve(root, output_dir or os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
         self.post_label_store = (
             post_label_store if post_label_store is not None
@@ -497,7 +500,7 @@ class InstagramCollector:
                 continue
             capability = "post_by_ref" if kind == "post" else "user_posts" if kind == "account" else "hashtag_posts"
             try:
-                self.backend.require(capability)
+                self.adapter.require_capability(capability)
                 if kind == "post":
                     manual_key = f"manual_post:{value}"
                     if self.store.comments_were_fetched(manual_key) and not seed.get("refresh"):
@@ -505,7 +508,7 @@ class InstagramCollector:
                                               "comments_evaluated": 0, "human_review_comments": 0}
                         handle_outcomes["manual_post"] = {"status": "already_fetched", "posts": 0, "comments": 0}
                         continue
-                    post = self._with_retry(lambda: self.backend.post_by_shortcode(value))
+                    post = self.adapter.post_by_shortcode(value)
                     if post.shortcode != value:
                         raise NotFound("post reference did not resolve")
                     target = {
@@ -548,10 +551,10 @@ class InstagramCollector:
                 if kind == "hashtag":
                     window_days = int(seed.get("window_days", 7))
                     since = datetime.now(timezone.utc) - timedelta(days=window_days)
-                    posts = self._with_retry(lambda: self.backend.hashtag_posts(value, limit, since))
+                    posts = self.adapter.hashtag_posts(value, limit, since)
                     posts = [post for post in posts if _within_window(post.created_at, since)][:limit]
                 else:
-                    posts = self._with_retry(lambda: self.backend.user_posts(value, limit, since))[:limit]
+                    posts = self.adapter.user_posts(value, limit, since)[:limit]
                 outcome["posts"] = len(posts)
                 if kind == "account" and policy_name == "seller_post":
                     posts = [post for post in posts if post.shortcode not in comment_candidate_ids
@@ -778,7 +781,7 @@ class InstagramCollector:
                             manual_post_result.update(status="outside_time_window", reason="outside_time_window")
                         continue
                 try:
-                    self.backend.require("post_comments")
+                    self.adapter.require_capability("post_comments")
                     post_comment_cap = manual_comment_limits.get(shortcode, max_comments) if is_manual else max_comments
                     if is_manual:
                         daily_key = f"manual_post_comments:{date.today().isoformat()}"
@@ -792,9 +795,7 @@ class InstagramCollector:
                                                           reason="daily_comment_cap_reached")
                             break
                         post_comment_cap = min(post_comment_cap, remaining_daily)
-                    comments_rows = self._with_retry(
-                        lambda: self.backend.post_comments(post, post_comment_cap)
-                    )[:post_comment_cap]
+                    comments_rows = self.adapter.post_comments(post, post_comment_cap)[:post_comment_cap]
                     if is_manual:
                         self.store.set_setting(daily_key, str(daily_used + len(comments_rows)))
                     parent_post = {

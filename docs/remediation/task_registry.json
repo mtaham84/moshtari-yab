@@ -1442,13 +1442,13 @@
         "هیچ session واقعی در fixture/log نباشد؛ retry تغییر نکرده باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "workers/test_p08_09_ig_adapter.py",
       "report_path": "docs/remediation/tasks/P08.09.md"
     },
     {
