@@ -30,6 +30,7 @@ x-app: &app
     - ./need_engine:/app/need_engine
     - ./shared:/app/shared
     - ./x_ingest:/app/x_ingest
+    - ./xray:/app/xray
   restart: unless-stopped
 
 services:

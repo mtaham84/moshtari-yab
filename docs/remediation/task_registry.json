@@ -1402,13 +1402,13 @@
         "CLI smoke با process mock انجام شود؛ اتصال/سیستم واقعی تغییر نکند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/core/test_p08_07_proxy_parser.py",
       "report_path": "docs/remediation/tasks/P08.07.md"
     },
     {
