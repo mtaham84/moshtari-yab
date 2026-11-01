@@ -1302,13 +1302,13 @@
         "replay رکورد valid دوباره فرصت/هزینه نسازد و خطا قابل‌مشاهده باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/discovery/test_p08_02_poison_quarantine.py",
       "report_path": "docs/remediation/tasks/P08.02.md"
     },
     {

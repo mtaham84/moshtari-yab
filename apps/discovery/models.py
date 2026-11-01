@@ -1803,3 +1803,36 @@ class OutreachDispatchIntent(models.Model):
     def __str__(self):
         return f"Intent {self.intent_id} [@{self.sender_username} -> @{self.recipient_identifier}]: {self.status}"
 
+
+class QuarantinedSyncPayload(models.Model):
+    """
+    Dead-letter queue for sync_opportunities poison payloads (P08.02 / R41).
+    Isolates corrupted or unprocessable records without blocking ingestion.
+    """
+    STATUS_CHOICES = [
+        ("QUARANTINED", "Quarantined"),
+        ("RESOLVED", "Resolved"),
+        ("FAILED_EXHAUSTED", "Failed Exhausted"),
+        ("DISCARDED", "Discarded"),
+    ]
+
+    seq = models.BigIntegerField(unique=True, db_index=True)
+    opportunity_id = models.CharField(max_length=120, blank=True, db_index=True)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default="QUARANTINED", db_index=True)
+    payload = models.JSONField(help_text="The exact incoming payload that failed processing.")
+    error_reason = models.TextField(help_text="Sanitized failure reason / traceback.")
+    error_type = models.CharField(max_length=100, blank=True)
+    retry_count = models.IntegerField(default=0)
+    max_retries = models.IntegerField(default=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["seq"]
+        verbose_name = "Quarantined Sync Payload"
+        verbose_name_plural = "Quarantined Sync Payloads"
+
+    def __str__(self):
+        return f"Quarantine seq={self.seq} opp={self.opportunity_id} [{self.status}]"
+
+
