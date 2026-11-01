@@ -64,12 +64,7 @@ def classify_join_error(exc: BaseException) -> tuple[str, int]:
     return f"UNKNOWN:{text[:200]}", 600
 
 
-def normalize_link(link: str) -> str:
-    """Same group written differently (https://t.me/x, t.me/x/, @x, X) → one key."""
-    s = (link or "").strip()
-    s = re.sub(r"^(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/", "", s, flags=re.I).strip("/")
-    s = s.lstrip("@")
-    return s if s.startswith(("+", "joinchat/")) else s.lower()
+from shared.links import normalize_link
 
 
 class PanelCommunities:

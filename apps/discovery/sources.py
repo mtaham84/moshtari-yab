@@ -37,20 +37,7 @@ def max_private_sources() -> int:
         return 5
 
 
-def normalize_link(link: str) -> str:
-    """Same group written differently (https://t.me/x, t.me/x/, @x, X) → one key. Must match telegram_crawler.panel."""
-    s = (link or "").strip()
-    s = re.sub(r"^(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/", "", s, flags=re.I).strip("/")
-    s = s.lstrip("@")
-    return s if s.startswith(("+", "joinchat/")) else s.lower()
-
-
-def display_link(link: str) -> str:
-    """What we store/show: @username for public groups, the full URL for invite links."""
-    key = normalize_link(link)
-    if key.startswith(("+", "joinchat/")):
-        return f"https://t.me/{key}"
-    return f"@{key}" if key else ""
+from shared.links import display_link, normalize_link
 
 
 def sync_error_message(code: str | None) -> str:
