@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 90
+    "completed_tasks": 91
   },
   "tasks": [
     {
@@ -1843,13 +1843,13 @@
         "تفاوت عددی performance با روش یکسان قابل‌تکرار باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/PHASE_9_EXIT_GATE.md, docs/remediation/tasks/P09.06.md, apps/core/test_p09_gate_g09.py",
       "report_path": "docs/remediation/tasks/P09.06.md"
     },
     {
