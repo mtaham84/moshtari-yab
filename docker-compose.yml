@@ -30,6 +30,7 @@ x-app: &app
     - ./need_engine:/app/need_engine
     - ./shared:/app/shared
     - ./x_ingest:/app/x_ingest
+    - ./static:/app/static
   restart: unless-stopped
 
 services:
@@ -65,6 +66,7 @@ services:
       - ./need_engine:/app/need_engine
       - ./shared:/app/shared
       - ./x_ingest:/app/x_ingest
+      - ./static:/app/static
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
