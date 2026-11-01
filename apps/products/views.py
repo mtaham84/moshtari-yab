@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import secrets
 from decimal import Decimal, InvalidOperation
@@ -15,6 +16,8 @@ from apps.discovery.models import Opportunity, ProductDailyMetric
 from .models import Category, Product, ProductImage
 from . import agent_card
 from .services import suggest_category_for_product
+
+logger = logging.getLogger("products.views")
 
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -284,7 +287,27 @@ def product_add_view(request):
                         img_field.storage.delete(img_field.name)
                 except Exception:
                     pass
-            messages.error(request, f"خطا در ایجاد محصول: {exc}")
+
+            from apps.core.typed_errors import log_sanitized, sanitize_text
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            from django.db import IntegrityError
+
+            log_sanitized(
+                logger,
+                logging.ERROR,
+                "product_create_failed",
+                tenant_id=business.id,
+                error=exc,
+            )
+
+            if isinstance(exc, DjangoValidationError):
+                user_msg = f"داده‌های محصول نامعتبر است: {sanitize_text(exc)}"
+            elif isinstance(exc, IntegrityError):
+                user_msg = "خطا در ثبت محصول: داده تکراری یا تداخل یکپارچگی در اطلاعات وجود دارد."
+            else:
+                user_msg = "خطا در پردازش و ایجاد محصول. لطفاً مقادیر وارد شده را بررسی فرمایید."
+
+            messages.error(request, user_msg)
             return render(request, "products/product_form.html", {
                 "categories": categories,
                 "category_attributes_map": category_attributes_map,
@@ -388,7 +411,27 @@ def product_edit_view(request, pk):
                         img_field.storage.delete(img_field.name)
                 except Exception:
                     pass
-            messages.error(request, f"خطا در ویرایش محصول: {exc}")
+
+            from apps.core.typed_errors import log_sanitized, sanitize_text
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            from django.db import IntegrityError
+
+            log_sanitized(
+                logger,
+                logging.ERROR,
+                "product_edit_failed",
+                tenant_id=business.id,
+                error=exc,
+            )
+
+            if isinstance(exc, DjangoValidationError):
+                user_msg = f"داده‌های ویرایش محصول نامعتبر است: {sanitize_text(exc)}"
+            elif isinstance(exc, IntegrityError):
+                user_msg = "خطا در ویرایش محصول: داده تکراری یا تداخل یکپارچگی در اطلاعات وجود دارد."
+            else:
+                user_msg = "خطا در ذخیره تغییرات محصول. لطفاً مقادیر وارد شده را بررسی فرمایید."
+
+            messages.error(request, user_msg)
             return render(request, "products/product_form.html", {
                 "product": product,
                 "categories": categories,

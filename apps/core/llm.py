@@ -72,7 +72,8 @@ class PanelLedgerAdapter:
             )
             return str(log_entry.id)
         except Exception as exc:
-            log.warning("Failed to create LLMUsageLog: %s", exc)
+            from apps.core.typed_errors import sanitize_text
+            log.warning("Failed to create LLMUsageLog: %s", sanitize_text(exc))
             return "log_err"
 
 
@@ -249,4 +250,6 @@ def chat_json(
     if result.status == GatewayResultStatus.UNAVAILABLE:
         raise LLMError("سرویس‌دهنده‌های هوش مصنوعی در حال حاضر در دسترس نیستند.")
 
-    raise LLMError(result.error_message or "خطا در پردازش هوش مصنوعی")
+    from apps.core.typed_errors import sanitize_text
+    clean_err = sanitize_text(result.error_message or "خطا در پردازش هوش مصنوعی")
+    raise LLMError(clean_err)

@@ -1282,13 +1282,13 @@
         "token/password/session و متن کامل حساس در log/response نباشند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/core/test_p08_01_typed_errors.py",
       "report_path": "docs/remediation/tasks/P08.01.md"
     },
     {

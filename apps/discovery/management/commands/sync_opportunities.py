@@ -51,8 +51,15 @@ class Command(BaseCommand):
             if not opts["no_billing"]:
                 try:
                     charge_pending_usage()
-                except Exception:   # billing must never stop the import
-                    log.exception("charging wallets failed")
+                except Exception as billing_exc:   # billing must never stop the import
+                    from apps.core.typed_errors import log_sanitized, ErrorCode
+                    log_sanitized(
+                        log,
+                        logging.ERROR,
+                        "sync_opportunities.charging_wallets_failed",
+                        error=billing_exc,
+                        extra={"operation": "charge_pending_usage", "error_code": ErrorCode.INTERNAL.value},
+                    )
             heartbeat("sync")
             if not opts["follow"]:
                 break
