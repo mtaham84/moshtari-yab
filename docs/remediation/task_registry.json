@@ -1582,13 +1582,13 @@
         "query و memory بی‌دلیل بدتر نشوند و import boundary پاس باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/tasks/P08.16.md, apps/discovery/export_service.py, apps/discovery/test_p08_16_export_service.py",
       "report_path": "docs/remediation/tasks/P08.16.md"
     },
     {
