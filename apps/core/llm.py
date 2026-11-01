@@ -68,8 +68,8 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
             "Content-Type": "application/json",
         }
         post_model = model_name
-        if "generativelanguage.googleapis.com" in base_url and post_model == "gpt-6-luna":
-            post_model = "gemini-3.5-flash-lite"
+        if ("houshyar24" in base_url or "luna" in model_name.lower()) and post_model.startswith("code/"):
+            post_model = post_model.replace("code/", "")
         body = json.dumps({
             "model": post_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -77,11 +77,17 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
             "max_tokens": max_tokens
         }).encode("utf-8")
 
+        is_domestic = any(d in base_url.lower() for d in ("houshyar24", ".ir", "127.0.0.1", "localhost"))
         for attempt in range(max(1, attempts)):
             try:
                 req = urllib.request.Request(url, data=body, headers=headers)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
+                if is_domestic:
+                    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                    with opener.open(req, timeout=timeout) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                else:
+                    with urllib.request.urlopen(req, timeout=timeout) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
                 ch = (data.get("choices") or [{}])[0]
                 content = (ch.get("message") or {}).get("content") or ""
                 u = data.get("usage") or {}

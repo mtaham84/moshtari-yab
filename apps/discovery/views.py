@@ -113,21 +113,26 @@ def api_analytics_report_view(request):
     return JsonResponse({"status": "success", "data": data}, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
 
-def _filter_opportunities_queryset(business, params):
+def _filter_opportunities_queryset(business, params, is_admin=False, view_all_tenants=False):
     """
     Unified filter and sort engine for opportunities table and Excel export.
     Supports platform, status, catalog product filter, Jalali date range, search,
     and sorting by Jalali time or purchase intent score.
     """
-    if not business:
+    if not business and not view_all_tenants:
         return Opportunity.objects.none(), {
             "platform": "", "status": "", "product_id": None, "min_score": "",
             "min_intent": "", "q": "", "date_from": "", "date_to": "", "sort": "newest", "hide_stale": False,
         }
 
-    qs = Opportunity.objects.filter(business=business).select_related(
-        "customer", "category", "ai_analysis"
-    ).prefetch_related("product_matches__product")
+    if view_all_tenants or not business:
+        qs = Opportunity.objects.all().select_related(
+            "customer", "category", "ai_analysis", "business"
+        ).prefetch_related("product_matches__product")
+    else:
+        qs = Opportunity.objects.filter(business=business).select_related(
+            "customer", "category", "ai_analysis", "business"
+        ).prefetch_related("product_matches__product")
 
     # Platform filter
     platform_filter = params.get("platform", "").strip().lower()
@@ -146,10 +151,15 @@ def _filter_opportunities_queryset(business, params):
     product_id_str = params.get("product_id", "").strip()
     selected_product_id = int(product_id_str) if product_id_str.isdigit() else None
     if selected_product_id:
-        qs = qs.filter(
-            product_matches__product_id=selected_product_id,
-            product_matches__product__business=business,
-        )
+        if business:
+            qs = qs.filter(
+                product_matches__product_id=selected_product_id,
+                product_matches__product__business=business,
+            )
+        else:
+            qs = qs.filter(
+                product_matches__product_id=selected_product_id,
+            )
 
     # Search query
     q = params.get("q", "").strip()
@@ -230,25 +240,34 @@ def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
     all_businesses = None
     is_admin = request.user.is_staff or request.user.is_superuser
+    view_all_tenants = False
 
     if is_admin:
         from django.db.models import Count
         all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
-        requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_biz_id = request.GET.get("business_id", "").strip().lower()
         requested_prod_id = request.GET.get("product_id", "").strip()
 
-        if requested_biz_id.isdigit():
+        if requested_biz_id == "all":
+            business = None
+            view_all_tenants = True
+        elif requested_biz_id.isdigit():
             b_found = Business.objects.filter(id=int(requested_biz_id)).first()
             if b_found:
                 business = b_found
+                view_all_tenants = False
         elif requested_prod_id.isdigit():
             prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
             if prod and prod.business:
                 business = prod.business
-        elif not business:
-            first_biz = Business.objects.order_by("id").first()
-            if first_biz:
-                business = first_biz
+                view_all_tenants = False
+        else:
+            if not business or business.opportunities.count() == 0:
+                first_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().first()
+                if first_with_opps:
+                    business = first_with_opps
+                elif not business:
+                    business = Business.objects.order_by("id").first()
     else:
         # Strict tenant isolation for regular sellers
         if not business:
@@ -291,7 +310,7 @@ def opportunity_list_view(request):
                 }
                 return render(request, "discovery/opportunities_list.html", context)
 
-    qs, filter_meta = _filter_opportunities_queryset(business, request.GET)
+    qs, filter_meta = _filter_opportunities_queryset(business, request.GET, is_admin=is_admin, view_all_tenants=view_all_tenants)
 
     # View layout mode (table vs cards)
     view_mode = request.GET.get("view", "table").strip().lower()
@@ -299,7 +318,10 @@ def opportunity_list_view(request):
         view_mode = "table"
 
     # Seller's products for catalog filter dropdown
-    seller_products = Product.objects.filter(business=business).order_by("name")
+    if view_all_tenants or not business:
+        seller_products = Product.objects.all().order_by("name")[:100]
+    else:
+        seller_products = Product.objects.filter(business=business).order_by("name")
 
     paginator = Paginator(qs, 25)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -334,7 +356,10 @@ def opportunity_list_view(request):
 
 
     # Global summary stats
-    all_opps = Opportunity.objects.filter(business=business)
+    if view_all_tenants or not business:
+        all_opps = Opportunity.objects.all()
+    else:
+        all_opps = Opportunity.objects.filter(business=business)
     stats = {
         "total": all_opps.count(),
         "filtered_count": paginator.count,
@@ -359,13 +384,19 @@ def opportunity_list_view(request):
     export_query = request.GET.copy()
     for key in ("view", "page"):
         export_query.pop(key, None)
-    if is_admin and business and getattr(request.user, "business", None) != business:
-        export_query["business_id"] = business.id
+    if is_admin:
+        if view_all_tenants:
+            export_query["business_id"] = "all"
+        elif business:
+            export_query["business_id"] = business.id
 
     pagination_query = request.GET.copy()
     pagination_query.pop("page", None)
-    if is_admin and business and getattr(request.user, "business", None) != business:
-        pagination_query["business_id"] = business.id
+    if is_admin:
+        if view_all_tenants:
+            pagination_query["business_id"] = "all"
+        elif business:
+            pagination_query["business_id"] = business.id
     pagination_query_string = pagination_query.urlencode()
     pagination_base_url = f"?{pagination_query_string}&page=" if pagination_query_string else "?page="
 
@@ -375,6 +406,7 @@ def opportunity_list_view(request):
         "stats": stats,
         "all_businesses": all_businesses,
         "selected_business": business,
+        "view_all_tenants": view_all_tenants,
         "seller_products": seller_products,
         "selected_platform": filter_meta["platform"],
         "selected_status": filter_meta["status"],
@@ -409,10 +441,14 @@ def opportunity_export_view(request):
     """
     business = getattr(request.user, "business", None)
     is_admin = request.user.is_staff or request.user.is_superuser
+    view_all_tenants = False
     if is_admin:
-        requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_biz_id = request.GET.get("business_id", "").strip().lower()
         requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id.isdigit():
+        if requested_biz_id == "all":
+            business = None
+            view_all_tenants = True
+        elif requested_biz_id.isdigit():
             b_found = Business.objects.filter(id=int(requested_biz_id)).first()
             if b_found:
                 business = b_found
@@ -430,10 +466,10 @@ def opportunity_export_view(request):
             if not Product.objects.filter(id=int(requested_prod_id), business=business).exists():
                 return HttpResponse("محصول در این فروشگاه یافت نشد.", status=403)
 
-    if not business:
+    if not business and not view_all_tenants:
         return HttpResponse("کسب‌وکار یافت نشد.", status=404)
 
-    qs, _ = _filter_opportunities_queryset(business, request.GET)
+    qs, _ = _filter_opportunities_queryset(business, request.GET, is_admin=is_admin, view_all_tenants=view_all_tenants)
 
     today_str = format_jalali_date(timezone.now().date(), persian_digits=False).replace("/", "-")
     filename = f"customers_{today_str}.csv"
@@ -1483,4 +1519,31 @@ def x_product_view(request, pk):
         "phrases": x_activity.search_phrases(product), "events": x_activity.timeline(product, business, show),
         "show": show, "filters": x_activity.FILTERS, "collector": x_activity.collector_line(),
         "wallet_empty": _x_wallet_empty(business),
+    })
+
+
+@login_required
+def api_leaf_category_stats_view(request):
+    """
+    Returns JSON dashboard metrics for all active leaf categories and platforms.
+    Accepts ?platform=x, ?platform=instagram, or returns both.
+    """
+    business = getattr(request.user, "business", None)
+    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
+        b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
+        if b_found:
+            business = b_found
+
+    if not business:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=400)
+
+    platform_param = request.GET.get("platform")
+    from .services import get_leaf_category_dashboard_stats
+    data = get_leaf_category_dashboard_stats(business, platform=platform_param)
+    return JsonResponse({
+        "status": "success",
+        "business_id": business.id,
+        "business_name": business.name,
+        "leaf_categories_count": len(data),
+        "results": data,
     })

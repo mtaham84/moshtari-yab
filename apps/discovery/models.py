@@ -870,6 +870,7 @@ class InstagramSourceStat(models.Model):
     leads = models.PositiveIntegerField(default=0)
     alpha = models.FloatField(default=1.0)
     beta = models.FloatField(default=1.0)
+    generation_version = models.CharField(max_length=20, default="v1", db_index=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
 
     @property
@@ -916,10 +917,12 @@ class InstagramCategoryTarget(models.Model):
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_category_targets")
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="instagram_targets")
     terms = models.JSONField(default=list, blank=True)
+    archived_terms = models.JSONField(default=list, blank=True)
     hashtags = models.JSONField(default=list, blank=True)
     max_posts = models.PositiveSmallIntegerField(default=5)
     window_days = models.PositiveSmallIntegerField(default=7)
     is_active = models.BooleanField(default=False)
+    generation_version = models.CharField(max_length=20, default="v1", db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -943,14 +946,17 @@ class EngineSyncCursor(models.Model):
 
 class XSearchQuery(models.Model):
     KIND = [(x, x) for x in ("auto_intent", "auto_problem", "auto_product", "manual", "suggested")]
-    STATE = [(x, x) for x in ("active", "paused_manual", "paused_auto", "suggested", "rejected", "stale")]
+    STATE = [(x, x) for x in ("active", "paused_manual", "paused_auto", "suggested", "rejected", "stale", "archived")]
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="x_search_queries")
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="x_search_queries")
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="x_search_queries")
     text = models.CharField(max_length=100)
     normalized_text = models.CharField(max_length=100)
     kind = models.CharField(max_length=20, choices=KIND, default="manual")
     state = models.CharField(max_length=20, choices=STATE, default="active", db_index=True)
     weight = models.FloatField(default=1.0)
+    generation_version = models.CharField(max_length=20, default="v1", db_index=True)
+    domain = models.CharField(max_length=50, blank=True, default="")
     state_reason = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_state_change_at = models.DateTimeField(auto_now=True)

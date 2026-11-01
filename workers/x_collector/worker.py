@@ -275,6 +275,11 @@ class XCollector:
                     mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
             log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
+        if hasattr(self, "account_pool") and self.account_pool:
+            try:
+                self.account_pool.refresh()
+            except Exception as pool_exc:
+                log.debug("Account pool refresh failed: %s", pool_exc)
         is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
         enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "true").lower() in {"1", "true", "yes", "on"}
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily)

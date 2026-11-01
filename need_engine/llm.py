@@ -152,23 +152,34 @@ class LLMClient:
         model_name = body.get("model", "")
         base_url, api_key = self.registry.endpoint(model_name)
         post_body = dict(body)
-        if "generativelanguage.googleapis.com" in base_url and post_body.get("model") == "gpt-6-luna":
-            post_body["model"] = "gemini-3.5-flash-lite"
+        if "houshyar24" in base_url or "luna" in model_name.lower():
+            if post_body.get("model", "").startswith("code/"):
+                post_body["model"] = post_body["model"].replace("code/", "")
+            post_body.pop("response_format", None)
         req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(post_body).encode(),
-                                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-        if proxy and not os.environ.get("PYTEST_CURRENT_TEST"):
+        is_domestic = any(d in base_url.lower() for d in ("houshyar24", ".ir", "127.0.0.1", "localhost"))
+        if is_domestic:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            try:
+                with opener.open(req, timeout=timeout) as r:
+                    return r.status, r.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode("utf-8", "replace")
+        elif proxy and not os.environ.get("PYTEST_CURRENT_TEST"):
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy, "http": proxy}))
             try:
                 with opener.open(req, timeout=timeout) as r:
                     return r.status, r.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as e:
                 return e.code, e.read().decode("utf-8", "replace")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.status, r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode("utf-8", "replace")
+        else:
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return r.status, r.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode("utf-8", "replace")
 
     def complete_json(self, stage: str, model: str, system: str, user: str, max_tokens: int = 4096,
                       temperature: float = 0.0, parse_retries: int = 1, ref: str = "",

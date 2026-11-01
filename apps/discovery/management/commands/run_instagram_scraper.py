@@ -193,19 +193,15 @@ class Command(BaseCommand):
                 self.stderr.write(f"Notice: 30-day TTL hash cleanup notice: {ttl_exc}")
 
             cycle_leads = 0
-            for target in targets:
-                # Sticky account assignment per business: keeps account steady without switching
-                b_obj = target.get("business")
-                b_id = getattr(b_obj, "id", 0) if b_obj else 0
-                account = scraper_accounts[b_id % len(scraper_accounts)]
-                if not self._is_usable(account):
-                    healthy = [a for a in scraper_accounts if self._is_usable(a)]
-                    if not healthy:
-                        self.stderr.write(self.style.WARNING(
-                            f"No healthy scraper account left this cycle; skipping target {target['name']}."
-                        ))
-                        continue
-                    account = healthy[b_id % len(healthy)]
+            for target_idx, target in enumerate(targets):
+                # Fair rotating account assignment across targets to ensure all scraper accounts participate
+                usable_accounts = [a for a in scraper_accounts if self._is_usable(a)]
+                if not usable_accounts:
+                    self.stderr.write(self.style.WARNING(
+                        f"No healthy scraper account left this cycle; skipping target {target['name']}."
+                    ))
+                    continue
+                account = usable_accounts[target_idx % len(usable_accounts)]
 
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
                 cl = self._get_persistent_client(account)
@@ -352,24 +348,10 @@ class Command(BaseCommand):
 
     def _maybe_human_like(self, cl, m_id, account) -> None:
         """
-        Periodically performs human-like warm-up interactions (e.g. liking a post)
-        with controlled probability (~15%), natural jitter delay (3-8s), and strict daily limits (<= 15/day).
+        Part 12 automated engagement restriction:
+        Automated likes, follows, or comments to simulate organic human activity are strictly disabled.
         """
-        import random
-        if random.random() > 0.15:
-            return
-
-        if getattr(account, "daily_action_count", 0) >= 15:
-            return
-
-        try:
-            time.sleep(random.uniform(3.0, 7.5))
-            cl.media_like(m_id)
-            account.daily_action_count = getattr(account, "daily_action_count", 0) + 1
-            account.save(update_fields=["daily_action_count"])
-            self.stdout.write(self.style.SUCCESS(f"    ❤️ [HUMAN-LIKE INTERACTION] @{account.username} liked post {m_id} (Daily likes: {account.daily_action_count})"))
-        except Exception as e:
-            self.stdout.write(self.style.NOTICE(f"    Notice: human-like interaction skipped: {e}"))
+        return
 
     def _auto_renew_session(self, cl, account) -> bool:
         """
@@ -613,9 +595,6 @@ class Command(BaseCommand):
                     f"    🎯 [QUALIFYING POST for {query_label}] {source_post_url} | Comments: {comment_count} (>= {min_comments}) | Hash: {post_hash[:10]}"
                 )
             )
-
-            # Human-like interaction (organic like telemetry)
-            self._maybe_human_like(cl, m_id, account)
 
             cta_trigger = get_effective_caption_cta(caption_text)
             fetch_amount = min(comment_count, 100)
