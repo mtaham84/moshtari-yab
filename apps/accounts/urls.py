@@ -1,12 +1,12 @@
 from django.urls import path
-from . import onboarding, shop, views
+from . import auth_views, onboarding, shop, views
 
 app_name = "accounts"
 
 urlpatterns = [
-    path("signup/", views.signup_view, name="signup"),
-    path("login/", views.login_view, name="login"),
-    path("logout/", views.logout_view, name="logout"),
+    path("signup/", auth_views.signup_view, name="signup"),
+    path("login/", auth_views.login_view, name="login"),
+    path("logout/", auth_views.logout_view, name="logout"),
     path("dashboard/", views.dashboard_view, name="dashboard"),
     path("settings/", views.settings_view, name="settings"),
     path("onboarding/", onboarding.onboarding_view, name="onboarding"),
