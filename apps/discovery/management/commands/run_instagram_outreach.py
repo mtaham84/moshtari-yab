@@ -484,12 +484,50 @@ class Command(BaseCommand):
                     sender_consecutive_errors[sender.username] = consec_err
 
                     # Check for rate limit / challenge / action block
-                    if "challenge" in exc_str or "checkpoint" in exc_str:
+                    if "challenge" in exc_str or "checkpoint" in exc_str or "suspended" in exc_str:
                         sender.status = "CHALLENGED"
                         sender.status_message = "نیازمند حل چالش امنیتی اینستاگرام"
                         sender.save(update_fields=["status", "status_message"])
                         clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
                         self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} وارد چالش شد. از مدار خارج شد."))
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
+                    elif (
+                        "login_required" in exc_str
+                        or "loginrequired" in exc_str
+                        or "user_has_logged_out" in exc_str
+                        or "unauthorized" in exc_str
+                        or "clientforbiddenerror" in exc_str
+                    ):
+                        sender.status = "CHALLENGED"
+                        sender.status_message = "سشن اینستاگرام منقضی شده است (نیاز به لاگین مجدد یا ثبت کوکی sessionid جدید)"
+                        sender.save(update_fields=["status", "status_message"])
+                        clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
+                        self.stderr.write(self.style.ERROR(f"   ⚠️ سشن اکانت @{sender.username} منقضی شده است (LoginRequired). از مدار خارج شد."))
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
+                    elif (
+                        "connection refused" in exc_str
+                        or "connectionerror" in exc_str
+                        or "proxyconnectionerror" in exc_str
+                        or "errno 111" in exc_str
+                        or "max retries exceeded" in exc_str
+                    ):
+                        cooldown_minutes = 15
+                        sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=cooldown_minutes)
+                        sender.status = "COOLDOWN"
+                        sender.status_message = f"خطای اتصال پروکسی ({exc_str[:50]}) - استراحت {cooldown_minutes} دقیقه‌ای"
+                        sender.save(update_fields=["cooldown_until", "status", "status_message"])
+                        clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
+                        self.stderr.write(self.style.ERROR(f"   ⚠️ خطای پروکسی یا اتصال برای @{sender.username}. به مدت {cooldown_minutes} دقیقه استراحت داده شد."))
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
                     elif "1404006" in exc_str:
                         # Error 1404006: Meta's temporary action block on this sender sending DMs to non-followers
                         self.stderr.write(self.style.ERROR(
@@ -506,12 +544,16 @@ class Command(BaseCommand):
                         # Lead remains NEW so another active sender can deliver it
                         lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
-                    elif "message controls" in exc_str:
+                    elif "message controls" in exc_str or "privacy" in exc_str:
                         self.stdout.write(self.style.WARNING(
                             f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} تنظیمات پیام را مسدود کرده است (رد شد)."
                         ))
                         lead.status = "SKIPPED"
                         lead.comment_text = (lead.comment_text or "") + "\n[محدودیت کاربر]: مسدود بودن دایرکت اکانت‌های ناشناس"
+                        lead.save(update_fields=["status", "comment_text", "updated_at"])
+                    elif "user not found" in exc_str or "usernotfound" in exc_str or "not_found" in exc_str:
+                        lead.status = "SKIPPED"
+                        lead.comment_text = (lead.comment_text or "") + "\n[کاربر یافت نشد]: پیج تغییر نام داده یا حذف شده است"
                         lead.save(update_fields=["status", "comment_text", "updated_at"])
                     elif "feedback" in exc_str or "please wait" in exc_str or "rate limit" in exc_str or "403" in exc_str:
                         cooldown_hours = 3
@@ -526,7 +568,17 @@ class Command(BaseCommand):
                         lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
                     else:
-                        lead.status = "FAILED"
+                        # For unhandled exceptions, do NOT mark lead as FAILED if sender might be the issue
+                        if consec_err >= 3:
+                            cooldown_hours = 1
+                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
+                            sender.status = "COOLDOWN"
+                            sender.status_message = f"خطاهای متوالی ({exc_str[:50]}) - استراحت {cooldown_hours} ساعته"
+                            sender.save(update_fields=["cooldown_until", "status", "status_message"])
+                            clients_cache.pop(sender.username, None)
+                            if sender in available_senders:
+                                available_senders.remove(sender)
+                        lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
 
             # 📬 Automatic Reply Checking (Runs after DM sending so it never blocks outbound messages)

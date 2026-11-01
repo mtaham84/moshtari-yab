@@ -699,7 +699,7 @@ class Command(BaseCommand):
                 break
 
         retired = False
-        if qualifying_posts < 3:
+        if posts_inspected >= 15 and qualifying_posts < 3:
             retired = True
 
         return posts_inspected, qualifying_posts, leads_saved, retired
@@ -938,13 +938,18 @@ class Command(BaseCommand):
                     _add(recent)
                 except Exception as e:
                     self.stderr.write(f"Notice: hashtag_medias_recent for #{tag}: {e}")
+                    self._note_account_error(account, str(e), cl, e)
+                    if account.status != "ACTIVE":
+                        raise
 
                 if _count_qualifying() < target_qualifying or len(all_medias) < min_inspect:
                     try:
                         top = self._instagram_api_call(account, cl.hashtag_medias_top, tag, amount=amount) or []
                         _add(top)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self._note_account_error(account, str(e), cl, e)
+                        if account.status != "ACTIVE":
+                            raise
 
                 if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
                     break
@@ -959,7 +964,8 @@ class Command(BaseCommand):
                 uid = self._instagram_api_call(account, cl.user_id_from_username, target_handle)
             except Exception as e:
                 self.stderr.write(f"User ID lookup failed for @{target_handle}: {e}")
-                return []
+                self._note_account_error(account, str(e), cl, e)
+                raise
 
             for amount in steps:
                 if len(all_medias) >= max_total:
@@ -969,6 +975,9 @@ class Command(BaseCommand):
                     _add(batch)
                 except Exception as e:
                     self.stderr.write(f"User medias fetch failed for @{target_handle}: {e}")
+                    self._note_account_error(account, str(e), cl, e)
+                    if account.status != "ACTIVE":
+                        raise
                     break
                 if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
                     break
@@ -988,6 +997,9 @@ class Command(BaseCommand):
                     _add(batch)
                 except Exception as e:
                     self.stderr.write(f"Media search failed for '{source_label}': {e}")
+                    self._note_account_error(account, str(e), cl, e)
+                    if account.status != "ACTIVE":
+                        raise
                     break
                 if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
                     break
@@ -1260,7 +1272,7 @@ class Command(BaseCommand):
                 break
 
         retired = False
-        if qualifying_posts < target_qualifying:
+        if posts_inspected >= min_inspect and qualifying_posts < target_qualifying:
             retired = True
 
         return posts_inspected, qualifying_posts, leads_saved, retired

@@ -43,7 +43,7 @@ _RULES: tuple[tuple[ErrorKind, tuple[str, ...], tuple[str, ...]], ...] = (
      ("feedback_required", "please wait", "429", "too many requests", "rate limit", "action blocked")),
     (ErrorKind.NETWORK, ("connectionerror", "timeout", "proxyerror", "sslerror", "connecttimeout", "readtimeout"),
      ("timed out", "connection reset", "connection aborted", "name resolution", "temporary failure", "tlsv1")),
-    (ErrorKind.LOGIN_REQUIRED, ("loginrequired",), ("login_required", "login required")),
+    (ErrorKind.LOGIN_REQUIRED, ("loginrequired", "clientforbiddenerror"), ("login_required", "login required", "user_has_logged_out", "logged_out")),
 )
 
 
