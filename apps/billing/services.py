@@ -161,10 +161,20 @@ def charge_pending_usage(grace_seconds: float = 5.0) -> dict:
 
 
 def heartbeat(name: str) -> None:
-    """Liveness marker for the «وضعیت سرویس‌ها» card (stored in EngineSyncCursor, position = unix time)."""
+    """Liveness marker for services (stored in EngineSyncCursor and /tmp/heartbeat_<name>.txt)."""
     from apps.discovery.models import EngineSyncCursor
+    from pathlib import Path
 
-    EngineSyncCursor.objects.update_or_create(name=f"heartbeat:{name}", defaults={"position": int(time.time())})
+    now_ts = int(time.time())
+    try:
+        EngineSyncCursor.objects.update_or_create(name=f"heartbeat:{name}", defaults={"position": now_ts})
+    except Exception:
+        pass
+
+    try:
+        Path(f"/tmp/heartbeat_{name}.txt").write_text(str(now_ts), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def waiting_payment() -> dict[str, dict]:

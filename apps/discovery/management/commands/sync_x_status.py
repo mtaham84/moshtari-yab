@@ -15,8 +15,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         path = settings.BASE_DIR / __import__("os").getenv("X_STATUS_FILE", "data/x_collected/status.json")
+        from apps.billing.services import heartbeat
+
         while True:
             sync_x_status_file(str(path), int(__import__("os").getenv("X_STATUS_STALE_MINUTES", "30")))
+            heartbeat("sync_x")
             if not options["follow"]:
                 break
             time.sleep(max(1, options["interval"]))

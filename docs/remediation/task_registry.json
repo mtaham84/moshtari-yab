@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 89
+    "completed_tasks": 90
   },
   "tasks": [
     {
@@ -1823,13 +1823,13 @@
         "shutdown job را گم یا ارسال مبهم را دوباره اجرا نکند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docker/entrypoint.sh, scripts/sync_supervisor.py, apps/core/management/commands/check_service_health.py, apps/core/test_p09_05_worker_supervision_and_health.py, docs/remediation/tasks/P09.05.md",
       "report_path": "docs/remediation/tasks/P09.05.md"
     },
     {

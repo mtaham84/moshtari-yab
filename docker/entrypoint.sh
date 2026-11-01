@@ -39,8 +39,7 @@ case "$1" in
     ;;
   sync)
     wait_for_db
-    python manage.py sync_x_status --follow --interval "${X_STATUS_SYNC_INTERVAL:-30}" &
-    exec python manage.py sync_opportunities --follow --interval "${SYNC_INTERVAL:-10}"
+    exec python -m scripts.sync_supervisor
     ;;
   engine)
     shift
