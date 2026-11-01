@@ -1522,13 +1522,13 @@
         "CLI smoke و boundary پاس شوند؛ هیچ شبکه واقعی استفاده نشود."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/discovery/test_p08_13_family_inspection.py",
       "report_path": "docs/remediation/tasks/P08.13.md"
     },
     {
