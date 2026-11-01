@@ -15,7 +15,10 @@
 {% include 'partials/icons.html' %}
 <div class="ops-layout">
   <aside class="ops-side">
-    <div class="ops-brand">مشتری‌یاب<small>پنل مدیریت</small></div>
+    <div class="ops-brand" style="display: flex; align-items: center; gap: 8px;">
+      <img src="{% static 'images/brand/peyda-mark-dark.png' %}" alt="Peyda Logo" width="24" height="24" style="display: block; object-fit: contain;">
+      <div>پیدا <small>پنل مدیریت</small></div>
+    </div>
     <div class="ops-side-nav">
       <a href="{% url 'manage:dashboard' %}?tab=outreach" class="{% if request.GET.tab == 'outreach' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> پیام‌رسانی و دایرکت اینستاگرام</a>
       <a href="{% url 'manage:dashboard' %}?tab=crawler-audit" class="{% if request.GET.tab == 'crawler-audit' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> پایش کرول و هوشمندی کوئری‌ها</a>

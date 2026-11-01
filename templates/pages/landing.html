@@ -6,23 +6,18 @@
      Cosmic Hero Section (Matching Reference Image)
      ========================================================================== -->
 <header class="hero-wrapper" id="بالا">
-  <video class="hero-video" id="hero-video" autoplay muted loop playsinline preload="auto" disablepictureinpicture aria-hidden="true" tabindex="-1">
+  <video class="hero-video" id="hero-video" autoplay muted loop playsinline webkit-playsinline preload="auto" poster="{% static 'images/dashboard-bg.jpg' %}" disablepictureinpicture aria-hidden="true" tabindex="-1">
     <source src="{% static 'images/coverr-50-sale-sign-on-the-street-5893-1080p.mp4' %}" type="video/mp4">
   </video>
+  <div class="hero-video-scrim" aria-hidden="true"></div>
 
   <!-- Navigation Bar -->
   <nav class="navbar" aria-label="ناوبری اصلی">
-    <a class="brand" href="#بالا" aria-label="مشتری‌یاب، صفحه‌ی اصلی">
-      <div class="brand-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          <path d="M11 8v6M8 11h6"></path>
-        </svg>
-      </div>
+    <a class="brand" href="#بالا" aria-label="پیدا - سامانه کشف مشتری">
+      <img src="{% static 'images/brand/peyda-mark-dark.png' %}" alt="Peyda Logo" class="brand-logo-img" width="38" height="38" style="display: block; object-fit: contain;">
       <div class="brand-text">
-        <span class="brand-name">مشتری‌یاب</span>
-        <span class="brand-tagline">ایجنت هوشمند کشف مشتری</span>
+        <span class="brand-name">پیدا <small style="font-size: 0.72rem; opacity: 0.8; font-weight: 700; letter-spacing: 0.5px;">PEYDA</small></span>
+        <span class="brand-tagline">سامانه هوشمند کشف مشتری (Lead Finder)</span>
       </div>
     </a>
 

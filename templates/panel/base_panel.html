@@ -53,14 +53,12 @@
             </svg>
           </button>
           <a href="{% url 'accounts:dashboard' %}" style="display: flex; align-items: center; gap: 10px; text-decoration: none;">
-            <div class="console-brand-logo">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-              </svg>
+            <div class="console-brand-logo" style="background: transparent !important; box-shadow: none !important; padding: 2px;">
+              <img src="{% static 'images/brand/peyda-mark-dark.png' %}" alt="Peyda Logo" width="30" height="30" style="display: block; object-fit: contain;">
             </div>
             <div class="console-brand-meta">
-              <span class="console-brand-name">مشتـــری‌یاب</span>
-              <span class="console-brand-badge">سامانه کشف هوشمند مشتری</span>
+              <span class="console-brand-name">پیدا <small style="font-size: 0.72rem; opacity: 0.75; font-weight: 700; letter-spacing: 0.5px;">PEYDA</small></span>
+              <span class="console-brand-badge">سامانه هوشمند کشف مشتری (Lead Finder)</span>
             </div>
           </a>
         </div>
