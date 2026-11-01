@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 88
+    "completed_tasks": 89
   },
   "tasks": [
     {
@@ -1803,13 +1803,13 @@
         "DB قدیمی ناسازگار واضح fail شود؛ restore/roll-forward عملی توضیح داده شود."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docker-compose.prod.yml, apps/core/test_p09_04_production_compose.py, docs/remediation/tasks/P09.04.md",
       "report_path": "docs/remediation/tasks/P09.04.md"
     },
     {

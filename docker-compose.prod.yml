@@ -1,0 +1,121 @@
+# Production Compose Overlay for Moshtari-Yab (P09.04 - R34, R35)
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Key Invariants:
+# 1. IMMUTABLE CODE: All source code bind mounts (./apps, ./templates, ./workers, ./need_engine, etc.)
+#    are strictly removed. The container runs only the immutable, verified image artifact.
+# 2. BAKED ASSETS: Static files are served by WhiteNoise directly from image /app/staticfiles.
+# 3. ROTATED LOGS: Standard docker json-file log rotation prevents unbounded log growth on host.
+# 4. SECURE SECRETS: No hardcoded secrets; injected via environment/vault/env_file only.
+
+services:
+  web:
+    environment:
+      DJANGO_DEBUG: "False"
+    volumes: !override
+      - appdata:/app/data
+      - media:/app/media
+      - ./backups:/app/backups
+      - xdata:/app/output
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  sync:
+    environment:
+      DJANGO_DEBUG: "False"
+    volumes: !override
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  engine:
+    environment:
+      DJANGO_DEBUG: "False"
+    volumes: !override
+      - appdata:/app/data
+      - media:/app/media
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  crawler:
+    volumes: !override
+      - appdata:/app/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  x:
+    volumes: !override
+      - appdata:/app/data
+      - ./backups:/app/backups
+      - xdata:/app/output
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  ig:
+    volumes: !override
+      - appdata:/app/data
+      - ./backups:/app/backups
+      - media:/app/media
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  ig-outreach:
+    volumes: !override
+      - appdata:/app/data
+      - ./backups:/app/backups
+      - media:/app/media
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  retention:
+    volumes: !override
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  retention-report:
+    volumes: !override
+      - appdata:/app/data
+      - media:/app/media
+      - xdata:/app/output
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
