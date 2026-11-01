@@ -694,7 +694,13 @@
       toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#047857;color:#fff;padding:10px 20px;border-radius:8px;font-size:0.86rem;font-weight:700;box-shadow:0 10px 25px rgba(0,0,0,0.25);z-index:9999;transition:all 0.3s ease;display:flex;align-items:center;gap:8px;pointer-events:none;';
       document.body.appendChild(toast);
     }
-    toast.innerHTML = `<span>✓</span> <span>${msg}</span>`;
+    toast.innerHTML = '';
+    const iconSpan = document.createElement('span');
+    iconSpan.textContent = '✓ ';
+    const msgSpan = document.createElement('span');
+    msgSpan.textContent = msg;
+    toast.appendChild(iconSpan);
+    toast.appendChild(msgSpan);
     toast.style.opacity = '1';
     toast.style.transform = 'translateX(-50%) translateY(0)';
     setTimeout(() => {
@@ -719,7 +725,12 @@
         const colorBg = data.feedback === 'relevant' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
         const colorText = data.feedback === 'relevant' ? '#047857' : '#DC2626';
         if (container) {
-          container.innerHTML = `<span class="p-badge" style="background: ${colorBg}; color: ${colorText}; font-size: 0.8rem; font-weight: 700; padding: 5px 12px; border-radius: 6px;">✓ بازخورد ثبت شد: ${fbLabel}</span>`;
+          const badge = document.createElement('span');
+          badge.className = 'p-badge';
+          badge.style.cssText = `background: ${colorBg}; color: ${colorText}; font-size: 0.8rem; font-weight: 700; padding: 5px 12px; border-radius: 6px;`;
+          badge.textContent = `✓ بازخورد ثبت شد: ${fbLabel}`;
+          container.innerHTML = '';
+          container.appendChild(badge);
         }
         showFeedbackSuccessToast(data.message || 'بازخورد با موفقیت ثبت شد و در یادگیری سیستم اعمال گردید.');
       }).catch(err => {

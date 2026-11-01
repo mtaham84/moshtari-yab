@@ -24,22 +24,30 @@ class PoolFileTests(TestCase):
                 self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
             data = json.loads(path.read_text())
             self.assertEqual(data["instagram"][0]["session_json"]["cookies"]["sessionid"], "S")
-            self.assertEqual(data["twitter"][0]["auth_token"], "a" * 40)
+            self.assertTrue(data["twitter"][0]["auth_token"].startswith("enc:v1:"))
+            self.assertTrue(data["instagram"][0]["password"].startswith("enc:v1:"))
 
             InstagramEngineAccount.objects.all().delete()
             TwitterEngineAccount.objects.filter(username="x1").update(auth_token="")
             stats = pool.import_pool()
             self.assertEqual((stats["created"], stats["filled"]), (1, 1))
-            self.assertEqual(TwitterEngineAccount.objects.get(username="x1").auth_token, "a" * 40)
+            self.assertEqual(TwitterEngineAccount.objects.get(username="x1").get_decrypted_auth_token(), "a" * 40)
             # a non-empty DB value is not overwritten without --force
             TwitterEngineAccount.objects.filter(username="x1").update(auth_token="new")
             pool.import_pool()
-            self.assertEqual(TwitterEngineAccount.objects.get(username="x1").auth_token, "new")
+            self.assertEqual(TwitterEngineAccount.objects.get(username="x1").get_decrypted_auth_token(), "new")
 
     def test_pool_file_is_git_ignored(self):
+        import shutil
         root = Path(__file__).resolve().parents[2]
-        out = subprocess.run(["git", "check-ignore", "data/accounts_pool.json"], cwd=root, capture_output=True)
-        self.assertEqual(out.returncode, 0)
+        if shutil.which("git"):
+            out = subprocess.run(["git", "check-ignore", "data/accounts_pool.json"], cwd=root, capture_output=True)
+            self.assertEqual(out.returncode, 0)
+        elif (root / ".gitignore").exists():
+            gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+            self.assertIn("data/accounts_pool.json", gitignore)
+        else:
+            self.skipTest("Neither git nor .gitignore present in runtime container")
 
 
 class PoolBackupTests(TestCase):
@@ -55,5 +63,5 @@ class PoolBackupTests(TestCase):
                 acc.auth_token = f"t{i + 2}"
                 acc.save()
                 pool.export_pool()
-            self.assertEqual(json.loads((tmp / "accounts_pool.json").read_text())["twitter"][0]["auth_token"], "t6")
+            self.assertTrue(json.loads((tmp / "accounts_pool.json").read_text())["twitter"][0]["auth_token"].startswith("enc:v1:"))
             self.assertEqual(len(list((tmp / "history").glob("accounts_pool.*.json"))), 3)

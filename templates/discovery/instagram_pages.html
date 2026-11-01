@@ -105,6 +105,41 @@
   {% endif %}
 </div>
 
+{% if pending_comment_labels %}
+<!-- بخش برچسب‌گذاری انسانی -->
+<div class="p-card" style="padding: 24px; margin-bottom: 24px;">
+  <h2 style="margin:0 0 12px; font-size:1.1rem;">برچسب‌گذاری انسانی پس از ارزیابی Jev</h2>
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; text-align: right; border-collapse: collapse;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.88rem;">
+          <th style="padding:8px;">متن کامنت</th>
+          <th style="padding:8px;">وضعیت Jev</th>
+          <th style="padding:8px;">عملیات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in pending_comment_labels %}
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.86rem;">
+          <td style="padding:8px;">{{ row.comment_text }}</td>
+          <td style="padding:8px;">{{ row.jev.status }} ({{ row.jev.score }})</td>
+          <td style="padding:8px;">
+            <form method="post" style="display:inline;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="label_comment">
+              <input type="hidden" name="comment_id" value="{{ row.id }}">
+              <button type="submit" name="label" value="approve" class="p-btn p-btn-sm p-btn-primary">تأیید</button>
+              <button type="submit" name="label" value="reject" class="p-btn p-btn-sm p-btn-secondary">رد</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <!-- تاریخچه کرول‌های اخیر اینستاگرام -->
 <div class="p-card" style="padding: 24px; margin-bottom: 24px;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">

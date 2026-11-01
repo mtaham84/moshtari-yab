@@ -23,8 +23,8 @@ urlpatterns = [
     path("", include("apps.core.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-elif settings.SERVE_MEDIA:
-    urlpatterns += [re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT})]
+from apps.core.image_service import secure_serve_media
+
+if settings.DEBUG or settings.SERVE_MEDIA:
+    urlpatterns += [re_path(r"^media/(?P<path>.*)$", secure_serve_media)]
 

@@ -45,21 +45,42 @@ if not XRAY_BIN.exists():
 PROBE_URL = os.environ.get("PROBE_URL", "https://api.telegram.org")
 BASE_LOCAL_PORT = 1081
 
-# Permanent fallback tunnel to ensure Iran server never loses access to Telegram/external APIs
-DEFAULT_BACKUP_TUNNEL = {
-    "tag": "default_proxy",
-    "protocol": "shadowsocks",
-    "settings": {
-        "servers": [
-            {
-                "address": "87.107.104.4",
-                "port": 2083,
-                "method": "chacha20-ietf-poly1305",
-                "password": "ayC61MsT3ztDAgq5YgiMAg"
-            }
-        ]
+# Backup tunnel loaded strictly from environment variables (fail-closed, no hardcoded secrets)
+def get_backup_tunnel_config() -> dict[str, Any] | None:
+    """Loads backup tunnel config from environment variables.
+
+    Returns None if server or password are not set in environment.
+    Never falls back to hardcoded secrets.
+    """
+    server = os.environ.get("BACKUP_TUNNEL_SERVER", "").strip()
+    password = os.environ.get("BACKUP_TUNNEL_PASSWORD", "").strip()
+    if not server or not password:
+        return None
+
+    try:
+        port = int(os.environ.get("BACKUP_TUNNEL_PORT", "2083"))
+    except ValueError:
+        port = 2083
+
+    method = os.environ.get("BACKUP_TUNNEL_METHOD", "chacha20-ietf-poly1305").strip()
+
+    return {
+        "tag": "default_proxy",
+        "protocol": "shadowsocks",
+        "settings": {
+            "servers": [
+                {
+                    "address": server,
+                    "port": port,
+                    "method": method,
+                    "password": password,
+                }
+            ]
+        },
     }
-}
+
+DEFAULT_BACKUP_TUNNEL = get_backup_tunnel_config()
+
 
 
 def _ensure_django() -> None:
@@ -504,9 +525,13 @@ def rebuild_xray_config_file() -> bool:
         default_ob["tag"] = "default_proxy"
         outbounds.insert(0, default_ob)
     else:
-        # DB has 0 active proxies: inject the permanent fallback tunnel as default_proxy
-        # so Xray and the Telegram bot never lose outbound connectivity to filtered services.
-        outbounds.insert(0, dict(DEFAULT_BACKUP_TUNNEL))
+        # DB has 0 active proxies: inject the backup tunnel if configured in environment
+        backup = get_backup_tunnel_config()
+        if backup:
+            outbounds.insert(0, dict(backup))
+        else:
+            log.warning("No active proxies in DB and no BACKUP_TUNNEL configured in environment; default_proxy outbound omitted.")
+
 
     # Tags must be unique or Xray refuses to start ("existing tag found")
     if not any(o.get("tag") == "direct" for o in outbounds):

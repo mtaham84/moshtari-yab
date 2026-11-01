@@ -259,6 +259,16 @@
 <!-- Client-side Interactive Logic -->
 <script>
   (() => {
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     // Analytics Table Sorting
     const sortButtons = document.querySelectorAll(".analytics-sort-btn");
     const tableBody = document.getElementById("analytics-table-body");
@@ -330,7 +340,7 @@
               if (!res.data.products || res.data.products.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="7" style="padding: 24px; text-align: center; color: var(--stone-text-muted);">هنوز داده‌ای در دیتابیس ثبت نشده است.</td></tr>`;
               } else {
-                const oppsBizParam = bizId ? `&business_id=${bizId}` : "";
+                const oppsBizParam = bizId ? `&business_id=${encodeURIComponent(bizId)}` : "";
                 res.data.products.forEach(p => {
                   const tr = document.createElement("tr");
                   tr.style.borderBottom = "1px solid var(--panel-border-subtle)";
@@ -339,21 +349,30 @@
                   tr.dataset.views = p.views;
                   tr.dataset.date = p.raw_last_date;
 
-                  const imgHtml = p.image_url ? `<img src="${p.image_url}" style="width: 28px; height: 28px; border-radius: 6px; object-fit: cover;">` : "";
+                  const safeImgUrl = (p.image_url && (p.image_url.startsWith('/') || p.image_url.startsWith('http://') || p.image_url.startsWith('https://'))) ? escapeHtml(p.image_url) : '';
+                  const imgHtml = safeImgUrl ? `<img src="${safeImgUrl}" style="width: 28px; height: 28px; border-radius: 6px; object-fit: cover;">` : "";
+                  const safeName = escapeHtml(p.name);
+                  const safeCategory = escapeHtml(p.category_name);
+                  const safeLeads = parseInt(p.discovered_leads_count, 10) || 0;
+                  const safeHighIntent = parseInt(p.high_intent_count, 10) || 0;
+                  const safeChannels = escapeHtml(p.channels_display || '');
+                  const safeLastDate = escapeHtml(p.last_interaction_date || '');
+                  const safeProductId = parseInt(p.id, 10) || 0;
+
                   tr.innerHTML = `
                     <td style="padding: 12px 14px; font-weight: 700; color: var(--panel-text-main);">
                       <div style="display: flex; align-items: center; gap: 8px;">
                         ${imgHtml}
-                        <span>${p.name}</span>
+                        <span>${safeName}</span>
                       </div>
                     </td>
-                    <td style="padding: 12px 14px; color: var(--stone-text-muted);">${p.category_name}</td>
-                    <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">${p.discovered_leads_count || 0} مشتری</td>
-                    <td style="padding: 12px 14px; text-align: center; color: #ca8a04; font-weight: 750;">${p.high_intent_count || 0} فرصت طلایی</td>
-                    <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">${p.channels_display || ''}</td>
-                    <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">${p.last_interaction_date}</td>
+                    <td style="padding: 12px 14px; color: var(--stone-text-muted);">${safeCategory}</td>
+                    <td style="padding: 12px 14px; text-align: center; color: var(--brand-purple); font-weight: 750;">${safeLeads} مشتری</td>
+                    <td style="padding: 12px 14px; text-align: center; color: #ca8a04; font-weight: 750;">${safeHighIntent} فرصت طلایی</td>
+                    <td style="padding: 12px 14px; text-align: center; color: var(--stone-text-muted); font-size: 0.74rem;">${safeChannels}</td>
+                    <td style="padding: 12px 14px; color: var(--stone-text-muted); font-size: 0.76rem;">${safeLastDate}</td>
                     <td style="padding: 12px 14px; text-align: center;">
-                      <a href="/discovery/opportunities/?product_id=${p.id}${oppsBizParam}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
+                      <a href="/discovery/opportunities/?product_id=${safeProductId}${oppsBizParam}" class="p-btn p-btn-secondary p-btn-sm" style="font-size: 0.72rem; padding: 4px 10px;">
                         <span>مشاهده فرصت‌ها</span>
                       </a>
                     </td>

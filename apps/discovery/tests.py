@@ -898,14 +898,12 @@ class PanelViewTests(TestCase):
     def test_reply_link_tracks_click_and_order_converts_the_opportunity(self):
         url = reverse("short_public_card", args=[self.p1.pk]) + "?ref=need_000010_ab"
         anon = Client()
-        self.assertEqual(anon.get(url).status_code, 200)
-        self.assertEqual(self.p1.daily_metrics.get().clicks_count, 1)
+        # Under B2C elimination (P03.02 / R06 / R22), public product card and checkout are retired (HTTP 404):
+        self.assertEqual(anon.get(url).status_code, 404)
         r = anon.post(url, {"customer_name": "علی", "customer_phone": "09120000000", "quantity": "1"},
                       HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-        self.assertEqual(r.json()["status"], "success")
-        self.assertEqual(ProductOrder.objects.get().opportunity, self.mine)
-        self.mine.refresh_from_db()
-        self.assertEqual(self.mine.status, "CONVERTED")
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(ProductOrder.objects.count(), 0)
 
     def test_removed_legacy_endpoints_are_gone(self):
         for path in ("/discovery/leads/", "/discovery/api/leads/submit/", "/discovery/api/candidates/",
@@ -1003,7 +1001,8 @@ class InstagramPostReviewViewTests(TestCase):
             business=self.other_biz, category=self.other_category,
             name="محصول دیگری", description="محصول آزمایشی دیگر",
         )
-        self.output_root = Path(settings.BASE_DIR) / f".instagram-post-review-tests-{uuid.uuid4().hex}"
+        import tempfile
+        self.output_root = Path(tempfile.gettempdir()) / f".instagram-post-review-tests-{uuid.uuid4().hex}"
         self.output_root.mkdir(parents=True)
         self.addCleanup(shutil.rmtree, self.output_root, True)
         self.client = Client()

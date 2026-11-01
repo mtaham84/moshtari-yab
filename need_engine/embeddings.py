@@ -4,8 +4,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
+import time
+from datetime import datetime, timedelta
 import urllib.error
 import urllib.request
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -17,19 +21,60 @@ log = logging.getLogger("need_engine.embeddings")
 
 
 class Embedder:
-    def __init__(self, cfg: EngineConfig, llm: LLMClient):
+    def __init__(self, cfg: EngineConfig, llm: LLMClient, clock: Optional[Callable[[], float]] = None):
         self.cfg, self.llm = cfg, llm
         self.backend = cfg.embed_backend
         self.dim: int | None = None
-        self.exhausted: bool = False
+        self.clock = clock or time.time
+        self.exhausted_until: float = 0.0
+        self._lock = threading.Lock()
+        self._probing: bool = False
+
+    def now(self) -> float:
+        return self.clock()
+
+    @property
+    def exhausted(self) -> bool:
+        return self.exhausted_until > self.now()
+
+    @exhausted.setter
+    def exhausted(self, val: bool) -> None:
+        if val:
+            self.exhausted_until = self._next_reset_ts()
+        else:
+            self.exhausted_until = 0.0
+
+    def _next_reset_ts(self) -> float:
+        try:
+            from zoneinfo import ZoneInfo
+            now = datetime.fromtimestamp(self.now(), tz=ZoneInfo("America/Los_Angeles"))
+            next_midnight = datetime(now.year, now.month, now.day, tzinfo=ZoneInfo("America/Los_Angeles")) + timedelta(days=1)
+            return next_midnight.timestamp() + 5.0
+        except Exception:
+            return self.now() + 3600.0
 
     def encode(self, texts: list[str], stage: str = "embed") -> np.ndarray:
         texts = [norm(t) for t in texts]
         if not texts:
             return np.zeros((0, self.dim or 8), dtype=np.float32)
-        if self.exhausted:
-            log.warning("Embedder: daily quota previously exhausted; bypassing embedding for %d texts", len(texts))
+
+        now = self.now()
+        # 1. Circuit Open: within exhaustion period
+        if self.exhausted_until > now:
+            log.warning("Embedder: daily quota previously exhausted until %.1f (%.0fs remaining); bypassing embedding for %d texts",
+                        self.exhausted_until, self.exhausted_until - now, len(texts))
             return np.zeros((len(texts), 0), dtype=np.float32)
+
+        # 2. Circuit Half-Open / Single-Probe Stampede Protection
+        is_probe = False
+        if self.exhausted_until > 0.0 and now >= self.exhausted_until:
+            with self._lock:
+                if self._probing:
+                    log.warning("Embedder: probe already in progress by another worker; bypassing embedding for %d texts", len(texts))
+                    return np.zeros((len(texts), 0), dtype=np.float32)
+                self._probing = True
+                is_probe = True
+
         try:
             if self.backend == "hash":
                 v = np.stack([self._hash_vec(t) for t in texts])
@@ -39,11 +84,24 @@ class Embedder:
                 v = self._cloudflare(texts, stage)
             else:
                 raise LLMError(f"unknown embed backend: {self.backend}")
+
+            # If this was a probe and succeeded, close circuit
+            if is_probe:
+                with self._lock:
+                    self.exhausted_until = 0.0
+                    self._probing = False
+                log.info("Embedder: probe succeeded after quota reset; circuit breaker closed.")
+
         except QuotaExhausted as qe:
             log.warning("Embedder: daily quota exhausted during %s (%s). Falling back to LLM-only mode.", stage, qe)
-            self.exhausted = True
+            with self._lock:
+                self.exhausted_until = self._next_reset_ts()
+                self._probing = False
             return np.zeros((len(texts), 0), dtype=np.float32)
         except Exception as e:
+            if is_probe:
+                with self._lock:
+                    self._probing = False
             log.warning("Embedder: embedding call failed during %s (%s). Falling back to LLM-only mode.", stage, e)
             return np.zeros((len(texts), 0), dtype=np.float32)
 

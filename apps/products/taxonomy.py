@@ -242,6 +242,50 @@ def _refresh_paths(cat: Category) -> None:
         _refresh_paths(child)
 
 
+def move_node(business: Business, node_id: int, new_parent_id: int | None) -> Category:
+    """
+    Safely moves a category to a new parent (or to root if new_parent_id is None).
+    Enforces business ownership, prevents cycles, enforces max depth,
+    and updates descendants' depth and full_path atomically.
+    """
+    cat = _own(business).filter(pk=node_id).first()
+    if not cat:
+        raise TaxonomyError("دسته‌بندی پیدا نشد.")
+
+    new_parent = None
+    if new_parent_id:
+        if new_parent_id == node_id:
+            raise TaxonomyError("یک دسته‌بندی نمی‌تواند والد خودش باشد.")
+        new_parent = _own(business).filter(pk=new_parent_id).first()
+        if not new_parent:
+            # Older sellers using shared system tree
+            system_cat = Category.objects.filter(pk=new_parent_id, business__isnull=True).first()
+            if system_cat:
+                adopt_nodes(business, [system_cat.pk])
+                new_parent = _own(business).filter(origin=system_cat).first()
+        if not new_parent:
+            raise TaxonomyError("دستهٔ والد مقصد پیدا نشد.")
+
+    if not _unique_sibling(business, new_parent, cat.name, exclude_id=cat.pk):
+        raise TaxonomyError("دسته‌بندی با همین نام در والد مقصد وجود دارد.")
+
+    with transaction.atomic():
+        # Lock business tree scope to serialize concurrent moves
+        Business.objects.select_for_update().filter(pk=business.pk).exists()
+        cat.parent = new_parent
+        from django.core.exceptions import ValidationError
+        try:
+            cat.clean()
+            cat.save()
+            # Refresh all descendants' depth and full_path
+            _refresh_paths(cat)
+        except ValidationError as val_err:
+            msg = val_err.messages[0] if hasattr(val_err, "messages") else str(val_err)
+            raise TaxonomyError(msg)
+
+    return cat
+
+
 def delete_node(business: Business, node_id: int) -> int:
     """Deletes a node with its sub-tree; its products move to the parent (or lose the category if it was a root)."""
     cat = _own(business).filter(pk=node_id).first()
@@ -336,24 +380,20 @@ def organize_products(business: Business, llm: Callable | None = None) -> dict:
 
 
 def maybe_organize(business: Business, background: bool = True) -> bool:
-    """Called after a product is added: every 5 new products the AI reviews the catalogue."""
+    """Called after a product is added: every 5 new products the AI reviews the catalogue.
+    Replaced unmanaged thread daemon with durable TaxonomyJob queue (P07.04 / R24).
+    """
     count = Product.objects.filter(business=business, status="ACTIVE").count()
     business.refresh_from_db(fields=["organized_product_count"])
     if count < ORGANIZE_EVERY or count - business.organized_product_count < ORGANIZE_EVERY:
         return False
 
-    def run():
-        try:
-            from django.db import connection
-            organize_products(Business.objects.get(pk=business.pk))
-        except Exception:
-            log.warning("organize_products failed for business %s", business.pk, exc_info=True)
-        finally:
-            from django.db import connection
-            connection.close()
-    if background:
-        import threading
-        threading.Thread(target=run, daemon=True).start()
-    else:
-        run()
+    from apps.products.taxonomy_jobs import TaxonomyJobRepository
+    from apps.products.taxonomy_worker import run_taxonomy_worker_once
+
+    job, created = TaxonomyJobRepository.enqueue_job(business, catalog_version=count)
+
+    if not background:
+        run_taxonomy_worker_once()
+
     return True

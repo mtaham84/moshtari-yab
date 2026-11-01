@@ -2882,13 +2882,30 @@
           d.style.borderRadius = '6px';
           d.style.padding = '8px 10px';
           d.style.fontSize = '0.8rem';
-          d.innerHTML = `
-            <div style="font-weight:700; color:#6b21a8; margin-bottom:4px;">${p.title}</div>
-            <div style="color:#334155; line-height:1.5; margin-bottom:6px;">${p.text}</div>
-            <button type="button" class="btn" style="padding:3px 8px; font-size:0.75rem; background:#7c3aed; color:#fff;" onclick="document.getElementById('adm-pitch-text').value = \`${p.text.replace(/`/g, '\\`')}\`">
-              ✍️ قرار دادن در کادر ویرایش
-            </button>
-          `;
+
+          const titleEl = document.createElement('div');
+          titleEl.style.cssText = 'font-weight:700; color:#6b21a8; margin-bottom:4px;';
+          titleEl.textContent = p.title || '';
+
+          const textEl = document.createElement('div');
+          textEl.style.cssText = 'color:#334155; line-height:1.5; margin-bottom:6px; white-space:pre-wrap;';
+          textEl.textContent = p.text || '';
+
+          const btnEl = document.createElement('button');
+          btnEl.type = 'button';
+          btnEl.className = 'btn';
+          btnEl.style.cssText = 'padding:3px 8px; font-size:0.75rem; background:#7c3aed; color:#fff; cursor:pointer;';
+          btnEl.textContent = '✍️ قرار دادن در کادر ویرایش';
+          btnEl.addEventListener('click', () => {
+            const textarea = document.getElementById('adm-pitch-text');
+            if (textarea) {
+              textarea.value = p.text || '';
+            }
+          });
+
+          d.appendChild(titleEl);
+          d.appendChild(textEl);
+          d.appendChild(btnEl);
           box.appendChild(d);
         });
       }

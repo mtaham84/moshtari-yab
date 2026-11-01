@@ -42,7 +42,7 @@ consumer words; a city/price segment -> reflect it. Stay inside THIS family; do 
 Return strict JSON:
 {"hashtags":[...],"keywords":[...],"page_search_terms":[...],"buyer_signals":[...],"negative_signals":[...]}"""
 
-_HANDLE_OR_URL = re.compile(r"(?:^\s*@|instagram\.com|https?://|www\.)", re.I)
+_HANDLE_OR_URL = re.compile(r"(?:^\s*@|instagram\.com|https?://|www\.|\.[a-z]{2,}(?:/|\s|$))", re.I)
 _BAD_TERM_CHARS = re.compile(r"[\n\r,،;؛!?؟@#]" )
 _WEAK_SEARCH_WORDS = {norm(w) for w in (
     "خرید", "قیمت", "سفارش", "تخفیف", "ارسال", "رایگان", "کجا", "پیشنهاد", "معرفی", "تجربه", "کدام", "کدوم",
@@ -128,6 +128,9 @@ def _validate_plan(data: Any, family=None) -> dict[str, list[str]]:
                 plan["page_search_terms"].append(cand)
             if len(plan["page_search_terms"]) >= 4:
                 break
+
+    if not plan["hashtags"] or not plan["page_search_terms"] or not plan["keywords"]:
+        raise ValueError("تعداد عبارات معتبر در طرح اینستاگرام کافی نیست")
 
     return plan
 

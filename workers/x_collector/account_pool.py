@@ -98,13 +98,18 @@ class TwitterAccountPool:
                             FROM public.x_accounts
                             ORDER BY id ASC
                         """).fetchall()
+                        try:
+                            from need_engine.crypto import decrypt_secret
+                        except ImportError:
+                            def decrypt_secret(val): return val or ""
+
                         for r in rows:
                             loaded.append(TwitterAccount(
                                 id=r[0],
                                 username=r[1],
-                                password=r[2] or "",
-                                auth_token=r[3] or "",
-                                ct0=r[4] or "",
+                                password=decrypt_secret(r[2] or ""),
+                                auth_token=decrypt_secret(r[3] or ""),
+                                ct0=decrypt_secret(r[4] or ""),
                                 proxy_url=r[5] or "",
                                 status=r[6] or "ACTIVE",
                                 cooldown_until=r[7],

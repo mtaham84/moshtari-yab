@@ -358,7 +358,8 @@ class Command(BaseCommand):
         """
         from datetime import timedelta
 
-        if cl is None or not account.password:
+        raw_pass = account.get_decrypted_password() if hasattr(account, "get_decrypted_password") else account.password
+        if cl is None or not raw_pass:
             return False
         attempts = getattr(self, "_renew_attempts", {}).get(account.id, 0)
         if not self._policy.may_recover(ErrorKind.LOGIN_REQUIRED, attempts):
@@ -383,7 +384,7 @@ class Command(BaseCommand):
             try:
                 self.stdout.write(self.style.WARNING(f"    recovery_started: account {account.id}"))
                 time.sleep(random.uniform(8.0, 20.0))
-                cl.login(account.username, account.password)
+                cl.login(account.username, raw_pass)
             except (ChallengeRequired, TwoFactorRequired) as exc:
                 # Instagram wants a code (2FA / email / SMS): hand over to the dashboard, keep the pending challenge state.
                 try:

@@ -11,9 +11,10 @@ import logging
 import random
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Dict, Any, List, Optional
 from django.utils import timezone
+from django.db import models
 
 logger = logging.getLogger("instagram_outreach")
 
@@ -445,11 +446,17 @@ def send_second_followup_message(
     lead_id: int,
     sender_username: str,
     message_text: str,
+    actor_user_or_tenant: Any = None,
 ) -> Dict[str, Any]:
     """
     Sends a follow-up or second message to a lead using the chosen SENDER account.
     Allows seamlessly switching accounts (e.g. from consultant Raha to specialist Pania).
+    Enforces strict tenant isolation before reading credentials, launching client, or writing DB.
     """
+    if actor_user_or_tenant is None:
+        return {"success": False, "error": "احراز هویت و مشخص بودن مستأجر الزامی است (fail-closed)."}
+
+    from apps.core.access_policy import AccessPolicy
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
     from apps.discovery.device_emulator import apply_device_profile_to_client
     from instagrapi import Client
@@ -458,6 +465,17 @@ def send_second_followup_message(
     if not lead:
         return {"success": False, "error": "مشتری مورد نظر یافت نشد."}
 
+    # Verify tenant ownership of the lead
+    if hasattr(actor_user_or_tenant, "is_authenticated"):
+        if not AccessPolicy.can_view_or_modify_lead(actor_user_or_tenant, lead):
+            return {"success": False, "error": "دسترسی غیرمجاز به این لید."}
+        allowed_senders = AccessPolicy.sender_search_tenants(actor_user_or_tenant)
+    else:
+        raw_tenants = [actor_user_or_tenant] if isinstance(actor_user_or_tenant, str) else list(actor_user_or_tenant)
+        if lead.tenant_id not in raw_tenants:
+            return {"success": False, "error": "دسترسی غیرمجاز به این لید."}
+        allowed_senders = AccessPolicy.sender_search_tenants(raw_tenants[0])
+
     sender = InstagramEngineAccount.objects.filter(
         username__iexact=sender_username,
         role="SENDER",
@@ -465,12 +483,33 @@ def send_second_followup_message(
     if not sender:
         return {"success": False, "error": f"اکانت فرستنده @{sender_username} یافت نشد."}
 
+    # Verify sender belongs to allowed tenant or platform pool
+    is_admin = hasattr(actor_user_or_tenant, "is_superuser") and actor_user_or_tenant.is_superuser
+    if sender.tenant_id not in allowed_senders and not is_admin:
+        return {"success": False, "error": f"اکانت @{sender_username} متعلق به این کسب‌وکار یا استخر پلتفرم نیست."}
+
+    if not AccessPolicy.is_sender_available(sender):
+        return {"success": False, "error": f"اکانت @{sender_username} در حال استراحت (cooldown) یا غیرفعال است."}
+
+    from apps.discovery.sender_policy import SenderPolicy
+
+    eligible, reason = SenderPolicy.check_eligibility(sender)
+    if not eligible:
+        return {"success": False, "error": f"محدودیت سهمیه یا زمان کاری مانع ارسال پیگیری شد: {reason}"}
+
+    followup_intent_id = f"followup:{lead.id}:{int(time.time())}"
+    reserved, reserve_reason = SenderPolicy.reserve_quota(sender.id, followup_intent_id)
+    if not reserved:
+        return {"success": False, "error": f"عدم امکان رزرو سهمیه برای اکانت @{sender_username}: {reserve_reason}"}
+
     if not sender.session_json:
+        SenderPolicy.release_quota(sender.id, followup_intent_id)
         return {"success": False, "error": f"اکانت @{sender_username} فاقد کوکی سشن معتبر است."}
 
     cookies = sender.session_json.get("cookies", {})
     sess_id = cookies.get("sessionid")
     if not sess_id:
+        SenderPolicy.release_quota(sender.id, followup_intent_id)
         return {"success": False, "error": f"کوکی sessionid برای @{sender_username} ثبت نشده است."}
 
     cl = Client()
@@ -508,9 +547,7 @@ def send_second_followup_message(
             "status", "conversation_history", "updated_at"
         ])
 
-        sender.daily_action_count += 1
-        sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        SenderPolicy.confirm_quota(sender.id, followup_intent_id)
 
         return {
             "success": True,
@@ -519,5 +556,176 @@ def send_second_followup_message(
             "sent_at": now.strftime("%Y-%m-%d %H:%M:%S"),
         }
     except Exception as exc:
+        SenderPolicy.release_quota(sender.id, followup_intent_id)
         logger.exception("Error sending follow-up message: %s", exc)
         return {"success": False, "error": str(exc)}
+
+
+DEFAULT_SENDER_PITCHES = {
+    "raha.rostamim": {
+        "consultant_name": "رها",
+        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
+        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+    },
+    "pania.mehrim": {
+        "consultant_name": "پنیا",
+        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
+        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+    },
+}
+
+
+def plan_outreach_batch(
+    tenant_ids: List[str],
+    batch_size: int = 5,
+    min_intent: float = 0.70,
+    max_daily_dms: int = 9,
+    sender_pitches: Optional[Dict[str, Any]] = None,
+    clock: Optional[datetime] = None,
+    ignore_circadian: bool = False,
+    tehran_tz: Any = None,
+) -> Dict[str, Any]:
+    """
+    Pure read-only planner for Instagram Outreach (P04.01).
+    Evaluates circadian window, effective in-memory quotas (without DB writes),
+    and assigns top priority NEW leads to eligible SENDER accounts.
+    GUARANTEE: Performs ZERO writes to database, ZERO network I/O, ZERO client creation.
+    """
+    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+
+    try:
+        from zoneinfo import ZoneInfo
+        default_tz = ZoneInfo("Asia/Tehran")
+    except Exception:
+        default_tz = timezone.get_fixed_timezone(timedelta(hours=3, minutes=30))
+
+    tz = tehran_tz or default_tz
+    current_time = clock or timezone.now()
+    now_tehran = current_time.astimezone(tz)
+
+    # Circadian rhythm check: 09:00 - 23:00 Tehran time
+    if not ignore_circadian:
+        if not (9 <= now_tehran.hour < 23):
+            return {
+                "eligible": False,
+                "reason": "CIRCADIAN_PAUSE",
+                "current_time_tehran": now_tehran.strftime("%H:%M"),
+                "senders_count": 0,
+                "leads_count": 0,
+                "planned_actions": [],
+            }
+
+    # Query active senders
+    senders_qs = InstagramEngineAccount.objects.filter(
+        role="SENDER",
+        status="ACTIVE",
+        tenant_id__in=tenant_ids,
+    ).filter(
+        models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=current_time)
+    )
+
+    available_senders = []
+    for s in senders_qs:
+        # Calculate in-memory effective counts without mutating DB (P04.01 & R10)
+        eff_daily = s.daily_action_count
+        if s.last_action_at and s.last_action_at.astimezone(tz).date() < now_tehran.date():
+            eff_daily = 0
+
+        eff_hourly = s.hourly_action_count or 0
+        if s.last_hour_reset and s.last_hour_reset.astimezone(tz).hour != now_tehran.hour:
+            eff_hourly = 0
+        elif not s.last_hour_reset:
+            eff_hourly = 0
+
+        limit_daily = s.daily_limit or max_daily_dms or 18
+        limit_hourly = s.hourly_limit or 3
+
+        if eff_daily < limit_daily and eff_hourly < limit_hourly:
+            available_senders.append({
+                "account": s,
+                "effective_daily": eff_daily,
+                "limit_daily": limit_daily,
+                "effective_hourly": eff_hourly,
+                "limit_hourly": limit_hourly,
+            })
+
+    if not available_senders:
+        return {
+            "eligible": False,
+            "reason": "NO_AVAILABLE_SENDERS",
+            "current_time_tehran": now_tehran.strftime("%H:%M"),
+            "senders_count": 0,
+            "leads_count": 0,
+            "planned_actions": [],
+        }
+
+    # Sort available senders by least recently used
+    available_senders.sort(
+        key=lambda item: item["account"].last_action_at or datetime.min.replace(tzinfo=dt_timezone.utc)
+    )
+
+    # Query candidate leads
+    leads = list(
+        InstagramEngineLead.objects.filter(
+            tenant_id__in=tenant_ids,
+            status="NEW",
+            intent_score__gte=min_intent,
+        )
+        .order_by("-intent_score", "created_at")[:batch_size]
+    )
+
+    if not leads:
+        return {
+            "eligible": True,
+            "reason": "NO_LEADS",
+            "current_time_tehran": now_tehran.strftime("%H:%M"),
+            "senders_count": len(available_senders),
+            "leads_count": 0,
+            "planned_actions": [],
+        }
+
+    pitches = sender_pitches or {}
+    planned_actions = []
+
+    for idx, lead in enumerate(leads):
+        sender_item = available_senders[idx % len(available_senders)]
+        sender_acc = sender_item["account"]
+        sender_user = sender_acc.username
+
+        pitch_info = (
+            pitches.get(sender_user)
+            or pitches.get(sender_user.lower())
+            or DEFAULT_SENDER_PITCHES.get(sender_user.lower(), {})
+        )
+        consultant_name = pitch_info.get("consultant_name", sender_user)
+        raw_template = pitch_info.get("template", "")
+
+        pitch_text = build_bulletproof_message(
+            pitch_template=raw_template,
+            lead=lead,
+            consultant_name=consultant_name,
+            business_name="مجموعه تخصصی سرو",
+        )
+
+        planned_actions.append({
+            "lead_id": lead.id,
+            "username": lead.username,
+            "ig_user_pk": lead.ig_user_pk,
+            "intent_score": lead.intent_score,
+            "sender_username": sender_user,
+            "sender_id": sender_acc.id,
+            "consultant_name": consultant_name,
+            "pitch_text": pitch_text,
+            "effective_daily_before": sender_item["effective_daily"],
+            "effective_hourly_before": sender_item["effective_hourly"],
+        })
+
+    return {
+        "eligible": True,
+        "reason": "OK",
+        "current_time_tehran": now_tehran.strftime("%H:%M"),
+        "senders_count": len(available_senders),
+        "leads_count": len(leads),
+        "planned_actions": planned_actions,
+    }
+

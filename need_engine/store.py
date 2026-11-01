@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
 import secrets
 import threading
 import time
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 import psycopg
@@ -23,6 +24,17 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from need_engine.schemas import ChatMessage, NeedCard, Opportunity, Product, ProductCard
+
+
+class IdempotencyConflictError(ValueError):
+    """Raised when an operation_id is reused with a different payload fingerprint (P06.01 / R34)."""
+    pass
+
+
+def compute_payload_fingerprint(payload: Any) -> str:
+    """Computes deterministic SHA-256 fingerprint for a write operation payload."""
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 _SCHEMA = """
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -63,6 +75,14 @@ CREATE TABLE IF NOT EXISTS {s}.opportunities (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS opportunities_seq_idx ON {s}.opportunities (seq);
 CREATE TABLE IF NOT EXISTS {s}.deferred (business_id TEXT, need_id TEXT, ts DOUBLE PRECISION, PRIMARY KEY (business_id, need_id));
+CREATE TABLE IF NOT EXISTS {s}.operation_idempotency (
+    operation_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -75,18 +95,61 @@ def _vec(a: Any) -> np.ndarray | None:
 
 
 class Store:
-    def __init__(self, dsn: str, schema: str = "need_engine"):
+    def __init__(
+        self,
+        dsn: str,
+        schema: str = "need_engine",
+        create: Optional[bool] = None,
+        read_only_preflight: bool = False,
+    ):
         if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
             raise ValueError(f"invalid schema name: {schema!r}")
         self.dsn, self.schema = dsn, schema
         self.lock = threading.RLock()
-        self._connect(create=True)
+
+        # P07.02 / R33: Decouple DDL from active request path.
+        # In runtime paths, create is False, executing ZERO DDL.
+        if create is None:
+            auto_ddl = os.environ.get("NEED_ENGINE_AUTO_DDL", "1")
+            create = (auto_ddl == "1")
+
+        self.create_on_connect = create
+        self._connect(create=create)
+
+        if not create and read_only_preflight:
+            self._preflight_schema()
 
     def _connect(self, create: bool = False) -> None:
         self.conn = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row)
         if create:
             self.conn.execute(_SCHEMA.replace("{s}", self.schema))
         register_vector(self.conn)
+
+    def bootstrap_schema(self) -> None:
+        """
+        Explicit DDL schema bootstrapping and migration (P07.02 / R33).
+        Only executed by setup/management commands, never by active web requests.
+        """
+        with self.lock:
+            self.conn.execute(_SCHEMA.replace("{s}", self.schema))
+
+    def _preflight_schema(self) -> bool:
+        """
+        Read-only preflight check ensuring required tables exist without executing DDL (P07.02 / R33).
+        """
+        rows = self._all(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
+            (self.schema,),
+        )
+        existing = {r["table_name"] for r in rows}
+        required = {"kv", "needs", "costs", "opportunities", "operation_idempotency"}
+        missing = required - existing
+        if missing:
+            raise RuntimeError(
+                f"Schema '{self.schema}' is missing required tables: {missing}. "
+                f"Run bootstrap_schema() or manage.py migrate_engine_schema first."
+            )
+        return True
 
     def close(self) -> None:
         self.conn.close()
@@ -107,6 +170,67 @@ class Store:
 
     def _all(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         return self._run(lambda c: c.execute(sql.replace("{s}", self.schema), tuple(params)).fetchall())
+
+    def execute_idempotent_write(
+        self,
+        operation_id: str,
+        fingerprint: str,
+        write_fn: Callable[[psycopg.Connection], Any],
+    ) -> Any:
+        """
+        Classified write idempotency (P06.01 / R34).
+        Guarantees that a write operation is executed exactly once:
+        1. Pre-check: If operation_id already committed, return stored result without re-executing write_fn.
+        2. Conflict detection: If operation_id exists with different fingerprint, raise IdempotencyConflictError.
+        3. Lost ACK / Disconnect reconciliation: If OperationalError occurs during commit,
+           reconnects and checks if transaction committed before deciding whether to retry write_fn.
+        """
+        with self.lock:
+            # 1. Pre-check lookup
+            rows = self._all(
+                "SELECT fingerprint, status, result FROM {s}.operation_idempotency WHERE operation_id = %s",
+                (operation_id,),
+            )
+            if rows:
+                existing = rows[0]
+                if existing["fingerprint"] != fingerprint:
+                    raise IdempotencyConflictError(
+                        f"Idempotency conflict: operation_id '{operation_id}' was already executed "
+                        f"with different payload fingerprint '{existing['fingerprint']}' vs '{fingerprint}'."
+                    )
+                if existing["status"] == "SUCCESS":
+                    return existing["result"]
+
+            # 2. Execution with Classified Reconciliation on OperationalError
+            def _tx_body(c: psycopg.Connection) -> Any:
+                with c.transaction():
+                    res = write_fn(c)
+                    c.execute(
+                        f"""INSERT INTO {self._t('operation_idempotency')} (operation_id, fingerprint, status, result)
+                            VALUES (%s, %s, 'SUCCESS', %s)
+                            ON CONFLICT (operation_id) DO UPDATE
+                            SET fingerprint = EXCLUDED.fingerprint, status = EXCLUDED.status,
+                                result = EXCLUDED.result, updated_at = now()""",
+                        (operation_id, fingerprint, Jsonb(res) if res is not None else None),
+                    )
+                    return res
+
+            try:
+                return _tx_body(self.conn)
+            except psycopg.OperationalError:
+                # Connection dropped during or right after commit!
+                # Reconnect and inspect whether the transaction actually succeeded
+                self._connect()
+                check_rows = self._all(
+                    "SELECT fingerprint, status, result FROM {s}.operation_idempotency WHERE operation_id = %s",
+                    (operation_id,),
+                )
+                if check_rows and check_rows[0]["status"] == "SUCCESS" and check_rows[0]["fingerprint"] == fingerprint:
+                    # Transaction successfully committed before the socket died! Return result without re-running!
+                    return check_rows[0]["result"]
+
+                # Transaction did not commit: safe to retry once
+                return _tx_body(self.conn)
 
     # ── kv ──────────────────────────────────────────────────────────────────
     def get(self, k: str, default: Any = None) -> Any:
@@ -353,7 +477,8 @@ class Store:
                    (k, Jsonb(v)))
 
     def add_cost(self, stage: str, model: str, pt: int, ct: int, cached: bool, usd: float, toman: float, ref: str = "",
-                 businesses: list[str | None] | None = None, charge_each: bool = False) -> None:
+                 businesses: list[str | None] | None = None, charge_each: bool = False,
+                 operation_id: Optional[str] = None) -> None:
         """One ledger row per payer. ``businesses`` = sellers sharing the call (None entries / empty = platform).
 
         usd/toman of a row = its share of the REAL cost (rows sum to the call's cost). ``charge_each``: every payer is
@@ -362,6 +487,28 @@ class Store:
         k = len(payers)
         factor = k if charge_each and businesses else 1
         now = time.time()
+
+        if operation_id:
+            fp_payload = {
+                "stage": stage, "model": model, "pt": pt, "ct": ct,
+                "cached": cached, "usd": usd, "toman": toman,
+                "ref": ref, "businesses": payers, "charge_each": charge_each,
+            }
+            fp = compute_payload_fingerprint(fp_payload)
+
+            def _write_costs(c: psycopg.Connection) -> bool:
+                for i, b in enumerate(payers):
+                    share_pt, share_ct = pt // k + (1 if i < pt % k else 0), ct // k + (1 if i < ct % k else 0)
+                    c.execute(f"""INSERT INTO {self._t('costs')} (ts, stage, model, prompt_tokens, completion_tokens, cached, usd, toman, ref,
+                                                        business_id, part, charge_factor)
+                                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                              (now, stage, model, share_pt, share_ct, bool(cached), usd / k, toman / k, ref, str(b) if b else None, i,
+                               factor if b else 1))
+                return True
+
+            self.execute_idempotent_write(operation_id, fp, _write_costs)
+            return
+
         for i, b in enumerate(payers):
             share_pt, share_ct = pt // k + (1 if i < pt % k else 0), ct // k + (1 if i < ct % k else 0)
             self._exec("""INSERT INTO {s}.costs (ts, stage, model, prompt_tokens, completion_tokens, cached, usd, toman, ref,

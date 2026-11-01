@@ -1,20 +1,31 @@
 import json
+import os
 import secrets
+from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import F, Q
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponseForbidden, HttpResponseRedirect, JsonResponse
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from apps.businesses.models import Business
-from apps.discovery.models import Opportunity, ProductDailyMetric, ProductOrder
+from apps.discovery.models import Opportunity, ProductDailyMetric
 from .models import Category, Product, ProductImage
 from . import agent_card
 from .services import suggest_category_for_product
 
 
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+def _is_safe_image_file(f):
+    from apps.core.image_service import is_valid_image
+    return is_valid_image(f)
+
+
 def _form_list(value: str, *, hashtags: bool = False) -> list[str]:
+
     parts = value.replace("،", ",").replace(";", ",").splitlines()
     if len(parts) == 1:
         parts = parts[0].split(",")
@@ -47,6 +58,99 @@ def _categories_for(business):
     if own.exists():
         return own.select_related("parent").order_by("full_path")
     return Category.objects.filter(Q(business__isnull=True) | Q(business=business), is_active=True).select_related("parent")
+
+
+VALID_PRODUCT_TYPES = {"PHYSICAL", "SERVICE"}
+VALID_STATUSES = {"ACTIVE", "INACTIVE"}
+
+
+def _parse_and_validate_price(price_val: str | None) -> tuple[Decimal | None, str | None]:
+    if price_val is None or not str(price_val).strip():
+        return None, None
+    clean_val = str(price_val).strip().replace(",", "").replace("،", "").replace(" ", "")
+    try:
+        dec = Decimal(clean_val)
+        if dec < 0:
+            return None, "قیمت نمی‌تواند منفی باشد."
+        if dec > Decimal("999999999999"):
+            return None, "قیمت واردشده بیش از سقف مجاز است."
+        return dec.quantize(Decimal("1")), None
+    except (InvalidOperation, ValueError, TypeError):
+        return None, "قیمت واردشده نامعتبر است؛ لطفاً یک مقدار عددی صحیح وارد نمایید."
+
+
+def _validate_product_input(data: dict, categories_qs) -> tuple[dict, list[str]]:
+    """
+    R20 & R19 Unified Form Validator:
+    Enforces identical validation across add and edit views:
+    - name and description are required
+    - product_type, status, and discovery_priority choices/ranges are enforced
+    - price is safely validated as Decimal (never silent None or float truncation)
+    - checkboxes switch to False when unchecked on form submission (R19 fix)
+    """
+    errors = []
+    cleaned = {}
+
+    name = data.get("name", "").strip()[:255]
+    if not name:
+        errors.append("نام محصول یا خدمت الزامی است.")
+    cleaned["name"] = name
+
+    desc = data.get("description", "").strip()
+    if not desc:
+        errors.append("شرح مزایا و کاربرد محصول برای شناخت ایجنت الزامی است.")
+    cleaned["description"] = desc
+
+    ptype = data.get("product_type", "PHYSICAL").strip()
+    if ptype not in VALID_PRODUCT_TYPES:
+        errors.append("نوع محصول باید «کالایی» یا «خدماتی» باشد.")
+    cleaned["product_type"] = ptype
+
+    status = data.get("status", "ACTIVE").strip()
+    if status not in VALID_STATUSES:
+        errors.append("وضعیت محصول نامعتبر است.")
+    cleaned["status"] = status
+
+    prio_str = data.get("discovery_priority", "1")
+    try:
+        prio = int(prio_str)
+        if not (1 <= prio <= 5):
+            errors.append("اولویت جستجو باید بین ۱ تا ۵ باشد.")
+        cleaned["discovery_priority"] = prio
+    except (ValueError, TypeError):
+        errors.append("اولویت جستجو باید عددی بین ۱ تا ۵ باشد.")
+        cleaned["discovery_priority"] = 1
+
+    price_val = data.get("price", "")
+    price, price_err = _parse_and_validate_price(price_val)
+    if price_err:
+        errors.append(price_err)
+    cleaned["price"] = price
+
+    cat_id = data.get("category_id")
+    cleaned["category"] = None
+    if cat_id and str(cat_id).strip() and str(cat_id).isdigit():
+        cat = categories_qs.filter(id=int(cat_id)).first()
+        if not cat:
+            errors.append("دسته‌بندی انتخابی معتبر نیست.")
+        else:
+            cleaned["category"] = cat
+
+    # Checkboxes: when full form submitted, missing key in POST means False (fixes R19)
+    cleaned["instagram_discovery_enabled"] = data.get("instagram_discovery_enabled") in ["on", "true", "1"]
+    cleaned["is_discovery_active"] = data.get("is_discovery_active") in ["on", "true", "1"]
+    cleaned["telegram_outreach_enabled"] = data.get("telegram_outreach_enabled") in ["on", "true", "1"]
+    cleaned["x_outreach_enabled"] = data.get("x_outreach_enabled") in ["on", "true", "1"]
+    cleaned["x_search_enabled"] = data.get("x_search_enabled") in ["on", "true", "1"]
+
+    cleaned["url"] = data.get("url", "").strip()[:2048]
+    cleaned["target_customer"] = data.get("target_customer", "").strip()
+    cleaned["instagram_terms"] = _form_list(data.get("instagram_terms", ""))
+    cleaned["instagram_hashtags"] = _form_list(data.get("instagram_hashtags", ""), hashtags=True)
+    cleaned["instagram_max_posts"] = _form_list_int(data.get("instagram_max_posts"), 5, 1, 100)
+    cleaned["instagram_window_days"] = _form_list_int(data.get("instagram_window_days"), 7, 1, 90)
+
+    return cleaned, errors
 
 
 @login_required
@@ -97,21 +201,10 @@ def product_add_view(request):
         )
 
     categories = _categories_for(business)
+    category_attributes_map = {str(c.id): (c.suggested_attributes or []) for c in categories}
 
     if request.method == "POST":
-        name = request.POST.get("name", "").strip()[:255]
-        product_type = request.POST.get("product_type", "PHYSICAL").strip()
-        category_id = request.POST.get("category_id")
-        description = request.POST.get("description", "").strip()
-        instagram_terms = _form_list(request.POST.get("instagram_terms", ""))
-        instagram_hashtags = _form_list(request.POST.get("instagram_hashtags", ""), hashtags=True)
-        instagram_discovery_enabled = request.POST.get("instagram_discovery_enabled") in ["on", "true", "1"]
-        instagram_max_posts = _form_list_int(request.POST.get("instagram_max_posts"), 5, 1, 100)
-        instagram_window_days = _form_list_int(request.POST.get("instagram_window_days"), 7, 1, 90)
-        price_val = request.POST.get("price", "").strip().replace(",", "").replace("،", "")
-        url = request.POST.get("url", "").strip()[:2048]
-        target_customer = request.POST.get("target_customer", "").strip()
-        status = request.POST.get("status", "ACTIVE").strip()
+        cleaned, errors = _validate_product_input(request.POST, categories)
 
         # Parse dynamic attributes from form (custom key-value pairs + category suggestions)
         attributes = {}
@@ -129,93 +222,75 @@ def product_add_view(request):
                 if attr_name not in attributes:
                     attributes[attr_name] = val.strip()[:500]
 
-        # Validation
-        if not name or not description:
-            messages.error(request, "نام محصول و شرح آن برای شناخت ایجنت الزامی است.")
-            return render(request, "products/product_form.html", {
-                "categories": categories,
-                "is_edit": False,
-                "product_type": product_type,
-            })
-
         # Image validation (max 10)
         images = request.FILES.getlist("images")
         if len(images) > 10:
-            messages.error(request, "حداکثر ۱۰ تصویر برای هر محصول مجاز است.")
+            errors.append("حداکثر ۱۰ تصویر برای هر محصول مجاز است.")
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
             return render(request, "products/product_form.html", {
                 "categories": categories,
+                "category_attributes_map": category_attributes_map,
                 "is_edit": False,
-                "product_type": product_type,
+                "product_type": cleaned.get("product_type", "PHYSICAL"),
             })
 
-        category = None
-        if category_id and str(category_id).isdigit():
-            category = categories.filter(id=int(category_id)).first()
-
-        price = None
-        if price_val:
-            try:
-                p_clean = int(float(price_val))
-                if 0 <= p_clean <= 999_999_999_999:
-                    price = p_clean
-            except (ValueError, OverflowError):
-                price = None
-
-        is_discovery_active = request.POST.get("is_discovery_active") in ["on", "true", "1"]
-        discovery_priority_val = request.POST.get("discovery_priority", "1")
-        discovery_priority = int(discovery_priority_val) if discovery_priority_val.isdigit() else 1
-        telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
-        x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
-        x_search_enabled = request.POST.get("x_search_enabled") in ["on", "true", "1"]
-
-        try:
-            product = Product.objects.create(
-                business=business,
-                name=name,
-                product_type=product_type,
-                category=category,
-                description=description,
-                instagram_terms=instagram_terms,
-                instagram_hashtags=instagram_hashtags,
-                instagram_discovery_enabled=instagram_discovery_enabled,
-                instagram_max_posts=instagram_max_posts,
-                instagram_window_days=instagram_window_days,
-                price=price,
-                url=url,
-                attributes=attributes,
-                target_customer=target_customer,
-                status=status,
-                is_discovery_active=is_discovery_active,
-                discovery_priority=discovery_priority,
-                telegram_outreach_enabled=telegram_outreach_enabled,
-                x_outreach_enabled=x_outreach_enabled,
-                x_search_enabled=x_search_enabled,
-            )
-        except Exception as exc:
-            messages.error(request, f"خطا در ایجاد محصول: {exc}")
-            return render(request, "products/product_form.html", {
-                "categories": categories,
-                "is_edit": False,
-                "product_type": product_type,
-            })
-
-        # Save uploaded images (up to 10)
+        # Validate uploaded images (up to 10)
         main_index_raw = request.POST.get("selected_main_index", "0")
         try:
             main_img_index = int(main_index_raw)
         except ValueError:
             main_img_index = 0
 
-        for idx, img_file in enumerate(images[:10]):
+        from apps.core.image_service import validate_and_sanitize_image
+        from django.core.exceptions import ValidationError
+
+        valid_images = []
+        for img_file in images[:10]:
             try:
-                ProductImage.objects.create(
-                    product=product,
-                    image=img_file,
-                    is_main=(idx == main_img_index or (main_img_index >= len(images) and idx == 0)),
-                    order=idx,
+                clean_img = validate_and_sanitize_image(img_file)
+                valid_images.append(clean_img)
+            except ValidationError as val_err:
+                messages.warning(request, f"فایل «{getattr(img_file, 'name', 'تصویر')}» نادیده گرفته شد: {val_err.message}")
+            except Exception as exc:
+                messages.warning(request, f"خطا در پردازش تصویر «{getattr(img_file, 'name', 'تصویر')}»: {exc}")
+
+        staged_images = []
+        try:
+            with transaction.atomic():
+                product = Product(
+                    business=business,
+                    attributes=attributes,
+                    **cleaned
                 )
-            except Exception:
-                pass
+                product.full_clean()
+                product.save()
+
+                for idx, clean_img in enumerate(valid_images):
+                    pi = ProductImage.objects.create(
+                        product=product,
+                        image=clean_img,
+                        is_main=(idx == main_img_index or (main_img_index >= len(valid_images) and idx == 0)),
+                        order=idx,
+                    )
+                    staged_images.append(pi.image)
+        except Exception as exc:
+            # Compensatory cleanup: if transaction rolled back, purge any staged files written to disk
+            for img_field in staged_images:
+                try:
+                    if img_field and img_field.storage.exists(img_field.name):
+                        img_field.storage.delete(img_field.name)
+                except Exception:
+                    pass
+            messages.error(request, f"خطا در ایجاد محصول: {exc}")
+            return render(request, "products/product_form.html", {
+                "categories": categories,
+                "category_attributes_map": category_attributes_map,
+                "is_edit": False,
+                "product_type": cleaned.get("product_type", "PHYSICAL"),
+            })
 
         from apps.products import taxonomy
         organizing = taxonomy.maybe_organize(business)
@@ -225,6 +300,7 @@ def product_add_view(request):
 
     return render(request, "products/product_form.html", {
         "categories": categories,
+        "category_attributes_map": category_attributes_map,
         "is_edit": False,
     })
 
@@ -233,45 +309,27 @@ def product_edit_view(request, pk):
     business = get_object_or_404(Business, user=request.user)
     product = get_object_or_404(Product, pk=pk, business=business)
     categories = _categories_for(business)
+    category_attributes_map = {str(c.id): (c.suggested_attributes or []) for c in categories}
 
     if request.method == "POST":
+        cleaned, errors = _validate_product_input(request.POST, categories)
+
         new_images = request.FILES.getlist("images")
         current_images_count = product.images.count()
         if current_images_count + len(new_images) > 10:
-            messages.error(
-                request,
+            errors.append(
                 f"حداکثر ۱۰ تصویر برای هر محصول مجاز است. شما در حال حاضر {current_images_count} تصویر دارید و تنها مجاز به افزودن {max(0, 10 - current_images_count)} تصویر دیگر هستید."
             )
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
             return render(request, "products/product_form.html", {
                 "product": product,
                 "categories": categories,
+                "category_attributes_map": category_attributes_map,
                 "is_edit": True,
             })
-
-        product.name = request.POST.get("name", "").strip()[:255]
-        product.product_type = request.POST.get("product_type", "PHYSICAL").strip()
-        category_id = request.POST.get("category_id")
-        product.description = request.POST.get("description", "").strip()
-        if "instagram_terms" in request.POST:
-            product.instagram_terms = _form_list(request.POST.get("instagram_terms", ""))
-        if "instagram_hashtags" in request.POST:
-            product.instagram_hashtags = _form_list(request.POST.get("instagram_hashtags", ""), hashtags=True)
-        if "instagram_discovery_enabled" in request.POST:
-            product.instagram_discovery_enabled = request.POST.get("instagram_discovery_enabled") in ["on", "true", "1"]
-        if "instagram_max_posts" in request.POST:
-            product.instagram_max_posts = _form_list_int(request.POST.get("instagram_max_posts"), 5, 1, 100)
-        if "instagram_window_days" in request.POST:
-            product.instagram_window_days = _form_list_int(request.POST.get("instagram_window_days"), 7, 1, 90)
-        price_val = request.POST.get("price", "").strip().replace(",", "").replace("،", "")
-        product.url = request.POST.get("url", "").strip()[:2048]
-        product.target_customer = request.POST.get("target_customer", "").strip()
-        product.status = request.POST.get("status", "ACTIVE").strip()
-        product.is_discovery_active = request.POST.get("is_discovery_active") in ["on", "true", "1"]
-        discovery_priority_val = request.POST.get("discovery_priority", "1")
-        product.discovery_priority = int(discovery_priority_val) if discovery_priority_val.isdigit() else 1
-        product.telegram_outreach_enabled = request.POST.get("telegram_outreach_enabled") in ["on", "true", "1"]
-        product.x_outreach_enabled = request.POST.get("x_outreach_enabled") in ["on", "true", "1"]
-        product.x_search_enabled = request.POST.get("x_search_enabled") in ["on", "true", "1"]
 
         # Parse dynamic attributes from form (custom key-value pairs + category suggestions)
         attributes = {}
@@ -288,56 +346,65 @@ def product_edit_view(request, pk):
                 attr_name = key[5:][:100]
                 if attr_name not in attributes:
                     attributes[attr_name] = val.strip()[:500]
-        product.attributes = attributes
 
-        if category_id and str(category_id).isdigit():
-            product.category = categories.filter(id=int(category_id)).first()
-        else:
-            product.category = None
+        # Validate new images up to remaining slots
+        from apps.core.image_service import validate_and_sanitize_image
+        from django.core.exceptions import ValidationError
 
-        if price_val:
+        has_main = product.images.filter(is_main=True).exists()
+        valid_new_images = []
+        for img_file in new_images:
+            if current_images_count + len(valid_new_images) >= 10:
+                break
             try:
-                p_clean = int(float(price_val))
-                if 0 <= p_clean <= 999_999_999_999:
-                    product.price = p_clean
-                else:
-                    product.price = None
-            except (ValueError, OverflowError):
-                product.price = None
-        else:
-            product.price = None
+                clean_img = validate_and_sanitize_image(img_file)
+                valid_new_images.append(clean_img)
+            except ValidationError as val_err:
+                messages.warning(request, f"فایل «{getattr(img_file, 'name', 'تصویر')}» نادیده گرفته شد: {val_err.message}")
+            except Exception as exc:
+                messages.warning(request, f"خطا در پردازش تصویر «{getattr(img_file, 'name', 'تصویر')}»: {exc}")
 
+        staged_new_images = []
         try:
-            product.save()
+            with transaction.atomic():
+                for field, val in cleaned.items():
+                    setattr(product, field, val)
+                product.attributes = attributes
+                product.full_clean()
+                product.save()
+
+                for idx, clean_img in enumerate(valid_new_images):
+                    pi = ProductImage.objects.create(
+                        product=product,
+                        image=clean_img,
+                        is_main=(not has_main and idx == 0),
+                        order=current_images_count + idx,
+                    )
+                    staged_new_images.append(pi.image)
         except Exception as exc:
+            for img_field in staged_new_images:
+                try:
+                    if img_field and img_field.storage.exists(img_field.name):
+                        img_field.storage.delete(img_field.name)
+                except Exception:
+                    pass
             messages.error(request, f"خطا در ویرایش محصول: {exc}")
             return render(request, "products/product_form.html", {
                 "product": product,
                 "categories": categories,
+                "category_attributes_map": category_attributes_map,
                 "is_edit": True,
             })
 
-        # Save new images up to remaining slots
-        has_main = product.images.filter(is_main=True).exists()
-        for idx, img_file in enumerate(new_images):
-            if current_images_count + idx >= 10:
-                break
-            try:
-                ProductImage.objects.create(
-                    product=product,
-                    image=img_file,
-                    is_main=(not has_main and idx == 0),
-                    order=current_images_count + idx,
-                )
-            except Exception:
-                pass
-
+        from apps.products import taxonomy
+        taxonomy.maybe_organize(business)
         messages.success(request, f"مشخصات محصول «{product.name}» به‌روزرسانی شد.")
         return redirect("products:detail", pk=product.pk)
 
     return render(request, "products/product_form.html", {
         "product": product,
         "categories": categories,
+        "category_attributes_map": category_attributes_map,
         "is_edit": True,
     })
 
@@ -398,12 +465,14 @@ def product_click_view(request, pk):
     """/r/<id>/?ref=<opportunity>: the link in reply drafts. Counts the click, then goes to the seller's own page."""
     product = get_object_or_404(Product.objects.select_related("business"), pk=pk)
     ref = (request.GET.get("ref") or "").strip()[:64]
-    metric, _ = ProductDailyMetric.objects.get_or_create(product=product, date=timezone.now().date())
-    ProductDailyMetric.objects.filter(pk=metric.pk).update(clicks_count=F("clicks_count") + 1)
+    ProductDailyMetric.record_click(product=product, event_id=ref or None)
     target = (product.url or "").strip()
     if target.lower().startswith(("http://", "https://")):
         return HttpResponseRedirect(target)
-    return redirect(f"/p/{product.pk}/" + (f"?ref={ref}" if ref else ""))
+    # B2C Card (/p/<id>/) is removed; redirect to the seller's shop showcase or home
+    if product.business and product.business.slug and product.business.onboarding_done:
+        return redirect("public_shop", slug=product.business.slug)
+    return redirect("/")
 
 @login_required
 def product_delete_view(request, pk):
@@ -423,9 +492,11 @@ def set_main_image_view(request, pk, image_pk):
     image = get_object_or_404(ProductImage, pk=image_pk, product=product)
 
     if request.method == "POST":
-        product.images.update(is_main=False)
-        image.is_main = True
-        image.save(update_fields=["is_main"])
+        with transaction.atomic():
+            Product.objects.select_for_update().get(pk=product.pk)
+            product.images.exclude(pk=image.pk).update(is_main=False)
+            image.is_main = True
+            image.save(update_fields=["is_main"])
         messages.success(request, "تصویر مورد نظر به عنوان تصویر اصلی محصول انتخاب شد.")
 
     # Redirect to where the request came from, or edit page
@@ -441,7 +512,9 @@ def delete_image_view(request, pk, image_pk):
     image = get_object_or_404(ProductImage, pk=image_pk, product=product)
 
     if request.method == "POST":
-        image.delete()
+        with transaction.atomic():
+            Product.objects.select_for_update().get(pk=product.pk)
+            image.delete()
         messages.success(request, "تصویر با موفقیت حذف گردید.")
 
     referer = request.META.get("HTTP_REFERER")
@@ -450,23 +523,69 @@ def delete_image_view(request, pk, image_pk):
     return redirect("products:edit", pk=product.pk)
 
 def api_suggest_category(request):
-    name = request.GET.get("name", "").strip()
-    description = request.GET.get("description", "").strip()
-    product_type = request.GET.get("product_type", "").strip() or None
-    business = getattr(request.user, "business", None) if getattr(request, "user", None) and request.user.is_authenticated else None
+    # Containment Gate (R07): Prevent anonymous callers from invoking paid LLM
+    if not request.user.is_authenticated:
+        return JsonResponse({"status": "error", "message": "احراز هویت الزامی است."}, status=401)
+    business = getattr(request.user, "business", None)
+    if not business:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار فعال یافت نشد."}, status=403)
+
+    if request.method == "POST":
+        # POST: Authenticated path with CSRF protection and input constraints
+        name = request.POST.get("name", "").strip()
+        description = request.POST.get("description", "").strip()
+        product_type = request.POST.get("product_type", "").strip() or None
+        request_ai = request.POST.get("allow_ai", "").lower() in ("1", "true", "yes")
+    elif request.method == "GET":
+        name = request.GET.get("name", "").strip()
+        description = request.GET.get("description", "").strip()
+        product_type = request.GET.get("product_type", "").strip() or None
+        request_ai = False  # GET is strictly read-only heuristic; never triggers paid LLM
+    else:
+        return JsonResponse({"status": "error", "message": "روش نامعتبر است."}, status=405)
+
+    if len(name) > 255:
+        return JsonResponse({"status": "error", "message": "طول نام کالا حداکثر ۲۵۵ کاراکتر است."}, status=400)
+    if len(description) > 2000:
+        return JsonResponse({"status": "error", "message": "طول توضیحات کالا حداکثر ۲۰۰۰ کاراکتر است."}, status=400)
 
     if not name:
         return JsonResponse({"status": "empty", "suggestion": None})
 
-    suggestion = suggest_category_for_product(name=name, description=description, product_type=product_type, business=business)
+    # Step 3 of P02.01: Paid AI execution remains queued until financial gate is wired in Phase 6
+    if request_ai:
+        return JsonResponse({
+            "status": "queued",
+            "message": "درخواست طبقه‌بندی هوش مصنوعی در صف اعتبارسنجی مالی فاز ۶ قرار گرفت.",
+            "job_id": None,
+            "suggestion": None,
+        })
+
+    # Free, local heuristic matching
+    suggestion = suggest_category_for_product(
+        name=name,
+        description=description,
+        product_type=product_type,
+        business=business,
+        allow_ai=False,
+    )
     if suggestion:
         return JsonResponse({"status": "success", "suggestion": suggestion})
     return JsonResponse({"status": "no_match", "suggestion": None})
 
 def api_category_attributes(request, category_id):
-    category = Category.objects.filter(id=category_id).first()
+    if not request.user.is_authenticated:
+        return JsonResponse({"status": "error", "message": "احراز هویت الزامی است."}, status=401)
+    business = getattr(request.user, "business", None)
+    if not business and not request.user.is_superuser:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار فعال یافت نشد."}, status=403)
+
+    qs = Category.objects.filter(id=category_id, is_active=True)
+    if not request.user.is_superuser:
+        qs = qs.filter(Q(business=business) | Q(business__isnull=True))
+    category = qs.first()
     if not category:
-        return JsonResponse({"attributes": []})
+        return JsonResponse({"attributes": []}, status=404)
     return JsonResponse({"attributes": category.suggested_attributes or []})
 
 @login_required
@@ -545,89 +664,10 @@ def api_category_tree(request):
 
 def public_product_card_view(request, pk):
     """
-    Digikala-style public customer product card & checkout view.
-    Accessible publicly without login. Automatically tracks views, agent clicks,
-    and handles instant customer order placement and conversion tracking.
+    B2C Public Card was retired per Product Directive #1 / Remediation Phase 3 (R06, R21, R22).
+    Always raises Http404; no public orders, carts, or conversions can be created.
     """
-    product = get_object_or_404(Product.objects.select_related("business", "category"), pk=pk)
-    today = timezone.now().date()
-    metric, _ = ProductDailyMetric.objects.get_or_create(product=product, date=today)
-
-    # ?ref=<engine opportunity id> is added by need_engine to every reply-draft link
-    ref = (request.GET.get("ref") or "").strip()
-    opportunity = Opportunity.objects.filter(engine_opportunity_id=ref, business=product.business).first() if ref else None
-
-    # Track metrics
-    metric.views_count += 1
-    if opportunity:
-        metric.clicks_count += 1
-    metric.save(update_fields=["views_count", "clicks_count"])
-
-    # If POST (order submitted directly from card)
-    if request.method == "POST":
-        customer_name = request.POST.get("customer_name", "").strip()
-        customer_phone = request.POST.get("customer_phone", "").strip()
-        shipping_address = request.POST.get("shipping_address", "").strip()
-        quantity_raw = request.POST.get("quantity", "1").strip()
-        quantity = max(1, int(quantity_raw)) if quantity_raw.isdigit() else 1
-
-        if not (customer_name and customer_phone):
-            if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
-                return JsonResponse({"status": "error", "message": "لطفاً نام و شماره تماس خود را وارد نمایید."}, status=400)
-            messages.error(request, "لطفاً نام و شماره تماس خود را وارد نمایید.")
-        else:
-            unit_price = int(product.price) if product.price else 0
-            total_price = unit_price * quantity
-            tracking_code = f"ORD-{secrets.randbelow(900000) + 100000}"
-
-            ProductOrder.objects.create(
-                product=product,
-                opportunity=opportunity,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
-                shipping_address=shipping_address,
-                quantity=quantity,
-                unit_price=unit_price,
-                total_price=total_price,
-                status="PAID",
-                tracking_code=tracking_code
-            )
-
-            # Record in daily metric
-            metric.orders_count += 1
-            metric.sales_amount += total_price
-            metric.save(update_fields=["orders_count", "sales_amount"])
-
-            if opportunity:
-                opportunity.status = "CONVERTED"
-                opportunity.save(update_fields=["status", "updated_at"])
-
-            if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
-                return JsonResponse({
-                    "status": "success",
-                    "tracking_code": tracking_code,
-                    "customer_name": customer_name,
-                    "quantity": quantity,
-                    "total_price_formatted": f"{total_price:,}".replace(",", "،"),
-                    "message": "سفارش شما با موفقیت ثبت شد."
-                })
-
-            messages.success(request, f"سفارش شما ثبت شد. کد پیگیری: {tracking_code}")
-            return redirect(request.get_full_path())
-
-    images = list(product.images.all())
-    main_image = product.main_image
-    other_images = [img for img in images if img != main_image]
-
-
-    return render(request, "products/public_product_card.html", {
-        "product": product,
-        "business": product.business,
-        "main_image": main_image,
-        "images": images,
-        "other_images": other_images,
-        "ref": ref,
-    })
+    raise Http404("کارت عمومی محصول و ثبت سفارش B2C حذف شده است.")
 
 
 

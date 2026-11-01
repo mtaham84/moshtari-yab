@@ -52,13 +52,29 @@ class ModelEntry:
     rpm: int | None = None
     tpm: int | None = None
     rpd: int | None = None
+    provider: str = "default"
+    deployment_id: str | None = None
+
+    @property
+    def identity(self) -> str:
+        if self.deployment_id:
+            return f"{self.provider}:{self.name}:{self.deployment_id}".lower()
+        return f"{self.provider}:{self.name}".lower()
+
+    @property
+    def model_ref(self):
+        from apps.core.gateway_contract import ModelRef
+        return ModelRef(provider_name=self.provider, model_name=self.name, deployment_id=self.deployment_id)
 
 
 @dataclass
 class Snapshot:
-    models: dict[str, ModelEntry] = field(default_factory=dict)      # model name → entry (best priority wins)
-    by_role: dict[str, str] = field(default_factory=dict)              # role → primary model name
-    models_by_role: dict[str, list[str]] = field(default_factory=dict) # role → ordered candidate models for fallback
+    version: int = 1
+    created_at: float = field(default_factory=time.time)
+    models: dict[str, ModelEntry | None] = field(default_factory=dict)  # identity -> entry OR name -> entry (None if ambiguous)
+    by_identity: dict[str, ModelEntry] = field(default_factory=dict)    # provider:name -> entry
+    by_role: dict[str, str] = field(default_factory=dict)               # role → primary model identifier
+    models_by_role: dict[str, list[str]] = field(default_factory=dict) # role → ordered candidate identifiers
     usd_to_toman: float | None = None
     enforce_balance: bool = False
     min_balance: float = 0.0
@@ -71,9 +87,10 @@ class ModelRegistry:
         self.cfg = cfg
         self.enabled = bool(cfg.model_registry) and cfg.products_source == "db"
         self._db = db
-        self._snap = Snapshot()
+        self._version = 1
+        self._snap = Snapshot(version=self._version)
         self._loaded_at = 0.0
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     # ── loading ─────────────────────────────────────────────────────────────
     def _conn(self):
@@ -110,26 +127,52 @@ class ModelRegistry:
     def _load(self) -> Snapshot:
         from need_engine.sources import _ident
 
-        snap = Snapshot()
+        self._version += 1
+        snap = Snapshot(version=self._version)
         db = self._conn()
         models_t, prov_t = _ident(self.cfg.models_table), _ident(self.cfg.providers_table)
         if self._exists(models_t) and self._exists(prov_t):
-            rows = db.all(f"""SELECT m.name, p.base_url, p.api_key, m.input_price_usd, m.output_price_usd, m.priority,
+            rows = db.all(f"""SELECT p.name AS provider_name, m.name, p.base_url, p.api_key, m.input_price_usd, m.output_price_usd, m.priority,
                                      m.use_extract, m.use_verify, m.use_reply, m.rpm, m.tpm, m.rpd
                               FROM {models_t} m JOIN {prov_t} p ON p.id = m.provider_id
                               WHERE m.is_active AND p.is_active ORDER BY m.priority, m.id""")
             for r in rows:
                 roles = frozenset(k for k, on in (("extract", r["use_extract"]), ("verify", r["use_verify"]),
                                                   ("reply", r["use_reply"])) if on)
-                e = ModelEntry(r["name"], r["base_url"] or "", decrypt_secret(r["api_key"]), float(r["input_price_usd"] or 0),
-                               float(r["output_price_usd"] or 0), roles, int(r["priority"] or 0), r["rpm"], r["tpm"], r["rpd"])
-                snap.models.setdefault(e.name, e)
+                prov = (r.get("provider_name") or r.get("provider") or "default").strip()
+                e = ModelEntry(
+                    name=r["name"],
+                    base_url=r["base_url"] or "",
+                    api_key=decrypt_secret(r["api_key"]),
+                    price_in=float(r["input_price_usd"] or 0),
+                    price_out=float(r["output_price_usd"] or 0),
+                    roles=roles,
+                    priority=int(r["priority"] or 0),
+                    rpm=r["rpm"],
+                    tpm=r["tpm"],
+                    rpd=r["rpd"],
+                    provider=prov,
+                )
+                ident = e.identity
+                snap.by_identity[ident] = e
+                snap.models[ident] = e
+
+                # Disambiguation logic for plain model name:
+                if e.name not in snap.models:
+                    snap.models[e.name] = e
+                else:
+                    existing = snap.models[e.name]
+                    if existing is not None and existing.identity != ident:
+                        # Ambiguous: multiple providers define this model name
+                        snap.models[e.name] = None
+
+                chosen_key = e.name if prov == "default" else ident
                 for role in roles:
-                    snap.by_role.setdefault(role, e.name)
+                    snap.by_role.setdefault(role, chosen_key)
                     if role not in snap.models_by_role:
                         snap.models_by_role[role] = []
-                    if e.name not in snap.models_by_role[role]:
-                        snap.models_by_role[role].append(e.name)
+                    if chosen_key not in snap.models_by_role[role]:
+                        snap.models_by_role[role].append(chosen_key)
         self._load_billing(snap)
         return snap
 
@@ -151,6 +194,24 @@ class ModelRegistry:
             snap.wallets_loaded = True
 
     # ── queries ─────────────────────────────────────────────────────────────
+    def freeze_snapshot(self) -> Snapshot:
+        """Freezes and returns an immutable snapshot instance for execution duration (P05.02 / R17)."""
+        with self._lock:
+            snap = self.refresh()
+            return Snapshot(
+                version=snap.version,
+                created_at=snap.created_at,
+                models=dict(snap.models),
+                by_identity=dict(snap.by_identity),
+                by_role=dict(snap.by_role),
+                models_by_role={k: list(v) for k, v in snap.models_by_role.items()},
+                usd_to_toman=snap.usd_to_toman,
+                enforce_balance=snap.enforce_balance,
+                min_balance=snap.min_balance,
+                balances=dict(snap.balances),
+                wallets_loaded=snap.wallets_loaded,
+            )
+
     def model_for(self, stage: str) -> str | None:
         role = role_of(stage)
         return self.refresh().by_role.get(role) if role else None
@@ -162,8 +223,52 @@ class ModelRegistry:
         snap = self.refresh()
         return list(snap.models_by_role.get(role, []))
 
-    def entry(self, model: str) -> ModelEntry | None:
-        return self.refresh().models.get(model)
+    def model_ref_for(self, stage: str) -> Any | None:
+        e = self.entry(self.model_for(stage))
+        return e.model_ref if e else None
+
+    def candidate_model_refs_for(self, stage: str) -> list[Any]:
+        candidates = self.candidate_models_for(stage)
+        refs = []
+        for c in candidates:
+            e = self.entry(c)
+            if e:
+                refs.append(e.model_ref)
+        return refs
+
+    def entry(self, model: Any) -> ModelEntry | None:
+        if not model:
+            return None
+        if hasattr(model, "identity"):
+            key = model.identity
+        else:
+            key = str(model).strip()
+
+        snap = self.refresh()
+        if ":" in key:
+            return snap.by_identity.get(key.lower())
+
+        if key in snap.models:
+            val = snap.models[key]
+            if val is None:
+                colliding = [e.identity for e in snap.by_identity.values() if e.name.lower() == key.lower()]
+                raise ValueError(
+                    f"Ambiguous model name '{key}': matches multiple providers: {colliding}. "
+                    f"Specify full 'provider:model' identity."
+                )
+            return val
+
+        # Case-insensitive check
+        matches = [e for e in snap.by_identity.values() if e.name.lower() == key.lower()]
+        if len(matches) > 1:
+            colliding = [e.identity for e in matches]
+            raise ValueError(
+                f"Ambiguous model name '{key}': matches multiple providers: {colliding}. "
+                f"Specify full 'provider:model' identity."
+            )
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def endpoint(self, model: str) -> tuple[str, str]:
         """(base_url, api_key) for a model: its provider in the panel, else NE_LLM_BASE_URL / NE_LLM_API_KEY.

@@ -1,52 +1,89 @@
+import logging
 from django.contrib import messages
-from django.contrib.auth import get_user_model, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
+from django.core.validators import EmailValidator, ValidationError as DjangoValidationError
+from django.db import transaction, IntegrityError
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.http import JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from apps.businesses.models import Business, MessageStyle
-from apps.discovery.models import Opportunity
+from apps.discovery.models import Opportunity, InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.services import get_performance_analytics
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def get_client_ip(request) -> str:
+    """Safely extracts client IP address, handling proxy headers."""
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "127.0.0.1")
+
+
+def check_auth_throttle(request, key_prefix: str, max_attempts: int = 5) -> bool:
+    ip = get_client_ip(request)
+    cache_key = f"auth_throttle:{key_prefix}:{ip}"
+    try:
+        attempts = cache.get(cache_key, 0)
+        return attempts >= max_attempts
+    except Exception:
+        return False
+
+
+def increment_auth_throttle(request, key_prefix: str, lock_seconds: int = 300) -> int:
+    ip = get_client_ip(request)
+    cache_key = f"auth_throttle:{key_prefix}:{ip}"
+    try:
+        attempts = cache.get(cache_key, 0) + 1
+        cache.set(cache_key, attempts, lock_seconds)
+        return attempts
+    except Exception:
+        return 1
+
+
+def reset_auth_throttle(request, key_prefix: str) -> None:
+    ip = get_client_ip(request)
+    cache_key = f"auth_throttle:{key_prefix}:{ip}"
+    try:
+        cache.delete(cache_key)
+    except Exception:
+        pass
+
+
+def is_valid_email(email: str) -> bool:
+    if not email or "@" not in email:
+        return False
+    validator = EmailValidator()
+    try:
+        validator(email)
+        return True
+    except DjangoValidationError:
+        return False
+
 
 def signup_view(request):
     if request.user.is_authenticated:
         return redirect("accounts:dashboard")
 
     if request.method == "POST":
+        if check_auth_throttle(request, "signup", max_attempts=15):
+            messages.error(request, "تعداد ثبت‌نام‌های ارسالی از این آدرس بیش از حد مجاز است. لطفاً اندکی بعد مجدداً تلاش فرمایید.")
+            return render(request, "accounts/signup.html")
+
         first_name = request.POST.get("first_name", "").strip()
         last_name = request.POST.get("last_name", "").strip()
         email = request.POST.get("email", "").strip().lower()
-        password = request.POST.get("password", "").strip()
+        # Do NOT strip password; preserve spaces intentionally chosen by user (R28)
+        password = request.POST.get("password", "")
         business_name = request.POST.get("business_name", "").strip()
         business_type = request.POST.get("business_type", "PHYSICAL").strip()
         business_domain = request.POST.get("business_domain", "").strip()
-
-        # Validations
-        if not (first_name and last_name and email and business_name):
-            messages.error(request, "لطفاً تمامی فیلدهای الزامی فرم را تکمیل فرمایید.")
-            return render(request, "accounts/signup.html", {
-                "first_name": first_name,
-                "last_name": last_name,
-                "email": email,
-                "business_name": business_name,
-                "business_type": business_type,
-                "business_domain": business_domain,
-            })
-
-        if "@" not in email or "." not in email:
-            messages.error(request, "فرمت آدرس ایمیل وارد شده نامعتبر است.")
-            return render(request, "accounts/signup.html", {
-                "first_name": first_name,
-                "last_name": last_name,
-                "email": email,
-                "business_name": business_name,
-                "business_type": business_type,
-                "business_domain": business_domain,
-            })
 
         form_values = {
             "first_name": first_name,
@@ -56,8 +93,22 @@ def signup_view(request):
             "business_type": business_type,
             "business_domain": business_domain,
         }
+
+        # Validations
+        if not (first_name and last_name and email and business_name):
+            messages.error(request, "لطفاً تمامی فیلدهای الزامی فرم را تکمیل فرمایید.")
+            return render(request, "accounts/signup.html", form_values)
+
+        if not is_valid_email(email):
+            messages.error(request, "فرمت آدرس ایمیل وارد شده نامعتبر است.")
+            return render(request, "accounts/signup.html", form_values)
+
         if len(password) < 8:
             messages.error(request, "کلمه عبور باید حداقل ۸ کاراکتر باشد.")
+            return render(request, "accounts/signup.html", form_values)
+
+        if len(password) > 128:
+            messages.error(request, "طول کلمه عبور نمی‌تواند بیش از ۱۲۸ کاراکتر باشد.")
             return render(request, "accounts/signup.html", form_values)
 
         # Without email verification an existing account must never be taken over by signing up again.
@@ -65,31 +116,38 @@ def signup_view(request):
             messages.error(request, "این ایمیل قبلاً ثبت شده است. لطفاً وارد شوید.")
             return render(request, "accounts/signup.html", form_values)
 
-        # Direct Signup for Demo Mode (No OTP / Verification needed)
-        user = User.objects.create_user(
-            username=email,
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name,
-        )
+        # Atomic User + Business creation (prevents orphaned users or split-state)
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    username=email,
+                    email=email,
+                    password=password,
+                    first_name=first_name,
+                    last_name=last_name,
+                )
+                Business.objects.create(
+                    user=user,
+                    name=business_name,
+                    business_type=business_type,
+                    business_domain=business_domain,
+                )
+        except IntegrityError:
+            messages.error(request, "این ایمیل قبلاً در سیستم ثبت شده است. لطفاً وارد شوید.")
+            return render(request, "accounts/signup.html", form_values)
+        except Exception as exc:
+            logger.exception("Error creating user and business during signup: %s", exc)
+            messages.error(request, "خطایی در ثبت‌نام رخ داد. لطفاً دوباره تلاش فرمایید.")
+            return render(request, "accounts/signup.html", form_values)
 
-        # Create or update associated business
-        Business.objects.update_or_create(
-            user=user,
-            defaults={
-                "name": business_name,
-                "business_type": business_type,
-                "business_domain": business_domain,
-            }
-        )
-
-        # Immediate login
+        # Immediate login for MVP (No OTP / Verification needed per Decisive Directive 6)
+        reset_auth_throttle(request, "signup")
         login(request, user)
         messages.success(request, "ثبت‌نام انجام شد. حالا نوع کسب‌وکار و دسته‌بندی محصولات خود را مشخص کنید.")
         return redirect("accounts:onboarding")
 
     return render(request, "accounts/signup.html")
+
 
 def login_view(request):
     if request.user.is_authenticated:
@@ -106,8 +164,17 @@ def login_view(request):
     fallback_url = reverse("accounts:dashboard")
 
     if request.method == "POST":
+        if check_auth_throttle(request, "login", max_attempts=5):
+            messages.error(request, "تعداد تلاش‌های ناموفق بیش از حد مجاز است. لطفاً ۵ دقیقه دیگر مجدداً تلاش فرمایید.")
+            return render(request, "accounts/login.html", {
+                "username_or_email": request.POST.get("username_or_email", "").strip(),
+                "active_tab": "password",
+                "next": next_url,
+            })
+
         # Standard Password Login (Primary)
         username_or_email = request.POST.get("username_or_email", "").strip()
+        # Do NOT strip password
         password = request.POST.get("password", "")
 
         if not username_or_email or not password:
@@ -118,13 +185,27 @@ def login_view(request):
                 "next": next_url,
             })
 
-        # Look up user by email or username
-        user = User.objects.filter(email__iexact=username_or_email).first()
-        if not user:
-            user = User.objects.filter(username__iexact=username_or_email).first()
+        # Look up username by email or username
+        matched_user = User.objects.filter(email__iexact=username_or_email).first()
+        if not matched_user:
+            matched_user = User.objects.filter(username__iexact=username_or_email).first()
 
-        if user and user.check_password(password):
-            if not user.is_active:
+        username_to_auth = matched_user.username if matched_user else username_or_email
+
+        # Standard Django authentication
+        auth_user = authenticate(request, username=username_to_auth, password=password)
+
+        if auth_user is not None:
+            reset_auth_throttle(request, "login")
+            login(request, auth_user)
+            name = auth_user.get_full_name() or auth_user.first_name or auth_user.username
+            messages.success(request, f"خوش آمدید، {name} عزیز!")
+            if not next_url and (auth_user.is_staff or auth_user.is_superuser):
+                fallback_url = reverse("manage:dashboard")
+            return redirect(next_url or fallback_url)
+        else:
+            # Check if user exists with correct password but is inactive (R28)
+            if matched_user and matched_user.check_password(password) and not matched_user.is_active:
                 messages.error(request, "حساب کاربری شما غیرفعال است.")
                 return render(request, "accounts/login.html", {
                     "username_or_email": username_or_email,
@@ -132,13 +213,7 @@ def login_view(request):
                     "next": next_url,
                 })
 
-            login(request, user)
-            name = user.get_full_name() or user.first_name or user.username
-            messages.success(request, f"خوش آمدید، {name} عزیز!")
-            if not next_url and (user.is_staff or user.is_superuser):
-                fallback_url = reverse("manage:dashboard")
-            return redirect(next_url or fallback_url)
-        else:
+            increment_auth_throttle(request, "login", lock_seconds=300)
             messages.error(request, "نام کاربری/ایمیل یا کلمه عبور وارد شده نادرست است.")
             return render(request, "accounts/login.html", {
                 "username_or_email": username_or_email,
@@ -288,19 +363,20 @@ def outreach_view(request):
     """Business owner's dedicated Instagram Outreach & Sender Management page."""
     import json
     from pathlib import Path
+    from apps.core.access_policy import AccessPolicy
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 
     business = getattr(request.user, "business", None)
-    if not business:
+    if not business and not request.user.is_superuser:
         messages.error(request, "ابتدا اطلاعات کسب‌وکار خود را تکمیل نمایید.")
         return redirect("accounts:dashboard")
 
-    tenant_key = f"tenant_{business.id}"
-    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    tenant_keys = AccessPolicy.actor_tenant_keys(request.user)
+    sender_tenants = AccessPolicy.sender_search_tenants(request.user)
 
     from apps.discovery.outreach_service import TIER_LIMITS
 
-    accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
+    accounts = InstagramEngineAccount.objects.filter(tenant_id__in=sender_tenants, role="SENDER").order_by("-id")
     sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:50]
     total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
     pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
@@ -315,20 +391,11 @@ def outreach_view(request):
         has_replied=True
     ).count()
 
-    # Load pitch configuration
-    config_path = Path("data/sarv_outreach_config.json")
-    sender_pitches = {}
-    if config_path.exists():
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            sender_pitches = cfg.get("sender_pitches", {})
-        except Exception:
-            pass
-
-    # Attach pitch info to account objects for display
+    # Attach pitch info isolated per-tenant
+    primary_tenant = AccessPolicy.actor_tenant_key(request.user) or (tenant_keys[0] if tenant_keys else "")
     account_list = []
     for acc in accounts:
-        pitch = sender_pitches.get(acc.username) or sender_pitches.get(acc.username.lower(), {})
+        pitch = AccessPolicy.get_tenant_pitch(primary_tenant, acc.username, default_name=acc.username)
         account_list.append({
             "obj": acc,
             "consultant_name": pitch.get("consultant_name", acc.username),
@@ -372,42 +439,59 @@ def outreach_view(request):
 @require_POST
 def save_pitch_view(request):
     """Save custom consultant DM pitch template for a sender account."""
-    import json
-    from pathlib import Path
-
     business = getattr(request.user, "business", None)
     if not business:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "دسترسی غیرمجاز."}, status=403)
         messages.error(request, "دسترسی غیرمجاز.")
         return redirect("accounts:dashboard")
 
-    username = request.POST.get("username", "").strip()
+    from apps.core.access_policy import AccessPolicy
+    from apps.discovery.models import InstagramEngineAccount
+
+    username = request.POST.get("username", "").strip().lstrip("@")
     consultant_name = request.POST.get("consultant_name", "").strip() or username
     template = request.POST.get("template", "").strip()
 
-    if not template:
-        messages.error(request, "متن پیام نمی‌تواند خالی باشد.")
+    if not username or not template:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "نام کاربری و متن الگو الزامی است."}, status=400)
+        messages.error(request, "نام کاربری و متن الگو نمی‌تواند خالی باشد.")
         return redirect("accounts:outreach")
 
-    config_path = Path("data/sarv_outreach_config.json")
-    cfg = {}
-    if config_path.exists():
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception:
-            cfg = {}
+    # Verify sender ownership according to policy
+    sender = InstagramEngineAccount.objects.filter(username__iexact=username, role="SENDER").first()
+    if not sender:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "اکانت فرستنده یافت نشد."}, status=404)
+        messages.error(request, "اکانت فرستنده مورد نظر یافت نشد.")
+        return redirect("accounts:outreach")
 
-    if "sender_pitches" not in cfg:
-        cfg["sender_pitches"] = {}
+    allowed_senders = AccessPolicy.sender_search_tenants(request.user)
+    if sender.tenant_id not in allowed_senders and not request.user.is_superuser:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "این اکانت فرستنده متعلق به کسب‌وکار شما نیست."}, status=403)
+        messages.error(request, "این اکانت فرستنده متعلق به کسب‌وکار شما نیست.")
+        return redirect("accounts:outreach")
 
-    cfg["sender_pitches"][username] = {
-        "consultant_name": consultant_name,
-        "consultant_role": f"مشاور و پشتیبانی {business.name}",
-        "template": template,
-        "guardrails_validated": True,
-    }
+    actor_tenants = AccessPolicy.actor_tenant_keys(request.user)
+    tenant_key = actor_tenants[0] if actor_tenants else f"tenant_{business.id}"
 
-    config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    messages.success(request, f"الگوی پیام دایرکت برای اکانت @{username} (مشاور: {consultant_name}) با موفقیت ذخیره شد.")
+    AccessPolicy.save_tenant_pitch(
+        tenant_key,
+        username,
+        {
+            "consultant_name": consultant_name,
+            "consultant_role": f"مشاور و پشتیبانی {business.name}",
+            "template": template,
+            "guardrails_validated": True,
+        }
+    )
+
+    success_msg = f"الگوی پیام دایرکت برای اکانت @{username} (مشاور: {consultant_name}) با موفقیت ذخیره شد."
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"success": True, "message": success_msg})
+    messages.success(request, success_msg)
     return redirect("accounts:outreach")
 
 
@@ -418,16 +502,25 @@ def add_outreach_account_view(request):
     import re
     import json
     from pathlib import Path
+    from django.db import transaction, IntegrityError
     from apps.discovery.models import InstagramEngineAccount
+    from apps.core.access_policy import AccessPolicy
 
     business = getattr(request.user, "business", None)
     if not business:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "دسترسی غیرمجاز."}, status=403)
         messages.error(request, "دسترسی غیرمجاز.")
         return redirect("accounts:dashboard")
 
     target_tenant = request.POST.get("tenant_id", "").strip()
-    if request.user.is_superuser and target_tenant:
-        tenant_key = target_tenant
+    if target_tenant:
+        if not AccessPolicy.can_enroll_in_platform_pool(request.user, target_tenant):
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"success": False, "error": "انتساب اکانت به استخر پلتفرم فقط توسط مدیر سیستم مجاز است."}, status=403)
+            messages.error(request, "انتساب اکانت به استخر پلتفرم فقط توسط مدیر سیستم مجاز است.")
+            return redirect("accounts:outreach")
+        tenant_key = target_tenant if request.user.is_superuser else f"tenant_{business.id}"
     else:
         tenant_key = f"tenant_{business.id}"
 
@@ -440,6 +533,8 @@ def add_outreach_account_view(request):
     custom_daily = request.POST.get("daily_limit", "").strip()
 
     if not username:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "نام کاربری اینستاگرام الزامی است."}, status=400)
         messages.error(request, "نام کاربری اینستاگرام الزامی است.")
         return redirect("accounts:outreach")
 
@@ -455,93 +550,142 @@ def add_outreach_account_view(request):
             sessionid = m.group(1).strip()
     sessionid = sessionid.strip('"').strip("'").strip(";").strip()
 
-    account = InstagramEngineAccount.objects.filter(username__iexact=username).first()
-    if not account:
-        account = InstagramEngineAccount(
-            username=username,
-            password=password or "stored_session",
-            role="SENDER",
-            tenant_id=tenant_key,
-            account_tier=account_tier,
-            daily_limit=daily_lim,
-            hourly_limit=hourly_lim,
-            status="ACTIVE",
-            status_message=f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})",
-        )
-    else:
-        account.role = "SENDER"
-        account.tenant_id = tenant_key
-        account.account_tier = account_tier
-        account.daily_limit = daily_lim
-        account.hourly_limit = hourly_lim
-        account.status = "ACTIVE"
-        if password:
-            account.password = password
+    if not sessionid and not password:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "لطفاً کوکی sessionid یا کلمه عبور را وارد فرمایید."}, status=400)
+        messages.error(request, "لطفاً کوکی sessionid یا کلمه عبور را وارد فرمایید.")
+        return redirect("accounts:outreach")
 
-    # Attempt connection with instagrapi
+    # Fast pre-check: If account exists and belongs to another tenant or platform, reject before external network call
+    existing_check = InstagramEngineAccount.objects.filter(username__iexact=username).first()
+    if existing_check:
+        if existing_check.tenant_id == AccessPolicy.PLATFORM_TENANT_ID and tenant_key != AccessPolicy.PLATFORM_TENANT_ID:
+            msg = "اکانت‌های استخر پلتفرم قابل انتقال به مستأجر اختصاصی نیستند."
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"success": False, "error": msg}, status=403)
+            messages.error(request, msg)
+            return redirect("accounts:outreach")
+        if existing_check.tenant_id != tenant_key and not request.user.is_superuser:
+            msg = "این نام کاربری قبلاً در سامانه ثبت شده و متعلق به حساب دیگری است."
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"success": False, "error": msg}, status=403)
+            messages.error(request, msg)
+            return redirect("accounts:outreach")
+
+    # Perform external verification outside database transaction
     try:
         from instagrapi import Client
         from apps.discovery.device_emulator import ensure_account_device_profile, apply_device_profile_to_client
 
         cl = Client()
-        # Default fallback proxy for senders if none configured
         proxy_url = "socks5h://xray:1080"
         cl.set_proxy(proxy_url)
-        account.proxy_url = proxy_url
 
-        dev_profile = ensure_account_device_profile(account)
-        apply_device_profile_to_client(cl, account)
+        # Temporary in-memory account stub for device profile determination
+        temp_account = InstagramEngineAccount(username=username, tenant_id=tenant_key)
+        dev_profile = ensure_account_device_profile(temp_account)
+        apply_device_profile_to_client(cl, temp_account)
 
         if sessionid:
             cl.login_by_sessionid(sessionid)
+            actual_username = getattr(cl, "username", "") or ""
+            if actual_username and actual_username.lower() != username.lower():
+                raise ValueError(f"کوکی سشن متعلق به کاربر @{actual_username} است و با نام کاربری ادعاشده @{username} تطابق ندارد.")
             settings_data = cl.get_settings()
-            account.session_json = settings_data
         elif password:
             cl.login(username, password)
-            account.session_json = cl.get_settings()
+            actual_username = getattr(cl, "username", "") or ""
+            if actual_username and actual_username.lower() != username.lower():
+                raise ValueError(f"هویت لاگین @{actual_username} با نام کاربری ادعاشده @{username} تطابق ندارد.")
+            settings_data = cl.get_settings()
         else:
-            messages.error(request, "لطفاً کوکی sessionid یا کلمه عبور را وارد فرمایید.")
-            return redirect("accounts:outreach")
+            raise ValueError("کوکی سشن یا کلمه عبور وارد نشده است.")
 
-        account.device_settings = dev_profile or {"settings": account.session_json}
-        account.status = "ACTIVE"
-        account.status_message = f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})"
-        account.save()
-
-        # Save pitch in config
-        config_path = Path("data/sarv_outreach_config.json")
-        cfg = {}
-        if config_path.exists():
-            try:
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        if "sender_pitches" not in cfg:
-            cfg["sender_pitches"] = {}
-        if pitch_template:
-            cfg["sender_pitches"][username] = {
-                "consultant_name": consultant_name,
-                "consultant_role": f"مشاور و پشتیبانی {business.name}",
-                "template": pitch_template,
-                "guardrails_validated": True,
-            }
-            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-        messages.success(request, f"اکانت فرستنده @{username} با موفقیت به مجموعه {business.name} متصل و فعال شد! (رده: {tier_specs['title']} | سقف روزانه: {daily_lim} پیام)")
     except Exception as exc:
         logger.exception("Error adding outreach sender account: %s", exc)
-        # Even if instant online verification fails due to network, save account so credentials persist
-        if sessionid:
-            m_uid = re.search(r"^\d+", sessionid)
-            uid = m_uid.group() if m_uid else ""
-            account.session_json = {"cookies": {"sessionid": sessionid, "ds_user_id": uid}}
-            account.proxy_url = "socks5h://xray:1080"
-            account.save()
-            messages.warning(request, f"اکانت @{username} با کوکی سشن ذخیره شد. پیام اتصال: {exc}")
-        else:
-            messages.error(request, f"خطا در احراز هویت اینستاگرام: {exc}")
+        err_msg = f"خطا در اعتبارسنجی اکانت اینستاگرام: {exc}"
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": err_msg}, status=400)
+        messages.error(request, err_msg)
+        return redirect("accounts:outreach")
 
-    return redirect("accounts:outreach")
+    # Short atomic transaction with row locking for persistence
+    try:
+        with transaction.atomic():
+            account = InstagramEngineAccount.objects.select_for_update().filter(username__iexact=username).first()
+            if account:
+                if account.tenant_id == AccessPolicy.PLATFORM_TENANT_ID and tenant_key != AccessPolicy.PLATFORM_TENANT_ID:
+                    raise PermissionError("اکانت‌های استخر پلتفرم قابل انتقال به مستأجر اختصاصی نیستند.")
+                if account.tenant_id != tenant_key and not request.user.is_superuser:
+                    raise PermissionError("این نام کاربری قبلاً در سامانه ثبت شده و متعلق به حساب دیگری است.")
+
+                account.role = "SENDER"
+                account.tenant_id = tenant_key
+                account.account_tier = account_tier
+                account.daily_limit = daily_lim
+                account.hourly_limit = hourly_lim
+                account.status = "ACTIVE"
+                account.cooldown_until = None
+                account.status_message = f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})"
+                account.session_json = settings_data
+                account.device_settings = dev_profile or {"settings": settings_data}
+                account.proxy_url = proxy_url
+                if password:
+                    account.set_encrypted_password(password)
+                account.save()
+            else:
+                account = InstagramEngineAccount(
+                    username=username,
+                    role="SENDER",
+                    tenant_id=tenant_key,
+                    account_tier=account_tier,
+                    daily_limit=daily_lim,
+                    hourly_limit=hourly_lim,
+                    status="ACTIVE",
+                    status_message=f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})",
+                    session_json=settings_data,
+                    device_settings=dev_profile or {"settings": settings_data},
+                    proxy_url=proxy_url,
+                )
+                account.set_encrypted_password(password or "stored_session")
+                account.save()
+
+            # Isolated tenant pitch storage
+            AccessPolicy.save_tenant_pitch(
+                tenant_key,
+                username,
+                {
+                    "consultant_name": consultant_name,
+                    "consultant_role": f"مشاور و پشتیبانی {business.name}",
+                    "template": pitch_template,
+                    "guardrails_validated": True,
+                }
+            )
+
+        success_msg = f"اکانت فرستنده @{username} با موفقیت به مجموعه {business.name} متصل و فعال شد!"
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": True, "message": success_msg, "username": username})
+        messages.success(request, success_msg)
+        return redirect("accounts:outreach")
+
+    except PermissionError as pe:
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": str(pe)}, status=403)
+        messages.error(request, str(pe))
+        return redirect("accounts:outreach")
+    except IntegrityError as ie:
+        err_msg = "خطای یکتایی در ثبت همزمان اکانت. لطفاً دوباره تلاش نمایید."
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": err_msg}, status=409)
+        messages.error(request, err_msg)
+        return redirect("accounts:outreach")
+    except Exception as exc:
+        logger.exception("Database persistence error for account: %s", exc)
+        err_msg = f"خطا در ذخیره‌سازی اطلاعات اکانت: {exc}"
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": err_msg}, status=500)
+        messages.error(request, err_msg)
+        return redirect("accounts:outreach")
 
 
 @login_required
@@ -579,8 +723,8 @@ def sync_replies_view(request):
     if not business:
         return redirect("accounts:dashboard")
 
-    tenant_key = f"tenant_{business.id}"
-    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    from apps.core.access_policy import AccessPolicy
+    tenant_keys = AccessPolicy.actor_tenant_keys(request.user)
 
     res = check_and_sync_lead_replies(tenant_keys)
     if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.GET.get("format") == "json":
@@ -615,9 +759,25 @@ def send_followup_view(request):
         messages.error(request, "لطفاً اکانت فرستنده و متن پیام را وارد فرمایید.")
         return redirect("accounts:outreach")
 
-    res = send_second_followup_message(int(lead_id), sender_username, message_text)
+    # Multi-tenant containment gate (R01): Verify lead belongs to caller's tenant
+    from apps.core.access_policy import AccessPolicy
+    from apps.discovery.models import InstagramEngineLead
+    lead = InstagramEngineLead.objects.filter(id=int(lead_id)).first()
+    if not lead or not AccessPolicy.can_view_or_modify_lead(request.user, lead):
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"success": False, "error": "دسترسی غیرمجاز به این لید."}, status=403)
+        messages.error(request, "دسترسی غیرمجاز به این لید.")
+        return redirect("accounts:outreach")
+
+    res = send_second_followup_message(
+        int(lead_id),
+        sender_username,
+        message_text,
+        actor_user_or_tenant=request.user,
+    )
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
-        return JsonResponse(res)
+        status_code = 200 if res.get("success") else (403 if ("دسترسی غیرمجاز" in res.get("error", "") or "متعلق به این کسب‌وکار" in res.get("error", "")) else 400)
+        return JsonResponse(res, status=status_code)
 
     if res.get("success"):
         messages.success(request, f"پیام دوم با موفقیت توسط @{sender_username} برای خریدار ارسال شد.")
@@ -644,13 +804,10 @@ def edit_outreach_account_view(request, pk):
     if not business and not request.user.is_superuser:
         return JsonResponse({"success": False, "message": "دسترسی غیرمجاز."}, status=403)
 
+    from apps.core.access_policy import AccessPolicy
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    if not request.user.is_superuser:
-        b_tenants = [f"tenant_{business.id}"]
-        if business.id == 4:
-            b_tenants.append("sarv")
-        if account.tenant_id not in b_tenants:
-            return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
+    if not AccessPolicy.can_manage_sender_account(request.user, account):
+        return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
 
     sessionid = (request.POST.get("sessionid") or "").strip()
     password = (request.POST.get("password") or "").strip()
@@ -662,7 +819,7 @@ def edit_outreach_account_view(request, pk):
     updated_fields = []
 
     if password:
-        account.password = password
+        account.set_encrypted_password(password)
         updated_fields.append("password")
 
     if account_tier in ("NEW", "MEDIUM", "AGED"):
@@ -700,6 +857,9 @@ def edit_outreach_account_view(request, pk):
         try:
             apply_device_profile_to_client(cl, account)
             cl.login_by_sessionid(sessionid)
+            actual_username = getattr(cl, "username", "") or ""
+            if actual_username and actual_username.lower() != account.username.lower():
+                return JsonResponse({"success": False, "message": f"کوکی سشن متعلق به @{actual_username} است و با این اکانت تطابق ندارد."}, status=400)
             settings = cl.get_settings()
             account.session_json = settings
             account.device_settings = dev_profile or {"settings": settings}
@@ -709,31 +869,18 @@ def edit_outreach_account_view(request, pk):
             updated_fields.extend(["session_json", "device_settings", "status", "status_message", "cooldown_until"])
             session_success = True
         except Exception as exc:
-            m_uid = re.search(r"^\d+", sessionid)
-            uid = m_uid.group() if m_uid else ""
-            account.session_json = {"cookies": {"sessionid": sessionid, "ds_user_id": uid}}
-            account.status = "ACTIVE"
-            account.cooldown_until = None
-            account.status_message = "کوکی ذخیره شد"
-            updated_fields.extend(["session_json", "status", "status_message", "cooldown_until"])
+            return JsonResponse({"success": False, "message": f"خطا در اعتبارسنجی کوکی سشن: {exc}"}, status=400)
 
     if updated_fields:
         account.save(update_fields=list(set(updated_fields)))
 
     if consultant_name:
-        config_path = Path("data/sarv_outreach_config.json")
-        cfg = {}
-        if config_path.exists():
-            try:
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        if "sender_pitches" not in cfg:
-            cfg["sender_pitches"] = {}
-        if account.username not in cfg["sender_pitches"]:
-            cfg["sender_pitches"][account.username] = {}
-        cfg["sender_pitches"][account.username]["consultant_name"] = consultant_name
-        config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        b_name = business.name if business else "سامانه"
+        actor_tenant = AccessPolicy.actor_tenant_keys(request.user)[0] if business else account.tenant_id
+        pitch = AccessPolicy.get_tenant_pitch(actor_tenant, account.username)
+        pitch["consultant_name"] = consultant_name
+        pitch["consultant_role"] = f"مشاور و پشتیبانی {b_name}"
+        AccessPolicy.save_tenant_pitch(actor_tenant, account.username, pitch)
 
     return JsonResponse({
         "success": True,
@@ -750,13 +897,10 @@ def clear_outreach_cooldown_view(request, pk):
     if not business and not request.user.is_superuser:
         return JsonResponse({"success": False, "message": "دسترسی غیرمجاز."}, status=403)
 
+    from apps.core.access_policy import AccessPolicy
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    if not request.user.is_superuser:
-        b_tenants = [f"tenant_{business.id}"]
-        if business.id == 4:
-            b_tenants.append("sarv")
-        if account.tenant_id not in b_tenants:
-            return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
+    if not AccessPolicy.can_manage_sender_account(request.user, account):
+        return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
 
     account.cooldown_until = None
     account.status = "ACTIVE"

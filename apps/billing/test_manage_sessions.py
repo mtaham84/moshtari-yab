@@ -42,6 +42,11 @@ class SessionReplacementTests(TestCase):
         self._which_patcher = mock.patch("shutil.which", return_value=None)
         self._which_patcher.start()
         self.addCleanup(self._which_patcher.stop)
+        import os.path
+        orig_exists = os.path.exists
+        self._exists_patcher = mock.patch("os.path.exists", side_effect=lambda p: False if "twitter" in str(p) else orig_exists(p))
+        self._exists_patcher.start()
+        self.addCleanup(self._exists_patcher.stop)
 
     def _ig(self):
         return InstagramEngineAccount.objects.create(username="ig_a", password="pw", status="CHALLENGED",
@@ -102,7 +107,8 @@ class SessionReplacementTests(TestCase):
         out = self._x_post(acc, "متصل و فعال", True)
         self.assertTrue(out["success"])
         acc.refresh_from_db()
-        self.assertEqual(acc.auth_token, "t" * 40)
+        self.assertEqual(acc.get_decrypted_auth_token(), "t" * 40)
+        self.assertTrue(acc.auth_token.startswith("enc:v1:"))
 
     # -------------------------------------------------------------------------
     # HTTP Layer Mocked Tests
@@ -130,8 +136,10 @@ class SessionReplacementTests(TestCase):
         self.assertEqual(out["status"], "ACTIVE")
         acc.refresh_from_db()
         self.assertEqual(acc.status, "ACTIVE")
-        self.assertEqual(acc.auth_token, "new_auth_token_40_chars_long_12345678")
-        self.assertEqual(acc.ct0, "new_ct0_32_chars_long_1234567890")
+        self.assertEqual(acc.get_decrypted_auth_token(), "new_auth_token_40_chars_long_12345678")
+        self.assertEqual(acc.get_decrypted_ct0(), "new_ct0_32_chars_long_1234567890")
+        self.assertTrue(acc.auth_token.startswith("enc:v1:"))
+        self.assertTrue(acc.ct0.startswith("enc:v1:"))
         self.assertTrue(TwitterEngineAccount.objects.filter(pk=acc.pk).exists())
         mock_get.assert_called_once()
 
@@ -265,7 +273,8 @@ class SessionReplacementTests(TestCase):
             out = self._post_x_session(acc_valid.pk, "new_auth", "")
         self.assertTrue(out["success"])
         acc_valid.refresh_from_db()
-        self.assertEqual(acc_valid.ct0, "a" * 32)
+        self.assertEqual(acc_valid.get_decrypted_ct0(), "a" * 32)
+        self.assertTrue(acc_valid.ct0.startswith("enc:v1:"))
         self.assertEqual(acc_valid.status, "ACTIVE")
 
         # 2. INVALID (401) -> generated ct0 is NOT saved to DB
@@ -297,7 +306,8 @@ class SessionReplacementTests(TestCase):
             out = self._post_x_session(acc.pk, "new_auth_token", "")
         self.assertTrue(out["success"])
         acc.refresh_from_db()
-        self.assertEqual(acc.ct0, "fresh_server_ct0_cookie_value")
+        self.assertEqual(acc.get_decrypted_ct0(), "fresh_server_ct0_cookie_value")
+        self.assertTrue(acc.ct0.startswith("enc:v1:"))
 
     def test_x_403_with_generated_ct0_stays_forbidden_unknown_and_logs(self):
         acc = self._x_acc(username="x_403_log", status="ACTIVE", auth_token="old_t", ct0="")

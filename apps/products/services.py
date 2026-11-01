@@ -125,7 +125,7 @@ KIDS_SPECIFIC_WORDS = {"بچگانه", "کودک", "نوزاد", "نوزادی",
 
 
 def suggest_category_for_product(name: str, description: str = "", product_type: str | None = None,
-                                 business: Any = None) -> dict[str, Any] | None:
+                                 business: Any = None, allow_ai: bool = False) -> dict[str, Any] | None:
     """
     Analyzes product name and description to suggest the most specific leaf category (preferring level 3).
     Prioritizes seller's own categories, but also searches system categories and auto-adopts the best leaf
@@ -170,8 +170,13 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
     categories = own_categories + unadopted_sys
 
     if not categories:
-        # Fallback to all active categories if still empty
-        categories = list(Category.objects.filter(is_active=True).select_related("parent"))
+        # Fallback to active categories strictly scoped to caller's business or system (no foreign leak)
+        fallback_qs = Category.objects.filter(is_active=True).select_related("parent")
+        if business:
+            fallback_qs = fallback_qs.filter(Q(business=business) | Q(business__isnull=True))
+        else:
+            fallback_qs = fallback_qs.filter(business__isnull=True)
+        categories = list(fallback_qs)
 
     if not categories:
         return None
@@ -310,7 +315,11 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
             "suggested_attributes": best_match.suggested_attributes or [],
         }
 
-    # If heuristic score is insufficient, attempt AI model classification
+    # P02.01: If heuristic matching yielded no result and allow_ai is False (e.g. GET/unmetered requests), do not invoke LLM
+    if not allow_ai:
+        return None
+
+    # If heuristic score is insufficient and AI is authorized, attempt AI model classification
     try:
         from apps.core.llm import chat_json
         tree_lines = [f"{c.id}: {c.get_full_path()}" for c in categories]
@@ -327,6 +336,11 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
             ai_cat_id = int(ai_resp["category_id"])
             matched_cat = next((c for c in categories if c.id == ai_cat_id), None)
             if matched_cat:
+                # P02.01 / R13 Defense: Even if AI hallucinates an ID, ensure it cannot be a foreign category
+                if matched_cat.business_id and matched_cat.business_id != getattr(business, "id", None):
+                    log.warning("AI suggested foreign category %s for business %s; strictly discarded.", matched_cat.id, getattr(business, "id", None))
+                    return None
+
                 if business and matched_cat.business_id is None:
                     try:
                         from apps.products.taxonomy import adopt_nodes

@@ -33,14 +33,22 @@
 
   <main class="shop-grid">
     {% for it in items %}
-    <a class="shop-card" href="{% url 'products:public_card' it.p.pk %}">
+    {% if it.p.url %}
+    <a class="shop-card" href="{{ it.p.url }}" target="_blank" rel="noopener">
+    {% else %}
+    <div class="shop-card">
+    {% endif %}
       <div class="shop-img">{% if it.image %}<img src="{{ it.image }}" alt="{{ it.p.name }}" loading="lazy">{% else %}<svg class="ico" aria-hidden="true"><use href="#i-box"/></svg>{% endif %}</div>
       <div class="shop-body">
         <h3>{{ it.p.name|truncatechars:60 }}</h3>
         {% if it.p.category %}<small>{{ it.p.category.name }}</small>{% endif %}
         <strong>{% if it.p.price %}{{ it.p.price|floatformat:0 }} تومان{% else %}تماس بگیرید{% endif %}</strong>
       </div>
+    {% if it.p.url %}
     </a>
+    {% else %}
+    </div>
+    {% endif %}
     {% empty %}
     <p class="shop-empty">هنوز کالایی در این بخش ثبت نشده است.</p>
     {% endfor %}

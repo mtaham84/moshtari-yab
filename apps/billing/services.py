@@ -59,10 +59,14 @@ def apply_transaction(business: Business, amount, kind: str, description: str = 
         amount = -charged
     wallet.balance_toman = (wallet.balance_toman + amount).quantize(CENT)
     wallet.save(update_fields=["balance_toman", "updated_at"])
-    return WalletTransaction.objects.create(
+    tx = WalletTransaction.objects.create(
         wallet=wallet, kind=kind, amount_toman=amount, balance_after=wallet.balance_toman,
         cost_usd=cost_usd.quantize(Decimal("0.000001"), ROUND_HALF_UP), calls=calls,
         description=description[:255], created_by=user if getattr(user, "is_authenticated", False) else None)
+    if kind in (WalletTransaction.TOPUP, WalletTransaction.GIFT, WalletTransaction.ADJUST) and amount > 0:
+        from apps.billing.credit_queue_service import CreditQueueService
+        transaction.on_commit(lambda: CreditQueueService.check_and_resume_eligible(business))
+    return tx
 
 
 @transaction.atomic

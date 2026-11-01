@@ -728,21 +728,34 @@
           card.style.padding = '10px 12px';
           card.style.fontSize = '0.82rem';
 
-          card.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <strong style="color:#6b21a8;">گزینه ${idx + 1}: ${p.title || 'پیشنهاد هوش مصنوعی'}</strong>
-              <span style="background:#f3e8ff; color:#7e22ce; font-size:0.72rem; padding:2px 6px; border-radius:4px; font-weight:700;">
-                ${p.badge || 'کیفیت بالا'}
-              </span>
-            </div>
-            <div style="color:#334155; line-height:1.6; white-space:pre-wrap; margin-bottom:8px;" id="pitch-text-${idx}">
-              ${escapeHtml(p.text)}
-            </div>
-            <button type="button" onclick="useAiPitch(${idx})"
-                    style="padding:5px 12px; background:#7c3aed; color:#fff; border:none; border-radius:6px; font-size:0.76rem; font-weight:700; cursor:pointer;">
-              ✍️ انتخاب و انتقال به کادر ویرایش
-            </button>
-          `;
+          const titleRow = document.createElement('div');
+          titleRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;';
+
+          const titleStrong = document.createElement('strong');
+          titleStrong.style.color = '#6b21a8';
+          titleStrong.textContent = `گزینه ${idx + 1}: ${p.title || 'پیشنهاد هوش مصنوعی'}`;
+
+          const badgeSpan = document.createElement('span');
+          badgeSpan.style.cssText = 'background:#f3e8ff; color:#7e22ce; font-size:0.72rem; padding:2px 6px; border-radius:4px; font-weight:700;';
+          badgeSpan.textContent = p.badge || 'کیفیت بالا';
+
+          titleRow.appendChild(titleStrong);
+          titleRow.appendChild(badgeSpan);
+
+          const textDiv = document.createElement('div');
+          textDiv.style.cssText = 'color:#334155; line-height:1.6; white-space:pre-wrap; margin-bottom:8px;';
+          textDiv.id = `pitch-text-${idx}`;
+          textDiv.textContent = p.text || '';
+
+          const actionBtn = document.createElement('button');
+          actionBtn.type = 'button';
+          actionBtn.style.cssText = 'padding:5px 12px; background:#7c3aed; color:#fff; border:none; border-radius:6px; font-size:0.76rem; font-weight:700; cursor:pointer;';
+          actionBtn.textContent = '✍️ انتخاب و انتقال به کادر ویرایش';
+          actionBtn.addEventListener('click', () => useAiPitch(idx));
+
+          card.appendChild(titleRow);
+          card.appendChild(textDiv);
+          card.appendChild(actionBtn);
           container.appendChild(card);
         });
 

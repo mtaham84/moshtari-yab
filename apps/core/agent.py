@@ -46,7 +46,8 @@ def panel_llm() -> Iterator[tuple[EngineConfig, LLMClient]]:
         from need_engine.mock import mock_llm as mock
     elif not registry.has_credentials():
         raise AgentUnavailable("کلید مدل زبانی روی سرور تنظیم نشده است (پنل مدیریت ← مدل‌ها، یا NE_LLM_API_KEY).")
-    store = Store(_dsn(), cfg.state_schema)
+    # P07.02 / R33: Request path must not execute DDL; create=False
+    store = Store(_dsn(), cfg.state_schema, create=False)
     try:
         yield cfg, LLMClient(cfg, store, mock=mock, registry=registry)
     except AgentUnavailable:

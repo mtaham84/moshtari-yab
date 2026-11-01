@@ -7,7 +7,7 @@ class Command(BaseCommand):
     help = "Export/import the git-ignored accounts pool file (Instagram + X accounts, sessions, cookies)."
 
     def add_arguments(self, parser):
-        parser.add_argument("action", choices=["export", "import", "path"])
+        parser.add_argument("action", choices=["export", "import", "path", "sanitize"])
         parser.add_argument("--force", action="store_true", help="import: overwrite non-empty DB values too")
 
     def handle(self, *args, **o):
@@ -17,6 +17,9 @@ class Command(BaseCommand):
         elif o["action"] == "export":
             pool.export_pool(force=True)
             self.stdout.write(self.style.SUCCESS(f"exported -> {path}"))
+        elif o["action"] == "sanitize":
+            stats = pool.sanitize_backup_files()
+            self.stdout.write(self.style.SUCCESS(f"Sanitized backup files: {stats}"))
         else:
             if not path.exists():
                 raise CommandError(f"{path} does not exist")

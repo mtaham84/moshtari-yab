@@ -115,12 +115,12 @@ def test_llm_client_uses_panel_model_endpoint_and_price(pg_dsn, pg_schema, monke
             return json.dumps({"choices": [{"message": {"content": '{"ok": true}'}}],
                                "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0, "total_tokens": 1_000_000}}).encode()
 
-    def fake_urlopen(req, timeout=0):
+    def fake_open(self, req, timeout=0):
         seen["url"], seen["auth"] = req.full_url, req.headers.get("Authorization")
         seen["model"] = json.loads(req.data)["model"]
         return Resp()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("urllib.request.OpenerDirector.open", fake_open)
     data, usage = llm.complete_json("verify", "env-model", "sys", "user", businesses=["7"])
     assert data == {"ok": True}
     assert seen == {"url": "https://b.example/v1/chat/completions", "auth": "Bearer KB", "model": "smart-2"}

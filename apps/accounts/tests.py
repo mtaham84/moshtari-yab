@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import Client, TestCase
@@ -136,3 +137,40 @@ class AuthAndOnboardingTestCase(TestCase):
         response = self.client.post(self.login_url, {"auth_method": "otp", "email": "x@y.com"})
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "accounts/login.html")
+
+    def test_clear_outreach_cooldown_view_without_name_error(self):
+        from apps.discovery.models import InstagramEngineAccount
+        user = User.objects.create_user(username="owner_cd@example.com", password="password123")
+        business = Business.objects.create(user=user, name="کسب‌وکار تست کول‌داون")
+        account = InstagramEngineAccount.objects.create(
+            tenant_id=f"tenant_{business.id}",
+            username="test_cd_sender",
+            role="SENDER",
+            status="COOLDOWN",
+            cooldown_until=timezone.now() + timedelta(hours=2),
+        )
+        self.client.force_login(user)
+        url = reverse("accounts:clear_outreach_cooldown", args=[account.pk])
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+        account.refresh_from_db()
+        self.assertIsNone(account.cooldown_until)
+        self.assertEqual(account.status, "ACTIVE")
+
+    @mock.patch("apps.discovery.device_emulator.apply_device_profile_to_client", side_effect=RuntimeError("Instagrapi login network failure"))
+    def test_add_outreach_account_exception_logs_without_name_error(self, mock_apply):
+        user = User.objects.create_user(username="owner_add@example.com", password="password123")
+        Business.objects.create(user=user, name="کسب‌وکار تست افزودن")
+        self.client.force_login(user)
+        url = reverse("accounts:add_outreach_account")
+        data = {
+            "username": "sender_fail_test",
+            "password": "mypassword123",
+            "account_tier": "ESTABLISHED",
+        }
+        with self.assertLogs("apps.accounts.views", level="ERROR") as cm:
+            response = self.client.post(url, data)
+            self.assertEqual(response.status_code, 302)
+            self.assertTrue(any("Error adding outreach sender account" in log for log in cm.output))
+
+

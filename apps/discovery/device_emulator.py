@@ -168,7 +168,8 @@ def ensure_account_device_profile(account) -> dict[str, Any]:
 
     profile = generate_unique_device_profile(account.username or account.id)
     account.device_settings = profile
-    account.save(update_fields=["device_settings"])
+    if getattr(account, "pk", None):
+        account.save(update_fields=["device_settings"])
     log.info("Assigned device profile '%s' to Instagram account @%s", profile["device_name"], account.username)
     return profile
 

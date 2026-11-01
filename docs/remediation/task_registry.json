@@ -1,0 +1,1995 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-11-01T04:58:07.551294",
+  "total_tasks": 99,
+  "summary": {
+    "PLANNED": 59,
+    "IN_PROGRESS": 1,
+    "DONE": 38,
+    "BLOCKED": 0,
+    "DEFERRED": 1,
+    "N/A": 0
+  },
+  "tasks": [
+    {
+      "id": "P00.01",
+      "phase": 0,
+      "title": "ثبت snapshot و فهرست مجاز تغییر",
+      "related_findings": "R25, R26, R27, R38؛ شرح و شاهد در پیوست.",
+      "prerequisites": "ندارد؛ اولین تسک است.",
+      "acceptance_criteria": [
+        "برای تمام مسیرهای هدف، صاحب و طبقه مشخص یا BLOCKED ثبت شده باشد.",
+        "نسخه‌های قدیمی و schema مشترک بدون مجوز در فهرست تغییر قرار نگرفته باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.01.md",
+      "report_path": "docs/remediation/tasks/P00.01.md"
+    },
+    {
+      "id": "P00.02",
+      "phase": 0,
+      "title": "مهار قابلیت‌های پرخطر با کنترل قابل‌بازگشت",
+      "related_findings": "R01, R02, R05, R06, R07, R10؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01",
+      "acceptance_criteria": [
+        "URL مستقیم و درخواست غیرمجاز به side effect نرسند.",
+        "پنل داخلی محصول و مسیرهای غیرمرتبط پابرجا بمانند؛ بازشدن guard نیازمند gate اصلاح همان قابلیت باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.02.md",
+      "report_path": "docs/remediation/tasks/P00.02.md"
+    },
+    {
+      "id": "P00.03",
+      "phase": 0,
+      "title": "ساخت baseline تکرارپذیر و محیط تست مستقل",
+      "related_findings": "R26, R27؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01",
+      "acceptance_criteria": [
+        "تست unit بدون حساب واقعی اجرا شود؛ fixture به provider نرود.",
+        "اجرای دوم قابل‌تکرار و skipها علت‌دار باشند؛ آمار runnerها با هم جمع نشوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.03.md",
+      "report_path": "docs/remediation/tasks/P00.03.md"
+    },
+    {
+      "id": "P00.04",
+      "phase": 0,
+      "title": "اصلاح تست‌های ناهماهنگ بدون پنهان‌کردن خطا",
+      "related_findings": "R27؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.03",
+      "acceptance_criteria": [
+        "fixture شبکه هیچ درخواست واقعی نداشته باشد.",
+        "هر تغییر assertion دلیل spec داشته باشد؛ failure ناشناخته حذف یا swallow نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.04.md",
+      "report_path": "docs/remediation/tasks/P00.04.md"
+    },
+    {
+      "id": "P00.05",
+      "phase": 0,
+      "title": "رفع دو نام تعریف‌نشده در view اکانت",
+      "related_findings": "R09؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.03",
+      "acceptance_criteria": [
+        "خطای اصلی با NameError پوشانده نشود.",
+        "ruff check --isolated --select E9,F63,F7,F82 و تست‌های هدف پاس شوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.05.md",
+      "report_path": "docs/remediation/tasks/P00.05.md"
+    },
+    {
+      "id": "P00.06",
+      "phase": 0,
+      "title": "کنترل مرکزی مدیر بات",
+      "related_findings": "R03؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01, P00.03",
+      "acceptance_criteria": [
+        "غیرمدیر در chat مجاز، مدیر در chat غیرمجاز و config خالی هیچ handlerی اجرا نکنند.",
+        "فقط پیام مجاز عملیات مجاز انجام دهد؛ token و پروکسی در log نباشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.06.md",
+      "report_path": "docs/remediation/tasks/P00.06.md"
+    },
+    {
+      "id": "P00.07",
+      "phase": 0,
+      "title": "حذف credential ثابت از مسیر فعال و مدیریت تعویض",
+      "related_findings": "R04؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01",
+      "acceptance_criteria": [
+        "نبود secret به رمز قدیمی fallback نکند و آن را چاپ نکند.",
+        "اپراتور، اتصال جدید و ابطال مقدار قبلی را در صورت واقعی‌بودن تأیید کند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P00.07.md",
+      "report_path": "docs/remediation/tasks/P00.07.md"
+    },
+    {
+      "id": "P01.01",
+      "phase": 1,
+      "title": "قرارداد دسترسی و pool حساب پلتفرم",
+      "related_findings": "R01, R02, R12؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01",
+      "acceptance_criteria": [
+        "استفاده A و B از platform sender در طراحی مجاز باشد.",
+        "لید B، secret حساب و pitch خصوصی B برای A مجاز نشوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.01.md",
+      "report_path": "docs/remediation/tasks/P01.01.md"
+    },
+    {
+      "id": "P01.02",
+      "phase": 1,
+      "title": "selectorهای محدود و policy مشترک دسترسی",
+      "related_findings": "R01, R13؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.01, P00.03",
+      "acceptance_criteria": [
+        "چهار ترکیب لید/sender A و B و sender پلتفرم تست شوند.",
+        "کاربر بدون business و فراخوانی مستقیم سرویس fail-closed باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.02.md",
+      "report_path": "docs/remediation/tasks/P01.02.md"
+    },
+    {
+      "id": "P01.03",
+      "phase": 1,
+      "title": "اتصال follow-up و endpointهای اکانت به policy",
+      "related_findings": "R01, R09؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.02, P00.05",
+      "acceptance_criteria": [
+        "درخواست نامجاز نه Client بسازد، نه counter/lead/cooldown را عوض کند.",
+        "درخواست مجاز با platform sender کار کند و secret در response نیاید."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.03.md",
+      "report_path": "docs/remediation/tasks/P01.03.md"
+    },
+    {
+      "id": "P01.04",
+      "phase": 1,
+      "title": "امن‌سازی یا بستن مسیر اتصال موجود",
+      "related_findings": "R02؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.02",
+      "acceptance_criteria": [
+        "ورودی حساب B یا session حساب متفاوت، رکورد سالم را overwrite نکند.",
+        "دو اتصال همزمان duplicate ناسازگار نسازند؛ platform ownership حفظ شود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.04.md",
+      "report_path": "docs/remediation/tasks/P01.04.md"
+    },
+    {
+      "id": "P01.05",
+      "phase": 1,
+      "title": "حذف fallback دسته خصوصی سراسری",
+      "related_findings": "R13؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.02",
+      "acceptance_criteria": [
+        "A بدون دسته و بدون system category چیزی از B نبیند.",
+        "دسته سیستم مجاز و ویژگی دسته خصوصی برای غیرمالک ممنوع باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.05.md",
+      "report_path": "docs/remediation/tasks/P01.05.md"
+    },
+    {
+      "id": "P01.06",
+      "phase": 1,
+      "title": "hotfix مالکیت و نوشتن pitch",
+      "related_findings": "R23؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.02",
+      "acceptance_criteria": [
+        "foreign pitch قابل‌تغییر نباشد؛ استفاده از platform sender pitch دیگران را افشا نکند.",
+        "دو writer مجاز JSON خراب/lost update ایجاد نکنند و loader خروجی merged بدهد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.06.md",
+      "report_path": "docs/remediation/tasks/P01.06.md"
+    },
+    {
+      "id": "P01.07",
+      "phase": 1,
+      "title": "انتقال مستقل pitch فعال به مدل tenant-scoped",
+      "related_findings": "R23؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.06",
+      "acceptance_criteria": [
+        "backfill تکرارپذیر باشد؛ داده مبهم overwrite نشود.",
+        "هر tenant pitch خود را با sender مشترک ببیند؛ نسخه‌های frozen تحت‌تأثیر نباشند."
+      ],
+      "status": {
+        "overall": "DEFERRED",
+        "planning": "DONE",
+        "implementation": "DEFERRED",
+        "testing": "N/A",
+        "activation": "DEFERRED"
+      },
+      "evidence": "docs/remediation/tasks/P01.07.md",
+      "report_path": "docs/remediation/tasks/P01.07.md"
+    },
+    {
+      "id": "P01.08",
+      "phase": 1,
+      "title": "بازبینی نهایی ماتریس مجوز",
+      "related_findings": "R01, R02, R13, R23؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.03, P01.04, P01.05, P01.06",
+      "acceptance_criteria": [
+        "تمام ردشدن‌ها پیش از IO و write باشند.",
+        "هیچ مسیر مجاز صرفاً به‌دلیل platform بودن sender اشتباه رد نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P01.08.md",
+      "report_path": "docs/remediation/tasks/P01.08.md"
+    },
+    {
+      "id": "P02.01",
+      "phase": 2,
+      "title": "مرز API پیشنهاد پولی بدون بازکردن مصرف",
+      "related_findings": "R07؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.05, P00.02",
+      "acceptance_criteria": [
+        "ناشناس، GET و CSRF نامعتبر هیچ LLM پولی صدا نزنند.",
+        "پاسخ مدل نمی‌تواند category نامجاز R13 را انتخاب کند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.01.md",
+      "report_path": "docs/remediation/tasks/P02.01.md"
+    },
+    {
+      "id": "P02.02",
+      "phase": 2,
+      "title": "validator مشترک تصویر",
+      "related_findings": "R05؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.02, P00.03",
+      "acceptance_criteria": [
+        "HTML disguised، فایل خراب، حجم/پیکسل زیاد رد شوند.",
+        "تصویر معتبر و متن خطای فارسی و فرم edit/create درست کار کنند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.02.md, apps/core/image_service.py, apps/core/test_p02_02_image_validator.py",
+      "report_path": "docs/remediation/tasks/P02.02.md"
+    },
+    {
+      "id": "P02.03",
+      "phase": 2,
+      "title": "چرخه فایل و سرو امن media",
+      "related_findings": "R05, R35؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.02",
+      "acceptance_criteria": [
+        "شکست DB و rollback فایل مرجع‌دار را حذف نکنند.",
+        "محتوای فعال فایل نامعتبر سرو نشود و origin کوکی اپ نگیرد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.03.md, apps/core/image_service.py, apps/products/models.py, apps/products/views.py, config/urls.py, apps/core/management/commands/cleanup_orphan_media.py, apps/core/test_p02_03_file_lifecycle.py",
+      "report_path": "docs/remediation/tasks/P02.03.md"
+    },
+    {
+      "id": "P02.04",
+      "phase": 2,
+      "title": "DOM امن در templateهای باقی‌مانده",
+      "related_findings": "R29؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.02",
+      "acceptance_criteria": [
+        "quote/tag/event payload در سه مسیر فعال اجرا نشود و فقط متن باشد.",
+        "عملکرد دکمه و متن فارسی حفظ شود؛ B2C دوباره فعال نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.04.md, templates/ops/manage_dashboard.html, templates/accounts/outreach.html, templates/accounts/dashboard.html, templates/products/public_product_card.html, apps/core/test_p02_04_secure_dom.py",
+      "report_path": "docs/remediation/tasks/P02.04.md"
+    },
+    {
+      "id": "P02.05",
+      "phase": 2,
+      "title": "قرارداد JSON مستقل فرم",
+      "related_findings": "R30؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.05",
+      "acceptance_criteria": [
+        "نقل‌قول‌ها، فارسی و closing-script-like text DOM را خراب نکنند.",
+        "create/edit و تغییر دسته فقط ویژگی مجاز را نشان دهند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.05.md, apps/products/views.py, templates/products/product_form.html, apps/core/test_p02_05_json_contract.py",
+      "report_path": "docs/remediation/tasks/P02.05.md"
+    },
+    {
+      "id": "P02.06",
+      "phase": 2,
+      "title": "auth امن MVP بدون تأیید ایمیل",
+      "related_findings": "R28؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.03",
+      "acceptance_criteria": [
+        "ثبت‌نام معتبر بدون تأیید ایمیل قابل استفاده باشد.",
+        "رمز فاصله‌دار، حساب غیرفعال، ثبت همزمان و شکست ساخت Business درست مدیریت شوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.06.md, apps/accounts/views.py, apps/core/test_p02_06_secure_auth.py",
+      "report_path": "docs/remediation/tasks/P02.06.md"
+    },
+    {
+      "id": "P02.07",
+      "phase": 2,
+      "title": "طراحی migration اسرار و gate سازگاری",
+      "related_findings": "R08؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01",
+      "acceptance_criteria": [
+        "restore آزمایشی و rotation روی داده synthetic قابل توضیح باشد.",
+        "فهرست plaintext باقی‌مانده و محدودیت حفاظت روشن باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.07.md, apps/core/test_p02_07_secret_design.py",
+      "report_path": "docs/remediation/tasks/P02.07.md"
+    },
+    {
+      "id": "P02.08",
+      "phase": 2,
+      "title": "پیاده‌سازی فرمت رمزنگاری مستقل",
+      "related_findings": "R08؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.07",
+      "acceptance_criteria": [
+        "round-trip، کلید ناموجود و rotation با fixture پاس شوند.",
+        "هیچ writer یا فایل legacy تغییر نکند؛ مرحله ساختار بدون داده واقعی قابل rollback سازگار باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.08.md, apps/discovery/models.py, apps/discovery/accounts_pool_file.py, apps/billing/manage_views.py, apps/core/test_p02_08_secret_format.py",
+      "report_path": "docs/remediation/tasks/P02.08.md"
+    },
+    {
+      "id": "P02.09",
+      "phase": 2,
+      "title": "backfill batch و کنترل‌شده اسرار",
+      "related_findings": "R08؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.08",
+      "acceptance_criteria": [
+        "تکرار و restart batch داده را خراب نکند.",
+        "کلید گم‌شده یا خطای یک رکورد گزارش شود، نه پاک‌کردن/خالی‌کردن secret."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.09.md, apps/discovery/management/commands/backfill_account_secrets.py, apps/core/test_p02_09_secret_backfill.py",
+      "report_path": "docs/remediation/tasks/P02.09.md"
+    },
+    {
+      "id": "P02.10",
+      "phase": 2,
+      "title": "cutover رمزنگاری فعال و حفاظت backup",
+      "related_findings": "R08؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.09",
+      "acceptance_criteria": [
+        "خواندن فعال بدون plaintext fallback و بدون نشت secret کار کند.",
+        "backup restore و rotation قابل انجام؛ legacy ثابت و محدودیت‌های deferred ثبت‌شده باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P02.10.md, apps/discovery/accounts_pool_file.py, apps/discovery/models.py, apps/core/test_p02_10_secret_cutover.py",
+      "report_path": "docs/remediation/tasks/P02.10.md"
+    },
+    {
+      "id": "P03.01",
+      "phase": 3,
+      "title": "فهرست دقیق وابستگی‌های B2C",
+      "related_findings": "R06, R21, R22, R29؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01, P00.02",
+      "acceptance_criteria": [
+        "هر entry لیست حذف مصرف‌کننده داخلی پشتیبانی‌شده نداشته باشد یا جایگزین مستقل مشخص شود.",
+        "URL مستقیم و callerهای غیر UI در سناریوی عدم دسترسی پوشش داده شوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.01.md, apps/core/test_p03_01_b2c_manifest.py",
+      "report_path": "docs/remediation/tasks/P03.01.md"
+    },
+    {
+      "id": "P03.02",
+      "phase": 3,
+      "title": "قطع route و callerهای عمومی B2C",
+      "related_findings": "R06, R22؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P03.01",
+      "acceptance_criteria": [
+        "GET/POST مستقیم و محصول فعال/غیرفعال قابلیت را دور نزنند.",
+        "پنل محصول، discovery و اعتبار کسب‌وکار همچنان کار کنند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.02.md, apps/products/views.py, templates/products/product_detail.html, templates/accounts/shop.html, apps/core/test_p03_02_cut_b2c_routes.py",
+      "report_path": "docs/remediation/tasks/P03.02.md"
+    },
+    {
+      "id": "P03.03",
+      "phase": 3,
+      "title": "حذف دارایی و متریک صرفاً B2C",
+      "related_findings": "R06, R21, R22, R29؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P03.02",
+      "acceptance_criteria": [
+        "build/static/template و browser smoke پنل پاس شوند.",
+        "هیچ سفارش یا counter B2C تازه ایجاد نشود؛ داده قدیمی حذف نشده باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.03.md, apps/core/test_p03_03_remove_b2c_assets.py",
+      "report_path": "docs/remediation/tasks/P03.03.md"
+    },
+    {
+      "id": "P03.04",
+      "phase": 3,
+      "title": "ProductForm مشترک و checkbox صحیح",
+      "related_findings": "R19, R20؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.05",
+      "acceptance_criteria": [
+        "همان invalid cases روی create/edit اجرا شوند؛ status/type/priority نامعتبر رد شوند.",
+        "خاموش/روشن checkbox و re-render خطا درست باشند؛ owner با POST تغییر نکند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.04.md, apps/products/views.py, apps/core/test_p03_04_product_form.py",
+      "report_path": "docs/remediation/tasks/P03.04.md"
+    },
+    {
+      "id": "P03.05",
+      "phase": 3,
+      "title": "اصلاح فقط counterهای باقی‌مانده فعال",
+      "related_findings": "R21؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P03.03",
+      "acceptance_criteria": [
+        "N افزایش همزمان counter فعال، N نتیجه بدهد.",
+        "retry رویداد واحد دوباره‌شماری نکند؛ حذف B2C باقی بماند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.05.md, apps/core/test_p03_05_active_counters.py",
+      "report_path": "docs/remediation/tasks/P03.05.md"
+    },
+    {
+      "id": "P03.06",
+      "phase": 3,
+      "title": "invariant تصویر اصلی و عملیات اتمیک",
+      "related_findings": "R35؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.03",
+      "acceptance_criteria": [
+        "دو انتخاب همزمان هرگز دو main نسازند؛ خطای constraint کنترل شود.",
+        "حذف main، rollback و cascade/bulk فایل مرجع‌دار را از بین نبرند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.06.md, apps/core/test_p03_06_image_invariants.py, apps/products/migrations/0011_productimage_unique_main_image_per_product.py",
+      "report_path": "docs/remediation/tasks/P03.06.md"
+    },
+    {
+      "id": "P03.07",
+      "phase": 3,
+      "title": "سرویس تغییر درخت و دفاع traversal",
+      "related_findings": "R37؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.05",
+      "acceptance_criteria": [
+        "خودچرخه، چرخه دو/چندگرهی و parent نامجاز رد شوند.",
+        "حرکت همزمان چرخه نسازد و get_ancestors روی داده خراب متوقف/گزارش کند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.07.md, apps/core/test_p03_07_category_tree.py",
+      "report_path": "docs/remediation/tasks/P03.07.md"
+    },
+    {
+      "id": "P03.08",
+      "phase": 3,
+      "title": "gate صحت محصول و حذف B2C",
+      "related_findings": "R05, R06, R19, R20, R21, R22, R35, R37؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P03.03, P03.04, P03.05, P03.06, P03.07",
+      "acceptance_criteria": [
+        "هیچ PAID/order عمومی جدید ساخته نشود.",
+        "product management و discovery بدون regression و بدون تغییر معنای ناخواسته status باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P03.08.md, docs/remediation/PHASE_3_EXIT_GATE.md, apps/core/test_p03_gate_g03.py",
+      "report_path": "docs/remediation/tasks/P03.08.md"
+    },
+    {
+      "id": "P04.01",
+      "phase": 4,
+      "title": "جداسازی plan و execute و dry-run واقعی",
+      "related_findings": "R10؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.03, P00.03",
+      "acceptance_criteria": [
+        "dry-run نه status/text/time/counter را عوض کند نه quota و reservation بسازد.",
+        "با شمارنده منقضی و پاسخ جدید mock هم بدون IO/write باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.01.md, apps/core/test_p04_01_outreach_plan_and_dry_run.py",
+      "report_path": "docs/remediation/tasks/P04.01.md"
+    },
+    {
+      "id": "P04.02",
+      "phase": 4,
+      "title": "تعریف قرارداد intent و state machine ارسال",
+      "related_findings": "R11, R12؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.01, P01.01",
+      "acceptance_criteria": [
+        "جدول transition مجاز/ممنوع و crash points پوشش داده شود.",
+        "تعریف exactly-once برای provider فاقد idempotency وعده داده نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.02.md, docs/remediation/SEND_INTENT_CONTRACT.md, apps/discovery/outreach_contract.py, apps/core/test_p04_02_intent_contract.py",
+      "report_path": "docs/remediation/tasks/P04.02.md"
+    },
+    {
+      "id": "P04.03",
+      "phase": 4,
+      "title": "ساختار افزایشی intent و lease",
+      "related_findings": "R11؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.02",
+      "acceptance_criteria": [
+        "migration تازه/قبلی و تکرار قصد واحد درست باشند.",
+        "rollback سازگار و عدم اثر روی reader frozen ثابت شود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.03.md, apps/discovery/migrations/0032_outreachdispatchintent.py, apps/core/test_p04_03_intent_schema.py",
+      "report_path": "docs/remediation/tasks/P04.03.md"
+    },
+    {
+      "id": "P04.04",
+      "phase": 4,
+      "title": "claim اتمیک و مالکیت lease",
+      "related_findings": "R11؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.03",
+      "acceptance_criteria": [
+        "دو worker روی یک intent یک claim معتبر بسازند.",
+        "stale worker در CAS شکست بخورد؛ expiry وضعیت مبهم را NEW نکند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.04.md, apps/discovery/outreach_repository.py, apps/core/test_p04_04_atomic_claim_and_lease.py",
+      "report_path": "docs/remediation/tasks/P04.04.md"
+    },
+    {
+      "id": "P04.05",
+      "phase": 4,
+      "title": "SenderPolicy واحد و reservation سهمیه حساب",
+      "related_findings": "R12؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.04, P01.02",
+      "acceptance_criteria": [
+        "دو رزرو آخرین ظرفیت فقط یکی موفق شود؛ retry همان intent سهمیه دوم نگیرد.",
+        "follow-up هم همان محدودیت‌ها را رعایت کند و dry-run reservation نسازد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.05.md, apps/discovery/sender_policy.py, apps/core/test_p04_05_sender_policy_and_quota.py",
+      "report_path": "docs/remediation/tasks/P04.05.md"
+    },
+    {
+      "id": "P04.06",
+      "phase": 4,
+      "title": "executor و adapter ارسال فعال",
+      "related_findings": "R01, R11, R12؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.04, P04.05",
+      "acceptance_criteria": [
+        "ردشدن مجوز پیش از Client باشد؛ stale executor ارسال نکند.",
+        "نتیجه موفق یک‌بار ثبت و شکست قطعی/مبهم متفاوت باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.06.md, apps/discovery/outreach_executor.py, apps/core/test_p04_06_outreach_executor.py",
+      "report_path": "docs/remediation/tasks/P04.06.md"
+    },
+    {
+      "id": "P04.07",
+      "phase": 4,
+      "title": "recovery نتیجه نامطمئن و crash",
+      "related_findings": "R11, R12, R41؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.06",
+      "acceptance_criteria": [
+        "crash matrix با mock provider و DB اجرا شود.",
+        "UNKNOWN با restart/انقضای lease خودکار resend نشود؛ نتیجه بازیافته دوباره quota مصرف نکند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.07.md, docs/remediation/OUTREACH_RECOVERY_RUNBOOK.md, apps/discovery/outreach_recovery.py, apps/core/test_p04_07_outreach_recovery.py",
+      "report_path": "docs/remediation/tasks/P04.07.md"
+    },
+    {
+      "id": "P04.08",
+      "phase": 4,
+      "title": "integration رقابتی و gate ارسال",
+      "related_findings": "R10, R11, R12؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P04.07, P04.01",
+      "acceptance_criteria": [
+        "عدم duplicate آغاز قطعی، عدم lost update و recovery مبهم ثابت شود.",
+        "قابلیت هزینه‌بر احتمالی هنوز تا G06 خاموش باشد؛ ارسال رایگان الزاماً وابسته به اعتبار LLM نیست."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P04.08.md, docs/remediation/PHASE_4_EXIT_GATE.md, apps/core/test_p04_gate_g04.py",
+      "report_path": "docs/remediation/tasks/P04.08.md"
+    },
+    {
+      "id": "P05.01",
+      "phase": 5,
+      "title": "قرارداد مشترک gateway، اعتبار و صف",
+      "related_findings": "R14, R15, R17, R31, R32, R34؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.02, P00.03",
+      "acceptance_criteria": [
+        "بودجه ناکافی بدون تماس پولی queued شود؛ fallback آن را دور نزند.",
+        "هر attempt هزینه‌بر شناسه و سرنوشت مالی داشته باشد؛ cached/free policy صریح باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.01.md, apps/core/gateway_contract.py, apps/core/test_p05_01_gateway_contract.py",
+      "report_path": "docs/remediation/tasks/P05.01.md"
+    },
+    {
+      "id": "P05.02",
+      "phase": 5,
+      "title": "ModelRef و snapshot اولویت Ops",
+      "related_findings": "R17؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.01",
+      "acceptance_criteria": [
+        "دو provider با نام یکسان جدا باشند و ترتیب Ops حفظ شود.",
+        "تغییر config حین یک عملیات و config مبهم رفتار تعریف‌شده بدهند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.02.md, need_engine/registry.py, apps/billing/models.py, apps/core/test_p05_02_ops_priority_snapshot.py",
+      "report_path": "docs/remediation/tasks/P05.02.md"
+    },
+    {
+      "id": "P05.03",
+      "phase": 5,
+      "title": "gateway و transport injectable",
+      "related_findings": "R14, R41؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.02",
+      "acceptance_criteria": [
+        "موفقیت، JSON خراب، timeout و ledger failure در unit test پوشش داده شوند.",
+        "هیچ HTTP واقعی و cost=0 پنهان به‌عنوان حقیقت مالی نباشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.03.md, apps/core/gateway.py, apps/core/test_p05_03_gateway_injectable.py",
+      "report_path": "docs/remediation/tasks/P05.03.md"
+    },
+    {
+      "id": "P05.04",
+      "phase": 5,
+      "title": "quota مشترک provider بین processها",
+      "related_findings": "R15؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.03",
+      "acceptance_criteria": [
+        "دو process آخرین ظرفیت را بیش‌ازسقف مصرف نکنند.",
+        "429/reset/restart و رزرو رهاشده درست بازیابی شوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.04.md, apps/core/quota_manager.py, apps/core/test_p05_04_shared_quota.py",
+      "report_path": "docs/remediation/tasks/P05.04.md"
+    },
+    {
+      "id": "P05.05",
+      "phase": 5,
+      "title": "fallback دقیقاً طبق Ops",
+      "related_findings": "R16, R14؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.04",
+      "acceptance_criteria": [
+        "ترتیب ثبت‌شده فراخوانی دقیقاً اولویت Ops باشد.",
+        "acquire/429 exhausted، همه ناموجود و اعتبار صفر تست شوند؛ در مورد آخر تماس پولی صفر باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.05.md, apps/core/gateway.py, apps/core/test_p05_05_retry_and_parse.py",
+      "report_path": "docs/remediation/tasks/P05.05.md"
+    },
+    {
+      "id": "P05.06",
+      "phase": 5,
+      "title": "بازیابی embedding بعد از reset",
+      "related_findings": "R18؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.05",
+      "acceptance_criteria": [
+        "ساعت fake از مرز reset عبور کند و بدون restart recovery رخ دهد.",
+        "اعتبار ناکافی و چند probe همزمان هزینه بی‌قید نسازند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.06.md, need_engine/embeddings.py, apps/core/test_p05_06_embedder_recovery.py",
+      "report_path": "docs/remediation/tasks/P05.06.md"
+    },
+    {
+      "id": "P05.07",
+      "phase": 5,
+      "title": "adapter پنل فعال به gateway",
+      "related_findings": "R07, R14؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.05, P02.01",
+      "acceptance_criteria": [
+        "caller پنل provider/model صحیح و usage/attempt درست بدهد.",
+        "auth و queued و خطای accounting به موفقیت جعلی یا HTTP واقعی تبدیل نشوند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.07.md, apps/core/llm.py, apps/core/test_p05_07_panel_adapter.py",
+      "report_path": "docs/remediation/tasks/P05.07.md"
+    },
+    {
+      "id": "P05.08",
+      "phase": 5,
+      "title": "adapter موتور فعال و ثبت محدوده legacy",
+      "related_findings": "R14, R25؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.05",
+      "acceptance_criteria": [
+        "engine active با fake provider و ledger مصرف درست ثبت کند.",
+        "فایل و schema legacy تغییر نکند و مصرف‌کننده ناشناخته به‌اشتباه migrated گزارش نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.08.md, docs/remediation/LEGACY_BOUNDARY_RECORD.md, need_engine/gateway_adapter.py, apps/core/test_p05_08_active_engine_adapter.py",
+      "report_path": "docs/remediation/tasks/P05.08.md"
+    },
+    {
+      "id": "P05.09",
+      "phase": 5,
+      "title": "gate قرارداد قبل از اتصال مالی",
+      "related_findings": "R14, R15, R16, R17, R18؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.06, P05.07, P05.08",
+      "acceptance_criteria": [
+        "صفر درخواست پولی در محیط تست و صفر reorder ناخواسته Ops.",
+        "همه callerهای فعال در scope دارای adapter یا BLOCKED صریح باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P05.09.md, docs/remediation/PHASE_5_EXIT_GATE.md, apps/core/test_p05_gate_g05.py",
+      "report_path": "docs/remediation/tasks/P05.09.md"
+    },
+    {
+      "id": "P06.01",
+      "phase": 6,
+      "title": "operation id و retry طبقه‌بندی‌شده",
+      "related_findings": "R34؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.01, P00.03",
+      "acceptance_criteria": [
+        "commit موفق+پاسخ گم‌شده فقط یک اثر DB بسازد.",
+        "id تکراری با داده متفاوت رد شود؛ read retry جدا کار کند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.01.md, apps/core/test_p06_01_idempotent_writes.py",
+      "report_path": "docs/remediation/tasks/P06.01.md"
+    },
+    {
+      "id": "P06.02",
+      "phase": 6,
+      "title": "cost event و allocation اتمیک",
+      "related_findings": "R14, R31؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P06.01, P05.02",
+      "acceptance_criteria": [
+        "crash میان payerها allocation ناقص پنهان نسازد.",
+        "parse retry/fallback تمام attemptهای پولی را بدون duplicate نگه دارند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.02.md, apps/billing/tests/test_p06_02_cost_event_allocation.py",
+      "report_path": "docs/remediation/tasks/P06.02.md"
+    },
+    {
+      "id": "P06.03",
+      "phase": 6,
+      "title": "reservation اتمیک اعتبار",
+      "related_findings": "R32؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P06.02",
+      "acceptance_criteria": [
+        "دو worker روی موجودی مرزی بیش از اعتبار تعهد نسازند.",
+        "اعتبار ناکافی هیچ provider پولی صدا نزند و reserve تکراری دوباره کم نکند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.03.md, apps/billing/tests/test_p06_03_wallet_reservation.py",
+      "report_path": "docs/remediation/tasks/P06.03.md"
+    },
+    {
+      "id": "P06.04",
+      "phase": 6,
+      "title": "صف انتظار اعتبار و ازسرگیری همان کار",
+      "related_findings": "R32, R07؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P06.03",
+      "acceptance_criteria": [
+        "اعتبار صفر: یک job، صفر تماس پولی، صفر debit و بدون fallback پولی.",
+        "تکرار درخواست/شارژ/دو worker همان job را دوباره نسازند؛ بعد از رزرو معتبر ادامه یابد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.04.md, apps/billing/tests/test_p06_04_credit_queue.py",
+      "report_path": "docs/remediation/tasks/P06.04.md"
+    },
+    {
+      "id": "P06.05",
+      "phase": 6,
+      "title": "settlement مبتنی بر mapping، نه MAX(id)",
+      "related_findings": "R31, R32؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P06.02, P06.03",
+      "acceptance_criteria": [
+        "id کوچک دیرتر commit شود و باز هم دقیقاً یک‌بار settle گردد.",
+        "retry/crash charge دوم نسازد؛ reservation به هزینه نهایی دوباره جمع نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.05.md, apps/billing/tests/test_p06_05_settlement_mapping.py",
+      "report_path": "docs/remediation/tasks/P06.05.md"
+    },
+    {
+      "id": "P06.06",
+      "phase": 6,
+      "title": "reconciliation و برنامه cutover داده مالی",
+      "related_findings": "R31, R32, R34؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P06.04, P06.05",
+      "acceptance_criteria": [
+        "اختلاف مصنوعی، lost ACK و cost دیرcommitشده تشخیص داده شوند.",
+        "اجرای دوباره report/backfill جزئی، charge جدید حدسی نسازد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.06.md, apps/billing/tests/test_p06_06_financial_reconciliation.py",
+      "report_path": "docs/remediation/tasks/P06.06.md"
+    },
+    {
+      "id": "P06.07",
+      "phase": 6,
+      "title": "اتصال gateway و endpoint به مالی واقعی",
+      "related_findings": "R07, R14, R15, R32؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P05.09, P06.06",
+      "acceptance_criteria": [
+        "با بودجه صفر از هر caller فعال، تماس پولی صفر باشد.",
+        "بعد از شارژ/رزرو همان عملیات ادامه و fallback دقیقاً Ops باشد؛ خطای ledger resend کور نسازد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.07.md, apps/core/test_p06_07_real_financial_gateway.py",
+      "report_path": "docs/remediation/tasks/P06.07.md"
+    },
+    {
+      "id": "P06.08",
+      "phase": 6,
+      "title": "failure injection و gate مالی",
+      "related_findings": "R31, R32, R34, R15؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P06.07",
+      "acceptance_criteria": [
+        "بدون lost cost یا duplicate debit در سناریوهای قابل‌اثبات؛ موارد unknown عمداً unresolved بمانند.",
+        "هیچ مصرف جدید در اعتبار ناکافی و هیچ مصرف خودکار از حساب پلتفرم رخ ندهد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P06.08.md, docs/remediation/PHASE_6_EXIT_GATE.md, apps/core/test_p06_gate_g06.py",
+      "report_path": "docs/remediation/tasks/P06.08.md"
+    },
+    {
+      "id": "P07.01",
+      "phase": 7,
+      "title": "ثبت تعویق R25 و guard تغییر مشترک",
+      "related_findings": "R25؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.01",
+      "acceptance_criteria": [
+        "diff مسیر frozen صفر و وابستگی نامعلوم صریح باشد.",
+        "تعویق به‌اشتباه completion امنیت/معماری سراسری معرفی نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P07.01.md, docs/remediation/R25_DEFERRAL_AND_LEGACY_GUARD.md",
+      "report_path": "docs/remediation/tasks/P07.01.md"
+    },
+    {
+      "id": "P07.02",
+      "phase": 7,
+      "title": "جداسازی migration موتور از request",
+      "related_findings": "R33؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P07.01, P06.08",
+      "acceptance_criteria": [
+        "request فعال با نقش بدون DDL کار کند و SQL DDL اجرا نکند.",
+        "bootstrap/upgrade و reconnect سالم و مسیر frozen ثابت باشند."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P07.02.md, apps/core/test_p07_02_decouple_ddl.py",
+      "report_path": "docs/remediation/tasks/P07.02.md"
+    },
+    {
+      "id": "P07.03",
+      "phase": 7,
+      "title": "زیرساخت job پایدار taxonomy",
+      "related_findings": "R24؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P03.07, P06.04",
+      "acceptance_criteria": [
+        "چند ثبت همزمان business+version یک کار مؤثر بسازند.",
+        "crash پس از claim قابل‌بازیابی و job poison بی‌نهایت retry نشود."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P07.03.md, apps/products/tests/test_p07_03_taxonomy_jobs.py",
+      "report_path": "docs/remediation/tasks/P07.03.md"
+    },
+    {
+      "id": "P07.04",
+      "phase": 7,
+      "title": "جایگزینی daemon taxonomy با job versioned",
+      "related_findings": "R24؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P07.03",
+      "acceptance_criteria": [
+        "restart وب job را گم نکند؛ rollback محصول job تجاری معتبر نسازد.",
+        "نسخه قدیمی نتیجه جدید را overwrite نکند و اجرای تکراری idempotent باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P07.04.md, apps/products/tests/test_p07_04_taxonomy_worker.py",
+      "report_path": "docs/remediation/tasks/P07.04.md"
+    },
+    {
+      "id": "P07.05",
+      "phase": 7,
+      "title": "gate schema/job و runbook عملیات",
+      "related_findings": "R24, R33, R41؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P07.02, P07.04",
+      "acceptance_criteria": [
+        "نه DDL request و نه daemon job تجاری باقی بماند در دامنه فعال اصلاح‌شده.",
+        "R25 deferred و وضعیت blockerهای مشترک واضح باشد."
+      ],
+      "status": {
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
+      },
+      "evidence": "docs/remediation/tasks/P07.05.md, docs/remediation/PHASE_7_EXIT_GATE.md, apps/core/test_p07_gate_g07.py",
+      "report_path": "docs/remediation/tasks/P07.05.md"
+    },
+    {
+      "id": "P08.01",
+      "phase": 8,
+      "title": "خطای نوع‌دار و log امن مسیرهای فعال",
+      "related_findings": "R41؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P02.03, P04.08, P06.08",
+      "acceptance_criteria": [
+        "exception حیاتی swallow نشود و user پاسخ درست ببیند.",
+        "token/password/session و متن کامل حساس در log/response نباشند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.01.md"
+    },
+    {
+      "id": "P08.02",
+      "phase": 8,
+      "title": "قرنطینه poison payload در sync فعال",
+      "related_findings": "R41؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.01",
+      "acceptance_criteria": [
+        "یک poison payload کل import را بی‌نهایت متوقف نکند.",
+        "replay رکورد valid دوباره فرصت/هزینه نسازد و خطا قابل‌مشاهده باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.02.md"
+    },
+    {
+      "id": "P08.03",
+      "phase": 8,
+      "title": "boundary test و baseline بازآرایی",
+      "related_findings": "R39, R40, R42؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P07.05, P08.01",
+      "acceptance_criteria": [
+        "import ممنوع مصنوعی fail و import مجاز pass شود.",
+        "تست/migration/framework registration با runtime/dead-code خلط نشوند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.03.md"
+    },
+    {
+      "id": "P08.04",
+      "phase": 8,
+      "title": "استخراج helperهای فرم برابر",
+      "related_findings": "R40؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P03.04",
+      "acceptance_criteria": [
+        "خروجی قبل/بعد و خطاها برابر باشند.",
+        "فرم محصول و discovery و boundary/import smoke پاس شوند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.04.md"
+    },
+    {
+      "id": "P08.05",
+      "phase": 8,
+      "title": "استخراج normalize_link فعال",
+      "related_findings": "R40؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03",
+      "acceptance_criteria": [
+        "لینک/کلید dedup موجود بدون تغییر معنا تولید شود.",
+        "caller command/پنل فعال و importها سالم باشند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.05.md"
+    },
+    {
+      "id": "P08.06",
+      "phase": 8,
+      "title": "یکسان‌سازی فیلترهای پست در دامنه فعال",
+      "related_findings": "R40؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03",
+      "acceptance_criteria": [
+        "تمام fixtureها همان خروجی و دلیل قبلی معتبر بدهند.",
+        "legacy و dependencyهای آن صفر تغییر داشته باشند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.06.md"
+    },
+    {
+      "id": "P08.07",
+      "phase": 8,
+      "title": "parser مشترک پروکسی بدون تغییر عملیات",
+      "related_findings": "R40؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P00.07",
+      "acceptance_criteria": [
+        "parse برابر و خطاهای قرارداد ثابت باشند.",
+        "CLI smoke با process mock انجام شود؛ اتصال/سیستم واقعی تغییر نکند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.07.md"
+    },
+    {
+      "id": "P08.08",
+      "phase": 8,
+      "title": "استخراج validate/plan از worker اینستاگرام",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P04.08",
+      "acceptance_criteria": [
+        "plan با fixture و بدون boot شبکه/storage تست شود.",
+        "ورودی یکسان همان تصمیم و ردشدن قبلی معتبر بدهد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.08.md"
+    },
+    {
+      "id": "P08.09",
+      "phase": 8,
+      "title": "استخراج adapter جمع‌آوری worker اینستاگرام",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.08",
+      "acceptance_criteria": [
+        "fake collector همان رکوردها و خطاها را بسازد.",
+        "هیچ session واقعی در fixture/log نباشد؛ retry تغییر نکرده باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.09.md"
+    },
+    {
+      "id": "P08.10",
+      "phase": 8,
+      "title": "استخراج ارزیابی و فیلتر worker اینستاگرام",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.09",
+      "acceptance_criteria": [
+        "golden fixture خروجی برابر داشته باشد.",
+        "unknown/degraded با no-match اشتباه نشود و boundary pass باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.10.md"
+    },
+    {
+      "id": "P08.11",
+      "phase": 8,
+      "title": "استخراج persistence worker اینستاگرام",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.10",
+      "acceptance_criteria": [
+        "retry نوشتن اثر دوم نسازد.",
+        "crash persistence نتیجه قابل‌پیگیری بدهد و رکورد tenant دیگر ساخته نشود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.11.md"
+    },
+    {
+      "id": "P08.12",
+      "phase": 8,
+      "title": "استخراج گزارش و نهایی‌سازی orchestration اینستاگرام",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.11",
+      "acceptance_criteria": [
+        "fixture end-to-end mock و CLI/status همان خروجی معتبر بدهند.",
+        "خطای report خطای اصلی را نپوشاند و secret چاپ نشود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.12.md"
+    },
+    {
+      "id": "P08.13",
+      "phase": 8,
+      "title": "استخراج family inspection از scraper فعال",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P04.08",
+      "acceptance_criteria": [
+        "family fixture و حالت empty/error نتیجه یکسان بدهند.",
+        "CLI smoke و boundary پاس شوند؛ هیچ شبکه واقعی استفاده نشود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.13.md"
+    },
+    {
+      "id": "P08.14",
+      "phase": 8,
+      "title": "استخراج orchestration هر target scraper",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.13",
+      "acceptance_criteria": [
+        "target موفق/خالی/خطادار همان اثر معتبر را داشته باشد.",
+        "نام flags، exit code و stateهای عملیاتی تغییر ناخواسته نکنند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.14.md"
+    },
+    {
+      "id": "P08.15",
+      "phase": 8,
+      "title": "تفکیک viewهای auth اکانت",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P02.06, P01.08",
+      "acceptance_criteria": [
+        "login/signup/logout و نام URL و regression امنیتی پاس شوند.",
+        "migration ناخواسته و import cycle وجود نداشته باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.15.md"
+    },
+    {
+      "id": "P08.16",
+      "phase": 8,
+      "title": "تفکیک export فرصت در discovery",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P01.08",
+      "acceptance_criteria": [
+        "export مالک و رد non-owner و فرمت قبل/بعد برابر باشند.",
+        "query و memory بی‌دلیل بدتر نشوند و import boundary پاس باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.16.md"
+    },
+    {
+      "id": "P08.17",
+      "phase": 8,
+      "title": "نازک‌کردن viewهای محصول باقی‌مانده",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P03.08",
+      "acceptance_criteria": [
+        "فرم، upload، main و category scope از regression قبلی عبور کنند.",
+        "تست عدم دسترسی B2C همچنان پاس باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.17.md"
+    },
+    {
+      "id": "P08.18",
+      "phase": 8,
+      "title": "استخراج مدیریت provider از billing manage",
+      "related_findings": "R39؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P05.09, P06.08",
+      "acceptance_criteria": [
+        "تنظیم priority همان ترتیب gateway را تولید کند.",
+        "غیرمدیر، key masking و validation امن باشند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.18.md"
+    },
+    {
+      "id": "P08.19",
+      "phase": 8,
+      "title": "component تنظیم مدل/اولویت در قالب Ops",
+      "related_findings": "R39, R29؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.18, P02.04",
+      "acceptance_criteria": [
+        "browser test تغییر priority و payload متن امن پاس شود.",
+        "CSP/DOM fix قبلی از بین نرود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.19.md"
+    },
+    {
+      "id": "P08.20",
+      "phase": 8,
+      "title": "component ویژگی دسته در فرم محصول",
+      "related_findings": "R39, R30؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.17, P02.05",
+      "acceptance_criteria": [
+        "تغییر دسته و ذخیره/edit attributes معتبر کار کند.",
+        "payload با quote/فارسی و DOM امن باقی بماند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.20.md"
+    },
+    {
+      "id": "P08.21",
+      "phase": 8,
+      "title": "manifest کد مرده و حذف مجاز",
+      "related_findings": "R40, R42؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.03, P03.03",
+      "acceptance_criteria": [
+        "برای REMOVE-APPROVED شاهد و مالک و راه برگشت موجود باشد.",
+        "کاندید نامعلوم در لیست حذف قرار نگیرد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.21.md"
+    },
+    {
+      "id": "P08.22",
+      "phase": 8,
+      "title": "حذف یک گروه تأییدشده کد مرده",
+      "related_findings": "R40, R42؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.21",
+      "acceptance_criteria": [
+        "unit/import/CLI/template/static smoke مربوط پاس باشند.",
+        "legacy، schema و داده تاریخی صفر تغییر؛ rollback commit مشخص باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.22.md"
+    },
+    {
+      "id": "P08.23",
+      "phase": 8,
+      "title": "گیت نهایی تمیزی و فهرست کارهای باقی‌مانده",
+      "related_findings": "R39, R40, R41, R42؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P08.01, P08.02, P08.03, P08.04, P08.05, P08.06, P08.07, P08.08, P08.09, P08.10, P08.11, P08.12, P08.13, P08.14, P08.15, P08.16, P08.17, P08.18, P08.19, P08.20, P08.21",
+      "acceptance_criteria": [
+        "تمام قراردادهای امنیتی/مالی قبلی بدون regression باشند.",
+        "هیچ بهبود عددی با حذف تست، کد لازم یا انتقال کور ifها ایجاد نشده باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P08.23.md"
+    },
+    {
+      "id": "P09.01",
+      "phase": 9,
+      "title": "lock runtime و وابستگی فعال",
+      "related_findings": "R26؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P00.03, P08.23",
+      "acceptance_criteria": [
+        "دو build با lock یکسان dependency یکسان بدهند.",
+        "active CLI/import/DB در image رسمی سالم و legacy ثابت باشند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P09.01.md"
+    },
+    {
+      "id": "P09.02",
+      "phase": 9,
+      "title": "رفع N+1 دسته بدون تغییر معنا",
+      "related_findings": "R36؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P03.07, P01.05",
+      "acceptance_criteria": [
+        "queryها با هر node به شکل N+1 رشد نکنند.",
+        "خروجی و parent path صحیح و داده tenant دیگر پنهان بماند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P09.02.md"
+    },
+    {
+      "id": "P09.03",
+      "phase": 9,
+      "title": "حذف تنظیم hardcoded tenant از مسیر فعال",
+      "related_findings": "R38؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.08, P04.08",
+      "acceptance_criteria": [
+        "jobهای A و B متن/context دیگری را نگیرند.",
+        "sender مشترک درست کار و config ناقص باعث ارسال تصادفی نشود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P09.03.md"
+    },
+    {
+      "id": "P09.04",
+      "phase": 9,
+      "title": "image immutable و profile تولید",
+      "related_findings": "R38؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P09.01, P07.02",
+      "acceptance_criteria": [
+        "بدون bind mount، نسخه کد و static یکی باشند.",
+        "DB قدیمی ناسازگار واضح fail شود؛ restore/roll-forward عملی توضیح داده شود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P09.04.md"
+    },
+    {
+      "id": "P09.05",
+      "phase": 9,
+      "title": "supervision و health مستقل worker/sync",
+      "related_findings": "R38, R24؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P09.04, P07.05",
+      "acceptance_criteria": [
+        "مرگ sync مستقل تشخیص/بازیابی و سلامت web جای آن فرض نشود.",
+        "shutdown job را گم یا ارسال مبهم را دوباره اجرا نکند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P09.05.md"
+    },
+    {
+      "id": "P09.06",
+      "phase": 9,
+      "title": "gate build، کارایی و استقرار staging",
+      "related_findings": "R26, R36, R38؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P09.02, P09.03, P09.05",
+      "acceptance_criteria": [
+        "no missing dependency و no DDL runtime و no hidden child process فعال باشند.",
+        "تفاوت عددی performance با روش یکسان قابل‌تکرار باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P09.06.md"
+    },
+    {
+      "id": "P10.01",
+      "phase": 10,
+      "title": "ماتریس آمادگی انتشار و blockerها",
+      "related_findings": "R01, R08, R11, R25, R32؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P01.08, P02.10, P03.08, P04.08, P06.08, P07.05, P09.06؛ فقط بازبینی وضعیت، نه عبور از blocker",
+      "acceptance_criteria": [
+        "هر feature فعال تمام پیش‌نیازهای واقعی خود را DONE دارد.",
+        "هیچ خطای امنیت/مالی critical فعال بدون مهار پشت متن deferred پنهان نشده باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.01.md"
+    },
+    {
+      "id": "P10.02",
+      "phase": 10,
+      "title": "staging سراسری با داده مصنوعی",
+      "related_findings": "R01, R05, R06, R10, R11, R14, R32, R35, R37؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P10.01",
+      "acceptance_criteria": [
+        "بدون نشت tenant، تماس بی‌اعتبار، duplicate debit یا بازگشت B2C باشد.",
+        "UNKNOWN و هزینه مبهم صریح بمانند و داده مصنوعی با backup قابل‌restore باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.02.md"
+    },
+    {
+      "id": "P10.03",
+      "phase": 10,
+      "title": "اجرای migration مجاز و preflight داده",
+      "related_findings": "R08, R23, R31, R35, R37؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P10.02",
+      "acceptance_criteria": [
+        "restart batch، reconcile و app/schema compatibility برقرار باشند.",
+        "no legacy change و no data loss و no plaintext disclosure در شواهد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.03.md"
+    },
+    {
+      "id": "P10.04",
+      "phase": 10,
+      "title": "shadow تصمیم و canary ارسال مجاز",
+      "related_findings": "R01, R10, R11, R12؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P10.03, P04.08",
+      "acceptance_criteria": [
+        "دو writer ناسازگار همزمان برای یک intent کار نکنند.",
+        "مورد مبهم به NEW برنگردد و اپراتور بتواند pause/reconcile کند."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.04.md"
+    },
+    {
+      "id": "P10.05",
+      "phase": 10,
+      "title": "cutover مالی و canary اعتبار",
+      "related_findings": "R07, R14, R15, R16, R31, R32, R34؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P10.03, P06.08, P05.09",
+      "acceptance_criteria": [
+        "cost/charge/reserve/unresolved یک‌به‌یک تطبیق و retry شارژ دوبل نسازد.",
+        "fallback Ops در دسترس نبودن مدل درست و با اعتبار ناکافی متوقف باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.05.md"
+    },
+    {
+      "id": "P10.06",
+      "phase": 10,
+      "title": "افزایش تدریجی و پایش چرخه واقعی",
+      "related_findings": "R11, R15, R18, R24, R31, R32, R38؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P10.04, P10.05",
+      "acceptance_criteria": [
+        "worker مشترک سهمیه حساب پلتفرم را بین tenantها درست حفظ کند.",
+        "alertها به owner برسند و pause/resume بدون گم‌کردن کار آزمایش شده باشد."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.06.md"
+    },
+    {
+      "id": "P10.07",
+      "phase": 10,
+      "title": "contract مجاز و بستن یافته‌ها",
+      "related_findings": "R08, R23, R25, R39, R40, R42؛ شرح و شاهد در پیوست.",
+      "prerequisites": "P10.06",
+      "acceptance_criteria": [
+        "هیچ consumer مجاز و rollback سازگار به چیزی که حذف می‌شود وابسته نباشد.",
+        "R25 deferred به fixed تبدیل نشود؛ رفع کد با انتشار و صحت داده اشتباه گرفته نشود."
+      ],
+      "status": {
+        "overall": "PLANNED",
+        "planning": "PLANNED",
+        "implementation": "PLANNED",
+        "testing": "PLANNED",
+        "activation": "PLANNED"
+      },
+      "evidence": "",
+      "report_path": "docs/remediation/tasks/P10.07.md"
+    }
+  ]
+}

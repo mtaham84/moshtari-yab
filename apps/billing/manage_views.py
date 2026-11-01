@@ -361,24 +361,16 @@ def manage_dashboard(request):
             senders_total = senders.count()
             senders_active = senders.filter(status="ACTIVE").count()
 
-    # Load outreach pitch config
-    from pathlib import Path
-    import json
-    config_path = Path("data/sarv_outreach_config.json")
-    sender_pitches = {}
-    if config_path.exists():
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            sender_pitches = cfg.get("sender_pitches", {})
-        except Exception:
-            pass
+    # Load outreach pitch config via AccessPolicy
+    from apps.core.access_policy import AccessPolicy
 
     accounts_with_pitches = []
     for s in senders:
-        p = sender_pitches.get(s.username) or sender_pitches.get(s.username.lower(), {})
+        p = AccessPolicy.get_tenant_pitch(s.tenant_id, s.username)
         accounts_with_pitches.append({
             "obj": s,
             "consultant_name": p.get("consultant_name", s.username),
+            "consultant_role": p.get("consultant_role", ""),
             "template": p.get("template", ""),
         })
 
@@ -557,7 +549,7 @@ def manage_account_add(request):
         # Update credentials on existing account to allow re-authentication
         account = existing
         if password:
-            account.password = password
+            account.set_encrypted_password(password)
         account.role = role
         account.tenant_id = tenant_id
         account.account_tier = account_tier
@@ -582,18 +574,10 @@ def manage_account_add(request):
 
     if consultant_name and role == "SENDER":
         try:
-            import json
-            from pathlib import Path
-            config_path = Path("data/sarv_outreach_config.json")
-            cfg = {}
-            if config_path.exists():
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            if "sender_pitches" not in cfg:
-                cfg["sender_pitches"] = {}
-            if username not in cfg["sender_pitches"]:
-                cfg["sender_pitches"][username] = {}
-            cfg["sender_pitches"][username]["consultant_name"] = consultant_name
-            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            from apps.core.access_policy import AccessPolicy
+            current_pitch = AccessPolicy.get_tenant_pitch(account.tenant_id, username)
+            current_pitch["consultant_name"] = consultant_name
+            AccessPolicy.save_tenant_pitch(account.tenant_id, username, current_pitch)
         except Exception as p_err:
             logger.warning(f"Could not save consultant name for {username}: {p_err}")
 
@@ -674,7 +658,7 @@ def manage_account_add(request):
 
         logger.info(f"Attempting live Instagram login for newly added account @{account.username}...")
         try:
-            cl.login(account.username, account.password)
+            cl.login(account.username, account.get_decrypted_password())
             # Verified and logged in successfully
             settings = cl.get_settings()
             account.session_json = settings
@@ -919,7 +903,7 @@ def manage_sender_account_edit(request, pk):
         updated_fields.append("tenant_id")
 
     if password:
-        account.password = password
+        account.set_encrypted_password(password)
         updated_fields.append("password")
 
     if proxy_url != account.proxy_url:
@@ -985,19 +969,11 @@ def manage_sender_account_edit(request, pk):
 
     # Update pitch consultant name if provided
     if consultant_name:
-        from pathlib import Path
-        import json
-        config_path = Path("data/sarv_outreach_config.json")
         try:
-            cfg = {}
-            if config_path.exists():
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            if "sender_pitches" not in cfg:
-                cfg["sender_pitches"] = {}
-            curr = cfg["sender_pitches"].get(account.username, {})
-            curr["consultant_name"] = consultant_name
-            cfg["sender_pitches"][account.username] = curr
-            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            from apps.core.access_policy import AccessPolicy
+            current_pitch = AccessPolicy.get_tenant_pitch(account.tenant_id, account.username)
+            current_pitch["consultant_name"] = consultant_name
+            AccessPolicy.save_tenant_pitch(account.tenant_id, account.username, current_pitch)
         except Exception as p_err:
             logger.warning(f"Could not update pitch consultant name for @{account.username}: {p_err}")
 
@@ -1132,7 +1108,7 @@ def manage_account_test(request, pk):
         else:
             # First-time login test
             try:
-                cl.login(account.username, account.password)
+                cl.login(account.username, account.get_decrypted_password())
                 new_settings = cl.get_settings()
                 account.session_json = new_settings
                 account.device_settings = {"settings": new_settings}
@@ -1270,7 +1246,7 @@ def manage_account_submit_code(request, pk):
         if not success:
             try:
                 logger.info(f"Attempting cl.login(verification_code='{code}') for @{account.username}...")
-                cl.login(account.username, account.password, verification_code=code)
+                cl.login(account.username, account.get_decrypted_password(), verification_code=code)
                 success = True
                 logger.info(f"cl.login with verification_code succeeded for @{account.username}")
             except Exception as le:
@@ -1617,7 +1593,7 @@ def _interpret_twitter_response(
 
 def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[bool, str, str]:
     """Tests Twitter account connectivity and session validity."""
-    auth_token = (account.auth_token or "").strip()
+    auth_token = (account.get_decrypted_auth_token() if hasattr(account, "get_decrypted_auth_token") else account.auth_token or "").strip()
     if not auth_token:
         account.status = "CHALLENGED"
         account.status_message = "کوکی auth_token تنظیم نشده است"
@@ -1637,7 +1613,8 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         account._validation_result = XSessionValidationResult.RATE_LIMITED
         return False, account.status, f"اکانت در دوره استراحت است ({rem_min} دقیقه باقی‌مانده)"
 
-    ct0, was_generated = _get_or_generate_ct0(account.ct0)
+    raw_ct0 = account.get_decrypted_ct0() if hasattr(account, "get_decrypted_ct0") else account.ct0
+    ct0, was_generated = _get_or_generate_ct0(raw_ct0)
 
     import os
     import shutil
@@ -1664,7 +1641,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
                 account.status = "ACTIVE"
                 account.status_message = "متصل و فعال"
                 # Rule 4: Only persist a ct0 to the database when the result is VALID
-                account.ct0 = ct0
+                account.set_encrypted_ct0(ct0)
                 account.save(update_fields=["status", "status_message", "ct0"])
                 account._validation_result = XSessionValidationResult.VALID
                 return True, "ACTIVE", f"اتصال به اکانت @{account.username} تایید شد."
@@ -1710,7 +1687,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         account.status = "ACTIVE"
         account.status_message = msg
         # Rule 4: Only persist a ct0 to the database when the result is VALID
-        account.ct0 = effective_ct0
+        account.set_encrypted_ct0(effective_ct0)
         account.save(update_fields=["status", "status_message", "ct0"])
         return True, "ACTIVE", msg
     elif result == XSessionValidationResult.INVALID:
@@ -1767,12 +1744,13 @@ def manage_twitter_account_add(request):
         messages.warning(request, msg)
         return redirect("manage:dashboard")
 
+    from need_engine.crypto import encrypt_secret
     account, created = TwitterEngineAccount.objects.update_or_create(
         username=username,
         defaults={
-            "password": password,
-            "auth_token": auth_token,
-            "ct0": ct0,
+            "password": encrypt_secret(password) if password else "",
+            "auth_token": encrypt_secret(auth_token) if auth_token else "",
+            "ct0": encrypt_secret(ct0) if ct0 else "",
             "proxy_url": proxy_url,
             "status": "CHALLENGED",
             "status_message": "در انتظار اعتبارسنجی",
@@ -1843,9 +1821,9 @@ def manage_twitter_account_set_session(request, pk):
     old_status = account.status
 
     if password:
-        account.password = password
-    account.auth_token = auth_token
-    account.ct0 = ct0
+        account.set_encrypted_password(password)
+    account.set_encrypted_auth_token(auth_token)
+    account.set_encrypted_ct0(ct0)
 
     ok, status, message = _test_twitter_account_connection(account)
     validation_result = getattr(account, "_validation_result", None)

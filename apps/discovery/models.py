@@ -1,5 +1,6 @@
 import hashlib
 import inspect
+import uuid
 from datetime import timedelta
 from django.db import models
 from django.utils import timezone as dj_timezone
@@ -50,6 +51,55 @@ class ProductDailyMetric(models.Model):
 
     def __str__(self):
         return f"{self.product.name} ({self.date}): {self.clicks_count} کلیک - {self.orders_count} خرید"
+
+    @classmethod
+    def record_click(cls, product, date=None, event_id: str | None = None) -> int:
+        """
+        Atomically increments clicks_count using F() expression (R21 & P03.05).
+        If event_id is provided, deduplicates retried requests via cache.
+        Handles race conditions on get_or_create under high concurrency.
+        """
+        from django.utils import timezone
+        from django.db import IntegrityError
+        from django.db.models import F
+        from django.core.cache import cache
+
+        if event_id:
+            cache_key = f"click_event:{product.id}:{event_id}"
+            if not cache.add(cache_key, 1, timeout=300):
+                # Duplicate event retry within 5 minutes, ignore
+                d = date or timezone.now().date()
+                m = cls.objects.filter(product=product, date=d).first()
+                return m.clicks_count if m else 0
+
+        d = date or timezone.now().date()
+        try:
+            metric, _ = cls.objects.get_or_create(product=product, date=d)
+        except IntegrityError:
+            metric = cls.objects.get(product=product, date=d)
+
+        cls.objects.filter(pk=metric.pk).update(clicks_count=F("clicks_count") + 1)
+        metric.refresh_from_db(fields=["clicks_count"])
+        return metric.clicks_count
+
+    @classmethod
+    def record_outreach_sent(cls, product, date=None, count: int = 1) -> int:
+        """
+        Atomically increments outreach_sent_count using F() expression (R21 & P03.05).
+        """
+        from django.utils import timezone
+        from django.db import IntegrityError
+        from django.db.models import F
+
+        d = date or timezone.now().date()
+        try:
+            metric, _ = cls.objects.get_or_create(product=product, date=d)
+        except IntegrityError:
+            metric = cls.objects.get(product=product, date=d)
+
+        cls.objects.filter(pk=metric.pk).update(outreach_sent_count=F("outreach_sent_count") + count)
+        metric.refresh_from_db(fields=["outreach_sent_count"])
+        return metric.outreach_sent_count
 
 
 class ProductOrder(models.Model):
@@ -1073,6 +1123,29 @@ class InstagramEngineAccount(models.Model):
             return False
         return True
 
+    def set_encrypted_password(self, raw_password: str) -> None:
+        if not raw_password:
+            self.password = ""
+            return
+        from need_engine.crypto import encrypt_secret
+        self.password = encrypt_secret(raw_password)
+
+    def get_decrypted_password(self, allow_plaintext: bool = True) -> str:
+        if not self.password:
+            return ""
+        from need_engine.crypto import decrypt_secret, is_encrypted
+        if not is_encrypted(self.password):
+            import logging
+            logging.getLogger("security.audit").warning(
+                "OBSERVABLE_PLAINTEXT_FALLBACK: Plaintext password read on InstagramEngineAccount(id=%s, username=%s)",
+                self.id,
+                self.username,
+            )
+            if not allow_plaintext:
+                raise ValueError(f"Plaintext fallback disabled for InstagramEngineAccount id={self.id}")
+            return self.password
+        return decrypt_secret(self.password)
+
     @property
     def device_info(self) -> dict:
         """Normalized device profile representation for dashboard and logging."""
@@ -1439,6 +1512,75 @@ class TwitterEngineAccount(models.Model):
             return False
         return True
 
+    def set_encrypted_password(self, raw_password: str) -> None:
+        if not raw_password:
+            self.password = ""
+            return
+        from need_engine.crypto import encrypt_secret
+        self.password = encrypt_secret(raw_password)
+
+    def get_decrypted_password(self, allow_plaintext: bool = True) -> str:
+        if not self.password:
+            return ""
+        from need_engine.crypto import decrypt_secret, is_encrypted
+        if not is_encrypted(self.password):
+            import logging
+            logging.getLogger("security.audit").warning(
+                "OBSERVABLE_PLAINTEXT_FALLBACK: Plaintext password read on InstagramEngineAccount(id=%s, username=%s)",
+                self.id,
+                self.username,
+            )
+            if not allow_plaintext:
+                raise ValueError(f"Plaintext fallback disabled for InstagramEngineAccount id={self.id}")
+            return self.password
+        return decrypt_secret(self.password)
+
+    def set_encrypted_auth_token(self, token: str) -> None:
+        if not token:
+            self.auth_token = ""
+            return
+        from need_engine.crypto import encrypt_secret
+        self.auth_token = encrypt_secret(token)
+
+    def get_decrypted_auth_token(self, allow_plaintext: bool = True) -> str:
+        if not self.auth_token:
+            return ""
+        from need_engine.crypto import decrypt_secret, is_encrypted
+        if not is_encrypted(self.auth_token):
+            import logging
+            logging.getLogger("security.audit").warning(
+                "OBSERVABLE_PLAINTEXT_FALLBACK: Plaintext auth_token read on TwitterEngineAccount(id=%s, username=%s)",
+                self.id,
+                self.username,
+            )
+            if not allow_plaintext:
+                raise ValueError(f"Plaintext fallback disabled for TwitterEngineAccount id={self.id}")
+            return self.auth_token
+        return decrypt_secret(self.auth_token)
+
+    def set_encrypted_ct0(self, ct0: str) -> None:
+        if not ct0:
+            self.ct0 = ""
+            return
+        from need_engine.crypto import encrypt_secret
+        self.ct0 = encrypt_secret(ct0)
+
+    def get_decrypted_ct0(self, allow_plaintext: bool = True) -> str:
+        if not self.ct0:
+            return ""
+        from need_engine.crypto import decrypt_secret, is_encrypted
+        if not is_encrypted(self.ct0):
+            import logging
+            logging.getLogger("security.audit").warning(
+                "OBSERVABLE_PLAINTEXT_FALLBACK: Plaintext ct0 read on TwitterEngineAccount(id=%s, username=%s)",
+                self.id,
+                self.username,
+            )
+            if not allow_plaintext:
+                raise ValueError(f"Plaintext fallback disabled for TwitterEngineAccount id={self.id}")
+            return self.ct0
+        return decrypt_secret(self.ct0)
+
     def __str__(self):
         return f"@{self.username} ({self.get_status_display()})"
 
@@ -1484,3 +1626,180 @@ class ProxyConfig(models.Model):
 
     def __str__(self):
         return f"{self.tag or self.server}:{self.port} ({self.protocol}) - {self.ping_ms}ms"
+
+
+class OutreachDispatchIntent(models.Model):
+    """
+    Incremental Outreach Intent and Lease model (P04.03 / R11, R12).
+    Maintains persistent intent lifecycle, worker lease ownership, and idempotency
+    without touching the frozen legacy schema.
+    """
+    STATUS_CHOICES = [
+        ("PENDING", "در انتظار تخصیص"),
+        ("CLAIMED", "رزرو شده توسط ورکر"),
+        ("SENDING", "در حال ارسال"),
+        ("SENT", "ارسال موفق"),
+        ("FAILED", "ارسال ناموفق"),
+        ("UNKNOWN", "وضعیت نامطمئن (نیازمند تطبیق)"),
+        ("SKIPPED", "رد صلاحیت گاردریل"),
+    ]
+
+    intent_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        db_index=True,
+        verbose_name="شناسه یکتای قصد ارسال",
+    )
+    tenant_id = models.CharField(
+        max_length=64,
+        db_index=True,
+        verbose_name="شناسه مستأجر",
+    )
+    lead = models.ForeignKey(
+        "discovery.InstagramEngineLead",
+        on_delete=models.CASCADE,
+        related_name="dispatch_intents",
+        verbose_name="لید مرتبط",
+    )
+    sender = models.ForeignKey(
+        "discovery.InstagramEngineAccount",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_intents",
+        verbose_name="اکانت فرستنده تخصیص‌یافته",
+    )
+    sender_username = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="نام کاربری فرستنده",
+    )
+    recipient_identifier = models.CharField(
+        max_length=100,
+        db_index=True,
+        verbose_name="شناسه گیرنده",
+    )
+    message_type = models.CharField(
+        max_length=30,
+        default="initial",
+        choices=[("initial", "پیام اول"), ("followup", "پیام پیگیری")],
+        verbose_name="نوع پیام",
+    )
+    message_text = models.TextField(
+        verbose_name="متن پیام ارسالی",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING",
+        db_index=True,
+        verbose_name="وضعیت قصد ارسال",
+    )
+    worker_id = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="شناسه ورکر دارنده اجاره",
+    )
+    lease_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="زمان انقضای اجاره",
+    )
+    generation = models.PositiveIntegerField(
+        default=1,
+        verbose_name="نسخه قفل خوش‌بینانه",
+    )
+    attempt_count = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name="تعداد دفعات تلاش",
+    )
+    max_attempts = models.PositiveSmallIntegerField(
+        default=3,
+        verbose_name="حداکثر دفعات تلاش",
+    )
+    remote_message_id = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="شناسه پیام در پلتفرم مقصد",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        verbose_name="کد خطا",
+    )
+    error_detail = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="جزئیات خطا",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="زمان ایجاد",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="زمان آخرین تغییر",
+    )
+
+    class Meta:
+        db_table = "outreach_dispatch_intents"
+        verbose_name = "قصد ارسال پیام (Outreach Intent)"
+        verbose_name_plural = "قصدهای ارسال پیام"
+        indexes = [
+            models.Index(fields=["tenant_id", "status"], name="ix_intent_tenant_status"),
+            models.Index(fields=["status", "lease_expires_at"], name="ix_intent_status_lease"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lead", "message_type"],
+                condition=models.Q(status__in=["PENDING", "CLAIMED", "SENDING", "UNKNOWN"]),
+                name="uq_active_intent_per_lead_type",
+            ),
+        ]
+
+    def to_contract_intent(self):
+        from apps.discovery.outreach_contract import OutreachIntent, OutreachStatus
+        return OutreachIntent(
+            intent_id=str(self.intent_id),
+            tenant_id=self.tenant_id,
+            lead_id=str(self.lead_id),
+            recipient_identifier=self.recipient_identifier,
+            sender_username=self.sender_username,
+            message_type=self.message_type,
+            message_text=self.message_text,
+            status=OutreachStatus(self.status),
+            worker_id=self.worker_id,
+            lease_expires_at=self.lease_expires_at,
+            generation=self.generation,
+            attempt_count=self.attempt_count,
+            max_attempts=self.max_attempts,
+            remote_message_id=self.remote_message_id,
+            error_code=self.error_code,
+            error_detail=self.error_detail,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+    def sync_from_contract(self, contract_intent, save: bool = True):
+        self.status = contract_intent.status.value
+        self.worker_id = contract_intent.worker_id
+        self.lease_expires_at = contract_intent.lease_expires_at
+        self.generation = contract_intent.generation
+        self.attempt_count = contract_intent.attempt_count
+        self.remote_message_id = contract_intent.remote_message_id
+        self.error_code = contract_intent.error_code
+        self.error_detail = contract_intent.error_detail
+        if save:
+            self.save()
+
+    def __str__(self):
+        return f"Intent {self.intent_id} [@{self.sender_username} -> @{self.recipient_identifier}]: {self.status}"
+

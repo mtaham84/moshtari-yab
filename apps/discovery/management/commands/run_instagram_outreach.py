@@ -47,6 +47,7 @@ from apps.discovery.outreach_service import (
     perform_organic_warmup,
     build_bulletproof_message,
     parse_spintax,
+    plan_outreach_batch,
 )
 
 logger = logging.getLogger("instagram_outreach")
@@ -67,17 +68,25 @@ DEFAULT_SENDER_PITCHES = {
 }
 
 
-def load_outreach_config() -> dict:
+def load_outreach_config(tenant_id: str | None = None) -> dict:
     pitches = dict(DEFAULT_SENDER_PITCHES)
+    cfg = {}
     if CONFIG_FILE.exists():
         try:
             cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
             for u, p in cfg.get("sender_pitches", {}).items():
                 pitches[u.lower()] = p
-            return cfg
         except Exception as exc:
             logger.warning(f"Could not load {CONFIG_FILE}: {exc}")
-    return {"sender_pitches": pitches}
+
+    # Merge tenant-isolated pitches if tenant_id is provided
+    if tenant_id and "tenant_pitches" in cfg:
+        tenant_p = cfg["tenant_pitches"].get(tenant_id, {})
+        for u, p in tenant_p.items():
+            pitches[u.lower()] = p
+
+    cfg["sender_pitches"] = pitches
+    return cfg
 
 
 class Command(BaseCommand):
@@ -146,6 +155,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Bypass circadian hours check (for testing outside 09:00 - 23:00).",
         )
+        parser.add_argument(
+            "--sync-replies",
+            action="store_true",
+            help="Explicitly sync replies from customers before live outreach batch.",
+        )
 
     def handle(self, *args, **options):
         tenant = options["tenant"]
@@ -170,7 +184,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"📌 هدف: مستأجر {tenant_ids} | حداقل احتمال خرید: {min_intent} | حالت تست: {dry_run}"))
         self.stdout.write(self.style.SUCCESS("=" * 75))
 
-        cfg = load_outreach_config()
+        primary_tenant = tenant_ids[0] if tenant_ids else None
+        cfg = load_outreach_config(tenant_id=primary_tenant)
         sender_pitches = cfg.get("sender_pitches", {})
 
         clients_cache: Dict[str, Any] = {}
@@ -263,7 +278,48 @@ class Command(BaseCommand):
 
         sender_consecutive_errors: Dict[str, int] = {}
 
+        sync_replies = options.get("sync_replies", False)
+
         def execute_batch() -> int:
+            if dry_run:
+                self.stdout.write("🔍 [PLANNING & DRY-RUN]: برنامه‌ریزی ارسال بدون ایجاد اثر جانبی یا فراخوانی شبکه...")
+                plan = plan_outreach_batch(
+                    tenant_ids=tenant_ids,
+                    batch_size=batch_size,
+                    min_intent=min_intent,
+                    max_daily_dms=max_daily_dms,
+                    sender_pitches=sender_pitches,
+                    ignore_circadian=ignore_circadian,
+                )
+                if not plan["eligible"]:
+                    if plan["reason"] == "CIRCADIAN_PAUSE":
+                        self.stdout.write(self.style.WARNING(
+                            f"💤 [CIRCADIAN PAUSE] ساعت محلی تهران {plan.get('current_time_tehran')} است. ارسال فقط در ساعات ۹:۰۰ تا ۲۳:۰۰ مجاز است."
+                        ))
+                    elif plan["reason"] == "NO_AVAILABLE_SENDERS":
+                        self.stdout.write(self.style.WARNING("⚠️ هیچ اکانت فرستنده (SENDER) با ظرفیت خالی در حال حاضر در دسترس نیست."))
+                    return 0
+
+                actions = plan["planned_actions"]
+                if not actions:
+                    self.stdout.write(self.style.NOTICE(f"🏁 هیچ لید جدیدی (NEW) با امتیاز بالای {min_intent} برای ارسال وجود ندارد."))
+                    return 0
+
+                self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(actions)} اقدام ارسال شبیه‌سازی شد (بدون تغییر دیتابیس یا ارتباط خارجی):"))
+                for idx, act in enumerate(actions):
+                    self.stdout.write("-" * 65)
+                    self.stdout.write(
+                        f"👉 [طرح ارسال {idx + 1}/{len(actions)}]: @{act['username']} (PK: {act['ig_user_pk']}) "
+                        f"| احتمال خرید: {int(act['intent_score'] * 100)}%"
+                    )
+                    self.stdout.write(
+                        f"   📌 اکانت انتخابی: @{act['sender_username']} (مشاور: {act['consultant_name']}) "
+                        f"| سهمیه مصرفی قبل: {act['effective_daily_before']} روزانه / {act['effective_hourly_before']} ساعتی"
+                    )
+                    self.stdout.write(f"   ✉️ متن پیام تولیدشده: {act['pitch_text'][:120]}...")
+                self.stdout.write(self.style.SUCCESS(f"\n[DRY-RUN] پایان شبیه‌سازی: {len(actions)} پیام آماده ارسال."))
+                return len(actions)
+
             if not is_within_circadian_hours():
                 now_tehran_str = datetime.now(TEHRAN_TZ).strftime("%H:%M")
                 self.stdout.write(self.style.WARNING(
@@ -271,18 +327,19 @@ class Command(BaseCommand):
                 ))
                 return 0
 
-            # 1. Automatic Reply Checking
-            self.stdout.write("📬 [پایش دایرکت‌ها]: بررسی پاسخ‌های دریافتی از مشتریان...")
-            try:
-                reply_res = check_and_sync_lead_replies(tenant_ids)
-                if reply_res.get("replies_found", 0) > 0:
-                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
-                    for d in reply_res.get("details", []):
-                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
-                else:
-                    self.stdout.write("   صندوق دایرکت‌ها بررسی شد (پاسخ جدیدی ثبت نشده است).")
-            except Exception as reply_err:
-                self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
+            # 1. Automatic Reply Checking (only when explicit or running live)
+            if sync_replies or not loop:
+                self.stdout.write("📬 [پایش دایرکت‌ها]: بررسی پاسخ‌های دریافتی از مشتریان...")
+                try:
+                    reply_res = check_and_sync_lead_replies(tenant_ids)
+                    if reply_res.get("replies_found", 0) > 0:
+                        self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
+                        for d in reply_res.get("details", []):
+                            self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
+                    else:
+                        self.stdout.write("   صندوق دایرکت‌ها بررسی شد (پاسخ جدیدی ثبت نشده است).")
+                except Exception as reply_err:
+                    self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
 
             available_senders = get_available_senders()
             if not available_senders:
@@ -366,16 +423,8 @@ class Command(BaseCommand):
                 if dry_run:
                     self.stdout.write(self.style.HTTP_INFO(f"   [DRY-RUN] شبیه‌سازی ارسال به @{lead.username}:"))
                     self.stdout.write(f"   متن: {pitch_text[:120]}...")
-                    with transaction.atomic():
-                        lead.status = "DM_SENT"
-                        lead.sender_account = sender_user
-                        lead.initial_dm_text = pitch_text
-                        lead.initial_dm_at = django_tz.now()
-                        lead.save(update_fields=["status", "sender_account", "initial_dm_text", "initial_dm_at", "updated_at"])
-                        sender.daily_action_count += 1
-                        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
-                        sender.last_action_at = django_tz.now()
-                        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
+                    # Containment Gate (R10): Dry run must be purely read-only simulation.
+                    # Do NOT mutate lead status or increment sender action counters in DB.
                     sent_in_batch += 1
                     time.sleep(2)
                     continue

@@ -215,12 +215,12 @@
             value="{{ cat.id }}" 
             data-type="{{ cat.product_type }}"
             data-fullpath="{{ cat.get_full_path }}"
-            data-attrs='{{ cat.suggested_attributes|json_script|safe }}'
             {% if product.category_id == cat.id %}selected{% endif %}>
             {% if cat.parent %}↳ {% if cat.parent.parent %}↳ {% endif %}{% endif %}{{ cat.get_full_path }}
           </option>
         {% endfor %}
       </select>
+      {{ category_attributes_map|json_script:"category-attributes-data" }}
     </div>
 
     <!-- Description (Distinct Field for AI & Knowledge Base) -->
@@ -780,20 +780,41 @@
       .finally(() => { btnAutofill.disabled = false; autofillLabel.textContent = 'خواندن از لینک'; });
   });
 
+  let categoryAttributesMap = {};
+  const catAttrsScript = document.getElementById('category-attributes-data');
+  if (catAttrsScript) {
+    try {
+      categoryAttributesMap = JSON.parse(catAttrsScript.textContent || '{}');
+    } catch (e) {
+      console.error('Error parsing category-attributes-data:', e);
+      categoryAttributesMap = {};
+    }
+  }
+
+  function applySuggestedAttributes(attrs) {
+    if (!Array.isArray(attrs)) return;
+    attrs.forEach(a => {
+      const key = a.label || a.key;
+      if (!key) return;
+      const existingInp = Array.from(customAttrsList ? customAttrsList.querySelectorAll('input[name="custom_attr_key"]') : []).find(inp => inp.value.trim() === key);
+      if (!existingInp) {
+        addCustomAttrRow(key, '', a.placeholder || '');
+      }
+    });
+  }
+
   // Category attributes loader: smoothly integrates suggested attributes into custom rows
   function loadAttributesForCategory(catId) {
     if (!catId) return;
+    const strId = String(catId);
+    if (categoryAttributesMap && Object.prototype.hasOwnProperty.call(categoryAttributesMap, strId)) {
+      applySuggestedAttributes(categoryAttributesMap[strId] || []);
+      return;
+    }
     fetch(`/products/api/category-attributes/${catId}/`)
       .then(res => res.json())
       .then(data => {
-        const attrs = data.attributes || [];
-        attrs.forEach(a => {
-          const key = a.label || a.key;
-          const existingInp = Array.from(customAttrsList ? customAttrsList.querySelectorAll('input[name="custom_attr_key"]') : []).find(inp => inp.value.trim() === key);
-          if (!existingInp) {
-            addCustomAttrRow(key, '', a.placeholder || '');
-          }
-        });
+        applySuggestedAttributes(data.attributes || []);
       })
       .catch(err => console.log('Category attributes loading error:', err));
   }
@@ -1029,15 +1050,23 @@
         const reader = new FileReader();
         reader.onload = (e) => {
           const item = document.createElement('div');
-          item.style = 'position: relative; border-radius: 12px; overflow: hidden; border: 2px solid ' + (index === 0 ? 'var(--brand-purple)' : 'var(--panel-border)') + '; background: var(--panel-surface); text-align: center; cursor: pointer; transition: all 0.2s;';
-          item.innerHTML = `
-            <img src="${e.target.result}" style="width: 100%; height: 95px; object-fit: cover; display: block;">
-            <div style="padding: 5px; font-size: 0.72rem; color: var(--panel-text-muted); background: var(--panel-surface-elevated);">
-              <span class="preview-badge" style="font-weight: 700; color: ${index === 0 ? 'var(--brand-purple)' : 'inherit'};">
-                ${index === 0 ? 'عکس اصلی انتخابی' : 'انتخاب به عنوان اصلی'}
-              </span>
-            </div>
-          `;
+          item.style.cssText = 'position: relative; border-radius: 12px; overflow: hidden; border: 2px solid ' + (index === 0 ? 'var(--brand-purple)' : 'var(--panel-border)') + '; background: var(--panel-surface); text-align: center; cursor: pointer; transition: all 0.2s;';
+
+          const img = document.createElement('img');
+          img.src = e.target.result;
+          img.style.cssText = 'width: 100%; height: 95px; object-fit: cover; display: block;';
+
+          const captionDiv = document.createElement('div');
+          captionDiv.style.cssText = 'padding: 5px; font-size: 0.72rem; color: var(--panel-text-muted); background: var(--panel-surface-elevated);';
+
+          const badgeSpan = document.createElement('span');
+          badgeSpan.className = 'preview-badge';
+          badgeSpan.style.cssText = 'font-weight: 700; color: ' + (index === 0 ? 'var(--brand-purple)' : 'inherit') + ';';
+          badgeSpan.textContent = index === 0 ? 'عکس اصلی انتخابی' : 'انتخاب به عنوان اصلی';
+
+          captionDiv.appendChild(badgeSpan);
+          item.appendChild(img);
+          item.appendChild(captionDiv);
           item.addEventListener('click', () => {
             if (selectedMainIndexInput) selectedMainIndexInput.value = index;
             previewGrid.querySelectorAll('div').forEach((d, i) => {

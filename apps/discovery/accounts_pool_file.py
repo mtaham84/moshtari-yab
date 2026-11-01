@@ -56,13 +56,81 @@ def _write_backup(data: dict) -> None:
                 pass
 
 
-def snapshot() -> dict:
+def snapshot(encrypt_secrets: bool = True) -> dict:
     from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
+    from need_engine.crypto import encrypt_secret
+
+    SECRET_FIELDS = {"password", "auth_token", "ct0"}
+
+    def secure_val(field_name, val):
+        if encrypt_secrets and field_name in SECRET_FIELDS and isinstance(val, str) and val:
+            try:
+                return encrypt_secret(val)
+            except Exception:
+                return val
+        return val
 
     def rows(model, fields):
-        return [{f: getattr(a, f) for f in fields} for a in model.objects.order_by("id")]
+        return [
+            {f: secure_val(f, getattr(a, f)) for f in fields}
+            for a in model.objects.order_by("id")
+        ]
 
     return {"version": 1, "instagram": rows(InstagramEngineAccount, IG_FIELDS), "twitter": rows(TwitterEngineAccount, X_FIELDS)}
+
+
+def sanitize_backup_files() -> dict:
+    """
+    P02.10: Scans all local pool backups and history files. Converts any plaintext secrets
+    (password, auth_token, ct0) into enc:v1: ciphertext and ensures 0600 file permissions.
+    """
+    from need_engine.crypto import encrypt_secret, is_encrypted
+
+    stats = {"files_scanned": 0, "files_sanitized": 0, "secrets_encrypted": 0}
+    SECRET_FIELDS = {"password", "auth_token", "ct0"}
+
+    targets = []
+    p = pool_path()
+    if p.exists():
+        targets.append(p)
+
+    d = backup_dir()
+    if d is not None:
+        mirror = d / "accounts_pool.json"
+        if mirror.exists() and mirror != p:
+            targets.append(mirror)
+        hist = d / "history"
+        if hist.is_dir():
+            for h in hist.glob("accounts_pool.*.json"):
+                targets.append(h)
+
+    for target in targets:
+        stats["files_scanned"] += 1
+        try:
+            content = json.loads(target.read_text(encoding="utf-8"))
+            modified = False
+            for group in ("instagram", "twitter"):
+                for row in content.get(group, []):
+                    for sf in SECRET_FIELDS:
+                        val = row.get(sf)
+                        if isinstance(val, str) and val and not is_encrypted(val):
+                            row[sf] = encrypt_secret(val)
+                            modified = True
+                            stats["secrets_encrypted"] += 1
+
+            if modified:
+                save_atomic(target, content)
+                stats["files_sanitized"] += 1
+            else:
+                if os.name != "nt":
+                    try:
+                        os.chmod(target, 0o600)
+                    except OSError:
+                        pass
+        except Exception as exc:
+            log.warning("Could not sanitize backup file %s: %s", target, exc)
+
+    return stats
 
 
 def export_pool(force: bool = False) -> bool:
@@ -84,6 +152,9 @@ def export_pool(force: bool = False) -> bool:
 
 def import_pool(force: bool = False) -> dict:
     from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
+    from need_engine.crypto import encrypt_secret, is_encrypted
+
+    SECRET_FIELDS = {"password", "auth_token", "ct0"}
 
     path = pool_path()
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -95,7 +166,14 @@ def import_pool(force: bool = False) -> dict:
                 continue
             obj = model.objects.filter(username=username).first()
             if obj is None:
-                model.objects.create(**{f: row[f] for f in fields if f in row and row[f] is not None})
+                create_data = {}
+                for f in fields:
+                    if f in row and row[f] is not None:
+                        val = row[f]
+                        if f in SECRET_FIELDS and isinstance(val, str) and val and not is_encrypted(val):
+                            val = encrypt_secret(val)
+                        create_data[f] = val
+                model.objects.create(**create_data)
                 stats["created"] += 1
                 continue
             changed = []
@@ -103,7 +181,10 @@ def import_pool(force: bool = False) -> dict:
                 if f in ("username",) or row.get(f) in (None, ""):
                     continue
                 if force or getattr(obj, f) in (None, "", {}, []):
-                    setattr(obj, f, row[f])
+                    val = row[f]
+                    if f in SECRET_FIELDS and isinstance(val, str) and val and not is_encrypted(val):
+                        val = encrypt_secret(val)
+                    setattr(obj, f, val)
                     changed.append(f)
             if changed:
                 obj.save(update_fields=changed)

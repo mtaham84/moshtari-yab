@@ -554,7 +554,11 @@ document.addEventListener("DOMContentLoaded", function() {
             const colorBg = data.feedback === "relevant" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)";
             const colorBorder = data.feedback === "relevant" ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)";
             const colorText = data.feedback === "relevant" ? "#047857" : "#DC2626";
-            container.innerHTML = `<div style="background:${colorBg};border:1px solid ${colorBorder};border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:${colorText};font-weight:700;">✓ بازخورد ثبت شد: ${fbLabel}</div>`;
+            const div = document.createElement("div");
+            div.style.cssText = `background:${colorBg};border:1px solid ${colorBorder};border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:${colorText};font-weight:700;`;
+            div.textContent = `✓ بازخورد ثبت شد: ${fbLabel}`;
+            container.innerHTML = "";
+            container.appendChild(div);
           }
           document.querySelectorAll(".feedback-button").forEach(function(item) { item.disabled = true; });
         } else {
@@ -664,7 +668,12 @@ document.addEventListener("DOMContentLoaded", function() {
       saveStatusBtn.disabled = false;
       saveStatusBtn.textContent = "ثبت وضعیت جدید";
       if (data.status === "success") {
-        statusBadge.innerHTML = '<span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 0.85rem; padding: 6px 14px;">' + data.status_display + '</span>';
+        const badge = document.createElement("span");
+        badge.className = "p-badge";
+        badge.style.cssText = "background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 0.85rem; padding: 6px 14px;";
+        badge.textContent = data.status_display || "";
+        statusBadge.innerHTML = "";
+        statusBadge.appendChild(badge);
         statusToast.style.display = "block";
         setTimeout(() => { statusToast.style.display = "none"; }, 3000);
       } else {

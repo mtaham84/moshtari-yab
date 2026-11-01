@@ -34,21 +34,32 @@ sys.path.insert(0, "/root/moshtari-yab")
 sys.path.insert(0, "/home/taha/HDD/customerweb")
 from pathlib import Path
 for env_candidate in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().parent.parent / ".env"]:
-    if env_candidate.exists():
-        with open(env_candidate, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip())
+    try:
+        if env_candidate.is_file():
+            with open(env_candidate, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip())
+    except OSError:
+        pass
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
-# The bot token lives only in .env (CONFIG_BOT_TOKEN); it is never stored in the repository.
-BOT_TOKEN = os.environ.get("CONFIG_BOT_TOKEN", "").strip()
-if not BOT_TOKEN:
-    sys.exit("CONFIG_BOT_TOKEN is not set (add it to .env)")
-TG_API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# The bot token lives in .env (CONFIG_BOT_TOKEN); it is never stored in the repository.
+def get_bot_token() -> str:
+    return os.environ.get("CONFIG_BOT_TOKEN", "").strip()
+
+def get_tg_api_base() -> str:
+    token = get_bot_token()
+    if not token:
+        raise ValueError("CONFIG_BOT_TOKEN is not set (add it to .env)")
+    return f"https://api.telegram.org/bot{token}"
+
+BOT_TOKEN = get_bot_token()
+TG_API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}" if BOT_TOKEN else ""
+
 
 # When running on host, PostgreSQL is bound to localhost 127.0.0.1
 if not Path("/.dockerenv").exists():
@@ -86,7 +97,12 @@ def get_proxy_candidates() -> list[str]:
 def tg_request(method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any] | None:
     """Sends a request to Telegram Bot API via requests library using local proxy."""
     import requests
-    url = f"{TG_API_BASE}/{method}"
+    try:
+        api_base = get_tg_api_base()
+    except ValueError as exc:
+        log.warning("Telegram request skipped: %s", exc)
+        return None
+    url = f"{api_base}/{method}"
     candidates = get_proxy_candidates()
 
     last_exc = None
@@ -317,8 +333,180 @@ def periodic_health_check_worker() -> None:
             log.warning("Periodic health check exception: %s", exc)
 
 
+_RATE_LIMIT_STORE: dict[int, list[float]] = {}
+RATE_LIMIT_WINDOW = 60.0  # seconds
+RATE_LIMIT_MAX_CALLS = 10  # max commands per minute per user
+
+
+def parse_id_list(raw: str | None) -> set[int]:
+    """Parses a comma-separated string of numeric IDs (positive or negative)."""
+    if not raw:
+        return set()
+    result: set[int] = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            result.add(int(item))
+        except ValueError:
+            log.warning("Invalid numeric ID in telegram allowlist config: %s", item)
+    return result
+
+
+def extract_actionable_message(update: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Extracts the message object and source type from a Telegram update."""
+    if not isinstance(update, dict):
+        return None, None
+    if "message" in update and isinstance(update["message"], dict):
+        return update["message"], "message"
+    if "callback_query" in update and isinstance(update["callback_query"], dict):
+        cb = update["callback_query"]
+        msg = cb.get("message")
+        if isinstance(msg, dict):
+            msg_copy = dict(msg)
+            msg_copy["from"] = cb.get("from")
+            if "data" in cb and not msg_copy.get("text"):
+                msg_copy["text"] = cb.get("data")
+            return msg_copy, "callback_query"
+    return None, None
+
+
+def is_authorized_message(msg: dict[str, Any]) -> tuple[bool, str]:
+    """Fail-closed central authorization check.
+
+    Requires both:
+    1. TG_ADMIN_USER_IDS is configured and contains msg.from.id
+    2. TG_ALLOWED_CHAT_IDS is configured and contains msg.chat.id
+    If either configuration is missing or empty, or either ID does not match,
+    authorization strictly fails (fail-closed).
+    """
+    admin_users = parse_id_list(os.environ.get("TG_ADMIN_USER_IDS"))
+    allowed_chats = parse_id_list(os.environ.get("TG_ALLOWED_CHAT_IDS"))
+
+    if not admin_users:
+        return False, "unconfigured_admin_allowlist"
+    if not allowed_chats:
+        return False, "unconfigured_chat_allowlist"
+
+    sender = msg.get("from")
+    if not isinstance(sender, dict):
+        return False, "missing_sender"
+    user_id = sender.get("id")
+
+    chat = msg.get("chat")
+    if not isinstance(chat, dict):
+        return False, "missing_chat"
+    chat_id = chat.get("id")
+
+    if not isinstance(user_id, int) or not isinstance(chat_id, int):
+        return False, "non_numeric_ids"
+
+    if user_id not in admin_users:
+        return False, "unauthorized_user"
+
+    if chat_id not in allowed_chats:
+        return False, "unauthorized_chat"
+
+    return True, "authorized"
+
+
+def is_rate_limited(user_id: int) -> bool:
+    """Sliding-window rate limiter per user ID."""
+    now = time.time()
+    timestamps = _RATE_LIMIT_STORE.setdefault(user_id, [])
+    active_ts = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+    _RATE_LIMIT_STORE[user_id] = active_ts
+    if len(active_ts) >= RATE_LIMIT_MAX_CALLS:
+        return True
+    _RATE_LIMIT_STORE[user_id].append(now)
+    return False
+
+
+def sanitize_log_text(text: str) -> str:
+    """Redacts bot tokens and proxy credentials from log strings."""
+    token = get_bot_token()
+    if token and len(token) > 5:
+        text = text.replace(token, "[REDACTED_BOT_TOKEN]")
+    # Redact URL credentials protocol://user:pass@host:port
+    text = re.sub(r"://([^:]+):([^@]+)@", r"://[REDACTED_USER]:[REDACTED_PASS]@", text)
+    # Redact vless/vmess/trojan/ss credentials
+    text = re.sub(r"([a-z0-9]+://)[^@\s]+@", r"\1[REDACTED_AUTH]@", text, flags=re.IGNORECASE)
+    return text
+
+
+def audit_log(user_id: int, chat_id: int, action: str, details: str = "") -> None:
+    """Records an administrative audit log with sanitized text."""
+    sanitized_action = sanitize_log_text(action)
+    sanitized_details = sanitize_log_text(details)
+    log.info(
+        "AUDIT [ADMIN_ACTION] user_id=%s chat_id=%s action=%s details=%s",
+        user_id, chat_id, sanitized_action, sanitized_details
+    )
+
+
+def process_update(u: dict[str, Any]) -> bool:
+    """Validates and processes a single incoming Telegram update.
+    Returns True if an authorized action was executed, False if rejected or invalid.
+    """
+    msg, origin_type = extract_actionable_message(u)
+    if not msg:
+        return False
+
+    chat_id = (msg.get("chat") or {}).get("id")
+    user_id = (msg.get("from") or {}).get("id")
+    text = (msg.get("text") or "").strip()
+
+    if not chat_id or not user_id or not text:
+        return False
+
+    authorized, reason = is_authorized_message(msg)
+    if not authorized:
+        log.warning(
+            "Telegram access DENIED: user_id=%s chat_id=%s origin=%s reason=%s",
+            user_id, chat_id, origin_type, reason
+        )
+        return False
+
+    if is_rate_limited(user_id):
+        log.warning("Telegram rate limit exceeded: user_id=%s chat_id=%s", user_id, chat_id)
+        send_message(
+            chat_id,
+            "⚠️ <b>تعداد درخواست‌های ارسالی بیش از حد مجاز است.</b>\nلطفاً یک دقیقه دیگر تلاش فرمایید.",
+            reply_markup=get_main_keyboard()
+        )
+        return False
+
+    audit_log(user_id, chat_id, f"COMMAND:{text[:30]}")
+
+    try:
+        if text == "/start":
+            handle_start(chat_id)
+        elif text in ("/help", "❓ راهنمای ارسال کانفیگ"):
+            handle_help(chat_id)
+        elif text in ("/status", "📊 وضعیت کانفیگ‌ها و سرور"):
+            handle_status(chat_id)
+        elif text in ("/accounts", "👥 اکانت‌ها و پروکسی‌های متصل"):
+            handle_accounts_status(chat_id)
+        elif text in ("/prune", "🔄 تست مجدد و پاکسازی خرابی‌ها"):
+            handle_prune(chat_id)
+        else:
+            handle_incoming_text(chat_id, text)
+        return True
+    except Exception as handler_exc:
+        log.error("Handler error for chat %s: %s", chat_id, handler_exc, exc_info=True)
+        send_message(
+            chat_id,
+            f"⚠️ <b>خطایی در پردازش رخ داد:</b>\n<code>{handler_exc}</code>",
+            reply_markup=get_main_keyboard()
+        )
+        return False
+
+
 def run_bot() -> None:
     """Main long-polling loop for Telegram bot."""
+    if not get_bot_token():
+        sys.exit("CONFIG_BOT_TOKEN is not set (add it to .env)")
     log.info("Starting Telegram Config Management Bot...")
     last_update_id = 0
 
@@ -334,39 +522,8 @@ def run_bot() -> None:
                 continue
 
             for u in updates.get("result", []):
-                last_update_id = max(last_update_id, u["update_id"])
-                msg = u.get("message")
-                if not msg:
-                    continue
-
-                chat_id = msg.get("chat", {}).get("id")
-                text = (msg.get("text") or "").strip()
-
-                if not chat_id or not text:
-                    continue
-
-                log.info("Received message from chat %s: '%s'", chat_id, text[:40])
-
-                try:
-                    if text == "/start":
-                        handle_start(chat_id)
-                    elif text in ("/help", "❓ راهنمای ارسال کانفیگ"):
-                        handle_help(chat_id)
-                    elif text in ("/status", "📊 وضعیت کانفیگ‌ها و سرور"):
-                        handle_status(chat_id)
-                    elif text in ("/accounts", "👥 اکانت‌ها و پروکسی‌های متصل"):
-                        handle_accounts_status(chat_id)
-                    elif text in ("/prune", "🔄 تست مجدد و پاکسازی خرابی‌ها"):
-                        handle_prune(chat_id)
-                    else:
-                        handle_incoming_text(chat_id, text)
-                except Exception as handler_exc:
-                    log.error("Handler error for chat %s: %s", chat_id, handler_exc, exc_info=True)
-                    send_message(
-                        chat_id,
-                        f"⚠️ <b>خطایی در پردازش رخ داد:</b>\n<code>{handler_exc}</code>",
-                        reply_markup=get_main_keyboard()
-                    )
+                last_update_id = max(last_update_id, u.get("update_id", 0))
+                process_update(u)
 
         except Exception as exc:
             log.warning("Bot polling loop error: %s", exc)

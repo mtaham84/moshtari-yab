@@ -47,7 +47,7 @@ def test_on_prefilter_drops_x_example():
 
 def test_live_cost_estimate_uses_rendered_input_and_configured_prices():
     rows = load_golden("data/golden/need_golden.jsonl")[:1]
-    cfg = EngineConfig(products_source="jsonl:unused", prices={"gemini-3.5-flash-lite": [0.30, 2.50]})
+    cfg = EngineConfig(products_source="jsonl:unused", extract_model="gemini-3.5-flash-lite", prices={"gemini-3.5-flash-lite": [0.30, 2.50]})
 
     model, estimate = estimate_live_cost(rows, cfg)
 
