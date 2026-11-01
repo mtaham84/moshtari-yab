@@ -55,23 +55,11 @@ def _strip_platform_prefix(value):
     return value
 
 
+from apps.core.form_helpers import parse_form_list
+
+
 def _instagram_list(value: str, *, hashtags: bool = False) -> list[str]:
-    parts = value.replace("،", ",").replace(";", ",").splitlines()
-    if len(parts) == 1:
-        parts = parts[0].split(",")
-    output = []
-    seen = set()
-    for part in parts:
-        item = part.strip()
-        if hashtags:
-            item = item.lstrip("#").strip()
-        key = item.casefold()
-        if item and key not in seen:
-            output.append(item[:80])
-            seen.add(key)
-        if len(output) == 50:
-            break
-    return output
+    return parse_form_list(value, hashtags=hashtags, max_items=50, max_item_length=80)
 
 
 def _bounded_post_int(value: str | None, default: int, minimum: int, maximum: int) -> int:

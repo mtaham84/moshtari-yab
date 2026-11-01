@@ -27,32 +27,10 @@ def _is_safe_image_file(f):
     return is_valid_image(f)
 
 
-def _form_list(value: str, *, hashtags: bool = False) -> list[str]:
+from apps.core.form_helpers import parse_bounded_int, parse_form_list
 
-    parts = value.replace("،", ",").replace(";", ",").splitlines()
-    if len(parts) == 1:
-        parts = parts[0].split(",")
-    output = []
-    seen = set()
-    for part in parts:
-        item = part.strip()
-        if hashtags:
-            item = item.lstrip("#").strip()
-        key = item.casefold()
-        if item and key not in seen:
-            output.append(item[:80])
-            seen.add(key)
-        if len(output) == 50:
-            break
-    return output
-
-
-def _form_list_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return default
-    return max(minimum, min(maximum, number))
+_form_list = parse_form_list
+_form_list_int = parse_bounded_int
 
 
 def _categories_for(business):
