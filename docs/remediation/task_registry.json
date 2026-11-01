@@ -1542,13 +1542,13 @@
         "نام flags، exit code و stateهای عملیاتی تغییر ناخواسته نکنند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/discovery/test_p08_14_target_orchestrator.py",
       "report_path": "docs/remediation/tasks/P08.14.md"
     },
     {

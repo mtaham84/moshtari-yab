@@ -19,6 +19,7 @@ from apps.discovery.ig_session import (
 from instagram_engine.analyzer import get_effective_caption_cta, is_buyer_comment, evaluate_comment_smart
 from instagram_engine.config import settings
 from apps.discovery.family_inspection_service import FamilyInspectionService
+from apps.discovery.target_orchestrator import TargetScrapeOrchestrator
 
 
 class Command(BaseCommand):
@@ -1016,114 +1017,33 @@ class Command(BaseCommand):
         return res.as_tuple()
 
     def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
-        from apps.discovery.models import InstagramCrawlExecution, InstagramPage, InstagramSourceStat
-        from apps.discovery.instagram_families import (DiscoverySource, INSTAGRAM_DAILY_REQUEST_BUDGET,
-                                                         record_source_result)
-
-        total_leads = 0
-        from apps.billing.services import is_blocked
-        try:
-            if is_blocked(target["business"]):
-                self.stdout.write(self.style.WARNING(
-                    f"Skipping Instagram family for tenant {target['business'].pk}: اعتبار تمام شده"
-                ))
-                return 0
-        except Exception as exc:
-            self.stderr.write(f"Skipping Instagram family: wallet status unavailable ({type(exc).__name__})")
-            return 0
-        page_searches = 0
-        selected_report = []
-        for source in target["sources"]:
-            stat = InstagramSourceStat.objects.filter(business=target["business"], family_id=source.family_id,
-                                                       source_type=source.source_type, label=source.label[:100]).first()
-            selected_report.append({"type": source.source_type, "label": source.label,
-                                    "requests": stat.requests if stat else 0, "leads": stat.leads if stat else 0})
-        self.stdout.write(f"Selected sources for family {target['family'].product_id}: {selected_report}")
-        for source in target["sources"]:
-            self._current_api_requests = 0
-            self._page_search_error = ""
-            if is_blocked(target["business"]):
-                self.stdout.write(self.style.WARNING(
-                    f"Stopping Instagram sources for tenant {target['business'].pk}: اعتبار تمام شده"
-                ))
-                break
-            if account.status != "ACTIVE":
-                self.stdout.write(self.style.WARNING(f"Stopping sources: اکانت @{account.username} غیرفعال شد."))
-                break
-            if not self._request_budget_available(account):
-                self.stdout.write(self.style.WARNING(f"Stopping sources: سقف درخواست روزانه اکانت @{account.username} تکمیل شد."))
-                break
-            error = ""
-            medias = []
-            actual_source = source
-            try:
-                if source.source_type == "page" and source.label.startswith("search:"):
-                    page_searches += 1
-                    if page_searches > max(1, int(os.getenv("INSTAGRAM_PAGE_SEARCH_TERMS_PER_CYCLE", "1"))):
-                        continue
-                    created = self._discover_candidate_pages(cl, account, target["business"], target["family"],
-                                                             target["plan"], source)
-                    execution_type, query = "PAGE_SEARCH", source.label
-                    leads = 0
-                    search_status = "FAILED" if self._page_search_error else "SUCCESS"
-                    record_source_result(target["business"], source, leads, search_status)
-                    InstagramCrawlExecution.objects.create(
-                        business=target["business"], tenant_id=target["tenant_id"], query_text=query,
-                        target_type=execution_type, account_username=account.username, account=account,
-                        status=search_status, posts_inspected=0, qualifying_posts=0, leads_found=0,
-                        requests=self._current_api_requests,
-                        message=f"صفحه‌های رقیب شناسایی‌شده: {len(created)}",
-                    )
-                    continue
-
-                execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
-                query = f"#{source.label.lstrip('#')}" if source.source_type == "hashtag" else (f"@{source.label.lstrip('@')}" if source.source_type == "page" else source.label)
-                medias = self._fetch_source_medias(
-                    cl=cl, account=account, source_type=source.source_type, source_label=source.label,
-                    business=target["business"], page_obj=source.page,
-                    target_qualifying=3, min_inspect=15, max_total=30
-                )
-            except Exception as exc:
-                error = str(exc)
-                self._note_account_error(account, error, cl, exc)
-                execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
-                query = source.label
-            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=10)
-            total_leads += leads
-
-            if not error and retired:
-                self._retire_and_delete_source(
-                    business=target["business"],
-                    source_type=source.source_type,
-                    label=source.label,
-                    family=target["family"],
-                    plan=target["plan"]
-                )
-                self.stdout.write(self.style.ERROR(
-                    f"  ❌ [حذف دائمی کوئری]: کوئری '{source.label}' ({source.source_type}) به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {inspected} پست برای همیشه حذف شد."
-                ))
-                status = "REMOVED_UNQUALIFIED"
-                InstagramCrawlExecution.objects.create(
-                    business=target["business"], tenant_id=target["tenant_id"], query_text=query,
-                    target_type=execution_type, account_username=account.username, account=account,
-                    status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
-                    requests=self._current_api_requests,
-                    message=f"حذف دائمی کوئری: بررسی {inspected} پست و تنها {qualifying} پست واجد شرایط (حداقل ۳ پست با ۱۰+ کامنت و حداکثر ۳۰ روز عمر). کوئری برای همیشه حذف شد.",
-                )
-                time.sleep(random.uniform(2.0, 4.0))
-                continue
-
-            status = "FAILED" if error and not medias else ("SUCCESS" if qualifying else "NO_POSTS")
-            record_source_result(target["business"], source, leads, status)
-            InstagramCrawlExecution.objects.create(
-                business=target["business"], tenant_id=target["tenant_id"], query_text=query,
-                target_type=execution_type, account_username=account.username, account=account,
-                status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
-                requests=self._current_api_requests,
-                message=f"خانواده {target['family'].product_id}: بررسی {inspected} پست ({qualifying} واجد شرایط ۱۰+ کامنت و ۳۰ روز)؛ {leads} سرنخ. {error[:180]}",
-            )
-            time.sleep(random.uniform(3.0, 7.0))
-        return total_leads
+        from instagram_engine.analyzer import extract_caption_cta, evaluate_comment_smart, llm_evaluate_family_batch
+        inspector = FamilyInspectionService(
+            stdout_writer=self.stdout.write,
+            stderr_writer=self.stderr.write,
+            api_caller=self._instagram_api_call,
+            comment_evaluator=evaluate_comment_smart,
+            caption_cta_extractor=extract_caption_cta,
+            llm_batch_evaluator=llm_evaluate_family_batch,
+        )
+        orchestrator = TargetScrapeOrchestrator(
+            family_inspector=inspector,
+            stdout_writer=self.stdout.write,
+            stderr_writer=self.stderr.write,
+            request_budget_fn=self._request_budget_available,
+            note_error_fn=self._note_account_error,
+            retire_source_fn=self._retire_and_delete_source,
+            discover_pages_fn=self._discover_candidate_pages,
+            fetch_medias_fn=self._fetch_source_medias,
+        )
+        return orchestrator.scrape_family_target(
+            cl=cl,
+            account=account,
+            target=target,
+            min_comments=min_comments,
+            max_posts=max_posts,
+            get_current_requests_fn=lambda: getattr(self, "_current_api_requests", 0),
+        )
 
     def _scrape_target(self, cl, account, target, min_comments, max_posts) -> int:
         tenant_id = target["tenant_id"]
