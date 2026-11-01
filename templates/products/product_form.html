@@ -257,80 +257,7 @@
       <small style="color: var(--panel-text-faint); display: block; margin-top: 6px;">seed هر هشتگ به دسته و محصول مربوط می‌ماند؛ جمع‌آوری هنوز اجرا نمی‌شود.</small>
     </div>
 
-    <!-- Dynamic Custom Attributes Builder (Arbitrary Key-Value Attributes) -->
-    <div class="form-group" id="attributes-wrapper" style="border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover); margin-bottom: 24px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-        <div>
-          <label class="form-label" style="margin-bottom: 2px; font-size: 0.95rem;">
-            ویژگی‌ها و مشخصات فنی کالا (دلخواه و نامحدود)
-          </label>
-          <small style="color: var(--panel-text-muted); display: block; font-size: 0.78rem;">
-            می‌توانید هر تعداد مشخصه دلخواه (مانند سایز، رنگ، جنس، مدل، گارانتی یا موارد دیگر) را ثبت کنید تا ایجنت دقیقاً خریداران این مشخصات را پیدا کند.
-          </small>
-        </div>
-        <button type="button" class="p-btn p-btn-sm p-btn-primary" id="btn-add-custom-attr" style="font-size: 0.78rem;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>+ افزودن ویژگی دلخواه</span>
-        </button>
-      </div>
-
-      <!-- Quick Preset Suggestions (Click to Add Row) -->
-      <div style="margin-bottom: 16px; padding: 10px 14px; border-radius: 12px; background: var(--stone-surface-sunken); border: 1px dashed var(--panel-border-subtle);">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--obsidian-cyan);"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-          <span style="font-size: 0.76rem; color: var(--stone-text-muted); font-weight: 600;">افزودن سریع ویژگی‌های پرکاربرد (یک‌کلیک):</span>
-        </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px;" id="preset-chips-container">
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="سایز" data-sample="مثال: XL یا ۳۸، ۴۰">
-            + سایز (Size)
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="رنگ" data-sample="مثال: مشکی، زیتونی">
-            + رنگ (Color)
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="جنس" data-sample="مثال: کتان پنبه ۱۰۰٪">
-            + جنس / متریال
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="مدل" data-sample="مثال: کارگو، راسته">
-            + مدل / طرح
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="برند" data-sample="مثال: سامسونگ، زارا">
-            + برند (Brand)
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="گارانتی" data-sample="مثال: ۱۸ ماه معتبر شرکتی">
-            + گارانتی (Warranty)
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="ابعاد / وزن" data-sample="مثال: ۳۵×۲۰ سانتی‌متر">
-            + ابعاد / وزن
-          </button>
-          <button type="button" class="preset-chip p-btn p-btn-xs p-btn-secondary" data-key="مدت دوره" data-sample="مثال: ۴۰ ساعت ویدیو + پروژه">
-            + مدت دوره (خدمات)
-          </button>
-        </div>
-      </div>
-
-      <!-- Dynamic Custom Attributes List (Rows of Key-Value) -->
-      <div id="custom-attributes-list" style="display: flex; flex-direction: column; gap: 10px;">
-        {% if product.attributes %}
-          {% for k, v in product.attributes.items %}
-            <div class="custom-attr-row" style="display: flex; gap: 10px; align-items: center; background: var(--panel-surface); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);">
-              <div style="flex: 1;">
-                <input type="text" name="custom_attr_key" class="form-input" placeholder="ویژگی (مثلاً جنس)" value="{{ k }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
-              </div>
-              <div style="flex: 1.6;">
-                <input type="text" name="custom_attr_value" class="form-input" placeholder="مقدار (مثلاً کتان)" value="{{ v }}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
-              </div>
-              <button type="button" class="p-btn p-btn-ghost btn-delete-attr-row" title="حذف این ویژگی" style="padding: 6px 8px; color: var(--p-danger); border-radius: 8px;">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              </button>
-            </div>
-          {% endfor %}
-        {% endif %}
-      </div>
-
-      <div id="no-attrs-placeholder" style="{% if product.attributes %}display: none;{% endif %} text-align: center; padding: 18px; border-radius: 10px; background: var(--panel-surface); border: 1px dashed var(--panel-border-subtle); color: var(--panel-text-faint); font-size: 0.82rem;">
-        هنوز مشخصه‌ای تعریف نشده است. با کلیک بر روی دکمه‌های پرکاربرد بالا یا دکمه «+ افزودن ویژگی دلخواه»، ویژگی‌های این کالا را ثبت کنید.
-      </div>
-    </div>
+    {% include "products/components/_category_attributes.html" %}
     <!-- Product Images (Max 10 with Main Image Selection) -->
     <div class="form-group" style="margin-bottom: 24px; border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; background: var(--panel-hover);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
@@ -671,27 +598,47 @@
     const row = document.createElement('div');
     row.className = 'custom-attr-row';
     row.style = 'display: flex; gap: 10px; align-items: center; background: var(--panel-surface); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);';
-    row.innerHTML = `
-      <div style="flex: 1;">
-        <input type="text" name="custom_attr_key" class="form-input" placeholder="ویژگی (مثلاً جنس)" value="${escapeHtml(key)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
-      </div>
-      <div style="flex: 1.6;">
-        <input type="text" name="custom_attr_value" class="form-input" placeholder="${placeholder || 'مقدار (مثلاً کتان)'}" value="${escapeHtml(val)}" style="height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);">
-      </div>
-      <button type="button" class="p-btn p-btn-ghost btn-delete-attr-row" title="حذف این ویژگی" style="padding: 6px 8px; color: var(--p-danger); border-radius: 8px;">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-      </button>
-    `;
-    const btnDelete = row.querySelector('.btn-delete-attr-row');
+
+    const keyDiv = document.createElement('div');
+    keyDiv.style = 'flex: 1;';
+    const keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.name = 'custom_attr_key';
+    keyInput.className = 'form-input';
+    keyInput.placeholder = 'ویژگی (مثلاً جنس)';
+    keyInput.value = key;
+    keyInput.style = 'height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);';
+    keyDiv.appendChild(keyInput);
+
+    const valDiv = document.createElement('div');
+    valDiv.style = 'flex: 1.6;';
+    const valInput = document.createElement('input');
+    valInput.type = 'text';
+    valInput.name = 'custom_attr_value';
+    valInput.className = 'form-input';
+    valInput.placeholder = placeholder || 'مقدار (مثلاً کتان)';
+    valInput.value = val;
+    valInput.style = 'height: 38px; font-size: 0.84rem; background: var(--panel-surface-elevated);';
+    valDiv.appendChild(valInput);
+
+    const btnDelete = document.createElement('button');
+    btnDelete.type = 'button';
+    btnDelete.className = 'p-btn p-btn-ghost btn-delete-attr-row';
+    btnDelete.title = 'حذف این ویژگی';
+    btnDelete.style = 'padding: 6px 8px; color: var(--p-danger); border-radius: 8px;';
+    btnDelete.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
     btnDelete.addEventListener('click', () => {
       row.remove();
       if (customAttrsList && customAttrsList.querySelectorAll('.custom-attr-row').length === 0) {
         if (noAttrsPlaceholder) noAttrsPlaceholder.style.display = 'block';
       }
     });
+
+    row.appendChild(keyDiv);
+    row.appendChild(valDiv);
+    row.appendChild(btnDelete);
+
     if (customAttrsList) customAttrsList.appendChild(row);
-    const valInput = row.querySelector('input[name="custom_attr_value"]');
-    const keyInput = row.querySelector('input[name="custom_attr_key"]');
     if (key && valInput) {
       valInput.focus();
     } else if (keyInput) {

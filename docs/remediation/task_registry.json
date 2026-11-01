@@ -1662,13 +1662,13 @@
         "payload با quote/فارسی و DOM امن باقی بماند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/tasks/P08.20.md, templates/products/components/_category_attributes.html, apps/products/tests/test_p08_20_category_attributes_component.py",
       "report_path": "docs/remediation/tasks/P08.20.md"
     },
     {
