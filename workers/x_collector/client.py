@@ -147,7 +147,7 @@ class XCliClient:
 
         log.info(
             "Starting X Top search for '%s' [Account: @%s, Proxy: %s, Cutoff: %s]",
-            query, acc_user, proxy, cutoff_utc.isoformat(),
+            full_query, acc_user, proxy, cutoff_utc.isoformat(),
         )
 
         use_in_process = False

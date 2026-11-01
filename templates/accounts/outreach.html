@@ -6,6 +6,61 @@
 {% block nav_outreach %}active{% endblock %}
 
 {% block panel_content %}
+<style>
+  .outreach-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .outreach-2col-compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .outreach-timeline-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .outreach-followup-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr 140px;
+    gap: 10px;
+    align-items: center;
+  }
+  .outreach-modal-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 992px) {
+    .outreach-main-grid {
+      grid-template-columns: 1fr !important;
+      gap: 18px;
+    }
+    .outreach-timeline-grid {
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+    .outreach-followup-grid {
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .outreach-2col-compact {
+      grid-template-columns: 1fr !important;
+      gap: 8px;
+    }
+    .outreach-modal-2col {
+      grid-template-columns: 1fr !important;
+      gap: 10px;
+    }
+  }
+</style>
+
 <div class="p-page-header" style="margin-bottom: 24px;">
   <div class="p-header-titles">
     <div style="display:flex; align-items:center; gap:10px;">
@@ -102,7 +157,7 @@
 </div>
 
 <!-- Main 2-Column Grid -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:28px;">
+<div class="outreach-main-grid" style="margin-bottom:28px;">
 
   <!-- Right Column: Add Sender Account Form with Dealism Tiers + Tutorial -->
   <div>
@@ -237,7 +292,7 @@
           ✨ دستیار هوشمند تولید متن پیام با AI
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+        <div class="outreach-2col-compact" style="margin-bottom:10px;">
           <div>
             <label style="font-size:0.76rem; font-weight:600; display:block; margin-bottom:3px; color:#475569;">لحن پیام:</label>
             <select id="ai-tone-select" style="width:100%; padding:7px 10px; border:1px solid #e9d5ff; border-radius:6px; font-size:0.82rem; background:#fff;">
@@ -392,7 +447,7 @@
       </div>
 
       <!-- Dialogue Timeline -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:14px;">
+      <div class="outreach-timeline-grid" style="margin-bottom:14px;">
         <!-- Initial DM sent by us -->
         <div style="background:#f8fafc; border-radius:8px; padding:12px; font-size:0.83rem; line-height:1.6;">
           <div style="font-size:0.74rem; color:#64748b; font-weight:700; margin-bottom:4px;">
@@ -436,7 +491,7 @@
           {% csrf_token %}
           <input type="hidden" name="lead_id" value="{{ lead.id }}">
 
-          <div style="display:grid; grid-template-columns:220px 1fr 140px; gap:10px; align-items:center;">
+          <div class="outreach-followup-grid">
             <div>
               <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">اکانت فرستنده پیام دوم:</label>
               <select name="sender_username" required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; font-weight:600; background:#fff;">
@@ -919,7 +974,7 @@
         </small>
       </div>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+      <div class="outreach-modal-2col" style="margin-bottom:14px;">
         <div>
           <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">نام مشاور در پیام‌ها</label>
           <input type="text" name="consultant_name" id="editOutreachConsultant"
@@ -934,11 +989,11 @@
         </div>
       </div>
 
-      <div style="display:grid; grid-template-columns:1.3fr 1fr; gap:12px; margin-bottom:14px;">
+      <div class="outreach-modal-2col" style="margin-bottom:14px;">
         <div>
           <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">رده و سن اکانت (Dealism)</label>
           <select name="account_tier" id="editOutreachTier"
-                  style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; font-weight:600;">
+                 style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; font-weight:600;">
             <option value="NEW">🔵 اکانت جدید (زیر ۳ ماه) — ۱۰-۲۰ پیام</option>
             <option value="MEDIUM">🟡 اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰-۵۰ پیام</option>
             <option value="AGED">🟢 اکانت قدیمی (بالای ۱ سال) — ۵۰-۱۰۰ پیام</option>

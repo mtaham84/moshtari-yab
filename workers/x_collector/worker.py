@@ -207,7 +207,7 @@ class XCollector:
         self.state_backend = os.getenv("COLLECTOR_STATE_BACKEND", "sqlite").strip().lower()
         self.state: Any = None
         self.max_per_query = max_per_query if max_per_query is not None else int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))
-        self.daily_cap = daily_cap if daily_cap is not None else int(os.getenv("X_COLLECT_DAILY_CAP", "500"))
+        self.daily_cap = daily_cap if daily_cap is not None else int(os.getenv("X_COLLECT_DAILY_CAP", "2500"))
         self.sleep_min = sleep_min if sleep_min is not None else float(os.getenv("X_COLLECT_SLEEP_MIN", "2"))
         self.sleep_max = sleep_max if sleep_max is not None else float(os.getenv("X_COLLECT_SLEEP_MAX", "5"))
         self.max_retries = max_retries if max_retries is not None else int(os.getenv("X_COLLECT_MAX_RETRIES", "3"))
