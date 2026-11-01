@@ -502,7 +502,7 @@ class Command(BaseCommand):
         import hashlib
         from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
         from instagram_engine.analyzer import get_effective_caption_cta, evaluate_comment_smart, detect_repeated_comment_triggers
-        from instagram_engine.post_filters import is_irrelevant_post_for_business
+        from apps.discovery.post_filters import is_irrelevant_post_for_business
 
         max_age_days = 30
         age_cutoff = dj_timezone.now() - timedelta(days=max_age_days)
