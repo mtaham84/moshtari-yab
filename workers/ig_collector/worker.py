@@ -33,6 +33,7 @@ from instagram_discovery.post_metrics import sample_confident_audit_posts
 from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
 from .planner import build_collection_plan
 from .adapter import InstagramCollectionAdapter
+from .evaluator import CommentEvaluationPipeline, CommentEvaluationOutcome
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -434,6 +435,13 @@ class InstagramCollector:
         )
         comments = plan.effective_comments
         policy_name = plan.policy_name
+        comment_pipeline = CommentEvaluationPipeline(
+            lexicon=self.lexicon,
+            knowledge_reader=self.knowledge_reader,
+            jev=self.jev,
+            min_intent_score=self.min_intent_score,
+            policy_name=policy_name,
+        )
 
         if plan.is_rate_limited:
             result = self._result(
@@ -829,110 +837,47 @@ class InstagramCollector:
                                 + len(pending_seller_lead_ids)
                         ).reached():
                             status = "DAILY_CAP_REACHED"
-                            raw_comment_id = str(comment.comment_id or f"unknown-{comment_index}").strip()
-                            suggested = post_record.get("metadata", {}).get("suggested_target", {})
-                            business_id = suggested.get("business_id") if isinstance(suggested, dict) else None
-                            comment_evaluations.append({
-                                "id": f"ig:{post.shortcode}:c{raw_comment_id}",
-                                "business_id": str(business_id) if business_id not in (None, "") else None,
-                                "post_id": f"ig:{post.shortcode}",
-                                "commenter_id": str(comment.author_id) if comment.author_id not in (None, "") else None,
-                                "commenter_username": str(comment.username or "").strip().lstrip("@") or None,
-                                "comment_text": str(comment.text or "").strip()[:2000],
-                                "collection_source": collection_source,
-                                "prefilter": {"status": "not_evaluable", "reason": "daily_cap_reached", "evidence": []},
-                                "jev": None,
-                            })
-                            continue
-                        record = normalize_comment(comment, post, seed_key, self.backend.name, self.lexicon)
-                        if record is None:
-                            raw_comment_id = str(comment.comment_id or f"unknown-{comment_index}").strip()
-                            suggested = post_record.get("metadata", {}).get("suggested_target", {})
-                            business_id = suggested.get("business_id") if isinstance(suggested, dict) else None
-                            comment_evaluations.append({
-                                "id": f"ig:{post.shortcode}:c{raw_comment_id}",
-                                "business_id": str(business_id) if business_id not in (None, "") else None,
-                                "post_id": f"ig:{post.shortcode}",
-                                "commenter_id": str(comment.author_id) if comment.author_id not in (None, "") else None,
-                                "commenter_username": str(comment.username or "").strip().lstrip("@") or None,
-                                "comment_text": str(comment.text or "").strip()[:2000],
-                                "collection_source": collection_source,
-                                "prefilter": {"status": "not_evaluable", "reason": "invalid_or_non_persian_or_missing_fields", "evidence": []},
-                                "jev": None,
-                            })
-                            filtered += 1
-                            if keep_rejected:
-                                rejected.append(_rejected("comment", "invalid_or_non_persian_or_missing_fields"))
-                            continue
-                        if parent_post.get("category_decision"):
-                            record["metadata"]["parent_post"] = parent_post
-                            record["metadata"]["category_decision"] = parent_post["category_decision"]
-                        else:
-                            record["metadata"]["parent_post"] = parent_post
-                        record["metadata"]["collection_source"] = collection_source
-                        prefilter = prefilter_comment(
-                            record["text"],
-                            commenter_handle=record.get("author_handle"),
-                            post_author_handle=post_record.get("author_handle"),
-                        )
-                        prefilter_data = {
-                            "status": prefilter.status,
-                            "reason": prefilter.reason,
-                            "evidence": list(prefilter.evidence),
-                        }
-                        suggested = post_record.get("metadata", {}).get("suggested_target", {})
-                        business_id = suggested.get("business_id") if isinstance(suggested, dict) else None
-                        evaluation_row = {
-                            "id": record["id"],
-                            "business_id": str(business_id) if business_id not in (None, "") else None,
-                            "post_id": parent_post["id"],
-                            "commenter_id": record.get("author_id"),
-                            "commenter_username": str(record.get("author_handle") or "").lstrip("@") or None,
-                            "comment_text": record["text"][:2000],
-                            "collection_source": collection_source,
-                            "prefilter": prefilter_data,
-                            "jev": None,
-                        }
-                        record["metadata"]["jev_prefilter"] = prefilter_data
-                        if prefilter.status == "set_aside":
-                            comment_evaluations.append(evaluation_row)
-                            filtered += 1
+                            comment_evaluations.append(
+                                CommentEvaluationPipeline.create_capped_evaluation_row(
+                                    comment, post, post_record, collection_source, comment_index
+                                )
+                            )
                             continue
 
-                        category_context = record["metadata"].get("parent_post", {})
-                        decision = evaluate_with_jev(
-                            record["text"], post_context=category_context,
-                            knowledge_reader=self.knowledge_reader, jev=self.jev,
+                        outcome = comment_pipeline.evaluate_comment(
+                            comment=comment,
+                            post=post,
+                            post_record=post_record,
+                            parent_post=parent_post,
+                            collection_source=collection_source,
+                            seed_key=seed_key,
+                            backend_name=self.backend.name,
+                            normalize_fn=normalize_comment,
+                            comment_index=comment_index,
                         )
-                        record["metadata"]["jev_evaluation"] = decision
-                        evaluation_row["jev"] = decision
-                        comment_evaluations.append(evaluation_row)
-                        if decision["status"] == "uncertain":
-                            record["metadata"]["review_queue_status"] = "queued"
-                            record["metadata"]["human_review_required"] = True
-                            review_queue.append(record)
+                        comment_evaluations.append(outcome.evaluation_row)
+
+                        if outcome.is_uncertain and outcome.record is not None:
+                            review_queue.append(outcome.record)
                             if is_manual and manual_post_result is not None:
                                 manual_post_result["human_review_comments"] += 1
-                        else:
-                            record["metadata"]["review_queue_status"] = "not_queued"
-                        if is_manual and manual_post_result is not None:
+
+                        if is_manual and manual_post_result is not None and outcome.record is not None:
                             manual_post_result["comments_evaluated"] += 1
-                        # If Jev is configured, its result gates the legacy lead policy.
-                        # With no Jev adapter configured, keep the existing account-seed
-                        # flow operational while recording the unavailable evaluation
-                        # as uncertain and queued for review.
-                        if self.jev is not None and decision["status"] != "probably a buyer":
+
+                        if outcome.is_filtered:
+                            filtered += 1
+                            if keep_rejected and outcome.keep_rejected_reason:
+                                rejected.append(_rejected("comment", outcome.keep_rejected_reason))
                             continue
 
-                        policy = COMMENT_POLICIES.get(policy_name, buyer_request)
-                        accepted = policy(record, post_record, self.min_intent_score)
-                        if accepted is None:
-                            filtered += 1
-                            if keep_rejected:
-                                reason = "not_seller_lead" if policy_name == "seller_post" else "intent_below_threshold"
-                                rejected.append(_rejected("comment", reason))
+                        if outcome.gated_by_jev:
                             continue
-                        record = accepted
+
+                        if not outcome.accepted:
+                            continue
+
+                        record = outcome.record
                         if policy_name == "seller_post":
                             if (record["id"] not in seller_lead_ids
                                     and not self.store.contains("seller_lead",
