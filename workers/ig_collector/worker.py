@@ -34,6 +34,7 @@ from .post_selection import CommentCandidate, select_comment_candidates, seller_
 from .planner import build_collection_plan
 from .adapter import InstagramCollectionAdapter
 from .evaluator import CommentEvaluationPipeline, CommentEvaluationOutcome
+from .persistence import CollectorPersistenceManager
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -325,11 +326,13 @@ class InstagramCollector:
                  knowledge_reader: InstagramKnowledgeReader | None = None,
                  jev: JevCommentEvaluator | None = None,
                  post_label_store: PostLabelStore | None = None,
-                 adapter: InstagramCollectionAdapter | None = None):
+                 adapter: InstagramCollectionAdapter | None = None,
+                 persistence: CollectorPersistenceManager | None = None):
         root = Path(__file__).resolve().parents[2]
         self.backend = backend
         self.adapter = adapter or InstagramCollectionAdapter(self.backend, self._with_retry)
         self.output_dir = _resolve(root, output_dir or os.getenv("IG_COLLECT_OUTPUT_DIR", "data/ig_collected"))
+        self.persistence = persistence or CollectorPersistenceManager(self.output_dir)
         self.post_label_store = (
             post_label_store if post_label_store is not None
             else create_post_label_store(self.output_dir)
@@ -404,6 +407,7 @@ class InstagramCollector:
         if self.state_backend == "sqlite":
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = create_state_store(self.state_path, platform="instagram", sqlite_factory=SeenStore)
+        self.persistence.set_store(self.store)
         lock = (self.state_path.with_suffix(self.state_path.suffix + ".lock")
                 if self.state_backend == "sqlite"
                 else self.output_dir / ".collector_state.lock")
@@ -1042,111 +1046,19 @@ class InstagramCollector:
         return True
 
     def _persist_records(self, rows: list[dict[str, Any]], dated: Path) -> None:
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        latest = self.output_dir / "latest.jsonl"
-        paths = sorted({latest.resolve(), dated.resolve()}, key=str)
-        locks = [path.with_suffix(path.suffix + ".lock") for path in paths]
-        with exclusive_file_lock(locks[0]):
-            with exclusive_file_lock(locks[1]):
-                offsets = {path: path.stat().st_size if path.exists() else 0 for path in paths}
-                try:
-                    content = "".join(to_json_line(SourceRecord.from_dict(row)) + "\n" for row in rows)
-                    write_latest(latest, content, append=True, locked=True)
-                    write_latest(dated, content, append=True, locked=True)
-                    assert self.store is not None
-                    self.store.add_many(rows)
-                except Exception:
-                    for path, offset in offsets.items():
-                        if path.exists():
-                            with path.open("r+b") as stream:
-                                stream.truncate(offset)
-                    raise
+        self.persistence.persist_records(rows, dated)
 
     def _persist_seller_leads(self, rows: list[dict[str, Any]]) -> int:
-        target = self.output_dir / "seller_leads.jsonl"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        assert self.store is not None
-        with exclusive_file_lock(target.with_suffix(target.suffix + ".lock")):
-            existing = set()
-            if target.exists():
-                for line in target.read_text(encoding="utf-8").splitlines():
-                    try:
-                        item = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if item.get("id"):
-                        existing.add(str(item["id"]))
-            new_rows = [row for row in rows if row["id"] not in existing]
-            content = "".join(
-                to_json_line(SourceRecord.from_dict(row)) + "\n"
-                for row in new_rows
-            )
-            if content:
-                offset = write_latest(target, content, append=True, locked=True)
-                try:
-                    state_rows = [{**row, "id": f"seller_lead:{row['id']}", "kind": "seller_lead"}
-                                  for row in new_rows]
-                    self.store.add_many(state_rows)
-                except Exception:
-                    with target.open("r+b") as stream:
-                        stream.truncate(offset)
-                    raise
-            return len(new_rows)
+        return self.persistence.persist_seller_leads(rows)
 
     def _persist_review_queue(self, rows: list[dict[str, Any]]) -> int:
-        target = self.output_dir / "needs-review.jsonl"
-        existing: set[tuple[str, bool]] = set()
-        if target.exists():
-            for line in target.read_text(encoding="utf-8").splitlines():
-                try:
-                    item = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if item.get("id"):
-                    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-                    existing.add((str(item["id"]), bool(metadata.get("audit"))))
-        new_rows = []
-        for row in rows:
-            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            key = (str(row.get("id") or ""), bool(metadata.get("audit")))
-            if key[0] and key not in existing:
-                new_rows.append(row)
-                existing.add(key)
-        if new_rows:
-            queued_at = datetime.now(timezone.utc).isoformat()
-            queued_rows = []
-            for row in new_rows:
-                queued = dict(row)
-                metadata = dict(queued.get("metadata") or {})
-                metadata.setdefault("review_queued_at", queued.pop("review_queued_at", queued_at))
-                queued["metadata"] = metadata
-                queued_rows.append(queued)
-            content = "".join(to_json_line(SourceRecord.from_dict(row)) + "\n" for row in queued_rows)
-            write_latest(target, content, append=True)
-        return len(new_rows)
+        return self.persistence.persist_review_queue(rows)
 
     def _persist_comment_evaluations(self, rows: list[dict[str, Any]]) -> int:
-        target = self.output_dir / "comment-evaluations.jsonl"
-        existing: set[str] = set()
-        if target.exists():
-            for line in target.read_text(encoding="utf-8").splitlines():
-                try:
-                    item = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if item.get("id"):
-                    existing.add(str(item["id"]))
-        new_rows = [row for row in rows if row["id"] not in existing]
-        if new_rows:
-            content = "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
-                              for row in new_rows)
-            write_latest(target, content, append=True)
-        return len(new_rows)
+        return self.persistence.persist_comment_evaluations(rows)
 
     def _write_rejected(self, rows: list[dict[str, Any]], target: Path) -> None:
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        content = "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows)
-        append_line(target, content)
+        self.persistence.write_rejected(rows, target)
 
     def _result(self, status: str, rows: list[dict[str, Any]], filtered: int, failures: int, **extra) -> dict[str, Any]:
         result = {"status": status, "backend": self.backend.name, "collected": len(rows),
@@ -1155,12 +1067,7 @@ class InstagramCollector:
         return result
 
     def _write_status(self, result: dict[str, Any]) -> None:
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        target = self.output_dir / "status.json"
-        payload = {**result, "daily_cap": self.daily_cap, "updated_at": datetime.now(timezone.utc).isoformat()}
-        if payload.get("output"):
-            payload["output"] = Path(payload["output"]).name
-        write_status(target, payload)
+        self.persistence.write_status(result, self.daily_cap)
 
 
 def _rejected(kind: str, reason: str) -> dict[str, str]:
