@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-11-02T00:39:38.964446",
+  "updated_at": "2026-11-02T00:44:05.577707",
   "total_tasks": 99,
   "summary": {
     "PLANNED": 59,
@@ -10,8 +10,8 @@
     "DEFERRED": 1,
     "N/A": 0,
     "completed_tasks": 92,
-    "done": 95,
-    "planned": 4
+    "done": 96,
+    "planned": 3
   },
   "tasks": [
     {
@@ -1945,13 +1945,13 @@
         "fallback Ops در دسترس نبودن مدل درست و با اعتبار ناکافی متوقف باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/core/test_p10_05_financial_cutover_and_credit_canary.py",
       "report_path": "docs/remediation/tasks/P10.05.md"
     },
     {
