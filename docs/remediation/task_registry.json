@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 84
+    "completed_tasks": 85
   },
   "tasks": [
     {
@@ -1723,13 +1723,13 @@
         "هیچ بهبود عددی با حذف تست، کد لازم یا انتقال کور ifها ایجاد نشده باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/PHASE_8_EXIT_GATE.md, docs/remediation/tasks/P08.23.md, apps/core/test_p08_gate_g08.py",
       "report_path": "docs/remediation/tasks/P08.23.md"
     },
     {
