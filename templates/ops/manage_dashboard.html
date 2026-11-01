@@ -547,9 +547,9 @@
           <span class="help">ورود امن و فوری با کوکی مرورگر بدون نیاز به پسورد و بدون ریسک بلاک.</span>
         </div>
         <div class="field">
-          <label>پروکسی اختصاصی (اختیاری)</label>
-          <input type="text" name="proxy_url" class="ops-input" placeholder="http://xray:8080 یا socks5://..." dir="ltr">
-          <span class="help">پشتیبانی از پروتکل‌های HTTP و SOCKS5</span>
+          <label>پروکسی اختصاصی (پیش‌فرض سیستم: socks5h://xray:1080)</label>
+          <input type="text" name="proxy_url" class="ops-input" value="socks5h://xray:1080" placeholder="socks5h://xray:1080" dir="ltr">
+          <span class="help">پشتیبانی از HTTP و SOCKS5 (برای عبور از فیلترینگ اینستاگرام روی سرور ایران)</span>
         </div>
         <div>
           <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت اسکرپر</button>
@@ -1648,8 +1648,8 @@
           <input type="text" name="consultant_name" class="ops-input" placeholder="مثال: رها، مشاور درمان" style="width:100%; padding:8px 10px; border-radius:6px;">
         </div>
         <div class="field">
-          <label style="font-weight:600; font-size:0.82rem;">پروکسی اختصاصی (اختیاری)</label>
-          <input type="text" name="proxy_url" class="ops-input" placeholder="http://xray:8080" dir="ltr" style="width:100%; padding:8px 10px; border-radius:6px;">
+          <label style="font-weight:600; font-size:0.82rem;">پروکسی اختصاصی (پیش‌فرض: socks5h://xray:1080)</label>
+          <input type="text" name="proxy_url" class="ops-input" value="socks5h://xray:1080" placeholder="socks5h://xray:1080" dir="ltr" style="width:100%; padding:8px 10px; border-radius:6px;">
         </div>
         <div style="align-self:flex-end;">
           <button type="submit" class="btn primary" style="width:100%; height:38px; font-weight:700; border-radius:6px;">

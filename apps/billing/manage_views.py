@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import socket
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -34,6 +35,7 @@ from apps.discovery.models import (
 from apps.core.jalali import format_jalali_date
 
 logger = logging.getLogger("management")
+DEFAULT_SYSTEM_PROXY = os.environ.get("DEFAULT_IG_PROXY", "socks5h://xray:1080")
 
 
 def manage_access_required(view_func):
@@ -545,6 +547,10 @@ def manage_account_add(request):
     daily_lim = int(custom_daily) if custom_daily.isdigit() else tier_specs["default_daily"]
     hourly_lim = tier_specs["hourly_speed"]
 
+    DEFAULT_SYSTEM_PROXY = os.environ.get("DEFAULT_IG_PROXY", "socks5h://xray:1080")
+    if not proxy_url:
+        proxy_url = DEFAULT_SYSTEM_PROXY
+
     # Check if account already exists
     existing = InstagramEngineAccount.objects.filter(username__iexact=username).first()
     if existing:
@@ -563,8 +569,7 @@ def manage_account_add(request):
         account.account_tier = account_tier
         account.daily_limit = daily_lim
         account.hourly_limit = hourly_lim
-        if proxy_url:
-            account.proxy_url = proxy_url
+        account.proxy_url = proxy_url or account.proxy_url or DEFAULT_SYSTEM_PROXY
         account.status = "CHALLENGED"
         account.save()
     else:
@@ -639,8 +644,8 @@ def manage_account_add(request):
             dev_profile = {}
             logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
 
-        if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
+        cl.set_proxy(effective_proxy)
 
         def _challenge_detector(u, choice=None):
             raise ChallengeRequired(f"کد تایید به روش {choice or 'ایمیل/پیامک'} ارسال شد.")
@@ -961,8 +966,8 @@ def manage_sender_account_edit(request, pk):
 
         from instagrapi import Client
         cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
+        cl.set_proxy(effective_proxy)
 
         from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
         dev_profile = ensure_account_device_profile(account)
@@ -1079,8 +1084,8 @@ def manage_account_test(request, pk):
         from instagrapi.exceptions import (ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired,
                                            PleaseWaitFewMinutes)
         cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
+        cl.set_proxy(effective_proxy)
 
         def _non_interactive_challenge(username, choice=None):
             raise ChallengeRequired(f"کد تایید امنیتی به روش {choice} ارسال شد.")
@@ -1231,8 +1236,8 @@ def manage_account_submit_code(request, pk):
     try:
         from instagrapi import Client
         cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
+        cl.set_proxy(effective_proxy)
 
         saved_data = account.device_settings or {}
         saved_settings = (
