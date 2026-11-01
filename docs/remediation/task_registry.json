@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-11-02T00:33:37.295707",
+  "updated_at": "2026-11-02T00:35:46.741296",
   "total_tasks": 99,
   "summary": {
     "PLANNED": 59,
@@ -10,8 +10,8 @@
     "DEFERRED": 1,
     "N/A": 0,
     "completed_tasks": 92,
-    "done": 93,
-    "planned": 6
+    "done": 94,
+    "planned": 5
   },
   "tasks": [
     {
@@ -1905,13 +1905,13 @@
         "no legacy change و no data loss و no plaintext disclosure در شواهد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/core/test_p10_03_migration_and_data_preflight.py",
       "report_path": "docs/remediation/tasks/P10.03.md"
     },
     {
