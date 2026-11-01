@@ -1502,13 +1502,13 @@
         "خطای report خطای اصلی را نپوشاند و secret چاپ نشود."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "workers/test_p08_12_ig_telemetry.py",
       "report_path": "docs/remediation/tasks/P08.12.md"
     },
     {

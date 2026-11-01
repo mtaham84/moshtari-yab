@@ -35,6 +35,7 @@ from .planner import build_collection_plan
 from .adapter import InstagramCollectionAdapter
 from .evaluator import CommentEvaluationPipeline, CommentEvaluationOutcome
 from .persistence import CollectorPersistenceManager
+from .telemetry import CollectorCycleFinalizer, safe_beat_ok, safe_beat_error
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -415,13 +416,13 @@ class InstagramCollector:
             with exclusive_file_lock(lock):
                 result = self._run_locked(seeds, comments, keep_rejected)
             if result.get("status") in {"COMPLETED", "DAILY_CAP_REACHED", "PARTIAL", "CIRCUIT_OPEN"} and not result.get("failures"):
-                beat_ok("instagram", int(result.get("collected", 0)))
+                safe_beat_ok("instagram", int(result.get("collected", 0)))
             else:
-                beat_error("instagram", f"cycle status {result.get('status', 'unknown')}",
-                           result.get("cooldown_until"))
+                safe_beat_error("instagram", f"cycle status {result.get('status', 'unknown')}",
+                                result.get("cooldown_until"))
             return result
         except Exception as exc:
-            beat_error("instagram", type(exc).__name__)
+            safe_beat_error("instagram", type(exc).__name__)
             raise
 
     def _run_locked(self, seeds: list[dict[str, Any]], comments: dict[str, Any], keep_rejected: bool) -> dict[str, Any]:
@@ -446,6 +447,7 @@ class InstagramCollector:
             min_intent_score=self.min_intent_score,
             policy_name=policy_name,
         )
+        finalizer = CollectorCycleFinalizer(self.output_dir, self.daily_cap, self.backend.name)
 
         if plan.is_rate_limited:
             result = self._result(
@@ -943,16 +945,7 @@ class InstagramCollector:
         if DailyCap(self.daily_cap, self.store.count_today() + len(collected)
                     + len(pending_seller_lead_ids)).reached() and status in {"COMPLETED", "PARTIAL"}:
             status = "DAILY_CAP_REACHED"
-        audit_rate = _float(comments.get(
-            "post_audit_sample_rate", os.getenv("IG_POST_AUDIT_SAMPLE_RATE", "0.05"),
-        ))
-        audit_limit = max(0, min(100, _int(comments.get(
-            "post_audit_max_items", os.getenv("IG_POST_AUDIT_MAX_ITEMS", "25"),
-        ))))
-        audit_seed = _int(comments.get("post_audit_seed", os.getenv("IG_POST_AUDIT_SEED", "0")))
-        review_queue.extend(sample_confident_audit_posts(
-            audit_candidates, sample_rate=audit_rate, max_items=audit_limit, seed=audit_seed,
-        ))
+        review_queue.extend(finalizer.sample_audit_candidates(audit_candidates, comments))
         output = self.output_dir / f"{date.today().isoformat()}.jsonl"
         if collected:
             try:
@@ -990,21 +983,22 @@ class InstagramCollector:
             status = "PARTIAL"
         if rejected and keep_rejected:
             self._write_rejected(rejected, self.output_dir / f"{date.today().isoformat()}.rejected.jsonl")
-        if manual_post_result is not None and manual_post_result.get("status") == "selected":
-            manual_post_result["status"] = (
-                "completed_with_review" if manual_post_result.get("human_review_comments")
-                else "completed"
-            )
-        result = self._result(status, collected, filtered, failures,
-                              output=str(output), rejected=len(rejected),
-                              human_review=len(review_queue),
-                              started_at=now.isoformat(),
-                              updated_at=datetime.now(timezone.utc).isoformat(),
-                              handles=handle_outcomes,
-                              cooldown_until=self.store.get_setting("rate_limit_until"),
-                              seller_leads=seller_lead_count)
-        if manual_post_result is not None:
-            result["manual_post"] = dict(manual_post_result)
+        finalizer.finalize_manual_post_status(manual_post_result)
+        result = finalizer.build_result_payload(
+            status=status,
+            collected=collected,
+            filtered_out=filtered,
+            failures=failures,
+            collected_today=self.store.count_today() if self.store else 0,
+            output_file=output,
+            rejected_count=len(rejected),
+            review_count=len(review_queue),
+            started_at=now.isoformat(),
+            handle_outcomes=handle_outcomes,
+            cooldown_until=self.store.get_setting("rate_limit_until"),
+            seller_lead_count=seller_lead_count,
+            manual_post_result=manual_post_result,
+        )
         self._write_status(result)
         return result
 
