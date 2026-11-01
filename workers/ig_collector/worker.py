@@ -31,6 +31,7 @@ from instagram_discovery.post_label_store import (
 )
 from instagram_discovery.post_metrics import sample_confident_audit_posts
 from .post_selection import CommentCandidate, select_comment_candidates, seller_post_priority
+from .planner import build_collection_plan
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
@@ -418,29 +419,27 @@ class InstagramCollector:
     def _run_locked(self, seeds: list[dict[str, Any]], comments: dict[str, Any], keep_rejected: bool) -> dict[str, Any]:
         assert self.store is not None
         operator_post_labels = self.post_label_store.load()
-        manual_seeds = [seed for seed in seeds if seed.get("kind") == "post"]
-        if manual_seeds:
-            comments = {
-                **comments,
-                "mode": "all",
-                "max_posts_per_run": min(100, max(1, _int(comments.get("max_posts_per_run", 0)))),
-                "max_per_post": min(500, max(
-                    _int(comments.get("max_per_post", 0)),
-                    max(_int(seed.get("max_comments", 0)) for seed in manual_seeds),
-                )),
-                "window_days": max(
-                    _int(comments.get("window_days", 1)),
-                    max(_int(seed.get("window_days", 1)) for seed in manual_seeds),
-                ),
-            }
         now = datetime.now(timezone.utc)
         cooldown = Cooldown(self.store, self.cooldown_seconds).active_until(now)
-        if cooldown:
-            result = self._result("RATE_LIMITED", [], 0, 0, cooldown_until=cooldown,
-                                  started_at=now.isoformat(), updated_at=now.isoformat(),
-                                  handles={str(seed.get("value", "")): {
-                                      "status": "rate_limited", "posts": 0, "comments": 0
-                                  } for seed in seeds if seed.get("kind") == "account"})
+        plan = build_collection_plan(
+            seeds,
+            comments,
+            daily_cap=self.daily_cap,
+            collected_today=self.store.count_today(),
+            cooldown_until=cooldown,
+            supported_policies=COMMENT_POLICIES,
+        )
+        comments = plan.effective_comments
+        policy_name = plan.policy_name
+
+        if plan.is_rate_limited:
+            result = self._result(
+                "RATE_LIMITED", [], 0, 0, cooldown_until=plan.cooldown_until,
+                started_at=now.isoformat(), updated_at=now.isoformat(),
+                handles={str(seed.get("value", "")): {
+                    "status": "rate_limited", "posts": 0, "comments": 0
+                } for seed in plan.account_seeds}
+            )
             self._write_status(result)
             return result
         collected: list[dict[str, Any]] = []
@@ -462,9 +461,6 @@ class InstagramCollector:
         seller_lead_ids: set[str] = set()
         pending_seller_lead_ids: set[str] = set()
         seller_lead_count = 0
-        policy_name = comments.get("policy") or "buyer_request"
-        if policy_name not in COMMENT_POLICIES:
-            policy_name = "buyer_request"
 
         handle_outcomes: dict[str, dict[str, Any]] = {}
         manual_post_result: dict[str, Any] | None = None
