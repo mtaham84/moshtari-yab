@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 83
+    "completed_tasks": 84
   },
   "tasks": [
     {
@@ -1703,13 +1703,13 @@
         "legacy، schema و داده تاریخی صفر تغییر؛ rollback commit مشخص باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/tasks/P08.22.md, need_engine/tests/test_x_quality_pure.py",
       "report_path": "docs/remediation/tasks/P08.22.md"
     },
     {

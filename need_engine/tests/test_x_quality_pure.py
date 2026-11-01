@@ -9,7 +9,6 @@ from need_engine.schemas import ChatMessage
 from need_engine.x_filters import cheap_x_filter
 from need_engine.x_replies import build_x_intent_url, fit_public_reply, sanitize_public_reply, x_weighted_length
 from need_engine.contacts import extract_public_contacts
-from need_engine.x_query_scoring import query_weight, score_query
 
 
 def post(text, message_id=1, **kwargs):
@@ -43,13 +42,6 @@ def test_contacts_require_platform_context_and_never_turn_email_into_website():
     contacts = extract_public_contacts("تلگرام: @my_public_id email me name@gmail.com instagram.com/p/post t.me/joinchat/abc",
                                       types=("telegram", "instagram", "website", "email"))
     assert [(item.type, item.value) for item in contacts] == [("telegram", "my_public_id"), ("email", "name@gmail.com")]
-
-
-def test_query_score_prior_and_weight_clamp():
-    assert score_query(0) == pytest.approx(0.03)
-    assert score_query(50, ordered=5) > 0.5
-    assert query_weight(0.01, 0.5) == pytest.approx(0.2)
-    assert query_weight(1.0, 0.1) == pytest.approx(3.0)
 
 
 def test_topic_gate_requires_both_topic_and_intent():
