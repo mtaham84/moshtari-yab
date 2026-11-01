@@ -135,8 +135,9 @@ class Category(models.Model):
                 self.depth = self.parent.depth + 1
             else:
                 self.depth = 1
-
-        self.full_path = self.get_full_path()
+            self.full_path = self.get_full_path(force_refresh=True)
+        elif not self.full_path:
+            self.full_path = self.get_full_path(force_refresh=True)
 
         if self.business_id and tree_fields_touched:
             with transaction.atomic():
@@ -167,8 +168,12 @@ class Category(models.Model):
             count += 1
         return ancestors
 
-    def get_full_path(self):
-        """Returns human-readable path: e.g. پوشاک > مردانه > شلوار"""
+    def get_full_path(self, force_refresh: bool = False):
+        """Returns human-readable path: e.g. پوشاک > مردانه > شلوار.
+        Uses cached full_path column if already set and not force_refresh to prevent N+1 queries.
+        """
+        if self.full_path and not force_refresh:
+            return self.full_path
         parts = [c.name for c in self.get_ancestors()] + [self.name]
         return " > ".join(parts)
 

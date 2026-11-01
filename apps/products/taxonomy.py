@@ -222,6 +222,31 @@ def add_node(business: Business, parent_id: int | None, name: str, source: str =
     return Category.objects.create(business=business, name=name, parent=parent, product_type=kind, source=source)
 
 
+def get_subtree_ids(business: Business, root_category_id: int) -> list[int]:
+    """
+    Fetches all descendant category IDs for a root node within the given business
+    in a SINGLE database query, eliminating N+1 recursive calls.
+    Includes cycle protection.
+    """
+    pairs = list(Category.objects.filter(business=business).values_list("id", "parent_id"))
+    children_map: dict[int, list[int]] = {}
+    for cid, pid in pairs:
+        if pid is not None:
+            children_map.setdefault(pid, []).append(cid)
+
+    ids: list[int] = []
+    stack = [root_category_id]
+    visited = set()
+    while stack:
+        curr_id = stack.pop()
+        if curr_id in visited:
+            continue
+        visited.add(curr_id)
+        ids.append(curr_id)
+        stack.extend(children_map.get(curr_id, []))
+    return ids
+
+
 def rename_node(business: Business, node_id: int, name: str) -> Category:
     cat = _own(business).filter(pk=node_id).first()
     name = _clean_name(name)
@@ -231,15 +256,41 @@ def rename_node(business: Business, node_id: int, name: str) -> Category:
         raise TaxonomyError("این نام قبلاً در همین سطح وجود دارد.")
     cat.name = name
     cat.save()
-    for child in list(cat.children.all()):    # keep every descendant's full_path in sync
-        _refresh_paths(child)
+    _refresh_paths(cat)
     return cat
 
 
-def _refresh_paths(cat: Category) -> None:
-    cat.save()
-    for child in cat.children.all():
-        _refresh_paths(child)
+def _refresh_paths(root: Category) -> None:
+    """
+    Refreshes full_path and depth for all descendants of root.
+    Uses batch in-memory traversal to avoid recursive N+1 children.all queries.
+    """
+    cats_qs = Category.objects.filter(business=root.business).select_related("parent")
+    all_cats = {c.id: c for c in cats_qs}
+    children_map: dict[int, list[Category]] = {}
+    for c in all_cats.values():
+        if c.parent_id:
+            children_map.setdefault(c.parent_id, []).append(c)
+
+    stack = [root]
+    visited = set()
+    while stack:
+        curr = stack.pop()
+        if curr.id in visited:
+            continue
+        visited.add(curr.id)
+        if curr.id != root.id:
+            parent_node = all_cats.get(curr.parent_id)
+            if parent_node:
+                curr.depth = parent_node.depth + 1
+                curr.parent = parent_node
+            else:
+                curr.depth = 1
+            curr.full_path = curr.get_full_path(force_refresh=True)
+            curr.save(update_fields=["depth", "full_path"])
+
+        for ch in children_map.get(curr.id, []):
+            stack.append(ch)
 
 
 def move_node(business: Business, node_id: int, new_parent_id: int | None) -> Category:
@@ -292,11 +343,7 @@ def delete_node(business: Business, node_id: int) -> int:
     if not cat:
         raise TaxonomyError("دسته‌بندی پیدا نشد.")
     with transaction.atomic():
-        ids, stack = [], [cat]
-        while stack:
-            c = stack.pop()
-            ids.append(c.pk)
-            stack.extend(c.children.all())
+        ids = get_subtree_ids(business, cat.pk)
         Product.objects.filter(business=business, category_id__in=ids).update(category=cat.parent_id)
         Category.objects.filter(pk__in=ids).delete()
     return len(ids)

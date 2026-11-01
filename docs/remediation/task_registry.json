@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 86
+    "completed_tasks": 87
   },
   "tasks": [
     {
@@ -1763,13 +1763,13 @@
         "خروجی و parent path صحیح و داده tenant دیگر پنهان بماند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/products/models.py, apps/products/taxonomy.py, apps/accounts/shop.py, apps/products/tests/test_p09_02_n_plus_one_category.py, docs/remediation/tasks/P09.02.md",
       "report_path": "docs/remediation/tasks/P09.02.md"
     },
     {

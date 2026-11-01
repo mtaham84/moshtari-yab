@@ -26,11 +26,8 @@ def shop_view(request, slug):
     if cat_id and cat_id.isdigit():
         active = Category.objects.filter(business=business, pk=int(cat_id)).first()
         if active:
-            ids, stack = [], [active]
-            while stack:
-                c = stack.pop()
-                ids.append(c.pk)
-                stack.extend(c.children.all())
+            from apps.products.taxonomy import get_subtree_ids
+            ids = get_subtree_ids(business, active.pk)
             products = products.filter(category_id__in=ids)
     items = []
     for p in products[:120]:
