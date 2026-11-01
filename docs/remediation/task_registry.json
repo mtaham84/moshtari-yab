@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-11-02T00:35:46.741296",
+  "updated_at": "2026-11-02T00:39:38.964446",
   "total_tasks": 99,
   "summary": {
     "PLANNED": 59,
@@ -10,8 +10,8 @@
     "DEFERRED": 1,
     "N/A": 0,
     "completed_tasks": 92,
-    "done": 94,
-    "planned": 5
+    "done": 95,
+    "planned": 4
   },
   "tasks": [
     {
@@ -1925,13 +1925,13 @@
         "مورد مبهم به NEW برنگردد و اپراتور بتواند pause/reconcile کند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/core/test_p10_04_shadow_decision_and_safe_canary.py",
       "report_path": "docs/remediation/tasks/P10.04.md"
     },
     {
