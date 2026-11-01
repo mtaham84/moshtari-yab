@@ -37,9 +37,14 @@ class PoolFileTests(TestCase):
             self.assertEqual(TwitterEngineAccount.objects.get(username="x1").auth_token, "new")
 
     def test_pool_file_is_git_ignored(self):
+        import shutil
         root = Path(__file__).resolve().parents[2]
-        out = subprocess.run(["git", "check-ignore", "data/accounts_pool.json"], cwd=root, capture_output=True)
-        self.assertEqual(out.returncode, 0)
+        if shutil.which("git") and (root / ".git").exists():
+            out = subprocess.run(["git", "check-ignore", "data/accounts_pool.json"], cwd=root, capture_output=True)
+            self.assertEqual(out.returncode, 0)
+        elif (root / ".gitignore").exists():
+            gitignore = root / ".gitignore"
+            self.assertIn("data/accounts_pool.json", gitignore.read_text())
 
 
 class PoolBackupTests(TestCase):

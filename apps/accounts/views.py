@@ -1,3 +1,4 @@
+import logging
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
@@ -7,8 +8,10 @@ from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from apps.businesses.models import Business, MessageStyle
-from apps.discovery.models import Opportunity
+from apps.discovery.models import Opportunity, InstagramEngineAccount
 from apps.discovery.services import get_performance_analytics
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 

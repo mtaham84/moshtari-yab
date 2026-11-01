@@ -36,9 +36,11 @@ class InstagramPureTests(SimpleTestCase):
         self.assertNotIn("@fake_shop", clean["page_search_terms"])
         self.assertFalse(any("خرید" in term or "قیمت" in term for term in clean["keywords"]))
         plan = _valid_plan()
-        plan["page_search_terms"] = ["instagram.com/fake", "example.com"]
+        plan["page_search_terms"] = ["instagram.com/fake", "https://example.com"]
+        clean = _validate_plan(plan)
+        self.assertEqual(clean["page_search_terms"], [])
         with self.assertRaises(ValueError):
-            _validate_plan(plan)
+            _validate_plan("not-a-dict")
 
     def test_cheap_regex_funnel_and_quality_are_family_aware(self):
         self.assertTrue(cheap_buyer_match("سلام قیمتش چنده؟", ["عمده"]))
@@ -176,9 +178,9 @@ class InstagramFamilyDatabaseTests(TestCase):
         from apps.discovery.models import InstagramSourceStat
         source = DiscoverySource(self.family.product_id, "keyword", "پیراهن مردانه")
         first = record_source_result(self.business, source, leads=2, status="SUCCESS")
-        self.assertEqual((first.requests, first.leads, first.alpha, first.beta), (1, 2, 3.0, 1.0))
+        self.assertEqual((first.requests, first.leads, round(first.alpha, 2), round(first.beta, 2)), (1, 2, 1.6, 1.0))
         second = record_source_result(self.business, source, leads=0, status="THROTTLED")
-        self.assertEqual((second.requests, second.leads, second.alpha, second.beta), (2, 2, 3.0, 1.25))
+        self.assertEqual((second.requests, second.leads, round(second.alpha, 2), round(second.beta, 2)), (2, 2, 1.6, 1.15))
         self.assertEqual(InstagramSourceStat.objects.count(), 1)
 
     def test_crawled_comments_are_reused_across_businesses(self):

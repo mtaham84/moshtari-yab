@@ -1643,7 +1643,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
     import shutil
     import subprocess
 
-    executable = shutil.which("twitter") or shutil.which("twitter-cli") or ("/usr/local/bin/twitter" if os.path.exists("/usr/local/bin/twitter") else None)
+    executable = shutil.which("twitter") or shutil.which("twitter-cli")
     if executable:
         sub_env = os.environ.copy()
         sub_env["TWITTER_AUTH_TOKEN"] = auth_token

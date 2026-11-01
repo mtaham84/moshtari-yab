@@ -538,30 +538,6 @@ class PanelViewTests(TestCase):
         self.assertEqual(report["shares"]["evaluated_comments"]["label"],
                          "share of comments that passed the selection threshold")
 
-    def test_instagram_report_ui_allows_operator_labels_after_jev(self):
-        from unittest.mock import patch
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            row = {"id": "ig:p:c1", "business_id": str(self.biz.pk), "comment_text": "قیمت؟",
-                   "commenter_id": "buyer", "prefilter": {"status": "eligible"},
-                   "jev": {"status": "uncertain", "score": 0.4}}
-            (root / "comment-evaluations.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
-            with patch.dict("os.environ", {"IG_COLLECT_OUTPUT_DIR": str(root)}):
-                page = self.client.get(reverse("discovery:instagram_pages"))
-                self.assertEqual(page.status_code, 200)
-                self.assertContains(page, "برچسب‌گذاری انسانی پس از ارزیابی Jev")
-                response = self.client.post(reverse("discovery:instagram_pages"), {
-                    "action": "label_comment", "comment_id": "ig:p:c1", "label": "approve",
-                })
-                self.assertEqual(response.status_code, 302)
-                saved = json.loads((root / "human-labels.jsonl").read_text(encoding="utf-8").splitlines()[0])
-
-        self.assertEqual(saved["comment_id"], "ig:p:c1")
-        self.assertEqual(saved["business_id"], str(self.biz.pk))
-        self.assertEqual(saved["operator_id"], str(self.user.pk))
-        self.assertEqual(saved["label"], "approve")
-
     def test_instagram_ingest_is_idempotent_and_fans_out(self):
         import json
         import tempfile

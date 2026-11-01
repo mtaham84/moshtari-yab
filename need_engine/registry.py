@@ -177,14 +177,22 @@ class ModelRegistry:
         e = self.entry(model)
         if e is not None:
             return e.price_in, e.price_out
-        p = self.cfg.prices.get(model) or (0.0, 0.0)
+        p = self.cfg.prices.get(model)
+        if not p and "/" in model:
+            p = self.cfg.prices.get(model.split("/")[-1])
+        p = p or (0.0, 0.0)
         return float(p[0]), float(p[1])
 
     def rate_limit(self, model: str) -> dict | None:
         e = self.entry(model)
-        if e is None or (e.rpm is None and e.tpm is None and e.rpd is None):
-            return None
-        return {"rpm": e.rpm, "tpm": e.tpm, "rpd": e.rpd}
+        if e is not None:
+            if e.rpm is None and e.tpm is None and e.rpd is None:
+                return None
+            return {"rpm": e.rpm, "tpm": e.tpm, "rpd": e.rpd}
+        rl = self.cfg.rate_limits.get(model)
+        if not rl and "/" in model:
+            rl = self.cfg.rate_limits.get(model.split("/")[-1])
+        return rl
 
     def usd_to_toman(self) -> float:
         return self.refresh().usd_to_toman or self.cfg.usd_to_toman

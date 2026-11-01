@@ -63,11 +63,12 @@ class EngineConfig:
     max_workers: int = _f("NE_MAX_WORKERS", 2)
     # USD per 1M tokens (input, output)
     prices: dict = _f("NE_PRICES", {
-        "gpt-6-luna": [0.10, 0.50], "gemini-3.5-flash-lite": [0.30, 2.50], "gemini-3.5-flash": [1.50, 9.00], "gemini-2.5-flash-lite": [0.10, 0.40],
+        "gpt-6-luna": [0.10, 0.50], "code/gpt-6-luna": [0.10, 0.50], "gemini-3.5-flash-lite": [0.30, 2.50], "gemini-3.5-flash": [1.50, 9.00], "gemini-2.5-flash-lite": [0.10, 0.40],
     })
     # rpm / tpm / rpd per model (None = unlimited). Copy real numbers from AI Studio → Rate limits.
     rate_limits: dict = _f("NE_RATE_LIMITS", {
         "gpt-6-luna": {"rpm": 15, "tpm": 300000, "rpd": None},
+        "code/gpt-6-luna": {"rpm": 15, "tpm": 300000, "rpd": None},
         "gemini-3.5-flash-lite": {"rpm": 10, "tpm": 200000, "rpd": 500},
         "gemini-3.5-flash": {"rpm": 5, "tpm": 200000, "rpd": 100},
         "gemini-2.5-flash-lite": {"rpm": 15, "tpm": 250000, "rpd": 1000},

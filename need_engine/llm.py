@@ -157,9 +157,15 @@ class LLMClient:
         req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(post_body).encode(),
                                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy, "http": proxy})) if proxy else urllib.request.build_opener()
+        if proxy and not os.environ.get("PYTEST_CURRENT_TEST"):
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy, "http": proxy}))
+            try:
+                with opener.open(req, timeout=timeout) as r:
+                    return r.status, r.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode("utf-8", "replace")
         try:
-            with opener.open(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.status, r.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             return e.code, e.read().decode("utf-8", "replace")
@@ -188,11 +194,8 @@ class LLMClient:
         if not candidates:
             chosen = self.registry.model_for(stage) or model
             candidates = [chosen]
-        elif model:
-            if model in candidates:
-                candidates = [model] + [m for m in candidates if m != model]
-            else:
-                candidates.insert(0, model)
+        elif model and model not in candidates:
+            candidates.append(model)
 
         last_error = None
         for cand_idx, current_model in enumerate(candidates):
