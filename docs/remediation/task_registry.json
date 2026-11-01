@@ -9,7 +9,7 @@
     "BLOCKED": 0,
     "DEFERRED": 1,
     "N/A": 0,
-    "completed_tasks": 85
+    "completed_tasks": 86
   },
   "tasks": [
     {
@@ -1743,13 +1743,13 @@
         "active CLI/import/DB در image رسمی سالم و legacy ثابت باشند."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "requirements.lock, Dockerfile, apps/core/test_p09_01_runtime_lock.py, docs/remediation/tasks/P09.01.md",
       "report_path": "docs/remediation/tasks/P09.01.md"
     },
     {
