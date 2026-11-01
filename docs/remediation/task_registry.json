@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-11-02T00:45:49.246704",
+  "updated_at": "2026-11-02T00:49:50.502745",
   "total_tasks": 99,
   "summary": {
     "PLANNED": 59,
@@ -10,8 +10,8 @@
     "DEFERRED": 1,
     "N/A": 0,
     "completed_tasks": 92,
-    "done": 97,
-    "planned": 2
+    "done": 98,
+    "planned": 1
   },
   "tasks": [
     {
@@ -1985,13 +1985,13 @@
         "R25 deferred به fixed تبدیل نشود؛ رفع کد با انتشار و صحت داده اشتباه گرفته نشود."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "apps/core/test_p10_gate_g10.py",
       "report_path": "docs/remediation/tasks/P10.07.md"
     }
   ]
