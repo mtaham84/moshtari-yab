@@ -1,8 +1,14 @@
 import logging
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
-from .models import Category
+
+from apps.core.form_helpers import parse_bounded_int, parse_form_list
+from apps.core.image_service import validate_and_sanitize_image
+from .models import Category, Product, ProductImage
 
 log = logging.getLogger(__name__)
 
@@ -364,3 +370,230 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
         log.warning("AI category classification fallback failed: %s", exc)
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Product form, validation, and lifecycle services (P08.17 - R39)
+# ---------------------------------------------------------------------------
+
+VALID_PRODUCT_TYPES = {"PHYSICAL", "SERVICE"}
+VALID_STATUSES = {"ACTIVE", "INACTIVE"}
+
+
+def categories_for_business(business):
+    """Sellers who set up their own tree pick only from it; older tenants keep the global + custom list."""
+    own = Category.objects.filter(business=business, is_active=True)
+    if own.exists():
+        return own.select_related("parent").order_by("full_path")
+    return Category.objects.filter(
+        Q(business__isnull=True) | Q(business=business),
+        is_active=True,
+    ).select_related("parent")
+
+
+def parse_and_validate_price(price_val: str | None) -> tuple[Decimal | None, str | None]:
+    if price_val is None or not str(price_val).strip():
+        return None, None
+    clean_val = str(price_val).strip().replace(",", "").replace("،", "").replace(" ", "")
+    try:
+        dec = Decimal(clean_val)
+        if dec < 0:
+            return None, "قیمت نمی‌تواند منفی باشد."
+        if dec > Decimal("999999999999"):
+            return None, "قیمت واردشده بیش از سقف مجاز است."
+        return dec.quantize(Decimal("1")), None
+    except (InvalidOperation, ValueError, TypeError):
+        return None, "قیمت واردشده نامعتبر است؛ لطفاً یک مقدار عددی صحیح وارد نمایید."
+
+
+def validate_product_input(data: dict, categories_qs) -> tuple[dict, list[str]]:
+    """
+    R20 & R19 Unified Form Validator:
+    Enforces identical validation across add and edit views:
+    - name and description are required
+    - product_type, status, and discovery_priority choices/ranges are enforced
+    - price is safely validated as Decimal (never silent None or float truncation)
+    - checkboxes switch to False when unchecked on form submission (R19 fix)
+    """
+    errors = []
+    cleaned = {}
+
+    name = data.get("name", "").strip()[:255]
+    if not name:
+        errors.append("نام محصول یا خدمت الزامی است.")
+    cleaned["name"] = name
+
+    desc = data.get("description", "").strip()
+    if not desc:
+        errors.append("شرح مزایا و کاربرد محصول برای شناخت ایجنت الزامی است.")
+    cleaned["description"] = desc
+
+    ptype = data.get("product_type", "PHYSICAL").strip()
+    if ptype not in VALID_PRODUCT_TYPES:
+        errors.append("نوع محصول باید «کالایی» یا «خدماتی» باشد.")
+    cleaned["product_type"] = ptype
+
+    status = data.get("status", "ACTIVE").strip()
+    if status not in VALID_STATUSES:
+        errors.append("وضعیت محصول نامعتبر است.")
+    cleaned["status"] = status
+
+    prio_str = data.get("discovery_priority", "1")
+    try:
+        prio = int(prio_str)
+        if not (1 <= prio <= 5):
+            errors.append("اولویت جستجو باید بین ۱ تا ۵ باشد.")
+        cleaned["discovery_priority"] = prio
+    except (ValueError, TypeError):
+        errors.append("اولویت جستجو باید عددی بین ۱ تا ۵ باشد.")
+        cleaned["discovery_priority"] = 1
+
+    price_val = data.get("price", "")
+    price, price_err = parse_and_validate_price(price_val)
+    if price_err:
+        errors.append(price_err)
+    cleaned["price"] = price
+
+    cat_id = data.get("category_id")
+    cleaned["category"] = None
+    if cat_id and str(cat_id).strip() and str(cat_id).isdigit():
+        cat = categories_qs.filter(id=int(cat_id)).first()
+        if not cat:
+            errors.append("دسته‌بندی انتخابی معتبر نیست.")
+        else:
+            cleaned["category"] = cat
+
+    # Checkboxes: when full form submitted, missing key in POST means False (fixes R19)
+    cleaned["instagram_discovery_enabled"] = data.get("instagram_discovery_enabled") in ["on", "true", "1"]
+    cleaned["is_discovery_active"] = data.get("is_discovery_active") in ["on", "true", "1"]
+    cleaned["telegram_outreach_enabled"] = data.get("telegram_outreach_enabled") in ["on", "true", "1"]
+    cleaned["x_outreach_enabled"] = data.get("x_outreach_enabled") in ["on", "true", "1"]
+    cleaned["x_search_enabled"] = data.get("x_search_enabled") in ["on", "true", "1"]
+
+    cleaned["url"] = data.get("url", "").strip()[:2048]
+    cleaned["target_customer"] = data.get("target_customer", "").strip()
+    cleaned["instagram_terms"] = parse_form_list(data.get("instagram_terms", ""))
+    cleaned["instagram_hashtags"] = parse_form_list(data.get("instagram_hashtags", ""), hashtags=True)
+    cleaned["instagram_max_posts"] = parse_bounded_int(data.get("instagram_max_posts"), 5, 1, 100)
+    cleaned["instagram_window_days"] = parse_bounded_int(data.get("instagram_window_days"), 7, 1, 90)
+
+    return cleaned, errors
+
+
+def parse_dynamic_attributes(post_data) -> dict[str, str]:
+    """Parses dynamic custom and category-suggested attributes from POST data."""
+    attributes = {}
+    attr_keys = post_data.getlist("custom_attr_key")
+    attr_vals = post_data.getlist("custom_attr_value")
+    for k, v in zip(attr_keys, attr_vals):
+        k_clean = k.strip()[:100]
+        v_clean = v.strip()[:500]
+        if k_clean and v_clean:
+            attributes[k_clean] = v_clean
+
+    for key, val in post_data.items():
+        if key.startswith("attr_") and val.strip():
+            attr_name = key[5:][:100]
+            if attr_name not in attributes:
+                attributes[attr_name] = val.strip()[:500]
+    return attributes
+
+
+def sanitize_and_validate_images(images: list, max_allowed: int = 10) -> tuple[list, list[str]]:
+    """
+    Validates and sanitizes a list of uploaded images using image_service.
+    Returns (valid_images, warnings).
+    """
+    valid_images = []
+    warnings = []
+    for img_file in images[:max_allowed]:
+        try:
+            clean_img = validate_and_sanitize_image(img_file)
+            valid_images.append(clean_img)
+        except DjangoValidationError as val_err:
+            warnings.append(f"فایل «{getattr(img_file, 'name', 'تصویر')}» نادیده گرفته شد: {val_err.message}")
+        except Exception as exc:
+            warnings.append(f"خطا در پردازش تصویر «{getattr(img_file, 'name', 'تصویر')}»: {exc}")
+    return valid_images, warnings
+
+
+def save_product(
+    business,
+    cleaned_data: dict,
+    attributes: dict,
+    valid_images: list,
+    *,
+    product: Product | None = None,
+    main_img_index: int = 0,
+) -> tuple[Product, bool]:
+    """
+    Atomically creates or updates a product along with its images.
+    Performs compensatory disk cleanup if transaction fails.
+    Returns (saved_product, is_organizing_flag).
+    """
+    from apps.products import taxonomy
+
+    staged_images = []
+    is_new = product is None
+
+    try:
+        with transaction.atomic():
+            if is_new:
+                product = Product(
+                    business=business,
+                    attributes=attributes,
+                    **cleaned_data,
+                )
+            else:
+                for field, val in cleaned_data.items():
+                    setattr(product, field, val)
+                product.attributes = attributes
+
+            product.full_clean()
+            product.save()
+
+            if is_new:
+                for idx, clean_img in enumerate(valid_images):
+                    pi = ProductImage.objects.create(
+                        product=product,
+                        image=clean_img,
+                        is_main=(idx == main_img_index or (main_img_index >= len(valid_images) and idx == 0)),
+                        order=idx,
+                    )
+                    staged_images.append(pi.image)
+            else:
+                has_main = product.images.filter(is_main=True).exists()
+                current_images_count = product.images.count()
+                for idx, clean_img in enumerate(valid_images):
+                    pi = ProductImage.objects.create(
+                        product=product,
+                        image=clean_img,
+                        is_main=(not has_main and idx == 0),
+                        order=current_images_count + idx,
+                    )
+                    staged_images.append(pi.image)
+
+    except Exception:
+        # Compensatory cleanup: if transaction rolled back, purge any staged files written to disk
+        for img_field in staged_images:
+            try:
+                if img_field and img_field.storage.exists(img_field.name):
+                    img_field.storage.delete(img_field.name)
+            except Exception:
+                pass
+        raise
+
+    organizing = taxonomy.maybe_organize(business)
+    return product, organizing
+
+
+def resolve_product_save_error(exc: Exception) -> str:
+    """Translates database or validation exceptions into safe, user-friendly Persian messages."""
+    from apps.core.typed_errors import sanitize_text
+
+    if isinstance(exc, DjangoValidationError):
+        return f"داده‌های محصول نامعتبر است: {sanitize_text(exc)}"
+    elif isinstance(exc, IntegrityError):
+        return "خطا در ثبت محصول: داده تکراری یا تداخل یکپارچگی در اطلاعات وجود دارد."
+    return "خطا در پردازش و ذخیره اطلاعات محصول. لطفاً مقادیر وارد شده را بررسی فرمایید."
+

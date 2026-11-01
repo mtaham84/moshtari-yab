@@ -1602,13 +1602,13 @@
         "تست عدم دسترسی B2C همچنان پاس باشد."
       ],
       "status": {
-        "overall": "PLANNED",
-        "planning": "PLANNED",
-        "implementation": "PLANNED",
-        "testing": "PLANNED",
-        "activation": "PLANNED"
+        "overall": "DONE",
+        "planning": "DONE",
+        "implementation": "DONE",
+        "testing": "DONE",
+        "activation": "DONE"
       },
-      "evidence": "",
+      "evidence": "docs/remediation/tasks/P08.17.md, apps/products/services.py, apps/products/views.py, apps/products/tests/test_p08_17_thin_product_views.py",
       "report_path": "docs/remediation/tasks/P08.17.md"
     },
     {
