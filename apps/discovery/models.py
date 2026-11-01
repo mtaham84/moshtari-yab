@@ -1157,6 +1157,12 @@ class InstagramEngineAccount(models.Model):
                 "bg_color": "#dbeafe",
             }
 
+    def save(self, *args, **kwargs):
+        if not self.device_settings or not isinstance(self.device_settings, dict) or not self.device_settings.get("uuids"):
+            from apps.discovery.device_emulator import generate_unique_device_profile
+            self.device_settings = generate_unique_device_profile(self.username or self.id or "default")
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"@{self.username} ({self.get_role_display()} - {self.get_status_display()})"
 

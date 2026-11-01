@@ -70,6 +70,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Automatically collect and scrape hashtags for all active businesses in database.",
         )
+        parser.add_argument(
+            "--force-hours",
+            action="store_true",
+            help="Bypass operating hours window check (09:00 - 23:00 Tehran time) for debugging.",
+        )
 
     def handle(self, *args, **options):
         query = options["query"]
@@ -94,6 +99,21 @@ class Command(BaseCommand):
             return
 
         while True:
+            from apps.discovery.anti_ban import InstagramAntiBanManager
+
+            # Operating hours enforcement (09:00 to 23:00 Asia/Tehran)
+            if not InstagramAntiBanManager.is_within_operating_hours(options["force_hours"]):
+                wait_sec = InstagramAntiBanManager.seconds_until_next_window()
+                wait_min = wait_sec / 60.0
+                self.stdout.write(self.style.WARNING(
+                    f"خارج از ساعات مجاز کاری (۰۹:۰۰ الی ۲۳:۰۰ به وقت تهران). ربات در حالت خواب شبانه قرار دارد ({wait_min:.0f} دقیقه تا آغاز شیفت کاری بعدی)."
+                ))
+                if loop_mode:
+                    sleep_chunk = min(300.0, wait_sec)
+                    time.sleep(sleep_chunk)
+                    continue
+                return
+
             # 1. Fetch Active Scraper Accounts Pool
             scraper_accounts = self._available_scraper_accounts()
 
@@ -202,7 +222,7 @@ class Command(BaseCommand):
                 finally:
                     account.last_action_at = dj_timezone.now()
                     account.save(update_fields=["last_action_at"])
-                time.sleep(random.uniform(4.0, 8.0))
+                InstagramAntiBanManager.sleep_after_business(self.stdout)
 
             self.stdout.write(self.style.MIGRATE_HEADING(f"\n=== Discovery Cycle Complete ({cycle_leads} leads captured) ==="))
 
@@ -233,7 +253,8 @@ class Command(BaseCommand):
         import re
 
         cl = Client()
-        cl.delay_range = [2, 5]
+        cl.delay_range = [3, 7]
+        cl.request_timeout = 15
 
         # Apply realistic unique device emulation profile (Pixel 8 Pro, S24 Ultra, Xiaomi 14, etc.)
         try:
@@ -415,6 +436,8 @@ class Command(BaseCommand):
 
     def _available_scraper_accounts(self):
         """Accounts with a stored session whose cooldown has expired; expired cooldowns are lifted."""
+        from apps.discovery.anti_ban import InstagramAntiBanManager
+
         now = dj_timezone.now()
         candidates = (
             InstagramEngineAccount.objects.filter(role="SCRAPER", status__in=["ACTIVE", "COOLDOWN"])
@@ -423,13 +446,20 @@ class Command(BaseCommand):
         )
         usable = []
         for acc in candidates:
+            InstagramAntiBanManager.ensure_account_isolated_profile(acc)
+
             if acc.cooldown_until and acc.cooldown_until > now:
                 continue
             if acc.status == "COOLDOWN":
                 acc.status = "ACTIVE"
                 acc.cooldown_until = None
                 acc.save(update_fields=["status", "cooldown_until"])
-            usable.append(acc)
+
+            is_safe, reason = InstagramAntiBanManager.check_account_safety(acc)
+            if is_safe:
+                usable.append(acc)
+            else:
+                self.stdout.write(self.style.WARNING(f"  اکانت @{acc.username} در حال استراحت: {reason}"))
         return usable
 
     def _rest_account(self, account, hours: float) -> bool:
@@ -441,12 +471,10 @@ class Command(BaseCommand):
         return True
 
     def _is_usable(self, account) -> bool:
+        from apps.discovery.anti_ban import InstagramAntiBanManager
         account.refresh_from_db(fields=["status", "cooldown_until"])
-        return (
-            account.status == "ACTIVE"
-            and not (account.cooldown_until and account.cooldown_until > dj_timezone.now())
-            and self._request_budget_available(account)
-        )
+        is_safe, _ = InstagramAntiBanManager.check_account_safety(account)
+        return is_safe
 
     def _note_account_error(self, account, err_text: str, cl=None, exc=None) -> bool:
         """
@@ -686,7 +714,8 @@ class Command(BaseCommand):
                 except Exception as sync_exc:
                     self.stderr.write(f"Notice: Opportunity sync skipped: {sync_exc}")
 
-            time.sleep(random.uniform(4.0, 7.0))
+            from apps.discovery.anti_ban import InstagramAntiBanManager
+            InstagramAntiBanManager.sleep_after_post(self.stdout)
             if qualifying_posts >= 3 and posts_inspected >= 15:
                 break
 
@@ -697,17 +726,19 @@ class Command(BaseCommand):
         return posts_inspected, qualifying_posts, leads_saved, retired
 
     def _request_budget_available(self, account) -> bool:
-        from django.db.models import Sum
-        from apps.discovery.instagram_families import INSTAGRAM_DAILY_REQUEST_BUDGET
-        from apps.discovery.models import InstagramCrawlExecution
-        used = InstagramCrawlExecution.objects.filter(account=account, crawled_at__date=dj_timezone.localdate()).aggregate(
-            total=Sum("requests"))['total'] or 0
-        used += int(getattr(self, "_current_api_requests", 0))
-        return used < INSTAGRAM_DAILY_REQUEST_BUDGET
+        from apps.discovery.anti_ban import InstagramAntiBanManager
+        is_safe, _ = InstagramAntiBanManager.check_account_safety(
+            account, extra_requests=int(getattr(self, "_current_api_requests", 0))
+        )
+        return is_safe
 
     def _instagram_api_call(self, account, method, *args, **kwargs):
-        if not self._request_budget_available(account):
-            raise RuntimeError("سقف درخواست روزانهٔ اکانت اینستاگرام تکمیل شد")
+        from apps.discovery.anti_ban import InstagramAntiBanManager
+        is_safe, reason = InstagramAntiBanManager.check_account_safety(
+            account, extra_requests=int(getattr(self, "_current_api_requests", 0))
+        )
+        if not is_safe:
+            raise RuntimeError(f"محدودیت ضدبن اینستاگرام: {reason}")
         self._current_api_requests = int(getattr(self, "_current_api_requests", 0)) + 1
         return method(*args, **kwargs)
 
@@ -1109,10 +1140,14 @@ class Command(BaseCommand):
                 raw_comments = list(cached.comments or [])
             else:
                 try:
-                    raw = self._instagram_api_call(account, cl.media_comments, media_id, amount=min(comment_count, 100))
+                    from apps.discovery.anti_ban import INSTAGRAM_MAX_COMMENTS_PER_POST, InstagramAntiBanManager
+                    raw = self._instagram_api_call(account, cl.media_comments, media_id, amount=min(comment_count, INSTAGRAM_MAX_COMMENTS_PER_POST))
+                    InstagramAntiBanManager.sleep_after_comment_fetch()
                 except Exception:
                     try:
-                        raw = self._instagram_api_call(account, cl.media_comments_gql, media_id, amount=min(comment_count, 100))
+                        from apps.discovery.anti_ban import INSTAGRAM_MAX_COMMENTS_PER_POST, InstagramAntiBanManager
+                        raw = self._instagram_api_call(account, cl.media_comments_gql, media_id, amount=min(comment_count, INSTAGRAM_MAX_COMMENTS_PER_POST))
+                        InstagramAntiBanManager.sleep_after_comment_fetch()
                     except Exception as exc:
                         self.stderr.write(f"Comment fetch failed for {code or media_id}: {exc}")
                         continue
@@ -1236,6 +1271,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(
                 f"      ✅ استخراج {post_leads_saved} مشتری واقعی از پست {post_url}"
             ))
+            from apps.discovery.anti_ban import InstagramAntiBanManager
+            InstagramAntiBanManager.sleep_after_post(self.stdout)
 
             if qualifying_posts >= target_qualifying and posts_inspected >= 15:
                 self.stdout.write(self.style.SUCCESS(
@@ -1354,9 +1391,10 @@ class Command(BaseCommand):
                 target_type=execution_type, account_username=account.username, account=account,
                 status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
                 requests=self._current_api_requests,
-                message=f"خانواده {target['family'].product_id}: بررسی {inspected} پست ({qualifying} واجد شرایط ۱۰+ کامنت و ۳۰ روز)؛ {leads} سرنخ. {error[:180]}",
             )
-            time.sleep(random.uniform(3.0, 7.0))
+            from apps.discovery.anti_ban import InstagramAntiBanManager
+            InstagramAntiBanManager.record_query_action(account, self.stdout)
+            InstagramAntiBanManager.sleep_after_query(self.stdout)
         return total_leads
 
     def _scrape_target(self, cl, account, target, min_comments, max_posts) -> int:
@@ -1494,7 +1532,9 @@ class Command(BaseCommand):
             except Exception as log_exc:
                 self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for keyword '{term}': {log_exc}")
 
-            time.sleep(random.uniform(3.0, 6.0))
+            from apps.discovery.anti_ban import InstagramAntiBanManager
+            InstagramAntiBanManager.record_query_action(account, self.stdout)
+            InstagramAntiBanManager.sleep_after_query(self.stdout)
 
         # ==========================================
         # 2. HASHTAG SEARCH (Top & Recent Posts)
@@ -1597,7 +1637,9 @@ class Command(BaseCommand):
             except Exception as log_exc:
                 self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for #{tag}: {log_exc}")
 
-            time.sleep(random.uniform(3.0, 6.0))
+            from apps.discovery.anti_ban import InstagramAntiBanManager
+            InstagramAntiBanManager.record_query_action(account, self.stdout)
+            InstagramAntiBanManager.sleep_after_query(self.stdout)
 
         # ==========================================
         # 3. COMPETITOR & TARGET PAGES
@@ -1685,7 +1727,9 @@ class Command(BaseCommand):
                 except Exception as log_exc:
                     self.stderr.write(f"Notice: Failed to log InstagramCrawlExecution for @{handle}: {log_exc}")
 
-                time.sleep(random.uniform(3.0, 6.0))
+                from apps.discovery.anti_ban import InstagramAntiBanManager
+                InstagramAntiBanManager.record_query_action(account, self.stdout)
+                InstagramAntiBanManager.sleep_after_query(self.stdout)
 
         # Update account action count
         account.daily_action_count += total_qualifying_posts
