@@ -189,6 +189,10 @@ def apply_device_profile_to_client(cl, account) -> None:
             cl.set_uuids(uuids)
             if "android_device_id" in uuids:
                 cl.android_device_id = uuids["android_device_id"]
+            if "device_id" in uuids:
+                cl.device_id = uuids["device_id"]
+            if "phone_id" in uuids:
+                cl.phone_id = uuids["phone_id"]
         except Exception as exc:
             log.warning("Could not set_uuids on Client: %s", exc)
 
@@ -196,3 +200,21 @@ def apply_device_profile_to_client(cl, account) -> None:
         cl.set_user_agent()
     except Exception:
         pass
+
+    # Ensure device headers on private session are consistently aligned with the profile
+    try:
+        if hasattr(cl, "private") and hasattr(cl.private, "headers"):
+            headers = cl.private.headers
+            if "android_device_id" in uuids:
+                headers["X-IG-Android-ID"] = uuids["android_device_id"]
+            if "uuid" in uuids:
+                headers["X-IG-Device-ID"] = uuids["uuid"]
+            if "phone_id" in uuids:
+                headers["X-IG-Family-Device-ID"] = uuids["phone_id"]
+            # Timezone offset: Tehran (+03:30 = 12600 seconds)
+            headers["X-IG-Timezone-Offset"] = "12600"
+            headers["X-IG-App-Locale"] = "fa_IR"
+            headers["X-IG-Device-Locale"] = "fa_IR"
+            headers["Accept-Language"] = "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"
+    except Exception as hdr_err:
+        log.debug("Could not align private headers for @%s: %s", getattr(account, "username", ""), hdr_err)

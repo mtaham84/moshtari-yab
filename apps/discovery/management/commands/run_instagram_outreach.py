@@ -56,13 +56,23 @@ CONFIG_FILE = Path("data/sarv_outreach_config.json")
 DEFAULT_SENDER_PITCHES = {
     "raha.rostamim": {
         "consultant_name": "رها",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام}{ عزیز|}!\n"
+            "بنده رها هستم مشاور {business_name}؛ {متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
+            "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم|پاسخگوی تمام سوالات تخصصی شما در این زمینه هستم|اگر سوالی درباره هزینه‌ها، کیفیت یا شرایط دارید در خدمتم}.\n"
+            "{اگر فکر می‌کنید براتون مفیده، شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی تلفنی و بدون دغدغه خدمتتون تماس بگیرم.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا راهنمایی کامل تلفنی انجام بشه.|می‌تونید همینجا بفرمایید تا کامل راهنماییتون کنم.}"
+        ),
     },
     "pania.mehrim": {
         "consultant_name": "پنیا",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": (
+            "{سلام روزتون بخیر|درود و عرض ادب|سلام و احترام}{ گرامی|}!\n"
+            "پنیا هستم از تیم مشاوره تخصصی {business_name}. {مشاهده کردم|دیدم} در مورد {topic} سوال داشتید.\n"
+            "{خوشحال می‌شم کمکتون کنم تا بهترین تصمیم رو بگیرید|در خدمتتون هستم برای پاسخ به سوالات یا بررسی شرایط و هزینه‌ها}.\n"
+            "{در صورت تمایل شماره تماستون رو ارسال بفرمایید تا یک تماس کوتاه برای مشاوره اختصاصی باهاتون داشته باشیم.|اگر سوالی هست همینجا بفرمایید با کمال میل پاسخگو هستم.}"
+        ),
     },
 }
 
@@ -198,13 +208,21 @@ class Command(BaseCommand):
             cl = Client()
             cl.public_request_retries_count = 0
             cl.public_request_retries_timeout = 0
+            cl.delay_range = [2, 5]
             if account.proxy_url:
                 cl.set_proxy(account.proxy_url)
+
+            # Apply persistent unique device fingerprint BEFORE authentication
+            try:
+                apply_device_profile_to_client(cl, account)
+            except Exception as dev_err:
+                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             adapter = TimeoutHTTPAdapter(connect_timeout=10, read_timeout=15, post_read_timeout=35)
             cl.private.mount("https://", adapter)
             cl.private.mount("http://", adapter)
 
+            # Authenticate with pre-configured persistent device settings
             if account.session_json:
                 cookies = account.session_json.get("cookies", {})
                 sess_id = cookies.get("sessionid")
@@ -214,13 +232,6 @@ class Command(BaseCommand):
                     except Exception as login_err:
                         self.stderr.write(f"Error logging in by sessionid for @{account.username}: {login_err}")
                         raise
-
-            try:
-                apply_device_profile_to_client(cl, account)
-                cl.private.mount("https://", adapter)
-                cl.private.mount("http://", adapter)
-            except Exception as dev_err:
-                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             clients_cache[account.username] = cl
             return cl
@@ -361,12 +372,16 @@ class Command(BaseCommand):
                 consultant_name = pitch_info.get("consultant_name", sender_user)
                 raw_template = pitch_info.get("template", "")
 
+                biz_name = "مجموعه تخصصی سرو"
+                if hasattr(lead, "business") and lead.business and getattr(lead.business, "name", None):
+                    biz_name = lead.business.name
+
                 # 🛡️ Anti-Spam Shield: generate 100% unique Spintax text with tailored topic
                 pitch_text = build_bulletproof_message(
                     pitch_template=raw_template,
                     lead=lead,
                     consultant_name=consultant_name,
-                    business_name="مجموعه تخصصی سرو",
+                    business_name=biz_name,
                 )
 
                 limit_display = sender.daily_limit or max_daily_dms or 18

@@ -267,6 +267,9 @@ class Command(BaseCommand):
         if account.session_json:
             try:
                 cl.set_settings(account.session_json)
+                # Ensure assigned hardware fingerprint overrides any stale session dump settings
+                from apps.discovery.device_emulator import apply_device_profile_to_client
+                apply_device_profile_to_client(cl, account)
                 cl.username = account.username
                 cookies = account.session_json.get("cookies", {})
                 for k, v in cookies.items():
