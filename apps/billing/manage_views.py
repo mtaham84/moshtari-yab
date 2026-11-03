@@ -2146,4 +2146,171 @@ def manage_twitter_account_toggle(request, pk):
     })
 
 
+def _ping_and_evaluate_proxy_config(proxy: ProxyConfig, timeout_sec: float = 3.5) -> dict[str, Any]:
+    """
+    Live ping test for a single ProxyConfig instance.
+    Evaluates reachability and latency via:
+    1. SOCKS5 inbound probe through xray container or localhost (if local_port is set)
+    2. test_outbound_ping via multi_proxy_manager (if Xray binary and raw_url available)
+    3. Direct TCP handshake to proxy.server:proxy.port
+    Updates the proxy's ping_ms, status ('ACTIVE' or 'DEAD'), and last_checked_at.
+    """
+    import time
+    is_ok = False
+    ping_ms = -1.0
+    err_msg = ""
+
+    # Strategy 1: If proxy has a local_port, probe the local socks5 listener
+    if proxy.local_port:
+        for host in ["xray", "127.0.0.1", "localhost"]:
+            try:
+                probe_t0 = time.perf_counter()
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(min(1.5, timeout_sec))
+                res = sock.connect_ex((host, int(proxy.local_port)))
+                sock.close()
+                if res == 0:
+                    latency = (time.perf_counter() - probe_t0) * 1000.0
+                    is_ok = True
+                    ping_ms = round(latency, 1)
+                    break
+            except Exception:
+                continue
+
+    # Strategy 2: Ephemeral Xray probe if multi_proxy_manager is available
+    if not is_ok and proxy.raw_url:
+        try:
+            from xray.multi_proxy_manager import parse_link_to_outbound, test_outbound_ping, XRAY_BIN
+            if XRAY_BIN and XRAY_BIN.exists():
+                ob = parse_link_to_outbound(proxy.raw_url)
+                ok, p_ms, p_err = test_outbound_ping(ob, timeout_sec=min(2.5, timeout_sec))
+                if ok and 0 < p_ms <= 3000:
+                    is_ok = True
+                    ping_ms = round(p_ms, 1)
+                elif p_err:
+                    err_msg = p_err
+        except Exception as exc:
+            logger.debug("Ephemeral Xray probe error: %s", exc)
+
+    # Strategy 3: Direct TCP handshake to remote server & port
+    if not is_ok and proxy.server:
+        try:
+            prt = int(proxy.port or 443)
+            tcp_t0 = time.perf_counter()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout_sec)
+            res = sock.connect_ex((proxy.server, prt))
+            sock.close()
+            tcp_elapsed = (time.perf_counter() - tcp_t0) * 1000.0
+            if res == 0:
+                is_ok = True
+                ping_ms = round(tcp_elapsed, 1)
+            else:
+                err_msg = f"خطای اتصال TCP به {proxy.server}:{prt} (کد {res})"
+        except Exception as exc:
+            err_msg = f"خطای تست سرور {proxy.server}: {exc}"
+
+    # If server was missing from fields, try parsing from raw_url
+    if not is_ok and not proxy.server and proxy.raw_url:
+        try:
+            from xray.multi_proxy_manager import parse_link_to_outbound
+            ob = parse_link_to_outbound(proxy.raw_url)
+            servers = ob.get("settings", {}).get("servers") or ob.get("settings", {}).get("vnext")
+            addr = None
+            prt = None
+            if servers and len(servers) > 0:
+                s0 = servers[0]
+                addr = s0.get("address")
+                prt = s0.get("port")
+            if addr and prt:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout_sec)
+                t_p = time.perf_counter()
+                r = sock.connect_ex((addr, int(prt)))
+                sock.close()
+                if r == 0:
+                    is_ok = True
+                    ping_ms = round((time.perf_counter() - t_p) * 1000.0, 1)
+        except Exception:
+            pass
+
+    # Save evaluated status to database
+    if is_ok and 0 < ping_ms <= 3000:
+        proxy.ping_ms = ping_ms
+        proxy.status = "ACTIVE"
+    else:
+        proxy.ping_ms = -1.0
+        proxy.status = "DEAD"
+
+    proxy.last_checked_at = dj_timezone.now()
+    try:
+        proxy.save(update_fields=["ping_ms", "status", "last_checked_at"])
+    except Exception as exc:
+        logger.warning("Could not save proxy #%s test result: %s", proxy.id, exc)
+
+    return {
+        "id": proxy.id,
+        "tag": proxy.tag or proxy.server or f"پروکسی #{proxy.id}",
+        "protocol": proxy.protocol,
+        "server": f"{proxy.server}:{proxy.port}" if proxy.server else "—",
+        "local_port": proxy.local_port,
+        "ping_ms": proxy.ping_ms,
+        "ping_display": f"{proxy.ping_ms:.0f} ms" if proxy.ping_ms >= 0 else "قطع",
+        "status": proxy.status,
+        "status_label": "فعال" if proxy.status == "ACTIVE" else "قطع",
+        "last_checked_fa": "چند لحظه پیش",
+        "error": err_msg,
+    }
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_test(request, pk=None):
+    """
+    Live real-time test for proxy configs.
+    Supports testing a single proxy (via pk or POST proxy_id) or all proxies concurrently.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    proxy_id = pk or request.POST.get("proxy_id")
+    if proxy_id:
+        try:
+            proxy = ProxyConfig.objects.get(pk=int(proxy_id))
+        except (ProxyConfig.DoesNotExist, ValueError):
+            return JsonResponse({"success": False, "message": "پروکسی مورد نظر یافت نشد."}, status=404)
+
+        res = _ping_and_evaluate_proxy_config(proxy)
+        msg = f"پروکسی {res['tag']} با موفقیت تست شد: {res['status_label']} ({res['ping_display']})"
+        return JsonResponse({"success": True, "proxy": res, "message": msg})
+
+    # Test ALL proxies concurrently
+    proxies = list(ProxyConfig.objects.all().order_by("local_port"))
+    if not proxies:
+        return JsonResponse({
+            "success": True,
+            "total": 0,
+            "active_count": 0,
+            "dead_count": 0,
+            "results": [],
+            "message": "هیچ کانفیگ پروکسی برای تست در پایگاه داده ثبت نشده است."
+        })
+
+    max_workers = min(12, max(2, len(proxies)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(_ping_and_evaluate_proxy_config, proxies))
+
+    active_count = sum(1 for r in results if r["status"] == "ACTIVE")
+    dead_count = len(results) - active_count
+
+    return JsonResponse({
+        "success": True,
+        "total": len(results),
+        "active_count": active_count,
+        "dead_count": dead_count,
+        "results": results,
+        "message": f"تست زنده {len(results)} پروکسی به پایان رسید: {active_count} فعال، {dead_count} قطع."
+    })
+
+
+
 

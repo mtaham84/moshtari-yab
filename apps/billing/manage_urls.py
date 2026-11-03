@@ -20,4 +20,6 @@ urlpatterns = [
     path("leads/export/csv/", manage_views.manage_leads_export_csv, name="leads_export_csv"),
     path("leads/export/json/", manage_views.manage_leads_export_json, name="leads_export_json"),
     path("settings/exchange-rate/", manage_views.manage_exchange_rate_update, name="exchange_rate_update"),
+    path("proxies/test/", manage_views.manage_proxy_test, name="proxy_test"),
+    path("proxies/<int:pk>/test/", manage_views.manage_proxy_test, name="proxy_single_test"),
 ]
