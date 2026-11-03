@@ -30,7 +30,7 @@ from typing import Optional, Dict, Any, List
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
-from django.db import transaction
+from django.db import models, transaction
 
 try:
     from zoneinfo import ZoneInfo
@@ -39,6 +39,7 @@ except Exception:
     TEHRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+from apps.discovery.anti_ban import InstagramAntiBanManager
 from apps.discovery.device_emulator import apply_device_profile_to_client
 from apps.discovery.outreach_service import (
     check_and_sync_lead_replies,
@@ -56,13 +57,23 @@ CONFIG_FILE = Path("data/sarv_outreach_config.json")
 DEFAULT_SENDER_PITCHES = {
     "raha.rostamim": {
         "consultant_name": "رها",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام}{ عزیز|}!\n"
+            "بنده رها هستم مشاور {business_name}؛ {متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
+            "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم|پاسخگوی تمام سوالات تخصصی شما در این زمینه هستم|اگر سوالی درباره هزینه‌ها، کیفیت یا شرایط دارید در خدمتم}.\n"
+            "{اگر فکر می‌کنید براتون مفیده، شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی تلفنی و بدون دغدغه خدمتتون تماس بگیرم.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا راهنمایی کامل تلفنی انجام بشه.|می‌تونید همینجا بفرمایید تا کامل راهنماییتون کنم.}"
+        ),
     },
     "pania.mehrim": {
         "consultant_name": "پنیا",
-        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
-        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
+        "consultant_role": "مشاور و پشتیبانی تخصصی",
+        "template": (
+            "{سلام روزتون بخیر|درود و عرض ادب|سلام و احترام}{ گرامی|}!\n"
+            "پنیا هستم از تیم مشاوره تخصصی {business_name}. {مشاهده کردم|دیدم} در مورد {topic} سوال داشتید.\n"
+            "{خوشحال می‌شم کمکتون کنم تا بهترین تصمیم رو بگیرید|در خدمتتون هستم برای پاسخ به سوالات یا بررسی شرایط و هزینه‌ها}.\n"
+            "{در صورت تمایل شماره تماستون رو ارسال بفرمایید تا یک تماس کوتاه برای مشاوره اختصاصی باهاتون داشته باشیم.|اگر سوالی هست همینجا بفرمایید با کمال میل پاسخگو هستم.}"
+        ),
     },
 }
 
@@ -198,13 +209,22 @@ class Command(BaseCommand):
             cl = Client()
             cl.public_request_retries_count = 0
             cl.public_request_retries_timeout = 0
-            if account.proxy_url:
-                cl.set_proxy(account.proxy_url)
+            cl.delay_range = [2, 5]
+            clean_proxy = getattr(account, "clean_proxy", None) or account.proxy_url
+            if clean_proxy:
+                cl.set_proxy(clean_proxy)
+
+            # Apply persistent unique device fingerprint BEFORE authentication
+            try:
+                apply_device_profile_to_client(cl, account)
+            except Exception as dev_err:
+                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             adapter = TimeoutHTTPAdapter(connect_timeout=10, read_timeout=15, post_read_timeout=35)
             cl.private.mount("https://", adapter)
             cl.private.mount("http://", adapter)
 
+            # Authenticate with pre-configured persistent device settings
             if account.session_json:
                 cookies = account.session_json.get("cookies", {})
                 sess_id = cookies.get("sessionid")
@@ -214,13 +234,6 @@ class Command(BaseCommand):
                     except Exception as login_err:
                         self.stderr.write(f"Error logging in by sessionid for @{account.username}: {login_err}")
                         raise
-
-            try:
-                apply_device_profile_to_client(cl, account)
-                cl.private.mount("https://", adapter)
-                cl.private.mount("http://", adapter)
-            except Exception as dev_err:
-                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             clients_cache[account.username] = cl
             return cl
@@ -265,19 +278,21 @@ class Command(BaseCommand):
                 status="ACTIVE",
                 tenant_id__in=tenant_ids,
             ).filter(
-                cooldown_until__isnull=True
-            ) | InstagramEngineAccount.objects.filter(
-                role="SENDER",
-                status="ACTIVE",
-                tenant_id__in=tenant_ids,
-                cooldown_until__lte=now,
+                models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
             )
 
-            # Check both daily limit and hourly rate according to Dealism benchmarks
+            # Check both daily limit and hourly rate strictly enforced by Account Tier specs
             available = []
             for s in senders:
-                limit_daily = s.daily_limit or max_daily_dms or 18
-                limit_hourly = s.hourly_limit or 3
+                is_valid_role, _ = InstagramAntiBanManager.validate_account_role(s, "SENDER")
+                if not is_valid_role:
+                    continue
+
+                # Anti-Ban Tier Guardrail: Enforces warm-up quotas based on account age
+                tier_spec = get_tier_specs(s.account_tier)
+                limit_daily = min(s.daily_limit or tier_spec["default_daily"], tier_spec["max_daily"])
+                limit_hourly = min(s.hourly_limit or tier_spec["hourly_speed"], tier_spec["hourly_speed"])
+
                 if s.daily_action_count < limit_daily and (s.hourly_action_count or 0) < limit_hourly:
                     available.append(s)
 
@@ -352,6 +367,10 @@ class Command(BaseCommand):
                     break
 
                 sender = chosen_sender
+                is_valid_role, role_err = InstagramAntiBanManager.validate_account_role(sender, "SENDER")
+                if not is_valid_role:
+                    self.stderr.write(self.style.ERROR(role_err))
+                    continue
                 sender_user = sender.username
                 pitch_info = (
                     sender_pitches.get(sender_user)
@@ -361,22 +380,27 @@ class Command(BaseCommand):
                 consultant_name = pitch_info.get("consultant_name", sender_user)
                 raw_template = pitch_info.get("template", "")
 
+                biz_name = "مجموعه تخصصی سرو"
+                if hasattr(lead, "business") and lead.business and getattr(lead.business, "name", None):
+                    biz_name = lead.business.name
+
                 # 🛡️ Anti-Spam Shield: generate 100% unique Spintax text with tailored topic
                 pitch_text = build_bulletproof_message(
                     pitch_template=raw_template,
                     lead=lead,
                     consultant_name=consultant_name,
-                    business_name="مجموعه تخصصی سرو",
+                    business_name=biz_name,
                 )
 
-                limit_display = sender.daily_limit or max_daily_dms or 18
+                tier_specs = get_tier_specs(sender.account_tier)
+                limit_display = min(sender.daily_limit or tier_specs["default_daily"], tier_specs["max_daily"])
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
                     f"| احتمال خرید: {int(lead.intent_score * 100)}% | نیاز: {lead.comment_text[:40]}"
                 )
                 self.stdout.write(
-                    f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
+                    f"   📌 اکانت فرستنده: @{sender_user} ({tier_specs['title']}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
                 )
 
                 if dry_run:
@@ -398,6 +422,10 @@ class Command(BaseCommand):
 
                 # Live execution with Super Shield
                 try:
+                    # 🛡️ Step 0: Mobile Proxy Verification & Automatic IP Rotation
+                    from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+                    prepare_sender_proxy_before_dm(sender, stdout=self.stdout)
+
                     cl = get_or_create_client(sender)
 
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
@@ -518,6 +546,12 @@ class Command(BaseCommand):
                         or "max retries exceeded" in exc_str
                     ):
                         cooldown_minutes = 15
+                        # If mobile proxy has rotation URL, attempt immediate IP rotation to recover connection
+                        if getattr(sender, "proxy_rotation_url", None):
+                            from apps.discovery.proxy_service import rotate_account_proxy_ip
+                            self.stdout.write("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
+                            rotate_account_proxy_ip(sender)
+
                         sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=cooldown_minutes)
                         sender.status = "COOLDOWN"
                         sender.status_message = f"خطای اتصال پروکسی ({exc_str[:50]}) - استراحت {cooldown_minutes} دقیقه‌ای"

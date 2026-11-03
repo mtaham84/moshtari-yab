@@ -1080,6 +1080,29 @@ class InstagramEngineAccount(models.Model):
         return True
 
     @property
+    def clean_proxy(self) -> str:
+        """Returns proxy URI stripped of any #rotate=... fragments for clean client binding."""
+        from apps.discovery.proxy_service import clean_proxy_url
+        return clean_proxy_url(self.proxy_url)
+
+    @property
+    def proxy_meta(self) -> dict:
+        """Metadata for mobile/residential proxy, IP rotation, and provider classification."""
+        ds = self.device_settings or {}
+        if isinstance(ds, dict) and isinstance(ds.get("proxy_meta"), dict):
+            return ds["proxy_meta"]
+        return {}
+
+    @property
+    def proxy_rotation_url(self) -> str:
+        from apps.discovery.proxy_service import extract_rotation_url
+        return extract_rotation_url(self)
+
+    @property
+    def is_mobile_proxy(self) -> bool:
+        return self.proxy_meta.get("classification") == "MOBILE_4G" or bool(self.proxy_rotation_url)
+
+    @property
     def device_info(self) -> dict:
         """Normalized device profile representation for dashboard and logging."""
         ds = self.device_settings or {}

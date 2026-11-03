@@ -82,48 +82,123 @@ def build_bulletproof_message(
     business_name: str = "مجموعه تخصصی سرو",
 ) -> str:
     """
-    Creates a 100% unique, anti-fingerprint DM using Spintax + dynamic personalization.
+    Creates a 100% unique, anti-fingerprint DM using Multi-Structure Spintax + dynamic personalization.
     Injects random polite variations, Persian half-spaces, and unique cryptographic hashes
     to defeat Meta/Instagram semantic duplicate spam classifiers.
     """
     raw_name = (getattr(lead, "full_name", None) or getattr(lead, "username", "")).strip()
     clean_name = f" {raw_name}" if raw_name and not raw_name.startswith("@") and len(raw_name) < 25 else ""
 
-    topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+    topic = "خدمات و محصولات مورد نظر شما"
     if hasattr(lead, "comment_text") and lead.comment_text:
         c_text = lead.comment_text.lower()
+        # Dental / Medical terms
         if "کامپوزیت" in c_text:
             topic = "کامپوزیت و اصلاح طرح لبخند"
         elif "لمینت" in c_text:
-            topic = "لمینت سرامیکی و امور زیبایی"
+            topic = "لمینت سرامیکی و امور زیبایی دندان"
         elif "ایمپلنت" in c_text:
-            topic = "کاشت ایمپلنت دندان"
+            topic = "کاشت تخصصی ایمپلنت دندان"
         elif "ارتودنسی" in c_text:
             topic = "خدمات ارتودنسی تخصصی"
+        elif "عصب" in c_text or "ترمیم" in c_text:
+            topic = "عصب‌کشی و ترمیم تخصصی دندان"
+        elif "جرم" in c_text or "بلیچینگ" in c_text or "سفید" in c_text:
+            topic = "بلیچینگ و سفید کردن دندان"
+        # Beauty / Clinic terms
+        elif "بوتاکس" in c_text or "ژل" in c_text or "فیلر" in c_text:
+            topic = "تزریق ژل، بوتاکس و امور زیبایی"
+        elif "پوست" in c_text or "فیشیال" in c_text or "لیزر" in c_text:
+            topic = "خدمات پوست، فیشیال و لیزر"
+        # Clothing / Apparel terms
+        elif "مانتو" in c_text or "پالتو" in c_text or "بارانی" in c_text:
+            topic = "مانتو و پالتو"
+        elif "شومیز" in c_text or "بلوز" in c_text or "تیشرت" in c_text:
+            topic = "مدل‌های شومیز و پیراهن"
+        elif "شلوار" in c_text or "کت" in c_text:
+            topic = "کت و شلوار"
+        elif "سایز" in c_text or "رنگ" in c_text:
+            topic = "استعلام سایزبندی و رنگ‌بندی"
         elif "قیمت" in c_text or "هزینه" in c_text or "چند" in c_text:
             topic = "هزینه‌ها و شرایط اقساطی"
+        elif "ارسال" in c_text or "موجود" in c_text:
+            topic = "موجودی و شرایط ارسال سریع"
 
-    text = pitch_template or (
-        "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
-        "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
-        "{متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
-        "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم.|اگر سوالی درباره هزینه‌ها یا شرایط اقساطی دارید در خدمتم.|پاسخگوی تمام سوالات تخصصی شما هستم.}\n"
-        "{اگر مایل بودید شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی تلفنی خدمتتون تماس بگیریم.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا ۱۰ دقیقه مشاوره رایگان باهاتون هماهنگ بشه.|می‌تونید همینجا بفرمایید یا شماره تماس بذارید تا کامل راهنماییتون کنیم.}"
-    )
+    # Multi-structure templates: 4 distinct architectures to avoid semantic pattern detection
+    STRUCTURE_PATTERNS = [
+        # Architecture 1: Consultative & friendly (مشاوره‌ای و صمیمی)
+        (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز| گرامی|}!\n"
+            "{بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}|من {consultant_name} هستم از تیم مشاوره {business_name}|{consultant_name} هستم، مشاور همراه شما در {business_name}}.\n"
+            "{متوجه شدم|دیدم|مشاهده کردم} {پیگیر|دنبال|در حال بررسی} {topic} بودید.\n"
+            "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم.|اگر سوالی درباره روند کار، تعرفه‌ها یا شرایط دارید در خدمتم.|پاسخگوی تمام سوالات تخصصی شما در این زمینه هستم.}\n"
+            "{اگر مایل بودید شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی ۱۰ دقیقه‌ای باهاتون هماهنگ بشه.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا راهنمایی کامل تلفنی انجام بشه.|می‌تونید همینجا بفرمایید تا کامل راهنماییتون کنم.}"
+        ),
+        # Architecture 2: Responsive & direct (پاسخگویی سریع و حرفه‌ای)
+        (
+            "{سلام روزتون بخیر|درود و وقت‌بخیر|سلام و عرض ادب}{clean_name}!\n"
+            "{امیدوارم عالی باشید.|روز خیلی خوبی براتون آرزو می‌کنم.}\n"
+            "{بنده {consultant_name} هستم از {business_name}|{consultant_name} هستم کارشناس {business_name}}؛ در خصوص استعلام شما برای {topic} پیامتون رو دیدم.\n"
+            "{برای اینکه در مورد جزئیات، کیفیت و هزینه‌ها دید دقیق‌تری داشته باشید، با کمال میل راهنماییتون می‌کنم.|اگر مایل باشید درباره نمونه‌کارها، قیمت‌ها یا نحوه ارائه خدمات بیشتر بدونید در خدمتم.}\n"
+            "{می‌تونید سوالتون رو همینجا بفرمایید یا در صورت تمایل شماره تماس ارسال کنید تا توضیحات تکمیلی رو تلفنی تقدیم کنیم.}"
+        ),
+        # Architecture 3: Problem solving & value-first (رویکرد حل مساله و پیشنهاد مشاوره)
+        (
+            "{سلام و درود|وقت شما بخیر|سلام و احترام}{ گرامی|}!\n"
+            "{در خصوص پیگیری شما درباره {topic}|با توجه به اینکه جویای {topic} بودید}، بنده {consultant_name} مشاور مجموعه {business_name} پیام می‌دم خدمتتون.\n"
+            "{جهت راهنمایی بهتر و اطلاع از تعرفه‌ها و تخفیف‌های جاری|برای اینکه بتونیم بهترین راهکار متناسب با نیاز شما رو معرفی کنیم}، در خدمتتون هستیم.\n"
+            "{اگر فرصت دارید شماره تماستون رو ارسال بفرمایید تا یک تماس کوتاه و کاربردی داشته باشیم، یا همینجا بفرمایید تا راهنمایی کنم.}"
+        ),
+        # Architecture 4: Short, human and conversational (کوتاه، صمیمی و گفتگومحور)
+        (
+            "{درود بر شما|سلام وقتتون بخیر}{clean_name}!\n"
+            "{consultant_name} هستم از {business_name}.\n"
+            "{دیدم پیگیر موضوع {topic} بودید|متوجه سوال شما درباره {topic} شدم}؛ {اگر سوال یا ابهامی هست خوشحال می‌شم کمکتون کنم.|هر نکته‌ای درباره قیمت‌ها یا شرایط کار مدنظرتونه در خدمتم.}\n"
+            "{همینجا بفرمایید یا اگر مایلید شماره تماس بذارید تا مشاوره تلفنی هماهنگ کنیم.}"
+        ),
+    ]
+
+    if pitch_template and "{" in pitch_template and "}" in pitch_template:
+        # User defined dynamic template with Spintax
+        text = pitch_template
+    elif pitch_template:
+        # User defined static template -> Wrap with dynamic spintax greetings & closers to prevent spam flag
+        greetings = "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز| گرامی|}!\n"
+        closings = "\n{در پناه حق|با آرزوی موفقیت|با احترام|ارادتمند شما}"
+        text = greetings + pitch_template.strip() + closings
+    else:
+        # Choose one of the 4 diverse architectures randomly
+        text = random.choice(STRUCTURE_PATTERNS)
 
     text = text.replace("{consultant_name}", consultant_name)
     text = text.replace("{business_name}", business_name)
     text = text.replace("{topic}", topic)
     text = text.replace("{clean_name}", clean_name)
 
-    # Resolve Spintax
+    # Resolve recursive Spintax
     text = parse_spintax(text)
 
-    # Anti-Fingerprint Watermarking: random polite closer so no two messages share the same hash
-    closers = ["", " 🌸", " 🙏", " ✨", " 🌷", ""]
+    # Micro-variations: Anti-Fingerprint Watermarking
+    # Adds subtle variation in invisible zero-width non-joiners (\u200c) and random polite sign-offs
+    closers = [
+        "",
+        " 🌸",
+        " 🙏",
+        " ✨",
+        " 🌷",
+        " 🌿",
+        " 💫",
+        " 🤍",
+        " ✨🙏",
+        " 🌸✨",
+    ]
     selected_closer = random.choice(closers)
-    if selected_closer and not any(text.endswith(c.strip()) for c in ["🌸", "🙏", "✨", "🌷"]):
+    if selected_closer and not any(text.endswith(c.strip()) for c in ["🌸", "🙏", "✨", "🌷", "🌿", "💫", "🤍"]):
         text = text.rstrip() + selected_closer
+
+    # Safe zero-width non-joiner injection to make message hash 100% unique
+    if random.random() < 0.5:
+        text = text.replace("می‌شم", "می\u200cشم").replace("راهنماییتون", "راهنمایی\u200cتون")
 
     return text
 
@@ -207,21 +282,38 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
 def perform_organic_warmup(cl: Any, target_pk: int, username: str) -> Dict[str, Any]:
     """
     Executes organic human warm-up actions before sending DM:
-    Likes the user's latest post (triggers official push notification on recipient's phone).
+    1. Checks and views active stories (leaves account avatar in user's story viewers list).
+    2. Likes the user's latest post (triggers official push notification on recipient's phone).
     Instagram algorithm classifies the subsequent DM as a natural follow-up interaction!
     """
     actions = {"liked_post": False, "viewed_story": False}
 
-    # Like recent post
+    # 1. View active stories (if any)
+    try:
+        if hasattr(cl, "user_stories"):
+            stories = cl.user_stories(str(target_pk))
+            if stories:
+                # View up to 2 active stories with realistic human delay
+                story_pks = [int(s.pk) for s in stories[:2]]
+                if hasattr(cl, "story_seen"):
+                    cl.story_seen(story_pks)
+                    actions["viewed_story"] = True
+                    logger.info("Organic story view executed for @%s (pks: %s)", username, story_pks)
+                    time.sleep(random.uniform(2.0, 4.5))
+    except Exception as story_err:
+        logger.debug("Organic story view skipped for @%s: %s", username, story_err)
+
+    # 2. Like recent post (if any)
     try:
         medias = cl.user_medias(target_pk, amount=1)
         if medias:
             latest_media = medias[0]
             cl.media_like(latest_media.id)
             actions["liked_post"] = True
-            time.sleep(random.uniform(1.5, 3.0))
+            logger.info("Organic post like executed for @%s (media: %s)", username, latest_media.id)
+            time.sleep(random.uniform(1.5, 3.5))
     except Exception as like_err:
-        logger.debug(f"Organic like warmup skipped for @{username}: {like_err}")
+        logger.debug("Organic like warmup skipped for @%s: %s", username, like_err)
 
     return actions
 
