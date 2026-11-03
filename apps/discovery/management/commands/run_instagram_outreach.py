@@ -39,6 +39,7 @@ except Exception:
     TEHRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+from apps.discovery.anti_ban import InstagramAntiBanManager
 from apps.discovery.device_emulator import apply_device_profile_to_client
 from apps.discovery.outreach_service import (
     check_and_sync_lead_replies,
@@ -272,12 +273,10 @@ class Command(BaseCommand):
                 if updated:
                     acc.save(update_fields=list(set(update_cols)))
 
-            senders = (
-                InstagramEngineAccount.objects.filter(
-                    role="SENDER",
-                    status="ACTIVE",
-                    tenant_id__in=tenant_ids,
-                ).exclude(role="SCRAPER")
+            senders = InstagramEngineAccount.objects.filter(
+                role="SENDER",
+                status="ACTIVE",
+                tenant_id__in=tenant_ids,
             ).filter(
                 models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
             )
@@ -285,6 +284,10 @@ class Command(BaseCommand):
             # Check both daily limit and hourly rate strictly enforced by Account Tier specs
             available = []
             for s in senders:
+                is_valid_role, _ = InstagramAntiBanManager.validate_account_role(s, "SENDER")
+                if not is_valid_role:
+                    continue
+
                 # Anti-Ban Tier Guardrail: Enforces warm-up quotas based on account age
                 tier_spec = get_tier_specs(s.account_tier)
                 limit_daily = min(s.daily_limit or tier_spec["default_daily"], tier_spec["max_daily"])
@@ -364,6 +367,10 @@ class Command(BaseCommand):
                     break
 
                 sender = chosen_sender
+                is_valid_role, role_err = InstagramAntiBanManager.validate_account_role(sender, "SENDER")
+                if not is_valid_role:
+                    self.stderr.write(self.style.ERROR(role_err))
+                    continue
                 sender_user = sender.username
                 pitch_info = (
                     sender_pitches.get(sender_user)

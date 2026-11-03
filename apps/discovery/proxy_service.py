@@ -35,6 +35,19 @@ DATACENTER_KEYWORDS = [
 ]
 
 
+def _get_http_client():
+    """
+    Returns an HTTP client module: curl_cffi.requests (for TLS fingerprint evasion)
+    with seamless fallback to standard requests if curl_cffi is not installed.
+    """
+    try:
+        from curl_cffi import requests
+        return requests
+    except ImportError:
+        import requests
+        return requests
+
+
 def clean_proxy_url(raw_url: str) -> str:
     """Strips auxiliary fragments like #rotate=... so HTTP clients get a valid URI."""
     if not raw_url:
@@ -79,9 +92,9 @@ def inspect_proxy_egress(proxy_url: str, timeout: float = 6.0) -> Dict[str, Any]
         }
 
     try:
-        from curl_cffi import requests
+        http_requests = _get_http_client()
         proxies = {"http": clean_url, "https": clean_url}
-        resp = requests.get(
+        resp = http_requests.get(
             "http://ip-api.com/json?fields=status,message,country,countryCode,city,isp,org,as,query,mobile,proxy,hosting",
             proxies=proxies,
             timeout=timeout,
@@ -149,9 +162,9 @@ def rotate_mobile_ip(rotation_url: str, post_rotation_delay: float = 5.0, timeou
 
     logger.info("Triggering 4G Mobile IP rotation via: %s", rotation_url)
     try:
-        from curl_cffi import requests
+        http_requests = _get_http_client()
         # Direct call to the rotation webhook (without using the proxy itself)
-        resp = requests.get(rotation_url, timeout=timeout)
+        resp = http_requests.get(rotation_url, timeout=timeout)
         time.sleep(post_rotation_delay)
         return {
             "success": 200 <= resp.status_code < 300,
@@ -218,18 +231,32 @@ def prepare_sender_proxy_before_dm(account, stdout=None) -> Dict[str, Any]:
     """
     rotation_url = extract_rotation_url(account)
     rotated = False
+    info: Dict[str, Any] = {}
+
     if rotation_url:
         if stdout:
             stdout.write("   🔄 [پروکسی موبایل 4G]: چرخش خودکار IP جهت دریافت آی‌پی تازه سلولار...")
         res = rotate_account_proxy_ip(account, post_delay=4.5)
         rotated = res.get("rotated", False)
+        # If rotation succeeded, reuse the inspection metadata already captured during rotation!
+        # Avoids hitting ip-api.com twice per DM and saves 5-10s of network latency.
+        if rotated and res.get("new_ip"):
+            info = {
+                "ip": res.get("new_ip", ""),
+                "isp": res.get("isp", ""),
+                "classification": res.get("classification", "MOBILE_4G"),
+                "risk_score": res.get("risk_score", "SAFE"),
+            }
 
-    # Check egress IP
-    clean_url = clean_proxy_url(account.proxy_url)
-    info = inspect_proxy_egress(clean_url)
+    # Only inspect external egress IP if we haven't already captured it via rotation
+    if not info:
+        clean_url = clean_proxy_url(account.proxy_url)
+        info = inspect_proxy_egress(clean_url)
+
     ip_str = info.get("ip", "نامشخص")
     isp_str = info.get("isp", "نامشخص")
     classification = info.get("classification", "UNKNOWN")
+    risk_score = info.get("risk_score", "MODERATE")
 
     if stdout:
         if classification == "MOBILE_4G":
@@ -244,5 +271,5 @@ def prepare_sender_proxy_before_dm(account, stdout=None) -> Dict[str, Any]:
         "egress_ip": ip_str,
         "isp": isp_str,
         "classification": classification,
-        "risk_score": info.get("risk_score", "MODERATE"),
+        "risk_score": risk_score,
     }

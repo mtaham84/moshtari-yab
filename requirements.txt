@@ -17,9 +17,10 @@ pgvector>=0.3
 # <x.com
 twitter-cli==0.8.5
 
-# Instagram scraper
+# Instagram scraper & Proxy TLS emulation
 instagrapi>=2.1.2
 pydantic-settings>=2.1.0
+curl_cffi>=0.7.0
 
 # Tests
 pytest>=8.0

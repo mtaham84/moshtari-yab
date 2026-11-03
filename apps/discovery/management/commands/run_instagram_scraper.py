@@ -205,19 +205,28 @@ class Command(BaseCommand):
 
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
                 cl = self._get_persistent_client(account)
+                self._active_scraper_account = account
                 try:
                     if target.get("family"):
                         leads_found = self._scrape_family_target(cl, account, target, min_comments, max_posts)
                     else:
                         leads_found = self._scrape_target(cl, account, target, min_comments, max_posts)
                     cycle_leads += leads_found
-                    self._persist_session(cl, account)
+                    active_acc = getattr(self, "_active_scraper_account", account)
+                    active_cl = self._get_persistent_client(active_acc)
+                    self._persist_session(active_cl, active_acc)
                 except Exception as exc:
-                    self._note_account_error(account, str(exc), cl, exc)
+                    active_acc = getattr(self, "_active_scraper_account", account)
+                    active_cl = self._get_persistent_client(active_acc)
+                    self._note_account_error(active_acc, str(exc), active_cl, exc)
                     self.stderr.write(f"Error while scraping target {target['name']}: {exc}")
                 finally:
-                    account.last_action_at = dj_timezone.now()
-                    account.save(update_fields=["last_action_at"])
+                    active_acc = getattr(self, "_active_scraper_account", account)
+                    try:
+                        active_acc.last_action_at = dj_timezone.now()
+                        active_acc.save(update_fields=["last_action_at"])
+                    except Exception:
+                        pass
                 InstagramAntiBanManager.sleep_after_business(self.stdout)
 
             self.stdout.write(self.style.MIGRATE_HEADING(f"\n=== Discovery Cycle Complete ({cycle_leads} leads captured) ==="))
@@ -426,14 +435,14 @@ class Command(BaseCommand):
         now = dj_timezone.now()
         candidates = (
             InstagramEngineAccount.objects.filter(role="SCRAPER", status__in=["ACTIVE", "COOLDOWN"])
-            .exclude(role="SENDER")
             .exclude(session_json__isnull=True)
             .order_by("last_action_at")
         )
         usable = []
         for acc in candidates:
             # Enforce strict separation: Senders must NEVER be used for scraping
-            if acc.role != "SCRAPER":
+            is_valid_role, _ = InstagramAntiBanManager.validate_account_role(acc, "SCRAPER")
+            if not is_valid_role:
                 continue
 
             InstagramAntiBanManager.ensure_account_isolated_profile(acc)
@@ -470,6 +479,9 @@ class Command(BaseCommand):
 
     def _is_usable(self, account) -> bool:
         from apps.discovery.anti_ban import InstagramAntiBanManager
+        is_role_ok, _ = InstagramAntiBanManager.validate_account_role(account, "SCRAPER")
+        if not is_role_ok:
+            return False
         account.refresh_from_db(fields=["status", "cooldown_until"])
         is_safe, _ = InstagramAntiBanManager.check_account_safety(account)
         return is_safe
@@ -1333,8 +1345,20 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(
                         f"🔄 [Failover خودکار استخر اسکرپر]: تعویض اسکرپر از @{account.username} به @{next_acc.username}"
                     ))
+                    # Safely persist outgoing exhausted/challenged scraper before switching
+                    try:
+                        self._persist_session(cl, account)
+                    except Exception:
+                        pass
+                    try:
+                        account.last_action_at = dj_timezone.now()
+                        account.save(update_fields=["last_action_at"])
+                    except Exception:
+                        pass
+
                     account = next_acc
                     cl = self._get_persistent_client(account)
+                    self._active_scraper_account = account
                 else:
                     self.stdout.write(self.style.WARNING(f"Stopping sources: اکانت @{account.username} غیرفعال شد و اسکرپر سالمی باقی نمانده است."))
                     break
@@ -1412,6 +1436,15 @@ class Command(BaseCommand):
             from apps.discovery.anti_ban import InstagramAntiBanManager
             InstagramAntiBanManager.record_query_action(account, self.stdout)
             InstagramAntiBanManager.sleep_after_query(self.stdout)
+
+        # Synchronize active scraper session and timestamp upon completion
+        self._active_scraper_account = account
+        try:
+            self._persist_session(cl, account)
+            account.last_action_at = dj_timezone.now()
+            account.save(update_fields=["last_action_at"])
+        except Exception:
+            pass
         return total_leads
 
     def _scrape_target(self, cl, account, target, min_comments, max_posts) -> int:
