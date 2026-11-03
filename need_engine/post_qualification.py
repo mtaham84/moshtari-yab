@@ -20,7 +20,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
+
+if TYPE_CHECKING:
+    from apps.products.models import Product
 
 from pydantic import BaseModel, Field
 

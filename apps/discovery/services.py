@@ -1,6 +1,8 @@
 """Dashboard analytics built only from real data: engine opportunities, product-card visits and orders."""
 from __future__ import annotations
 
+from typing import Any
+
 from django.db.models import Sum
 
 from apps.businesses.models import Business

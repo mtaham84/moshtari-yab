@@ -1078,6 +1078,7 @@ class Command(BaseCommand):
         comment_cutoff = dj_timezone.now() - timedelta(days=10)
         effective_min = 10
         target_qualifying = 3
+        min_inspect = 15
         posts_inspected = qualifying_posts = leads_saved = 0
         seen = set()
         buyer_signals, negatives = list(plan.buyer_signals or []), list(plan.negative_signals or [])
