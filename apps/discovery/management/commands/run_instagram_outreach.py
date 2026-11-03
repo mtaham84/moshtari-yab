@@ -209,8 +209,9 @@ class Command(BaseCommand):
             cl.public_request_retries_count = 0
             cl.public_request_retries_timeout = 0
             cl.delay_range = [2, 5]
-            if account.proxy_url:
-                cl.set_proxy(account.proxy_url)
+            clean_proxy = getattr(account, "clean_proxy", None) or account.proxy_url
+            if clean_proxy:
+                cl.set_proxy(clean_proxy)
 
             # Apply persistent unique device fingerprint BEFORE authentication
             try:
@@ -413,6 +414,10 @@ class Command(BaseCommand):
 
                 # Live execution with Super Shield
                 try:
+                    # 🛡️ Step 0: Mobile Proxy Verification & Automatic IP Rotation
+                    from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+                    prepare_sender_proxy_before_dm(sender, stdout=self.stdout)
+
                     cl = get_or_create_client(sender)
 
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
@@ -533,6 +538,12 @@ class Command(BaseCommand):
                         or "max retries exceeded" in exc_str
                     ):
                         cooldown_minutes = 15
+                        # If mobile proxy has rotation URL, attempt immediate IP rotation to recover connection
+                        if getattr(sender, "proxy_rotation_url", None):
+                            from apps.discovery.proxy_service import rotate_account_proxy_ip
+                            self.stdout.write("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
+                            rotate_account_proxy_ip(sender)
+
                         sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=cooldown_minutes)
                         sender.status = "COOLDOWN"
                         sender.status_message = f"خطای اتصال پروکسی ({exc_str[:50]}) - استراحت {cooldown_minutes} دقیقه‌ای"

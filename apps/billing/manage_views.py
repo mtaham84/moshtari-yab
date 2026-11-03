@@ -52,11 +52,13 @@ def manage_access_required(view_func):
 
 
 def _test_proxy_connection(proxy_url: str, timeout: float = 4.0) -> tuple[bool, str]:
-    """Tests TCP connection to proxy host and port."""
+    """Tests TCP connection to proxy host and port, handling clean URLs and rotation links."""
     if not proxy_url or not proxy_url.strip():
         return True, "بدون پروکسی (اتصال مستقیم)"
     try:
-        parsed = urlparse(proxy_url)
+        from apps.discovery.proxy_service import clean_proxy_url
+        clean_url = clean_proxy_url(proxy_url)
+        parsed = urlparse(clean_url)
         host = parsed.hostname
         port = parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
         if not host:
