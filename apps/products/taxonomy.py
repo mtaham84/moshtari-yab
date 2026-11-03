@@ -212,8 +212,10 @@ def add_node(business: Business, parent_id: int | None, name: str, source: str =
     if parent_id and not parent:
         raise TaxonomyError("دستهٔ والد پیدا نشد.")
     depth = (parent.depth + 1) if parent else 1
-    if depth > 50:
-        raise TaxonomyError("حداکثر عمق مجاز دسته‌بندی رعایت نشده است.")
+    if depth > MAX_DEPTH:
+        raise TaxonomyError("حداکثر عمق دسته‌بندی ۴ سطح است.")
+    if source == "ai" and depth > AI_MAX_DEPTH:
+        raise TaxonomyError("حداکثر عمق دسته‌بندی هوش مصنوعی ۳ سطح است.")
     if not _unique_sibling(business, parent, name):
         raise TaxonomyError("این دسته‌بندی قبلاً در همین سطح وجود دارد.")
     kind = parent.product_type if parent else ("SERVICE" if business.business_type == "SERVICE" else "PHYSICAL")
