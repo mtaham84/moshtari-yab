@@ -30,7 +30,7 @@ from typing import Optional, Dict, Any, List
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
-from django.db import transaction
+from django.db import models, transaction
 
 try:
     from zoneinfo import ZoneInfo
@@ -272,24 +272,24 @@ class Command(BaseCommand):
                 if updated:
                     acc.save(update_fields=list(set(update_cols)))
 
-            senders = InstagramEngineAccount.objects.filter(
-                role="SENDER",
-                status="ACTIVE",
-                tenant_id__in=tenant_ids,
+            senders = (
+                InstagramEngineAccount.objects.filter(
+                    role="SENDER",
+                    status="ACTIVE",
+                    tenant_id__in=tenant_ids,
+                ).exclude(role="SCRAPER")
             ).filter(
-                cooldown_until__isnull=True
-            ) | InstagramEngineAccount.objects.filter(
-                role="SENDER",
-                status="ACTIVE",
-                tenant_id__in=tenant_ids,
-                cooldown_until__lte=now,
+                models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
             )
 
-            # Check both daily limit and hourly rate according to Dealism benchmarks
+            # Check both daily limit and hourly rate strictly enforced by Account Tier specs
             available = []
             for s in senders:
-                limit_daily = s.daily_limit or max_daily_dms or 18
-                limit_hourly = s.hourly_limit or 3
+                # Anti-Ban Tier Guardrail: Enforces warm-up quotas based on account age
+                tier_spec = get_tier_specs(s.account_tier)
+                limit_daily = min(s.daily_limit or tier_spec["default_daily"], tier_spec["max_daily"])
+                limit_hourly = min(s.hourly_limit or tier_spec["hourly_speed"], tier_spec["hourly_speed"])
+
                 if s.daily_action_count < limit_daily and (s.hourly_action_count or 0) < limit_hourly:
                     available.append(s)
 
@@ -385,14 +385,15 @@ class Command(BaseCommand):
                     business_name=biz_name,
                 )
 
-                limit_display = sender.daily_limit or max_daily_dms or 18
+                tier_specs = get_tier_specs(sender.account_tier)
+                limit_display = min(sender.daily_limit or tier_specs["default_daily"], tier_specs["max_daily"])
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
                     f"| احتمال خرید: {int(lead.intent_score * 100)}% | نیاز: {lead.comment_text[:40]}"
                 )
                 self.stdout.write(
-                    f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
+                    f"   📌 اکانت فرستنده: @{sender_user} ({tier_specs['title']}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
                 )
 
                 if dry_run:
