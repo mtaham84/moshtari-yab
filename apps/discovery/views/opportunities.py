@@ -2,50 +2,45 @@ import csv
 import io
 import json
 import logging
-import os
 import re
+import sys
 from datetime import timedelta
 from urllib.parse import urlencode
-from django.conf import settings
 
-from django.contrib import messages
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
-from django.core.paginator import Paginator
-from django.core.cache import cache
-from django.db import IntegrityError, transaction
-from django.utils import timezone
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_http_methods
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
-
 from apps.businesses.models import Business
+from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
 from apps.core.jalali import format_jalali_date, parse_jalali_date
-from apps.products.models import Category, Product
-from need_engine.text import norm
-from instagram_discovery.comment_metrics import (
-    build_comment_report, load_labels, pending_human_labels, read_jsonl,
-    reporting_paths, save_human_label,
+from apps.discovery.models import (
+    InstagramReplySuggestion,
+    Opportunity,
+    OPPORTUNITY_STATUS_CHOICES,
+    SELLER_FEEDBACK_REASON_CHOICES,
 )
-from instagram_discovery.post_metrics import (
-    REASON_CODES, build_post_report, post_review_paths,
-)
-from instagram_discovery.post_label_store import PostLabelStore, create_post_label_store
-
+from apps.products.models import Product
 from shared.instagram import PageRefError, parse_page_ref
-from .models import (InstagramCategoryTarget, InstagramPage, InstagramCrawlExecution, MonitoredCommunity, Opportunity, OPPORTUNITY_STATUS_CHOICES, SELLER_FEEDBACK_REASON_CHOICES, XCollectorState,
-                    XNegativeTerm, XSearchQuery, OpportunityProductMatch, InstagramReplySuggestion)
-from .services import get_performance_analytics
-from .sources import GLOBAL, PRIVATE, TG_INVITE_RE, TG_USERNAME_RE, max_private_sources, normalize_link
 
 logger = logging.getLogger(__name__)
 _PLATFORM_ID_PREFIXES = ("telegram_", "x_", "instagram_", "divar_")
-INSTAGRAM_PAGE_CHANGE_LIMIT = max(1, int(os.getenv("IG_PAGE_CHANGES_PER_HOUR", "30")))
+
+
+def _get_drafts_for():
+    pkg = sys.modules.get("apps.discovery.views")
+    return getattr(pkg, "drafts_for", drafts_for) if pkg else drafts_for
+
+
+def _get_rewrite_reply():
+    pkg = sys.modules.get("apps.discovery.views")
+    return getattr(pkg, "rewrite_reply", rewrite_reply) if pkg else rewrite_reply
 
 
 def _strip_platform_prefix(value):
@@ -55,62 +50,11 @@ def _strip_platform_prefix(value):
     return value
 
 
-def _instagram_list(value: str, *, hashtags: bool = False) -> list[str]:
-    parts = value.replace("،", ",").replace(";", ",").splitlines()
-    if len(parts) == 1:
-        parts = parts[0].split(",")
-    output = []
-    seen = set()
-    for part in parts:
-        item = part.strip()
-        if hashtags:
-            item = item.lstrip("#").strip()
-        key = item.casefold()
-        if item and key not in seen:
-            output.append(item[:80])
-            seen.add(key)
-        if len(output) == 50:
-            break
-    return output
-
-
-def _bounded_post_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return default
-    return max(minimum, min(maximum, number))
-
-
 def _safe_csv_cell(value):
     value = str(value)
     if value != "-" and value.startswith(("=", "+", "-", "@", "\t", "\r")):
         return "'" + value
     return value
-
-
-@login_required
-def api_analytics_report_view(request):
-    """
-    Returns aggregated performance analytics for seller's catalog (clicks, views, sales, conversion rate)
-    with support for Persian/Shamsi start_date and end_date filtering.
-    """
-    business = getattr(request.user, "business", None)
-    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
-        b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
-        if b_found:
-            business = b_found
-    if not business:
-        return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=404)
-
-    start_raw = request.GET.get("start_date", "").strip()
-    end_raw = request.GET.get("end_date", "").strip()
-
-    start_date = parse_jalali_date(start_raw) if start_raw else None
-    end_date = parse_jalali_date(end_raw) if end_raw else None
-
-    data = get_performance_analytics(business=business, start_date=start_date, end_date=end_date)
-    return JsonResponse({"status": "success", "data": data}, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
 
 def _filter_opportunities_queryset(business, params, is_admin=False, view_all_tenants=False):
@@ -199,7 +143,6 @@ def _filter_opportunities_queryset(business, params, is_admin=False, view_all_te
             qs = qs.filter(created_at__date__lte=d_to)
 
     # Sorting
-    # If filtering by a specific product, default sort is highest purchase intent score first!
     default_sort = "intent_desc" if selected_product_id else "newest"
     sort_order = params.get("sort", default_sort).strip()
 
@@ -247,7 +190,6 @@ def opportunity_list_view(request):
         all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
         requested_biz_id = request.GET.get("business_id", "").strip().lower()
         requested_prod_id = request.GET.get("product_id", "").strip()
-
         if requested_biz_id == "all":
             business = None
             view_all_tenants = True
@@ -353,7 +295,6 @@ def opportunity_list_view(request):
                     "profile_url": opportunity.customer_profile_url, "post_url": opportunity.source_post_url,
                     "dm_url": dm_url,
                 }
-
 
     # Global summary stats
     if view_all_tenants or not business:
@@ -497,6 +438,8 @@ def opportunity_export_view(request):
         "eitaa": "ایتا",
     }
 
+    _drafts_func = _get_drafts_for()
+
     for opp in qs.select_related("customer", "ai_analysis").prefetch_related("product_matches__product", "evidence_items"):
         c = opp.customer
 
@@ -580,7 +523,7 @@ def opportunity_export_view(request):
 
         if not suggested_reply:
             try:
-                drafts = drafts_for(opp)
+                drafts = _drafts_func(opp)
                 if drafts:
                     suggested_reply = next((v for v in drafts.values() if v), "").strip()
             except Exception:
@@ -629,11 +572,13 @@ def opportunity_detail_view(request, pk):
         opportunity = get_object_or_404(qs, pk=pk, business=business)
 
     matches = list(opportunity.product_matches.select_related("product").order_by("rank"))
-    try:   # reverse one-to-one: missing row raises instead of returning None
+    try:
         analysis = opportunity.ai_analysis
     except Exception:
         analysis = None
-    drafts = drafts_for(opportunity)
+
+    _drafts_func = _get_drafts_for()
+    drafts = _drafts_func(opportunity)
     customer_profile_url = opportunity.customer_profile_url or opportunity.customer.source_profile_url
     if not customer_profile_url and opportunity.customer.source_username:
         handle = opportunity.customer.source_username.lstrip("@").strip()
@@ -719,7 +664,8 @@ def opportunity_rewrite_view(request, pk):
     if match is None:
         return JsonResponse({"status": "error", "message": "برای این فرصت محصولی ثبت نشده است."}, status=400)
     try:
-        text = rewrite_reply(opportunity, match)
+        _rewrite_func = _get_rewrite_reply()
+        text = _rewrite_func(opportunity, match)
     except AgentUnavailable as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=503)
     return JsonResponse({"status": "success", "product_id": match.product_id, "reply": text})
@@ -743,7 +689,7 @@ def opportunity_reply_suggestions_view(request, pk):
         return JsonResponse({"status": "error", "message": "برای این فرصت محصولی ثبت نشده است."}, status=400)
     action = request.POST.get("action", "generate")
     if action in {"generate", "regenerate"}:
-        from .services import generate_opportunity_reply_suggestions
+        from apps.discovery.services import generate_opportunity_reply_suggestions
         try:
             result = generate_opportunity_reply_suggestions(
                 opportunity, match, instruction=request.POST.get("instruction", ""),
@@ -845,24 +791,6 @@ def opportunity_status_update_view(request, pk):
         "status_display": opportunity.get_status_display(),
         "message": "وضعیت فرصت با موفقیت به‌روزرسانی شد."
     })
-
-
-def _validate_private_source(business, raw_link: str) -> tuple[str, str]:
-    """→ (normalized_link, "") or ("", Persian error). Rules: valid Telegram link, not already one of this seller's
-    sources, at most TG_MAX_PRIVATE_SOURCES per seller. A global source may be added too (the seller then pays its
-    whole analysis, see need_engine/access.py ``owners``); the group is still crawled and analysed once."""
-    key = normalize_link(raw_link)
-    if not key:
-        return "", "لطفاً لینک یا آیدی گروه تلگرامی را وارد کنید."
-    if not (TG_USERNAME_RE.match(key) or TG_INVITE_RE.match(key)):
-        return "", "لینک واردشده معتبر نیست. نمونه‌ی درست: @group_name یا https://t.me/group_name یا لینک دعوت https://t.me/+…"
-    own = MonitoredCommunity.objects.filter(scope=PRIVATE, business=business)
-    if own.filter(normalized_link=key).exists():
-        return "", "این گروه قبلاً در منابع اختصاصی شما ثبت شده است."
-    limit = max_private_sources()
-    if own.count() >= limit:
-        return "", f"حداکثر {limit} منبع اختصاصی می‌توانید داشته باشید. برای افزودن، یکی از منابع فعلی را حذف کنید."
-    return key, ""
 
 
 @login_required
@@ -973,577 +901,4 @@ def opportunity_feedback_view(request, pk):
         "feedback": feedback,
         "reason": reason,
         "new_status": opportunity.status
-    })
-
-
-@login_required
-def communities_list_view(request):
-    """
-    Telegram sources the crawler watches for this seller:
-      • global sources (defined by the platform admin, analysed for every seller, read-only here);
-      • the seller's private sources (only this seller's products are matched there), limited per seller.
-    """
-    business = getattr(request.user, "business", None)
-    if not business:
-        messages.error(request, "حساب کسب‌وکار مرتبط یافت نشد.")
-        return redirect("accounts:dashboard")
-
-    if request.method == "POST":
-        link = request.POST.get("handle_or_link", "").strip()
-        description = request.POST.get("description", "").strip()[:500]
-        key, error = _validate_private_source(business, link)
-        if error:
-            messages.error(request, error)
-        else:
-            community = MonitoredCommunity.objects.create(
-                business=business, platform="telegram", handle_or_link=link,
-                description=description, is_active=True,
-            )
-            messages.success(request, f"گروه {community.handle_or_link} به منابع اختصاصی شما اضافه شد و در صف اتصال قرار گرفت.")
-            if MonitoredCommunity.objects.filter(scope=GLOBAL, normalized_link=key, is_active=True).exists():
-                messages.info(request, "این گروه جزو منابع عمومی هم هست و برای همه پایش می‌شود؛ با افزودن آن به منابع "
-                                       "اختصاصی، هزینه‌ی تحلیل پیام‌هایش از کیف پول شما کسر می‌شود.")
-            return redirect("discovery:communities_list")
-
-    global_sources = MonitoredCommunity.objects.filter(scope=GLOBAL, is_active=True)
-    private_sources = MonitoredCommunity.objects.filter(scope=PRIVATE, business=business)
-    watched = list(global_sources) + [c for c in private_sources if c.is_active]
-
-    return render(request, "discovery/communities_list.html", {
-        "global_sources": global_sources,
-        "private_sources": private_sources,
-        "business": business,
-        "private_limit": max_private_sources(),
-        "can_add_private": private_sources.count() < max_private_sources(),
-        "form_link": request.POST.get("handle_or_link", "") if request.method == "POST" else "",
-        "form_description": request.POST.get("description", "") if request.method == "POST" else "",
-        "stats": {
-            "global_count": global_sources.count(),
-            "private_count": private_sources.count(),
-            "total_scanned": sum(c.messages_scanned_count for c in watched),
-            "total_leads": sum(c.leads_discovered_count for c in private_sources),
-        },
-    })
-
-
-def _instagram_change_allowed(request):
-    key = f"ig-page-change:{request.user.pk}"
-    try:
-        count = cache.get(key, 0)
-        if count >= INSTAGRAM_PAGE_CHANGE_LIMIT:
-            return False
-        if count == 0:
-            cache.add(key, 1, timeout=3600)
-        else:
-            cache.incr(key)
-        return True
-    except (ValueError, TypeError):
-        cache.set(key, 1, timeout=3600)
-        return True
-
-
-def _page_ref_error(reason):
-    messages_by_reason = {
-        "reserved_path": "لینک صفحه یا پست اینستاگرام پذیرفته نمی‌شود؛ آیدی خود صفحه را وارد کنید.",
-        "invalid_host": "فقط لینک پروفایل از دامنه‌های رسمی اینستاگرام پذیرفته می‌شود.",
-        "invalid_scheme": "لینک باید با http یا https باشد؛ می‌توانید فقط آیدی صفحه را هم وارد کنید.",
-        "too_long": "لینک یا آیدی بیش از حد طولانی است.",
-        "non_ascii": "آیدی صفحه باید با حروف انگلیسی، عدد، نقطه یا زیرخط نوشته شود.",
-    }
-    return messages_by_reason.get(reason, "لینک یا آیدی صفحه معتبر نیست.")
-
-
-@login_required
-def instagram_pages_view(request):
-    business = getattr(request.user, "business", None)
-    if business is None:
-        messages.error(request, "حساب کسب‌وکار مرتبط یافت نشد.")
-        return redirect("accounts:dashboard")
-
-    pages = InstagramPage.objects.filter(business=business).select_related("default_product")
-    for page in pages:
-        try:
-            handle = parse_page_ref(page.handle)
-        except PageRefError:
-            page.profile_url = ""
-        else:
-            page.profile_url = f"https://www.instagram.com/{handle}/"
-    status_labels = {"ok": "موفق", "queued": "در صف", "not_found": "صفحه پیدا نشد",
-                     "private": "خصوصی", "rate_limited": "محدودیت موقت", "error": "خطا",
-                     "candidate": "پیشنهادی", "approved": "تأییدشده", "rejected": "ردشده"}
-    for page in pages:
-        page.status_label = status_labels.get(page.last_status, page.last_status)
-    products = Product.objects.filter(business=business, status="ACTIVE").order_by("name")
-    categories = Category.objects.filter(Q(business__isnull=True) | Q(business=business), is_active=True).order_by("full_path")
-    category_targets = InstagramCategoryTarget.objects.filter(business=business).select_related("category")
-    targets_by_category = {target.category_id: target for target in category_targets}
-    category_configs = [{"category": category, "target": targets_by_category.get(category.pk)} for category in categories]
-    page_context = {
-        "pages": pages, "products": products, "categories": categories,
-        "category_configs": category_configs,
-    }
-    evaluation_path, labels_path = reporting_paths()
-    evaluation_rows = read_jsonl(evaluation_path)
-    human_labels = load_labels(labels_path, business_id=business.pk)
-    page_context["comment_report"] = build_comment_report(
-        evaluation_rows, labels=human_labels, business_id=business.pk,
-    )
-    page_context["pending_comment_labels"] = pending_human_labels(
-        evaluation_rows, human_labels, business_id=business.pk, limit=25,
-    )
-    page_context["crawl_executions"] = InstagramCrawlExecution.objects.filter(business=business).order_by("-crawled_at")[:30]
-    if request.method == "POST":
-        action = request.POST.get("action", "add")
-        if action == "label_comment":
-            comment_id = request.POST.get("comment_id", "").strip()
-            label = request.POST.get("label", "")
-            comment = next((row for row in pending_human_labels(
-                evaluation_rows, human_labels, business_id=business.pk, limit=100,
-            ) if str(row.get("id") or "") == comment_id), None)
-            if comment is None:
-                messages.error(request, "این کامنت در صف ارزیابی کسب‌وکار شما نیست.")
-            elif label not in {"approve", "reject"}:
-                messages.error(request, "برچسب باید تأیید یا رد باشد.")
-            else:
-                save_human_label(labels_path, comment_id=comment_id, business_id=business.pk,
-                                 label=label, operator_id=request.user.pk)
-                messages.success(request, "برچسب انسانی ذخیره شد.")
-            return redirect("discovery:instagram_pages")
-        if action in {"add", "remove", "save_category_target", "approve_candidate", "deny_candidate"} and not _instagram_change_allowed(request):
-            return render(request, "discovery/instagram_pages.html", {
-                **page_context, "throttled": True,
-            }, status=429)
-        if action == "save_category_target":
-            category_id = request.POST.get("category_id", "")
-            category = Category.objects.filter(
-                Q(business__isnull=True) | Q(business=business), is_active=True, pk=category_id
-            ).first() if category_id.isdigit() else None
-            if category is None:
-                messages.error(request, "دسته‌بندی معتبر نیست.")
-            else:
-                max_posts = _bounded_post_int(request.POST.get("max_posts"), 5, 1, 100)
-                window_days = _bounded_post_int(request.POST.get("window_days"), 7, 1, 90)
-                InstagramCategoryTarget.objects.update_or_create(
-                    business=business, category=category,
-                    defaults={
-                        "terms": _instagram_list(request.POST.get("terms", "")),
-                        "hashtags": _instagram_list(request.POST.get("hashtags", ""), hashtags=True),
-                        "max_posts": max_posts, "window_days": window_days,
-                        "is_active": request.POST.get("is_active") == "on",
-                    },
-                )
-                messages.success(request, "تنظیم دسته‌بندی اینستاگرام ذخیره شد.")
-            return redirect("discovery:instagram_pages")
-        if action == "add":
-            try:
-                handle = parse_page_ref(request.POST.get("page_ref", ""))
-            except PageRefError as exc:
-                messages.error(request, _page_ref_error(exc.reason))
-            else:
-                kind = request.POST.get("kind", "watched")
-                if kind not in {"own", "watched"}:
-                    kind = "watched"
-                product_id = request.POST.get("default_product", "")
-                if product_id and not product_id.isdigit():
-                    messages.error(request, "محصول پیش‌فرض معتبر نیست.")
-                    return render(request, "discovery/instagram_pages.html", page_context)
-                default_product = Product.objects.filter(pk=product_id, business=business).first() if product_id else None
-                if product_id and default_product is None:
-                    messages.error(request, "این محصول به کسب‌وکار شما تعلق ندارد.")
-                    return render(request, "discovery/instagram_pages.html", page_context)
-                if InstagramPage.objects.filter(business=business, handle__iexact=handle).exists():
-                    messages.error(request, "این صفحه قبلاً به فهرست شما اضافه شده است.")
-                    return render(request, "discovery/instagram_pages.html", page_context)
-                try:
-                    with transaction.atomic():
-                        InstagramPage.objects.create(business=business, handle=handle, kind=kind, default_product=default_product)
-                except IntegrityError:
-                    messages.error(request, "این صفحه قبلاً به فهرست شما اضافه شده است.")
-                else:
-                    logger.info("Instagram page added: @%s", handle)
-                    messages.success(request, f"صفحهٔ @{handle} به فهرست پایش اضافه شد.")
-                    return redirect("discovery:instagram_pages")
-        elif action == "remove":
-            page = get_object_or_404(pages, pk=request.POST.get("page_id"))
-            handle = page.handle
-            page.delete()
-            logger.info("Instagram page removed: @%s", handle)
-            messages.success(request, f"صفحهٔ @{handle} حذف شد.")
-            return redirect("discovery:instagram_pages")
-        elif action == "toggle":
-            page = get_object_or_404(pages, pk=request.POST.get("page_id"))
-            page.is_active = not page.is_active
-            if page.is_active and page.discovered_family_id:
-                page.last_status = "approved"
-                page.save(update_fields=["is_active", "last_status"])
-            else:
-                page.save(update_fields=["is_active"])
-            messages.success(request, "پایش صفحه فعال شد." if page.is_active else "پایش صفحه متوقف شد.")
-            return redirect("discovery:instagram_pages")
-        elif action == "approve_candidate":
-            page = get_object_or_404(pages, pk=request.POST.get("page_id"), discovered_family_id__gt="")
-            page.is_active, page.last_status = True, "approved"
-            page.save(update_fields=["is_active", "last_status"])
-            messages.success(request, f"صفحهٔ @{page.handle} تأیید و برای پایش فعال شد.")
-            return redirect("discovery:instagram_pages")
-        elif action == "deny_candidate":
-            page = get_object_or_404(pages, pk=request.POST.get("page_id"), discovered_family_id__gt="")
-            page.is_active, page.last_status = False, "rejected"
-            page.save(update_fields=["is_active", "last_status"])
-            messages.success(request, f"صفحهٔ پیشنهادی @{page.handle} رد شد.")
-            return redirect("discovery:instagram_pages")
-    return render(request, "discovery/instagram_pages.html", page_context)
-
-
-@login_required
-def instagram_comment_report_api_view(request):
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return JsonResponse({"status": "error", "message": "کسب‌وکار مرتبط یافت نشد."}, status=404)
-    evaluation_path, labels_path = reporting_paths()
-    report = build_comment_report(
-        read_jsonl(evaluation_path), labels=load_labels(labels_path, business_id=business.pk),
-        business_id=business.pk,
-    )
-    return JsonResponse({"status": "success", "data": report}, json_dumps_params={"ensure_ascii": False})
-
-
-def _instagram_post_review_context(
-    request, business, label_store: PostLabelStore, *, page_number: int | None = None,
-):
-    analyzed_path, _, _ = post_review_paths()
-    categories = list(Category.objects.filter(business=business, is_active=True).order_by("full_path", "pk"))
-    products = list(Product.objects.filter(business=business, status="ACTIVE").order_by("name", "pk"))
-    labels = label_store.load(business_id=business.pk)
-    reason_code = request.GET.get("reason", "").strip()
-    if reason_code not in REASON_CODES:
-        reason_code = ""
-    category_filter = request.GET.get("category", "").strip()
-    own_category_ids = {str(category.pk) for category in categories}
-    if category_filter not in own_category_ids:
-        category_filter = ""
-    page = page_number if page_number is not None else _bounded_post_int(request.GET.get("page"), 1, 1, 5_000)
-    page_size = 20
-    offset = (page - 1) * page_size
-    rows, total = label_store.pending(
-        business_id=business.pk, limit=page_size, offset=offset,
-        reason_code=reason_code or None, category_id=category_filter or None,
-    )
-    page_count = max(1, (total + page_size - 1) // page_size)
-    page = min(page, page_count)
-    if offset >= total and total:
-        offset = (page - 1) * page_size
-        rows, _ = label_store.pending(
-            business_id=business.pk, limit=page_size, offset=offset,
-            reason_code=reason_code or None, category_id=category_filter or None,
-        )
-    last_label = None
-    labeled_post_id = request.GET.get("labeled_post", "")
-    if labeled_post_id:
-        label = labels.get((str(business.pk), labeled_post_id))
-        if label:
-            last_label = {
-                "post_id": label["post_id"], "decision": label["decision"],
-                "analyzer_snapshot": label["analyzer_snapshot"],
-            }
-    report = build_post_report(read_jsonl(analyzed_path), label_store, business_id=business.pk)
-    return {
-        "pending_posts": rows, "pending_total": total, "page": page, "page_count": page_count,
-        "reason_filter": reason_code, "category_filter": category_filter,
-        "review_reasons": sorted(REASON_CODES),
-        "categories": categories, "products": products, "post_report": report,
-        "last_post_label": last_label,
-    }
-
-
-@login_required
-@csrf_protect
-@require_http_methods(["GET", "POST"])
-def instagram_post_review_view(request):
-    """Business-scoped, blind-first human post review and confident-match auditing."""
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return HttpResponse(status=404)
-    label_store = create_post_label_store()
-
-    if request.method == "POST":
-        action = request.POST.get("action", "")
-        if action == "skip_post":
-            page = _bounded_post_int(request.POST.get("page"), 1, 1, 5_000) + 1
-            query = {"page": page}
-            for name in ("reason", "category"):
-                value = request.POST.get(name, "").strip()
-                if value:
-                    query[name] = value
-            return redirect(f"{reverse('discovery:instagram_post_review')}?{urlencode(query)}")
-        if action != "label_post":
-            return HttpResponse(status=400)
-        if not _instagram_change_allowed(request):
-            context = _instagram_post_review_context(request, business, label_store)
-            return render(request, "discovery/instagram_post_review.html", {
-                **context, "throttled": True,
-            }, status=429)
-
-        post_id = request.POST.get("post_id", "").strip()
-        try:
-            matches, _ = label_store.pending(
-                business_id=business.pk, limit=1, post_id=post_id,
-            )
-        except ValueError:
-            return HttpResponse(status=400)
-        if not matches:
-            return HttpResponse(status=404)
-        review_item = matches[0]
-        decision = request.POST.get("decision", "")
-        if decision not in {"approve", "reject"}:
-            return HttpResponse(status=400)
-
-        category_id: int | None = None
-        product_id: int | None = None
-        if decision == "approve":
-            raw_category_id = request.POST.get("category_id", "").strip()
-            category = Category.objects.filter(
-                business=business, is_active=True, pk=raw_category_id,
-            ).first() if raw_category_id.isdigit() else None
-            if category is None:
-                messages.error(request, "برای تأیید، دسته‌بندی فعال متعلق به کسب‌وکار خودتان را انتخاب کنید.")
-                return render(request, "discovery/instagram_post_review.html", {
-                    **_instagram_post_review_context(request, business, label_store), "invalid_label": True,
-                }, status=400)
-            category_id = category.pk
-            raw_product_id = request.POST.get("product_id", "").strip()
-            if raw_product_id:
-                product = Product.objects.filter(
-                    business=business, status="ACTIVE", pk=raw_product_id,
-                ).first() if raw_product_id.isdigit() else None
-                if product is None or (product.category_id and product.category_id != category.pk):
-                    messages.error(request, "محصول باید فعال، متعلق به کسب‌وکار شما و سازگار با دسته‌بندی باشد.")
-                    return render(request, "discovery/instagram_post_review.html", {
-                        **_instagram_post_review_context(request, business, label_store), "invalid_label": True,
-                    }, status=400)
-                product_id = product.pk
-        try:
-            label_store.save(
-                post_id=review_item["post_id"], business_id=business.pk,
-                decision=decision, category_id=category_id, product_id=product_id,
-                operator_id=request.user.pk, snapshot=review_item["analyzer_snapshot"],
-                audit=review_item["audit"],
-            )
-        except ValueError:
-            return HttpResponse(status=400)
-        query = urlencode({"labeled_post": review_item["post_id"]})
-        return redirect(f"{reverse('discovery:instagram_post_review')}?{query}")
-
-    context = _instagram_post_review_context(request, business, label_store)
-    return render(request, "discovery/instagram_post_review.html", context)
-
-
-@login_required
-def instagram_post_report_api_view(request):
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return JsonResponse({"status": "error", "message": "کسب‌وکار مرتبط یافت نشد."}, status=404)
-    analyzed_path, _, _ = post_review_paths()
-    report = build_post_report(
-        read_jsonl(analyzed_path), create_post_label_store(),
-        business_id=business.pk,
-    )
-    return JsonResponse({"status": "success", "data": report}, json_dumps_params={"ensure_ascii": False})
-
-
-@login_required
-def instagram_comment_detail_view(request, pk):
-    business = getattr(request.user, "business", None)
-    opportunity = get_object_or_404(
-        Opportunity.objects.select_related("customer", "ai_analysis").prefetch_related(
-            "evidence_items", "product_matches__product",
-        ),
-        pk=pk, business=business, source_platform="instagram",
-    )
-    try:
-        author = parse_page_ref(opportunity.customer.source_username or "")
-    except PageRefError:
-        profile_url = ""
-    else:
-        profile_url = f"https://www.instagram.com/{author}/"
-    source_id = re.fullmatch(r"ig:([A-Za-z0-9_-]{1,80}):c[A-Za-z0-9_-]{1,80}", opportunity.source_message_id)
-    post_url = f"https://www.instagram.com/p/{source_id.group(1)}/" if source_id else ""
-    return render(request, "discovery/instagram_comment_detail.html", {
-        "opportunity": opportunity, "customer": opportunity.customer,
-        "analysis": getattr(opportunity, "ai_analysis", None),
-        "instagram_profile_url": profile_url, "instagram_post_url": post_url,
-    })
-
-
-@login_required
-def community_toggle_status_view(request, community_id):
-    """Toggles active/inactive monitoring status for a community."""
-    business = getattr(request.user, "business", None)
-    if request.method != "POST":
-        return redirect("discovery:communities_list")
-    community = get_object_or_404(MonitoredCommunity, id=community_id, business=business, scope=PRIVATE)
-
-    community.is_active = not community.is_active
-    if community.is_active and community.sync_status == "ERROR":
-        community.sync_status, community.sync_error = "PENDING", ""
-    community.save(update_fields=["is_active", "sync_status", "sync_error"])
-
-    status_str = "فعال" if community.is_active else "غیرفعال"
-    messages.success(request, f"پایش «{community.display_name}» {status_str} شد.")
-    return redirect("discovery:communities_list")
-
-
-@login_required
-def community_delete_view(request, community_id):
-    """Removes a community from the monitoring list."""
-    business = getattr(request.user, "business", None)
-    if request.method != "POST":
-        return redirect("discovery:communities_list")
-    community = get_object_or_404(MonitoredCommunity, id=community_id, business=business, scope=PRIVATE)
-
-    name = community.display_name
-    community.delete()
-    messages.info(request, f"«{name}» از منابع اختصاصی شما حذف شد.")
-    return redirect("discovery:communities_list")
-
-
-@login_required
-def x_management_view(request):
-    if not (getattr(settings, "X_PANEL_ENABLED", False) or getattr(settings, "X_SELLER_UI", False)):
-        return HttpResponse(status=404)
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return HttpResponse(status=404)
-    if request.method == "POST":
-        if not request.user.is_authenticated:
-            return HttpResponse(status=403)
-        action = request.POST.get("action", "")
-        if action == "add_query":
-            text = " ".join(request.POST.get("query", "").split())
-            if len(text) > 100:
-                return HttpResponse("عبارت حداکثر ۱۰۰ نویسه باشد.", status=400)
-            if text:
-                normalized = norm(text)[:100]
-                if XSearchQuery.objects.filter(business=business, kind="manual").count() >= int(os.getenv("X_MANUAL_QUERIES_MAX", "30")):
-                    return HttpResponse("سقف عبارت‌های این کسب‌وکار تکمیل شده است.", status=400)
-                XSearchQuery.objects.get_or_create(business=business, normalized_text=normalized,
-                    defaults={"text": text, "kind": "manual", "state": "active"})
-        elif action == "set_query_state":
-            query = get_object_or_404(XSearchQuery, pk=request.POST.get("query_id"), business=business)
-            state = request.POST.get("state")
-            if state in {"active", "paused_manual"}:
-                query.state = state
-                query.save(update_fields=["state", "last_state_change_at"])
-        elif action == "add_negative":
-            term = " ".join(request.POST.get("term", "").split())
-            if len(term) > 40:
-                return HttpResponse("واژه حداکثر ۴۰ نویسه باشد.", status=400)
-            if term:
-                if XNegativeTerm.objects.filter(business=business).count() >= int(os.getenv("X_NEGATIVE_TERMS_MAX", "50")):
-                    return HttpResponse("سقف واژه‌های منفی تکمیل شده است.", status=400)
-                XNegativeTerm.objects.get_or_create(business=business, product=None, normalized_term=norm(term)[:40],
-                    defaults={"term": term})
-        elif action == "delete_negative":
-            get_object_or_404(XNegativeTerm, pk=request.POST.get("term_id"), business=business).delete()
-        return redirect("discovery:x_management")
-    from django.core.paginator import Paginator
-    queries = Paginator(XSearchQuery.objects.filter(business=business).order_by("state", "text"), 50).get_page(request.GET.get("page"))
-    terms = XNegativeTerm.objects.filter(business=business).order_by("term")
-    status = XCollectorState.objects.order_by("-updated_at").first()
-    status_file = settings.BASE_DIR / __import__("os").getenv("X_STATUS_FILE", "data/x_collected/status.json")
-    try:
-        import json
-        status_data = json.loads(status_file.read_text(encoding="utf-8"))
-        from django.utils.dateparse import parse_datetime
-        from django.utils import timezone
-        updated = parse_datetime(status_data.get("updated_at", ""))
-        if not updated or timezone.now() - updated > timedelta(minutes=int(os.getenv("X_STATUS_STALE_MINUTES", "30"))):
-            status = None
-    except Exception:
-        status = None
-    return render(request, "discovery/x_management.html", {"queries": queries, "terms": terms,
-        "collector_state": status})
-
-
-def _x_seller_business(request):
-    if not getattr(settings, "X_SELLER_UI", True):
-        return None
-    return getattr(request.user, "business", None)
-
-
-def _x_wallet_empty(business) -> bool:
-    wallet = getattr(business, "wallet", None)
-    return wallet is not None and wallet.balance_toman <= 0
-
-
-@login_required
-def x_search_view(request):
-    """Seller hub «جستجوی مشتری در X»: what it does in plain words, a switch per product and what came of it."""
-    from apps.products.models import Product
-
-    from . import x_activity
-
-    business = _x_seller_business(request)
-    if business is None:
-        return HttpResponse(status=404)
-    products = list(Product.objects.filter(business=business).order_by("-x_search_enabled", "name"))
-    stats = x_activity.product_stats(business, products)
-    rows = []
-    for p in products:
-        st = stats.get(str(p.pk), {})
-        rows.append({"product": p, "st": st, "eligible": p.status == "ACTIVE" and p.is_discovery_active})
-    on = [r for r in rows if r["product"].x_search_enabled]
-    totals = {k: sum(r["st"].get(k, 0) for r in rows) for k in ("found", "reviewed", "customers", "rejected", "cost_toman", "seen")}
-    return render(request, "discovery/x_search.html", {
-        "rows": rows, "on_count": len(on), "totals": totals, "collector": x_activity.collector_line(),
-        "wallet_empty": _x_wallet_empty(business), "x_mode": os.getenv("NE_X_MODE", "product").strip().lower() or "product",
-    })
-
-
-@login_required
-def x_product_view(request, pk):
-    """One product's X search: switch, numbers, the phrases searched and a log of every post found and its outcome."""
-    from apps.products.models import Product
-
-    from . import x_activity
-
-    business = _x_seller_business(request)
-    if business is None:
-        return HttpResponse(status=404)
-    product = get_object_or_404(Product, pk=pk, business=business)
-    show = request.GET.get("show", "all")
-    show = show if show in dict(x_activity.FILTERS) else "all"
-    st = x_activity.product_stats(business, [product]).get(str(product.pk), {})
-    return render(request, "discovery/x_product.html", {
-        "product": product, "st": st, "eligible": product.status == "ACTIVE" and product.is_discovery_active,
-        "phrases": x_activity.search_phrases(product), "events": x_activity.timeline(product, business, show),
-        "show": show, "filters": x_activity.FILTERS, "collector": x_activity.collector_line(),
-        "wallet_empty": _x_wallet_empty(business),
-    })
-
-
-@login_required
-def api_leaf_category_stats_view(request):
-    """
-    Returns JSON dashboard metrics for all active leaf categories and platforms.
-    Accepts ?platform=x, ?platform=instagram, or returns both.
-    """
-    business = getattr(request.user, "business", None)
-    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
-        b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
-        if b_found:
-            business = b_found
-
-    if not business:
-        return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=400)
-
-    platform_param = request.GET.get("platform")
-    from .services import get_leaf_category_dashboard_stats
-    data = get_leaf_category_dashboard_stats(business, platform=platform_param)
-    return JsonResponse({
-        "status": "success",
-        "business_id": business.id,
-        "business_name": business.name,
-        "leaf_categories_count": len(data),
-        "results": data,
     })
