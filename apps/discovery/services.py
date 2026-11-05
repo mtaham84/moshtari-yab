@@ -154,6 +154,16 @@ def _product_fit_score(product, text: str) -> float:
     return FIT_NONE
 
 
+def _ai_meta_charge_ref(ai_meta) -> str:
+    """Stable fingerprint of one AI evaluation (same tokens/cost/output -> same ref)."""
+    import hashlib
+    import json as _json
+
+    keys = ("cost_usd", "tokens_in", "tokens_out", "tokens_used", "model", "need", "suggested_reply", "matched_cta")
+    payload = {k: (ai_meta or {}).get(k) for k in keys}
+    return hashlib.sha1(_json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:16]
+
+
 def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain with accurate Luna GPT-6 billing."""
     import re
@@ -326,20 +336,31 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
         else:
             match = None
 
-        # Apply transaction debit for AI usage if cost incurred
-        if final_toman > 0:
+        # Debit the AI cost once per analysis: re-syncing the same lead with the
+        # same ai_meta (e.g. a retried scraper cycle) must not charge again.
+        charge_ref = _ai_meta_charge_ref(ai_meta)
+        ig_trace = dict((opp.trace_metadata or {}).get("instagram") or {})
+        billing_trace = dict(ig_trace.get("billing") or {})
+        charged_refs = list(billing_trace.get("charged_refs") or [])
+        if final_toman > 0 and charge_ref not in charged_refs:
+            model_label = (ai_meta or {}).get("model") or model_name
             try:
                 apply_transaction(
                     business=business,
                     amount=-final_toman,
                     kind=WalletTransaction.USAGE,
-                    description=f"تحلیل هوشمند کامنت اینستاگرام (GPT-6 Luna: {tokens_used} توکن)",
+                    description=f"تحلیل هوشمند کامنت اینستاگرام ({model_label}: {tokens_used} توکن)",
                     cost_usd=cost_usd_dec,
                     calls=1
                 )
             except Exception:
                 logger.exception("Wallet debit failed for business=%s opportunity=%s amount=%s",
                                  business.pk, opp.pk, final_toman)
+            else:
+                billing_trace["charged_refs"] = (charged_refs + [charge_ref])[-20:]
+                ig_trace["billing"] = billing_trace
+                opp.trace_metadata = {**(opp.trace_metadata or {}), "instagram": ig_trace}
+                opp.save(update_fields=["trace_metadata"])
 
         if match:
             from django.db import transaction
@@ -444,10 +465,10 @@ def _recent_reply_suggestions(business) -> list[str]:
 
 def _charge_outreach_llm(business, started_at):
     """Price the direct chat_json call from the admin model registry and write the normal wallet ledger entry."""
-    from decimal import Decimal, ROUND_HALF_UP
+    from decimal import Decimal
     from apps.core.models import LLMUsageLog
     from apps.billing.models import AIModel, BillingSettings, WalletTransaction
-    from apps.billing.services import apply_transaction
+    from apps.billing.services import apply_transaction, billed_toman
 
     usage = LLMUsageLog.objects.filter(business_id=business.pk, purpose="outreach_suggestion", created_at__gte=started_at,
                                        ok=True).order_by("-pk").first()
@@ -459,8 +480,7 @@ def _charge_outreach_llm(business, started_at):
     cost = (Decimal(usage.tokens_in) * model.input_price_usd + Decimal(usage.tokens_out) * model.output_price_usd) / Decimal(1_000_000)
     usage.cost_usd = cost
     usage.save(update_fields=["cost_usd"])
-    settings = BillingSettings.get()
-    amount = (cost * settings.usd_to_toman * settings.multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    amount = billed_toman(cost, BillingSettings.get())
     if amount > 0:
         apply_transaction(business, -amount, WalletTransaction.USAGE, "ساخت پیش‌نویس پیام شخصی‌سازی‌شده", cost_usd=cost, calls=1)
     return amount

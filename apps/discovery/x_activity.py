@@ -73,9 +73,10 @@ def humanize_query(query: str) -> dict:
 
 def billing_rate() -> tuple[float, str]:
     from apps.billing.models import BillingSettings
+    from apps.billing.services import toman_per_usd
 
     cfg = BillingSettings.get()
-    return float(cfg.usd_to_toman * cfg.multiplier), ("TRUE" if cfg.charge_cached else "NOT cached")
+    return float(toman_per_usd(cfg)), ("TRUE" if cfg.charge_cached else "NOT cached")
 
 
 def product_stats(business, products, days: float = 30) -> dict[str, dict]:

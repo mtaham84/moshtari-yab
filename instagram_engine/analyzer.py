@@ -513,7 +513,7 @@ def evaluate_comment_smart(comment_text: str, caption: str = "", cta_word: Optio
             caption=caption,
             trigger_word=clean_content or (cta_word or ""),
             business_id=business_id,
-            product_context=product_context or "دندانپزشکی",
+            product_context=product_context or "محصول",
         )
         return {
             "is_lead": True,

@@ -90,6 +90,31 @@ class LeadBillingTests(TestCase):
             sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}"), ai_meta={"cost_usd": 1})
 
 
+class LeadBillingIdempotencyTests(TestCase):
+    """BIL-02: re-syncing a lead with the same AI evaluation charges once."""
+
+    def setUp(self):
+        self.biz = _business("idem@example.com")
+        apply_transaction(self.biz, Decimal("10000000"), WalletTransaction.TOPUP)
+
+    def _usages(self):
+        return WalletTransaction.objects.filter(wallet__business=self.biz, kind=WalletTransaction.USAGE)
+
+    def test_same_ai_meta_twice_is_one_debit(self):
+        lead = _lead(f"tenant_{self.biz.pk}")
+        meta = {"cost_usd": 0.5, "tokens_in": 100, "tokens_out": 20, "model": "gpt-x"}
+        sync_instagram_lead_to_opportunity(lead, ai_meta=dict(meta))
+        sync_instagram_lead_to_opportunity(lead, ai_meta=dict(meta))
+        self.assertEqual(self._usages().count(), 1)
+        self.assertIn("gpt-x", self._usages().get().description)
+
+    def test_a_new_evaluation_is_charged(self):
+        lead = _lead(f"tenant_{self.biz.pk}")
+        sync_instagram_lead_to_opportunity(lead, ai_meta={"cost_usd": 0.5, "tokens_in": 100, "tokens_out": 20})
+        sync_instagram_lead_to_opportunity(lead, ai_meta={"cost_usd": 0.6, "tokens_in": 120, "tokens_out": 20})
+        self.assertEqual(self._usages().count(), 2)
+
+
 class BilledTomanTests(TestCase):
     def test_formula(self):
         from apps.billing.services import billed_toman
