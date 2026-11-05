@@ -243,6 +243,32 @@ class InstagramFamilyDatabaseTests(TestCase):
         self.assertEqual(InstagramCrawledPost.objects.count(), 1)
         self.assertEqual(sync.call_count, 2)
 
+    def _inspect_single(self, comment_count, min_comments):
+        from apps.discovery.management.commands.run_instagram_scraper import Command
+        from apps.discovery.instagram_families import DiscoverySource
+
+        now = timezone.now()
+        media = SimpleNamespace(id=f"media-{comment_count}-{min_comments}", pk=f"media-{comment_count}-{min_comments}",
+                                code="abc", caption_text="پیراهن موجود است", comment_count=comment_count, taken_at=now)
+        client = SimpleNamespace(media_comments=Mock(return_value=[]))
+        account = SimpleNamespace(username="scraper")
+        plan = SimpleNamespace(buyer_signals=["قیمت"], negative_signals=[])
+        source = DiscoverySource(self.family.product_id, "keyword", "پیراهن مردانه")
+        family = SimpleNamespace(product_id=self.family.product_id, category_path="پوشاک > مردانه > پیراهن",
+                                 titles=["پیراهن مردانه"], notes="")
+        command = Command()
+        command._request_budget_available = lambda _account: True
+        command._current_api_requests = 0
+        target = {"business": self.business, "family": family, "plan": plan, "tenant_id": f"tenant_{self.business.pk}"}
+        with patch("apps.discovery.services.sync_instagram_lead_to_opportunity"):
+            command._inspect_family_medias(client, account, target, source, [media], min_comments)
+        return client.media_comments.call_count
+
+    def test_family_path_respects_min_comments(self):
+        # BUG-13: the family path used a hard-coded 10 and ignored --min-comments.
+        self.assertEqual(self._inspect_single(comment_count=6, min_comments=5), 1)
+        self.assertEqual(self._inspect_single(comment_count=6, min_comments=10), 0)
+
 
 class OutreachBillingDatabaseTests(TestCase):
     def setUp(self):

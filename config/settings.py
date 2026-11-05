@@ -221,6 +221,9 @@ CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
 # Exactly ONE Instagram DM dispatcher may run, otherwise two loops message the same leads with the same senders:
 #   "command" -> docker service `ig-outreach` (manage.py run_instagram_outreach --loop)   [default]
 #   "celery"  -> celery-beat schedules apps.discovery.tasks.task_dispatch_instagram_outreach
+# Minimum comments a post needs before its commenters are inspected (scraper
+# family path, legacy path and the manage dashboard funnel all read this).
+INSTAGRAM_MIN_COMMENTS = max(1, int(os.environ.get("INSTAGRAM_MIN_COMMENTS", os.environ.get("INSTAGRAM_PAGE_MIN_COMMENTS", "10"))))
 INSTAGRAM_OUTREACH_DISPATCHER = os.environ.get("INSTAGRAM_OUTREACH_DISPATCHER", "command").strip().lower()
 if INSTAGRAM_OUTREACH_DISPATCHER not in {"command", "celery"}:
     raise ImproperlyConfigured("INSTAGRAM_OUTREACH_DISPATCHER must be 'command' or 'celery'.")

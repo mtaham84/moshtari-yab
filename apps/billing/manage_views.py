@@ -13,6 +13,7 @@ try:
 except ImportError:
     import requests
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
@@ -392,7 +393,7 @@ def manage_dashboard(request):
         ig_conversion_rate_total = round((ig_leads_total / ig_posts_total * 100.0), 2) if ig_posts_total > 0 else 0.0
         ig_conversion_rate_24h = round((ig_leads_24h / ig_posts_24h * 100.0), 2) if ig_posts_24h > 0 else 0.0
 
-        ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago).count()
+        ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=settings.INSTAGRAM_MIN_COMMENTS, posted_at__gte=thirty_days_ago).count()
         ig_posts_rejected = max(0, ig_posts_total - ig_posts_approved)
         ig_comments_total = InstagramCrawledPost.objects.aggregate(s=Sum("comment_count"))["s"] or 0
         ig_comments_approved = InstagramEngineLead.objects.count()
@@ -400,7 +401,7 @@ def manage_dashboard(request):
 
         # Approved Instagram Posts
         approved_ig_posts = list(
-            InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago)
+            InstagramCrawledPost.objects.filter(comment_count__gte=settings.INSTAGRAM_MIN_COMMENTS, posted_at__gte=thirty_days_ago)
             .order_by("-crawled_at")[:40]
         )
         for p in approved_ig_posts:

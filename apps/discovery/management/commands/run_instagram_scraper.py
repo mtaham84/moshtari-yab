@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from django.conf import settings as django_settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone as dj_timezone
 
@@ -43,7 +44,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--min-comments",
             type=int,
-            default=int(os.getenv("INSTAGRAM_MIN_COMMENTS", "10")),
+            default=django_settings.INSTAGRAM_MIN_COMMENTS,
             help="Minimum comments required on a post (configurable through INSTAGRAM_MIN_COMMENTS).",
         )
         parser.add_argument(
@@ -601,8 +602,8 @@ class Command(BaseCommand):
                     )
                     continue
 
-            # Strict Filter: Must have at least 10 comments
-            effective_min = 10
+            # Strict Filter: Must have at least --min-comments comments
+            effective_min = min_comments
             if comment_count < effective_min:
                 continue
 
@@ -1145,12 +1146,12 @@ class Command(BaseCommand):
         from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
         from instagram_engine.analyzer import (extract_caption_cta, evaluate_comment_smart,
                                                 llm_evaluate_family_batch)
-        from apps.discovery.instagram_families import INSTAGRAM_PAGE_MIN_COMMENTS, lead_quality_score
+        from apps.discovery.instagram_families import lead_quality_score
 
         business, family, plan = target["business"], target["family"], target["plan"]
         post_cutoff = dj_timezone.now() - timedelta(days=30)
         comment_cutoff = dj_timezone.now() - timedelta(days=5)
-        effective_min = 10
+        effective_min = max(1, int(min_comments))
         target_qualifying = 3
         posts_inspected = qualifying_posts = leads_saved = 0
         seen = set()
@@ -1185,10 +1186,10 @@ class Command(BaseCommand):
                 ))
                 continue
 
-            # Rule 2: Minimum comment count >= 10
+            # Rule 2: Minimum comment count >= --min-comments
             if comment_count < effective_min:
                 self.stdout.write(self.style.WARNING(
-                    f"    [{posts_inspected}] ⏭️ [رد شد - کامنت کم]: {post_url} (کامنت: {comment_count} < ۱۰)"
+                    f"    [{posts_inspected}] ⏭️ [رد شد - کامنت کم]: {post_url} (کامنت: {comment_count} < {effective_min})"
                 ))
                 continue
 
@@ -1499,7 +1500,7 @@ class Command(BaseCommand):
                 self._note_account_error(account, error, cl, exc)
                 execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
                 query = source.label
-            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=10)
+            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=min_comments)
             total_leads += leads
 
             if not error and retired and not getattr(source, "manual", False):
