@@ -74,6 +74,39 @@ def get_effective_sender_limits(account, fallback_daily: Optional[int] = None) -
     return daily, hourly
 
 
+def select_outreach_candidates(tenant_ids: List[str], slots: int, *, lock: bool = False, now=None) -> List[Any]:
+    """
+    Cold-outreach candidates shared by both dispatchers (ig-outreach command and Celery):
+    NEW leads whose comment is from the last 5 days, rescored with the 45-point formula
+    (instagram_scoring) and returned highest score first. Leads that aged out are marked SKIPPED.
+    With lock=True (call inside transaction.atomic) rows are reserved with SKIP LOCKED.
+    """
+    from django.db.models import Q
+    from apps.discovery.models import InstagramEngineLead
+    from apps.discovery.instagram_scoring import update_lead_scoring
+
+    now = now or timezone.now()
+    cutoff_5_days = now - timedelta(days=5)
+    qs = InstagramEngineLead.objects.all()
+    if lock:
+        qs = qs.select_for_update(skip_locked=True)
+    candidates = list(
+        qs.filter(tenant_id__in=tenant_ids, status="NEW")
+        .filter(Q(comment_created_at__gte=cutoff_5_days) | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days))
+        .order_by("-outreach_score", "-comment_created_at", "-created_at")[:max(slots * 20, 50)]
+    )
+    leads = []
+    for cand in candidates:
+        calc = update_lead_scoring(cand, commit=True, now=now)
+        if calc.get("is_eligible", True):
+            leads.append(cand)
+        else:
+            cand.status = "SKIPPED"
+            cand.save(update_fields=["status", "updated_at"])
+    leads.sort(key=lambda lead: (lead.outreach_score, lead.comment_created_at or lead.created_at), reverse=True)
+    return leads
+
+
 def parse_spintax(text: str) -> str:
     """
     Recursively parse and resolve Spintax patterns such as {سلام|درود|وقت بخیر}.

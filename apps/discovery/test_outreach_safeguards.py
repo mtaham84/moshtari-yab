@@ -1,4 +1,5 @@
 """Regression tests for outreach safeguards lost in the 2026-11-05 merges (harmonize + new-insta)."""
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from apps.discovery.anti_ban import InstagramAntiBanManager
 from apps.discovery.management.commands.run_instagram_outreach import (
@@ -13,8 +15,8 @@ from apps.discovery.management.commands.run_instagram_outreach import (
     SESSION_EXPIRED_MARKERS,
     _error_matches,
 )
-from apps.discovery.models import InstagramEngineAccount
-from apps.discovery.outreach_service import get_effective_sender_limits
+from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+from apps.discovery.outreach_service import get_effective_sender_limits, select_outreach_candidates
 
 
 class RoleAndLimitTests(SimpleTestCase):
@@ -79,3 +81,35 @@ class CelerySenderSelectionTests(TestCase):
         available = get_available_senders_atomic(["tenant_4"])
 
         self.assertCountEqual([a.username for a in available], ["fresh_a", "fresh_b"])
+
+
+class CandidateSelectionTests(TestCase):
+    def _lead(self, username, *, hours_ago, is_private, text, intent):
+        return InstagramEngineLead.objects.create(
+            tenant_id="tenant_4", username=username, ig_user_pk=username, status="NEW", intent_score=intent,
+            comment_text=text, is_private=is_private, comment_created_at=timezone.now() - timedelta(hours=hours_ago),
+        )
+
+    def test_selection_ranks_by_45_point_score_within_5_days(self):
+        self._lead("hot", hours_ago=2, is_private=False, text="قیمت کامپوزیت چنده؟", intent=0.3)
+        self._lead("cold", hours_ago=60, is_private=True, text="عالیه", intent=0.99)
+        self._lead("old", hours_ago=24 * 6, is_private=False, text="قیمت لمینت؟", intent=0.99)
+
+        picked = select_outreach_candidates(["tenant_4"], 5)
+
+        self.assertEqual([lead.username for lead in picked], ["hot", "cold"])
+        self.assertGreater(picked[0].outreach_score, picked[1].outreach_score)
+        self.assertTrue(picked[0].score_breakdown["service_score"])
+
+    @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="celery")
+    def test_celery_dispatcher_uses_shared_selection_with_row_locks(self):
+        from apps.discovery import tasks
+
+        with patch.object(tasks, "get_available_senders_atomic", return_value=[SimpleNamespace(username="s")]), \
+                patch.object(tasks, "select_outreach_candidates", return_value=[]) as select, \
+                patch.object(tasks, "check_and_sync_lead_replies"):
+            result = tasks.task_dispatch_instagram_outreach("tenant_4", ignore_shift=True)
+
+        select.assert_called_once()
+        self.assertTrue(select.call_args.kwargs["lock"])
+        self.assertEqual(result["sent_count"], 0)

@@ -53,6 +53,7 @@ from apps.discovery.outreach_service import (
     parse_spintax,
     execute_organic_journey,
     process_queued_outbox_message,
+    select_outreach_candidates,
 )
 from apps.discovery.human_routine import HumanShiftPlanner, DailyShiftSchedule
 
@@ -461,36 +462,8 @@ class Command(BaseCommand):
             # PRIORITY 2: Cold Lead Direct Outreach (High-intent Leads)
             # -------------------------------------------------------------
             remaining_slots = batch_size - sent_in_batch
-            candidate_pool = max(remaining_slots * 20, 50)
-            cutoff_5_days = django_tz.now() - timedelta(days=5)
-            from django.db.models import Q
-            from apps.discovery.instagram_scoring import update_lead_scoring
-
-            candidate_leads = list(
-                InstagramEngineLead.objects.filter(
-                    tenant_id__in=tenant_ids,
-                    status="NEW",
-                )
-                .filter(
-                    Q(comment_created_at__gte=cutoff_5_days)
-                    | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days)
-                )
-                .order_by("-outreach_score", "-comment_created_at", "-created_at")[:candidate_pool]
-            )
-
-            # Ensure each candidate lead has up-to-date score and verify 5-day eligibility
-            leads = []
-            now_dt = django_tz.now()
-            for cand in candidate_leads:
-                calc = update_lead_scoring(cand, commit=True, now=now_dt)
-                if calc.get("is_eligible", True):
-                    leads.append(cand)
-                else:
-                    cand.status = "SKIPPED"
-                    cand.save(update_fields=["status", "updated_at"])
-
-            # Sort strictly by highest outreach_score first (up to 35 points)
-            leads.sort(key=lambda l: (l.outreach_score, l.comment_created_at or l.created_at), reverse=True)
+            # NEW leads from the last 5 days, rescored and sorted by the 45-point formula (highest first)
+            leads = select_outreach_candidates(tenant_ids, remaining_slots)
 
             if not leads:
                 if sent_in_batch == 0:
@@ -553,7 +526,7 @@ class Command(BaseCommand):
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
-                    f"| امتیاز اولویت: {lead.outreach_score}/35 ({lead.comment_intent_type}) | نیاز: {lead.comment_text[:40]}"
+                    f"| امتیاز اولویت: {lead.outreach_score}/45 ({lead.comment_intent_type}) | نیاز: {lead.comment_text[:40]}"
                 )
                 self.stdout.write(
                     f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"

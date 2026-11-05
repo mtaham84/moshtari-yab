@@ -29,7 +29,9 @@ from apps.discovery.outreach_service import (
     execute_organic_journey,
     process_queued_outbox_message,
     check_and_sync_lead_replies,
+    get_effective_sender_limits,
     get_tier_specs,
+    select_outreach_candidates,
 )
 from apps.discovery.management.commands.run_instagram_outreach import (
     load_outreach_config,
@@ -189,28 +191,10 @@ def task_dispatch_instagram_outreach(
     remaining_slots = batch_size - sent_in_batch
 
     with transaction.atomic():
-        # Atomically lock and fetch only unlocked leads
-        candidate_leads = list(
-            InstagramEngineLead.objects.select_for_update(skip_locked=True)
-            .filter(
-                tenant_id__in=tenant_ids,
-                status="NEW",
-                intent_score__gte=min_intent,
-            )
-            .order_by("-intent_score", "created_at")[:remaining_slots * 5]
-        )
-
-        # Adaptive intent fallback if high-intent leads are empty
-        if not candidate_leads and min_intent > 0.50:
-            candidate_leads = list(
-                InstagramEngineLead.objects.select_for_update(skip_locked=True)
-                .filter(
-                    tenant_id__in=tenant_ids,
-                    status="NEW",
-                    intent_score__gte=0.50,
-                )
-                .order_by("-intent_score", "created_at")[:remaining_slots * 5]
-            )
+        # Same selection as the ig-outreach command: NEW leads from the last 5 days, ranked by the
+        # 45-point outreach score (highest first). Rows are locked with SKIP LOCKED against double sends.
+        # (min_intent is kept for backward-compatible task kwargs; ranking no longer uses AI intent_score.)
+        candidate_leads = select_outreach_candidates(tenant_ids, remaining_slots, lock=True)
 
         if not candidate_leads:
             check_and_sync_lead_replies(tenant_ids)
@@ -226,8 +210,7 @@ def task_dispatch_instagram_outreach(
             chosen_sender = None
             for cand in available_senders:
                 cand.refresh_from_db()
-                cand_daily_limit = cand.daily_limit or 18
-                cand_hourly_limit = cand.hourly_limit or 3
+                cand_daily_limit, cand_hourly_limit = get_effective_sender_limits(cand)
                 if (
                     cand.status == "ACTIVE"
                     and cand.daily_action_count < cand_daily_limit
