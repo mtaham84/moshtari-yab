@@ -1266,6 +1266,17 @@ def canonical_tenant(tenant_id) -> str:
     return TENANT_ALIASES.get(tid, tid)
 
 
+def tenant_key(business_or_id) -> str:
+    """The canonical tenant id of a business ("tenant_<pk>")."""
+    return f"tenant_{getattr(business_or_id, 'pk', business_or_id)}"
+
+
+def tenant_keys_for_business(business_or_id) -> list[str]:
+    """Every tenant id whose rows belong to a business: the canonical one plus legacy aliases (e.g. "sarv")."""
+    key = tenant_key(business_or_id)
+    return [key] + sorted(alias for alias, target in TENANT_ALIASES.items() if target == key)
+
+
 def tenant_profile(tenant_id) -> dict:
     """{"consultant_name", "consultant_role", "pitch_template"} of the tenant ({} when it has none yet)."""
     row = OutreachTenantProfile.objects.filter(tenant_id=canonical_tenant(tenant_id)).first()

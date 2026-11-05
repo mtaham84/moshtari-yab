@@ -288,8 +288,9 @@ def style_sample_view(request):
 
 def _outreach_tenant_keys(business) -> list[str]:
     """Lead/sender tenant ids that belong to a business (tenant_4 also owns legacy 'sarv' rows)."""
-    tenant_key = f"tenant_{business.id}"
-    return [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    from apps.discovery.ig_accounts import tenant_keys_for_business
+
+    return tenant_keys_for_business(business)
 
 
 def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, business=None):
@@ -342,7 +343,7 @@ def outreach_view(request):
         return redirect("accounts:dashboard")
 
     tenant_key = f"tenant_{business.id}"
-    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    tenant_keys = _outreach_tenant_keys(business)
 
     from apps.discovery.outreach_service import (
         TIER_LIMITS,
@@ -579,8 +580,7 @@ def sync_replies_view(request):
     if not business:
         return redirect("accounts:dashboard")
 
-    tenant_key = f"tenant_{business.id}"
-    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    tenant_keys = _outreach_tenant_keys(business)
 
     res = check_and_sync_lead_replies(tenant_keys)
     if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.GET.get("format") == "json":
@@ -881,10 +881,7 @@ def outreach_leads_export_csv(request):
     if is_admin and request.GET.get("business_id", "").strip().lower() == "all":
         qs = InstagramEngineLead.objects.all()
     else:
-        tenant_keys = [f"tenant_{business.id}"]
-        if business.id == 4:
-            tenant_keys.append("sarv_dental")
-        qs = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys)
+        qs = InstagramEngineLead.objects.filter(tenant_id__in=_outreach_tenant_keys(business))
 
     # فیلتر ۵ روز اخیر
     cutoff_5_days = timezone.now() - timedelta(days=5)

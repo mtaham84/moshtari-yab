@@ -86,3 +86,34 @@ class OutreachHubSafeQueueTests(TestCase):
         self.assertIn("۴۵ امتیازی", html)
         self.assertIn("پیج پابلیک (+۱۵)", html)
         self.assertIn(f"خدمت: {lead.score_breakdown['service_name']} (+{lead.score_breakdown['service_score']})", html)
+
+
+class OutreachExportTenantTests(TestCase):
+    """BUG-05: the CSV export must use the same tenant keys (incl. legacy aliases) as the outreach page."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="csv@example.com", password="secret-pass-1")
+        self.business = Business.objects.create(user=self.user, name="کلینیک", business_domain="")
+        InstagramEngineLead.objects.create(tenant_id="legacy_alias", username="old_buyer", ig_user_pk="1",
+                                           comment_text="قیمت؟")
+        InstagramEngineLead.objects.create(tenant_id=f"tenant_{self.business.id}", username="new_buyer",
+                                           ig_user_pk="2", comment_text="قیمت؟")
+        InstagramEngineLead.objects.create(tenant_id="tenant_999999", username="foreign_buyer", ig_user_pk="3",
+                                           comment_text="قیمت؟")
+        self.client.force_login(self.user)
+
+    def test_export_includes_legacy_alias_leads(self):
+        aliases = {"legacy_alias": f"tenant_{self.business.id}"}
+        with patch.dict("apps.discovery.ig_accounts.TENANT_ALIASES", aliases, clear=True):
+            res = self.client.get(reverse("accounts:outreach_export"), {"five_days": "0"})
+        body = res.content.decode("utf-8-sig")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("old_buyer", body)
+        self.assertIn("new_buyer", body)
+        self.assertNotIn("foreign_buyer", body)
+
+    def test_tenant_keys_for_business(self):
+        from apps.discovery.ig_accounts import tenant_keys_for_business
+
+        self.assertEqual(tenant_keys_for_business(4), ["tenant_4", "sarv"])
+        self.assertEqual(tenant_keys_for_business(self.business), [f"tenant_{self.business.id}"])
