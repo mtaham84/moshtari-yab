@@ -8,11 +8,12 @@ from __future__ import annotations
 import logging
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction, models
 from django.utils import timezone as django_tz
 
@@ -106,7 +107,8 @@ def get_available_senders_atomic(tenant_ids: List[str]) -> List[InstagramEngineA
             available.append(s)
 
     # Least recently active first
-    available.sort(key=lambda s: s.last_action_at or datetime.min.replace(tzinfo=django_tz.utc))
+    # (django.utils.timezone.utc was removed in Django 5.0; use datetime.timezone.utc)
+    available.sort(key=lambda s: s.last_action_at or datetime.min.replace(tzinfo=dt_timezone.utc))
     return available
 
 
@@ -133,6 +135,12 @@ def task_dispatch_instagram_outreach(
     """
     tenant_ids = ["tenant_4", "sarv"] if tenant in ("sarv", "tenant_4") else [tenant]
     now_tehran = datetime.now(TEHRAN_TZ)
+
+    # 0. Single-dispatcher guard: never send in parallel with the ig-outreach command loop
+    dispatcher = getattr(settings, "INSTAGRAM_OUTREACH_DISPATCHER", "command")
+    if dispatcher != "celery":
+        logger.info("⏭️ [Celery Outreach] Skipped: INSTAGRAM_OUTREACH_DISPATCHER=%s (the ig-outreach command is the active dispatcher).", dispatcher)
+        return {"success": True, "skipped": True, "reason": "dispatcher_disabled", "sent_count": 0}
 
     # 1. Shift Check
     if not ignore_shift:

@@ -3,7 +3,7 @@ Unit tests for Celery distributed tasks, Redis task routing,
 and automated proxy self-healing.
 """
 from unittest.mock import MagicMock, patch
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from config.celery import app as celery_app
 from apps.discovery.tasks import (
@@ -23,6 +23,7 @@ class CeleryTaskQueueTestCase(SimpleTestCase):
         self.assertIn("apps.discovery.tasks.task_sync_telegram_channel_configs", celery_app.tasks)
         self.assertIn("apps.discovery.tasks.task_healthcheck_and_heal_proxies", celery_app.tasks)
 
+    @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="celery")
     @patch("apps.discovery.tasks.HumanShiftPlanner.is_shift_active")
     def test_task_dispatch_outreach_respects_shift_pause(self, mock_shift):
         """Task should return paused without sending DMs when shift is closed."""

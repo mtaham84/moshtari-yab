@@ -16,6 +16,9 @@ x-app: &app
     REDIS_URL: redis://redis:6379/0
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/0
+    # Only one DM dispatcher: "command" = ig-outreach service (default), "celery" = celery-beat.
+    # If you switch to "celery", also remove/stop the ig-outreach service.
+    INSTAGRAM_OUTREACH_DISPATCHER: ${INSTAGRAM_OUTREACH_DISPATCHER:-command}
     # crawler (schema "crawler") and need_engine (schema "need_engine") use the same POSTGRES_* settings
     TG_SESSION: data/telegram_crawler_session
     NE_MESSAGES_SOURCE: db

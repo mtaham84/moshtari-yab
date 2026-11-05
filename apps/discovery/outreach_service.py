@@ -62,6 +62,18 @@ def get_tier_specs(tier_key: str) -> dict:
     return TIER_LIMITS.get(tier_key or "NEW", TIER_LIMITS["NEW"])
 
 
+def get_effective_sender_limits(account, fallback_daily: Optional[int] = None) -> tuple[int, int]:
+    """
+    Daily/hourly DM caps for a SENDER account.
+    Uses the account's own limits (or the fallback), but never above the warm-up ceiling of its age tier,
+    e.g. a NEW account can never exceed 10 DMs/day and 2 DMs/hour even if its daily_limit is 18.
+    """
+    tier = get_tier_specs(getattr(account, "account_tier", None))
+    daily = min(getattr(account, "daily_limit", None) or fallback_daily or tier["default_daily"], tier["max_daily"])
+    hourly = min(getattr(account, "hourly_limit", None) or tier["hourly_speed"], tier["hourly_speed"])
+    return daily, hourly
+
+
 def parse_spintax(text: str) -> str:
     """
     Recursively parse and resolve Spintax patterns such as {سلام|درود|وقت بخیر}.

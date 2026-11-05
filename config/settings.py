@@ -216,6 +216,13 @@ LOGGING = {
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
+
+# Exactly ONE Instagram DM dispatcher may run, otherwise two loops message the same leads with the same senders:
+#   "command" -> docker service `ig-outreach` (manage.py run_instagram_outreach --loop)   [default]
+#   "celery"  -> celery-beat schedules apps.discovery.tasks.task_dispatch_instagram_outreach
+INSTAGRAM_OUTREACH_DISPATCHER = os.environ.get("INSTAGRAM_OUTREACH_DISPATCHER", "command").strip().lower()
+if INSTAGRAM_OUTREACH_DISPATCHER not in {"command", "celery"}:
+    raise ImproperlyConfigured("INSTAGRAM_OUTREACH_DISPATCHER must be 'command' or 'celery'.")
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
@@ -257,4 +264,6 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-
+# The periodic DM dispatcher is only scheduled when Celery is the selected dispatcher (see INSTAGRAM_OUTREACH_DISPATCHER).
+if INSTAGRAM_OUTREACH_DISPATCHER != "celery":
+    CELERY_BEAT_SCHEDULE.pop("dispatch-instagram-outreach-periodic", None)

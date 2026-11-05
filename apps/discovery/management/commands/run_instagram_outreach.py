@@ -28,7 +28,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone as django_tz
 from django.db import models, transaction
 from django.db.models import Q
@@ -40,9 +41,11 @@ except Exception:
     TEHRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+from apps.discovery.anti_ban import InstagramAntiBanManager
 from apps.discovery.device_emulator import apply_device_profile_to_client
 from apps.discovery.outreach_service import (
     check_and_sync_lead_replies,
+    get_effective_sender_limits,
     get_tier_specs,
     qualify_recipient_profile,
     perform_organic_warmup,
@@ -54,6 +57,28 @@ from apps.discovery.outreach_service import (
 from apps.discovery.human_routine import HumanShiftPlanner, DailyShiftSchedule
 
 logger = logging.getLogger("instagram_outreach")
+
+# Error fingerprints (lower-cased exception text) that must take a sender out of rotation
+# instead of burning the lead as FAILED.
+SESSION_EXPIRED_MARKERS = (
+    "login_required",
+    "loginrequired",
+    "user_has_logged_out",
+    "unauthorized",
+    "clientforbiddenerror",
+)
+PROXY_ERROR_MARKERS = (
+    "connection refused",
+    "connectionerror",
+    "proxyconnectionerror",
+    "errno 111",
+    "max retries exceeded",
+)
+
+
+def _error_matches(exc_str: str, markers: Tuple[str, ...]) -> bool:
+    return any(marker in exc_str for marker in markers)
+
 
 CONFIG_FILE = Path("data/sarv_outreach_config.json")
 
@@ -165,6 +190,14 @@ class Command(BaseCommand):
         delay_max = options["delay_max"]
         max_daily_dms = options["max_daily_dms"]
         ignore_circadian = options["ignore_circadian"]
+
+        # Single-dispatcher guard: never run in parallel with the Celery outreach dispatcher
+        dispatcher = getattr(settings, "INSTAGRAM_OUTREACH_DISPATCHER", "command")
+        if dispatcher != "command" and not dry_run:
+            raise CommandError(
+                f"INSTAGRAM_OUTREACH_DISPATCHER={dispatcher}: Celery is the active DM dispatcher. "
+                "Stop/remove the ig-outreach service (or use --dry-run) to avoid double-sending."
+            )
 
         # Support alias 'sarv' and 'tenant_4'
         tenant_ids = [tenant]
@@ -328,11 +361,13 @@ class Command(BaseCommand):
                 cooldown_until__lte=now,
             )
 
-            # Check both daily limit and hourly rate according to Dealism benchmarks
+            # Check both daily limit and hourly rate, never above the warm-up ceiling of the account's age tier
             available = []
             for s in senders:
-                limit_daily = s.daily_limit or max_daily_dms or 18
-                limit_hourly = s.hourly_limit or 3
+                is_valid_role, _ = InstagramAntiBanManager.validate_account_role(s, "SENDER")
+                if not is_valid_role:
+                    continue
+                limit_daily, limit_hourly = get_effective_sender_limits(s, fallback_daily=max_daily_dms)
                 if s.daily_action_count < limit_daily and (s.hourly_action_count or 0) < limit_hourly:
                     available.append(s)
 
@@ -479,8 +514,7 @@ class Command(BaseCommand):
                 candidates = available_senders[idx % len(available_senders):] + available_senders[:idx % len(available_senders)]
                 for cand in candidates:
                     cand.refresh_from_db()
-                    cand_daily_limit = cand.daily_limit or max_daily_dms or 18
-                    cand_hourly_limit = cand.hourly_limit or 3
+                    cand_daily_limit, cand_hourly_limit = get_effective_sender_limits(cand, fallback_daily=max_daily_dms)
                     if (
                         cand.status == "ACTIVE"
                         and cand.daily_action_count < cand_daily_limit
@@ -512,7 +546,7 @@ class Command(BaseCommand):
                     business_name="مجموعه تخصصی سرو",
                 )
 
-                limit_display = sender.daily_limit or max_daily_dms or 18
+                limit_display, _ = get_effective_sender_limits(sender, fallback_daily=max_daily_dms)
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
@@ -550,6 +584,10 @@ class Command(BaseCommand):
 
                 # Live execution with Super Shield
                 try:
+                    # 🛡️ Step 0: Mobile Proxy Verification & Automatic IP Rotation
+                    from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+                    prepare_sender_proxy_before_dm(sender, stdout=self.stdout)
+
                     cl = get_or_create_client(sender)
 
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
@@ -656,12 +694,47 @@ class Command(BaseCommand):
                     sender_consecutive_errors[sender.username] = consec_err
 
                     # Check for rate limit / challenge / action block
-                    if "challenge" in exc_str or "checkpoint" in exc_str:
+                    if "challenge" in exc_str or "checkpoint" in exc_str or "suspended" in exc_str:
                         sender.status = "CHALLENGED"
                         sender.status_message = "نیازمند حل چالش امنیتی اینستاگرام"
                         sender.save(update_fields=["status", "status_message"])
                         clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
                         self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} وارد چالش شد. از مدار خارج شد."))
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
+                    elif _error_matches(exc_str, SESSION_EXPIRED_MARKERS):
+                        # Expired/invalid session: take the sender out of rotation and give the lead back to the queue
+                        sender.status = "CHALLENGED"
+                        sender.status_message = "سشن اینستاگرام منقضی شده است (نیاز به لاگین مجدد یا ثبت کوکی sessionid جدید)"
+                        sender.save(update_fields=["status", "status_message"])
+                        clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
+                        self.stderr.write(self.style.ERROR(f"   ⚠️ سشن اکانت @{sender.username} منقضی شده است (LoginRequired). از مدار خارج شد."))
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
+                    elif _error_matches(exc_str, PROXY_ERROR_MARKERS):
+                        # Proxy/network failure: rotate the mobile IP if possible, rest the sender, keep the lead
+                        cooldown_minutes = 15
+                        if getattr(sender, "proxy_rotation_url", None):
+                            try:
+                                from apps.discovery.proxy_service import rotate_account_proxy_ip
+                                self.stdout.write("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
+                                rotate_account_proxy_ip(sender)
+                            except Exception as rot_err:
+                                self.stderr.write(f"   ⚠️ چرخش IP ناموفق بود: {rot_err}")
+                        sender.cooldown_until = django_tz.now() + timedelta(minutes=cooldown_minutes)
+                        sender.status = "COOLDOWN"
+                        sender.status_message = f"خطای اتصال پروکسی ({exc_str[:50]}) - استراحت {cooldown_minutes} دقیقه‌ای"
+                        sender.save(update_fields=["cooldown_until", "status", "status_message"])
+                        clients_cache.pop(sender.username, None)
+                        if sender in available_senders:
+                            available_senders.remove(sender)
+                        self.stderr.write(self.style.ERROR(f"   ⚠️ خطای پروکسی یا اتصال برای @{sender.username}. به مدت {cooldown_minutes} دقیقه استراحت داده شد."))
+                        lead.status = "NEW"
+                        lead.save(update_fields=["status", "updated_at"])
                     elif "1404006" in exc_str:
                         # Error 1404006: Meta's temporary action block on this sender sending DMs to non-followers
                         self.stderr.write(self.style.ERROR(
