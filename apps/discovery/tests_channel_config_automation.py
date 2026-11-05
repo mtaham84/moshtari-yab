@@ -1,4 +1,6 @@
 import json
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -19,6 +21,16 @@ from apps.discovery.channel_config_automation import (
 
 
 class ChannelConfigAutomationUnitTests(SimpleTestCase):
+    def setUp(self):
+        # Never touch the real data/proxy_channels.json or channel state file from tests.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for name, filename in (("CHANNELS_JSON_FILE", "proxy_channels.json"),
+                               ("STATE_FILE", "channel_configs_state.json")):
+            patcher = patch(f"apps.discovery.channel_config_automation.{name}", Path(tmp.name) / filename)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_normalize_channel_username_formats(self):
         """Verifies channel URL cleaning and extraction."""
         test_cases = [

@@ -41,21 +41,24 @@ def panel_llm() -> Iterator[tuple[EngineConfig, LLMClient]]:
     cfg.public_base_url = settings.PUBLIC_BASE_URL
     cfg.database_url = _dsn()   # providers / models / prices of the admin panel are read from the same database
     mock = None
-    registry = ModelRegistry(cfg)
-    if settings.PANEL_MOCK_LLM:
-        from need_engine.mock import mock_llm as mock
-    elif not registry.has_credentials():
-        raise AgentUnavailable("کلید مدل زبانی روی سرور تنظیم نشده است (پنل مدیریت ← مدل‌ها، یا NE_LLM_API_KEY).")
-    store = Store(_dsn(), cfg.state_schema)
+    registry = ModelRegistry(cfg)   # opens its own read-only connection on first use: always closed below
     try:
-        yield cfg, LLMClient(cfg, store, mock=mock, registry=registry)
-    except AgentUnavailable:
-        raise
-    except LLMError as e:
-        log.warning("panel LLM call failed: %s", e)
-        raise AgentUnavailable("ارتباط با مدل زبانی برقرار نشد یا سهمیه‌ی امروز تمام شده است. کمی بعد دوباره امتحان کنید.") from e
+        if settings.PANEL_MOCK_LLM:
+            from need_engine.mock import mock_llm as mock
+        elif not registry.has_credentials():
+            raise AgentUnavailable("کلید مدل زبانی روی سرور تنظیم نشده است (پنل مدیریت ← مدل‌ها، یا NE_LLM_API_KEY).")
+        store = Store(_dsn(), cfg.state_schema)
+        try:
+            yield cfg, LLMClient(cfg, store, mock=mock, registry=registry)
+        except AgentUnavailable:
+            raise
+        except LLMError as e:
+            log.warning("panel LLM call failed: %s", e)
+            raise AgentUnavailable("ارتباط با مدل زبانی برقرار نشد یا سهمیه‌ی امروز تمام شده است. کمی بعد دوباره امتحان کنید.") from e
+        finally:
+            store.close()
     finally:
-        store.close()
+        registry.close()
 
 
 # ── products as the engine sees them ──────────────────────────────────────────

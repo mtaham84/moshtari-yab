@@ -117,6 +117,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+TEST_RUNNER = "config.test_runner.GcDiscoverRunner"  # closes stray DB sessions before the test DB is dropped
 ASGI_APPLICATION = "config.asgi.application"
 
 # One PostgreSQL database for everything: Django (public schema), crawler (crawler schema) and need_engine
@@ -216,6 +217,23 @@ LOGGING = {
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
+
+# Exactly ONE Instagram DM dispatcher may run, otherwise two loops message the same leads with the same senders:
+#   "command" -> docker service `ig-outreach` (manage.py run_instagram_outreach --loop)   [default]
+#   "celery"  -> celery-beat schedules apps.discovery.tasks.task_dispatch_instagram_outreach
+INSTAGRAM_OUTREACH_DISPATCHER = os.environ.get("INSTAGRAM_OUTREACH_DISPATCHER", "command").strip().lower()
+if INSTAGRAM_OUTREACH_DISPATCHER not in {"command", "celery"}:
+    raise ImproperlyConfigured("INSTAGRAM_OUTREACH_DISPATCHER must be 'command' or 'celery'.")
+# Global pacing for cold DMs (both dispatchers): at most one cold DM per this many minutes across all
+# senders (+0-50% jitter). Per-account tier delays and daily/hourly caps apply on top of it.
+INSTAGRAM_OUTREACH_MIN_GAP_MINUTES = max(0, int(os.environ.get("INSTAGRAM_OUTREACH_MIN_GAP_MINUTES", "20")))
+# Inbox reply checks: only during the senders' shift hours, every random 5-10 minutes (not a fixed 2-minute poll
+# around the clock, which no person does).
+INSTAGRAM_REPLY_SYNC_MIN_SECONDS = max(60, int(os.environ.get("INSTAGRAM_REPLY_SYNC_MIN_SECONDS", "300")))
+INSTAGRAM_REPLY_SYNC_MAX_SECONDS = max(INSTAGRAM_REPLY_SYNC_MIN_SECONDS,
+                                       int(os.environ.get("INSTAGRAM_REPLY_SYNC_MAX_SECONDS", "600")))
+# Rotate a sender's 4G IP before every DM (old behaviour). Off: the IP is rotated only after a proxy error.
+INSTAGRAM_PROXY_ROTATE_EACH_DM = os.environ.get("INSTAGRAM_PROXY_ROTATE_EACH_DM", "false").strip().lower() in {"1", "true", "yes", "on"}
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
@@ -232,17 +250,21 @@ CELERY_TASK_ROUTES = {
 
 CELERY_BEAT_SCHEDULE = {
     # 1. Instagram Outreach Dispatcher (runs every 12 minutes during active shifts)
+    # Short tick; pacing lives in the DB (apps.discovery.outreach_engine), so most ticks send nothing.
     "dispatch-instagram-outreach-periodic": {
         "task": "apps.discovery.tasks.task_dispatch_instagram_outreach",
-        "schedule": 720.0,  # 12 minutes
+        "schedule": 60.0,
         "args": ("tenant_4",),
-        "kwargs": {"batch_size": 2, "min_intent": 0.65},
+        "kwargs": {"batch_size": 2},
+        "options": {"expires": 55},
     },
-    # 2. Fast Lead Reply Sync (runs every 2 minutes to detect customer responses rapidly)
+    # 2. Lead Reply Sync: ticks every 5 minutes; the task itself skips outside shift hours and skips some ticks at
+    #    random, so inbox checks land 5-15 minutes apart instead of on a fixed robotic beat.
     "sync-lead-replies-fast": {
         "task": "apps.discovery.tasks.task_sync_lead_replies",
-        "schedule": 120.0,  # 2 minutes
+        "schedule": 300.0,
         "args": (["tenant_4", "sarv"],),
+        "options": {"expires": 280},
     },
     # 3. Telegram Proxy Channel Configs Sync (runs every 180 seconds)
     "sync-telegram-channel-configs": {
@@ -257,4 +279,8 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-
+# DM sending and reply polling belong to the selected dispatcher only (see INSTAGRAM_OUTREACH_DISPATCHER);
+# with "command" the ig-outreach service does both, so Celery must not poll inboxes a second time.
+if INSTAGRAM_OUTREACH_DISPATCHER != "celery":
+    CELERY_BEAT_SCHEDULE.pop("dispatch-instagram-outreach-periodic", None)
+    CELERY_BEAT_SCHEDULE.pop("sync-lead-replies-fast", None)

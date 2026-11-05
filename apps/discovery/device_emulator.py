@@ -160,64 +160,135 @@ def generate_unique_device_profile(identifier: str | int) -> dict[str, Any]:
     return profile
 
 
+# Keys written while a login is waiting for a verification code; they never describe the phone itself.
+_PENDING_LOGIN_KEYS = ("settings", "last_json", "challenge_hint")
+_LOCALE = {"locale": "fa_IR", "country": "IR", "country_code": 98, "timezone_offset": 12600}
+
+
+def has_device_profile(data) -> bool:
+    """True when `data` names one concrete phone: hardware settings plus its UUIDs."""
+    if not isinstance(data, dict):
+        return False
+    dev, uuids = data.get("device_settings"), data.get("uuids")
+    return (isinstance(dev, dict) and bool(dev.get("model"))
+            and isinstance(uuids, dict) and bool(uuids.get("uuid")) and bool(uuids.get("phone_id")))
+
+
+def _device_name(dev: dict) -> str:
+    for item in DEVICE_CATALOG:
+        if item["device_settings"].get("model") == dev.get("model"):
+            return item["name"]
+    return f"{str(dev.get('manufacturer') or '').split('/')[0].strip().title()} {dev.get('model') or ''}".strip()
+
+
+def profile_from_client_settings(settings) -> dict[str, Any] | None:
+    """The phone stored in instagrapi settings (session_json / get_settings()), i.e. what Instagram already saw."""
+    if not has_device_profile(settings):
+        return None
+    dev = dict(settings["device_settings"])
+    return {"device_name": _device_name(dev), "device_settings": dev, "uuids": dict(settings["uuids"])}
+
+
+def resolve_device_settings(current, session_json=None, identifier: str | int = "default") -> dict[str, Any]:
+    """`current` with a device profile, never a new random phone when one is already known.
+
+    Order: the profile already in `current` -> the phone of a pending login (`current["settings"]`) -> the phone of the
+    saved session -> a brand new profile (first time only). Other keys such as proxy_meta are kept.
+    """
+    ds = dict(current) if isinstance(current, dict) else {}
+    if has_device_profile(ds):
+        return ds
+    profile = (profile_from_client_settings(ds.get("settings")) or profile_from_client_settings(session_json)
+               or generate_unique_device_profile(identifier))
+    return {**ds, **profile}
+
+
+def account_device_settings(account, client_settings=None, **extra) -> dict[str, Any]:
+    """device_settings to store on `account`: its one phone (model + UUIDs) plus proxy_meta, never a new device.
+
+    client_settings: cl.get_settings() of the client that just talked to Instagram; its phone becomes the profile
+    because that is the device Instagram now associates with the account. `extra` adds pending-login keys
+    (settings / last_json / challenge_hint); without them those keys are dropped.
+    """
+    cur = account.device_settings if isinstance(account.device_settings, dict) else {}
+    ds = {k: v for k, v in cur.items() if k not in _PENDING_LOGIN_KEYS}
+    ds.update(profile_from_client_settings(client_settings) or {})
+    ds = resolve_device_settings(ds, account.session_json, account.username or getattr(account, "pk", None) or "default")
+    ds.update({k: v for k, v in extra.items() if v is not None})
+    return ds
+
+
 def ensure_account_device_profile(account) -> dict[str, Any]:
-    """Ensures the Instagram account has an assigned device profile in device_settings."""
-    cur = account.device_settings or {}
-    if isinstance(cur, dict) and cur.get("device_settings") and cur.get("uuids"):
+    """Ensures the Instagram account has an assigned device profile in device_settings (reusing a known phone)."""
+    cur = account.device_settings
+    if has_device_profile(cur):
         return cur
 
-    profile = generate_unique_device_profile(account.username or getattr(account, "id", None) or "default")
-    account.device_settings = profile
+    account.device_settings = resolve_device_settings(cur, account.session_json,
+                                                      account.username or getattr(account, "id", None) or "default")
     if getattr(account, "pk", None):
         account.save(update_fields=["device_settings"])
     else:
         account.save()
-    log.info("Assigned device profile '%s' to Instagram account @%s", profile["device_name"], account.username)
-    return profile
+    log.info("Assigned device profile '%s' to Instagram account @%s",
+             account.device_settings.get("device_name"), account.username)
+    return account.device_settings
+
+
+def _apply_locale(cl) -> None:
+    for setter, value in (("set_locale", _LOCALE["locale"]), ("set_country", _LOCALE["country"]),
+                          ("set_country_code", _LOCALE["country_code"]),
+                          ("set_timezone_offset", _LOCALE["timezone_offset"])):
+        try:
+            getattr(cl, setter)(value)
+        except Exception as exc:
+            log.debug("%s failed: %s", setter, exc)
 
 
 def apply_device_profile_to_client(cl, account) -> None:
-    """Applies the persistent device settings and UUIDs to the instagrapi Client."""
-    profile = ensure_account_device_profile(account)
-    device_settings = profile.get("device_settings") or {}
-    uuids = profile.get("uuids") or {}
+    """Applies the persistent device settings and UUIDs to the instagrapi Client.
 
-    try:
-        cl.set_device(device_settings, reset=False)
-    except Exception as exc:
-        log.warning("Could not set_device on Client: %s", exc)
+    The device is also written to cl.settings: instagrapi re-reads cl.settings on login_by_sessionid() (Client.init),
+    and older instagrapi releases would otherwise fall back to the library's default phone there.
+    """
+    profile = ensure_account_device_profile(account)
+    device_settings = dict(profile.get("device_settings") or {})
+    uuids = dict(profile.get("uuids") or {})
 
     if uuids:
         try:
             cl.set_uuids(uuids)
-            if "android_device_id" in uuids:
-                cl.android_device_id = uuids["android_device_id"]
-            if "device_id" in uuids:
-                cl.device_id = uuids["device_id"]
-            if "phone_id" in uuids:
-                cl.phone_id = uuids["phone_id"]
         except Exception as exc:
             log.warning("Could not set_uuids on Client: %s", exc)
-
+    try:
+        cl.set_device(device_settings, reset=False)
+        cl.settings["device_settings"] = dict(cl.device_settings)
+    except Exception as exc:
+        log.warning("Could not set_device on Client: %s", exc)
+    _apply_locale(cl)
     try:
         cl.set_user_agent()
+        cl.private.headers.update(cl.base_headers)
     except Exception:
         pass
 
-    # Ensure device headers on private session are consistently aligned with the profile
-    try:
-        if hasattr(cl, "private") and hasattr(cl.private, "headers"):
-            headers = cl.private.headers
-            if "android_device_id" in uuids:
-                headers["X-IG-Android-ID"] = uuids["android_device_id"]
-            if "uuid" in uuids:
-                headers["X-IG-Device-ID"] = uuids["uuid"]
-            if "phone_id" in uuids:
-                headers["X-IG-Family-Device-ID"] = uuids["phone_id"]
-            # Timezone offset: Tehran (+03:30 = 12600 seconds)
-            headers["X-IG-Timezone-Offset"] = "12600"
-            headers["X-IG-App-Locale"] = "fa_IR"
-            headers["X-IG-Device-Locale"] = "fa_IR"
-            headers["Accept-Language"] = "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"
-    except Exception as hdr_err:
-        log.debug("Could not align private headers for @%s: %s", getattr(account, "username", ""), hdr_err)
+
+def connect_saved_session(cl, account) -> bool:
+    """Authenticates `cl` from the account's saved session on the same phone that created it.
+
+    Full instagrapi settings (UUIDs + device + cookies + Authorization) are restored with set_settings(): no new
+    login request, no device change. Only a bare sessionid (older rows) falls back to the account's device profile
+    plus login_by_sessionid(). Returns True when a login request was made. Set the proxy before calling.
+    """
+    sj = account.session_json if isinstance(account.session_json, dict) else {}
+    sessionid = (sj.get("cookies") or {}).get("sessionid") or (sj.get("authorization_data") or {}).get("sessionid")
+    if not sessionid:
+        raise RuntimeError(f"login_required: no sessionid saved for @{account.username}")
+    if has_device_profile(sj):
+        cl.set_settings(sj)  # keeps the session's own locale/timezone too: nothing about the phone changes
+        if not getattr(cl, "username", None):
+            cl.username = account.username
+        return False
+    apply_device_profile_to_client(cl, account)
+    cl.login_by_sessionid(sessionid)
+    return True

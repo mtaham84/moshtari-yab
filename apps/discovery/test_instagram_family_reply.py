@@ -173,6 +173,32 @@ class InstagramFamilyDatabaseTests(TestCase):
         self.assertFalse(built)
         llm.assert_not_called()
 
+    def test_daily_plan_cap_resets_on_next_day(self):
+        yesterday = timezone.now() - timedelta(days=1)
+        for i in range(8):
+            InstagramFamilyPlan.objects.create(business=self.business, family_id=f"f{i}", content_hash=f"h{i}",
+                                               built_at=yesterday)
+        llm = Mock(return_value=_valid_plan())
+        plan, built = ensure_family_plan(self.business, self.family, call_llm=llm)
+        self.assertTrue(built)
+        self.assertIsNotNone(plan)
+
+    def test_daily_plan_cap_allows_rebuilding_own_stale_plan(self):
+        llm = Mock(return_value=_valid_plan())
+        ensure_family_plan(self.business, self.family, call_llm=llm)
+        for i in range(7):
+            InstagramFamilyPlan.objects.create(business=self.business, family_id=f"f{i}", content_hash=f"h{i}")
+        self.family.content_hash = lambda: "hash-b"
+        plan, built = ensure_family_plan(self.business, self.family, call_llm=llm)
+        self.assertTrue(built)
+        self.assertEqual(plan.content_hash, "hash-b")
+
+    def test_source_reward_is_capped_per_run(self):
+        from apps.discovery.instagram_families import record_source_result
+        source = DiscoverySource(self.family.product_id, "keyword", "پیراهن مردانه")
+        row = record_source_result(self.business, source, leads=20, status="SUCCESS")
+        self.assertEqual(round(row.alpha, 2), 2.0)
+
     def test_source_reward_and_empty_run_penalty_are_persisted(self):
         from apps.discovery.instagram_families import record_source_result
         from apps.discovery.models import InstagramSourceStat

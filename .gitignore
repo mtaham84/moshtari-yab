@@ -60,3 +60,7 @@ xray/config.json.tmp
 
 database_structure_report.*
 data/bot_subscribers.json
+
+# Runtime state for Telegram proxy-config channels (written by the app and tests)
+data/proxy_channels.json
+data/channel_configs_state.json

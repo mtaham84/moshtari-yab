@@ -77,6 +77,17 @@ class InstagramAntiBanManager:
         return max(60.0, diff)
 
     @classmethod
+    def validate_account_role(cls, account, required_role: str) -> Tuple[bool, str]:
+        """
+        Guarantees strict separation between SCRAPER and SENDER accounts.
+        Never allows a SENDER account to be used for scraping, nor a SCRAPER for DMs.
+        """
+        role = getattr(account, "role", "SCRAPER")
+        if role != required_role:
+            return False, f"تداخل نقش: اکانت @{getattr(account, 'username', '')} دارای نقش {role} است و برای {required_role} مجاز نیست."
+        return True, "OK"
+
+    @classmethod
     def get_account_daily_usage(cls, account) -> dict[str, int]:
         """Calculates the account's total requests, queries, and posts inspected today."""
         acc_id = getattr(account, "id", None)

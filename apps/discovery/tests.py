@@ -325,6 +325,8 @@ class PanelViewTests(TestCase):
         self.assertEqual(response.content[:3], b"\xef\xbb\xbf")
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
         self.assertEqual(rows[1][0], "'=HYPERLINK(\"https://bad.invalid\")")
+        self.assertEqual(rows[1][6], "'=HYPERLINK(\"https://bad.invalid\")")
+        self.assertEqual(rows[1][13], "'+1+1")
         self.assertEqual(rows[1][15], "https://t.me/ali")
         self.assertEqual(rows[1][14], "'@SUM(1,1)")
         self.assertEqual(rows[1][12], "تلگرام")
@@ -361,6 +363,7 @@ class PanelViewTests(TestCase):
         self.assertEqual(rows[1][15], "-")
         self.assertEqual(rows[1][14], "-")
         self.assertEqual(rows[1][6], "-")
+        self.assertEqual(rows[1][13], "-")
 
     def test_csv_strips_platform_prefix_for_id_and_profile_link(self):
         self.mine.customer.source_username = ""

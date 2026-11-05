@@ -160,6 +160,7 @@ class InstagramEngineAccount(models.Model):
     daily_action_count = models.IntegerField(default=0, verbose_name="تعداد عملیات امروز")
     last_action_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان فعالیت")
     cooldown_until = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="پایان دوره استراحت")
+    next_outreach_at = models.DateTimeField(null=True, blank=True, verbose_name="زودترین زمان دایرکت سرد بعدی (فاصله انسانی)")
     status_message = models.CharField(max_length=255, blank=True, default="", verbose_name="پیام آخرین وضعیت / خطا")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ایجاد")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
@@ -288,9 +289,16 @@ class InstagramEngineAccount(models.Model):
             }
 
     def save(self, *args, **kwargs):
-        if not self.device_settings or not isinstance(self.device_settings, dict) or not self.device_settings.get("uuids"):
-            from apps.discovery.device_emulator import generate_unique_device_profile
-            self.device_settings = generate_unique_device_profile(self.username or self.id or "default")
+        from apps.discovery.device_emulator import has_device_profile, resolve_device_settings
+
+        if not has_device_profile(self.device_settings):
+            # Reuse the phone Instagram already knows (pending login / saved session) instead of inventing a new one:
+            # a fresh random device right after a login is exactly what gets sessions flagged.
+            self.device_settings = resolve_device_settings(self.device_settings, self.session_json,
+                                                           self.username or self.pk or "default")
+            fields = kwargs.get("update_fields")
+            if fields is not None and "device_settings" not in fields:
+                kwargs["update_fields"] = [*fields, "device_settings"]
         super().save(*args, **kwargs)
 
     def __str__(self):

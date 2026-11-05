@@ -13,11 +13,16 @@ from apps.discovery.models import (
     InstagramCrawledPost,
     InstagramCrawlExecution,
 )
+from apps.discovery.device_emulator import account_device_settings
 from apps.discovery.ig_session import (
     ErrorKind, Policy, account_lock, classify, load_file, redact, save_atomic, session_path,
 )
 from instagram_engine.analyzer import get_effective_caption_cta, is_buyer_comment, evaluate_comment_smart
 from instagram_engine.config import settings
+
+
+class ProxyUnavailable(RuntimeError):
+    """The account's proxy is down; the account is rested instead of scraping from the server's own IP."""
 
 
 class Command(BaseCommand):
@@ -202,12 +207,15 @@ class Command(BaseCommand):
                     self.stderr.write(self.style.WARNING(
                         f"No healthy scraper account left this cycle; skipping target {target['name']}."
                     ))
+                    continue
                 cycle_offset = getattr(self, "_cycle_account_offset", 0)
                 account = usable_accounts[(cycle_offset + target_idx) % len(usable_accounts)]
                 self._cycle_account_offset = (cycle_offset + 1) % len(usable_accounts)
 
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
-                cl = self._get_persistent_client(account)
+                cl = self._client_or_rest(account)
+                if cl is None:
+                    continue
                 try:
                     if target.get("family"):
                         leads_found = self._scrape_family_target(cl, account, target, min_comments, max_posts)
@@ -294,12 +302,23 @@ class Command(BaseCommand):
         if account.proxy_url:
             from apps.billing.manage_views import _test_proxy_connection
             proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url, timeout=2.5)
-            if proxy_ok:
-                cl.set_proxy(account.proxy_url)
-            else:
-                self.stdout.write(self.style.WARNING(f"Proxy '{account.proxy_url}' unreachable ({proxy_msg}). Falling back to direct connection."))
+            if not proxy_ok:
+                # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
+                # (and the same IP for every account) is a far bigger risk than skipping one cycle.
+                raise ProxyUnavailable(f"proxy unreachable for @{account.username}: {proxy_msg}")
+            cl.set_proxy(account.clean_proxy)
 
         return cl
+
+    def _client_or_rest(self, account):
+        """Client for `account`, or None after resting it for a while when its proxy is down."""
+        try:
+            return self._get_persistent_client(account)
+        except ProxyUnavailable as exc:
+            self._set_state(account, "COOLDOWN", f"پروکسی در دسترس نیست؛ بدون پروکسی وصل نمی‌شویم: {redact(exc, 150)}",
+                            hours=self.PROXY_DOWN_REST_HOURS)
+            self.stderr.write(f"    proxy_unavailable: account {account.id} rests {self.PROXY_DOWN_REST_HOURS}h (no direct fallback)")
+            return None
 
     # Error kind -> (account status, rest hours). LOGIN_REQUIRED/NETWORK/OTHER are handled separately.
     _KIND_POLICY = {
@@ -308,6 +327,7 @@ class Command(BaseCommand):
         ErrorKind.RATE_LIMIT: ("COOLDOWN", 2.0),
     }
     RENEW_COOLDOWN_HOURS = 6.0  # after a failed automatic re-login, wait this long before the next attempt
+    PROXY_DOWN_REST_HOURS = 0.5  # account rest when its proxy cannot be reached (never scrape without it)
 
     @property
     def _policy(self):
@@ -393,8 +413,9 @@ class Command(BaseCommand):
             except (ChallengeRequired, TwoFactorRequired) as exc:
                 # Instagram wants a code (2FA / email / SMS): hand over to the dashboard, keep the pending challenge state.
                 try:
-                    account.device_settings = {"settings": cl.get_settings(), "last_json": getattr(cl, "last_json", None),
-                                               "challenge_hint": redact(exc)}
+                    account.device_settings = account_device_settings(
+                        account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None),
+                        challenge_hint=redact(exc))
                 except Exception:
                     pass
                 self._set_state(account, "CHALLENGED",
@@ -545,7 +566,7 @@ class Command(BaseCommand):
             taken_at = getattr(media, "taken_at", None)
             if taken_at:
                 if dj_timezone.is_naive(taken_at):
-                    taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
+                    taken_at = dj_timezone.make_aware(taken_at, timezone.utc)
                 if taken_at < age_cutoff:
                     self.stdout.write(
                         self.style.WARNING(
@@ -632,7 +653,7 @@ class Command(BaseCommand):
                 c_time = getattr(c, "created_at_utc", None) or getattr(c, "created_at", None)
                 if c_time:
                     if dj_timezone.is_naive(c_time):
-                        c_time = dj_timezone.make_aware(c_time, dj_timezone.utc)
+                        c_time = dj_timezone.make_aware(c_time, timezone.utc)
                     if c_time < comment_cutoff:
                         continue  # strictly reject comments older than 5 days
 
@@ -743,7 +764,7 @@ class Command(BaseCommand):
                     lead_type_label = "⚡ مستقیم (Zero Cost)" if eval_res.get("is_direct_cta") else "🤖 هوش مصنوعی (Luna GPT-6)"
                     self.stdout.write(
                         self.style.SUCCESS(
-                            f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {calc['total_score']}/35 - {calc['intent_type']}) | '{comment_text[:50]}'"
+                            f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {calc['total_score']}/45 - {calc['intent_type']}) | '{comment_text[:50]}'"
                         )
                     )
 
@@ -825,7 +846,7 @@ class Command(BaseCommand):
             for post in media:
                 posted = getattr(post, "taken_at", None)
                 if posted and dj_timezone.is_naive(posted):
-                    posted = dj_timezone.make_aware(posted, dj_timezone.utc)
+                    posted = dj_timezone.make_aware(posted, timezone.utc)
                 if posted and posted < cutoff:
                     continue
                 recent_comments.append(int(getattr(post, "comment_count", 0) or 0))
@@ -985,7 +1006,7 @@ class Command(BaseCommand):
             for m in all_medias:
                 t = getattr(m, "taken_at", None)
                 if t and dj_timezone.is_naive(t):
-                    t = dj_timezone.make_aware(t, dj_timezone.utc)
+                    t = dj_timezone.make_aware(t, timezone.utc)
                 c_cnt = int(getattr(m, "comment_count", 0) or 0)
                 if t and t >= post_cutoff and c_cnt >= 10:
                     cnt += 1
@@ -1069,7 +1090,7 @@ class Command(BaseCommand):
             if t is None:
                 return dj_timezone.now() - timedelta(days=9999)
             if dj_timezone.is_naive(t):
-                t = dj_timezone.make_aware(t, dj_timezone.utc)
+                t = dj_timezone.make_aware(t, timezone.utc)
             return t
 
         all_medias.sort(key=_sort_key, reverse=True)
@@ -1160,7 +1181,7 @@ class Command(BaseCommand):
             post_url = f"https://www.instagram.com/p/{code}/" if code else f"id:{media_id}"
             taken_at = getattr(media, "taken_at", None)
             if taken_at and dj_timezone.is_naive(taken_at):
-                taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
+                taken_at = dj_timezone.make_aware(taken_at, timezone.utc)
             comment_count = int(getattr(media, "comment_count", 0) or 0)
 
             # Rule 1: Post age limit <= 30 days
@@ -1221,7 +1242,7 @@ class Command(BaseCommand):
                         continue
                     c_time = getattr(comment, "created_at_utc", None) or getattr(comment, "created_at", None)
                     if c_time and dj_timezone.is_naive(c_time):
-                        c_time = dj_timezone.make_aware(c_time, dj_timezone.utc)
+                        c_time = dj_timezone.make_aware(c_time, timezone.utc)
                     raw_comments.append({
                         "id": str(getattr(comment, "pk", "") or getattr(comment, "id", "") or user_pk),
                         "user_pk": user_pk, "username": username,
@@ -1256,7 +1277,7 @@ class Command(BaseCommand):
                     try:
                         dt = datetime.fromisoformat(c_date)
                         if dj_timezone.is_naive(dt):
-                            dt = dj_timezone.make_aware(dt, dj_timezone.utc)
+                            dt = dj_timezone.make_aware(dt, timezone.utc)
                         if dt < comment_cutoff:
                             continue
                         row["_dt"] = dt
@@ -1435,9 +1456,13 @@ class Command(BaseCommand):
                 break
             if account.status != "ACTIVE":
                 fallback_accounts = [a for a in self._available_scraper_accounts() if a.id != account.id and self._is_usable(a)]
-                if fallback_accounts:
-                    account = fallback_accounts[0]
-                    cl = self._get_persistent_client(account)
+                cl = None
+                for fallback in fallback_accounts:
+                    cl = self._client_or_rest(fallback)
+                    if cl is not None:
+                        account = fallback
+                        break
+                if cl is not None:
                     self.stdout.write(self.style.NOTICE(f"🔄 تعویض خودکار اکانت اسکرپر به @{account.username} (اکانت قبلی غیرفعال شد)"))
                 else:
                     self.stdout.write(self.style.WARNING(f"Stopping sources: اکانت جایگزینی برای @{account.username} در دسترس نیست."))

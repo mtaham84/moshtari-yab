@@ -208,7 +208,8 @@ class HumanRoutineAndQueueTests(TestCase):
         mock_cl.search_users.return_value = [MagicMock(pk="987654321", username="client_test")]
         mock_cl.user_medias.return_value = [MagicMock(id="post_1")]
 
-        with patch("apps.discovery.outreach_service.perform_organic_warmup") as mock_warmup:
+        with patch("apps.discovery.outreach_service.perform_organic_warmup") as mock_warmup, \
+                patch("apps.discovery.outreach_service.random.random", return_value=0.0):  # every optional step
             mock_warmup.return_value = {"liked_post": True, "viewed_story": True}
             res = execute_organic_journey(mock_cl, "client_test", target_pk=987654321)
 

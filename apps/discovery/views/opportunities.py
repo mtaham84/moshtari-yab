@@ -433,7 +433,7 @@ def opportunity_export_view(request):
         "آیدی مشتری (نام کاربری / شماره)",
         "وضعیت حساب کاربر",
         "زمان ثبت کامنت در پلتفرم (شمسی)",
-        "امتیاز اولویت لید (از ۳۵)",
+        "امتیاز اولویت لید (از ۴۵)",
         "درصد احتمال موفقیت (٪)",
         "نوع نیت و تقاضای خریدار",
         "پیام و متن کامنت مشتری",
@@ -487,8 +487,8 @@ def opportunity_export_view(request):
         if not c_time_jalali or c_time_jalali == "-":
             c_time_jalali = getattr(opp, "created_at_jalali", "") or "-"
 
-        # 4. امتیاز اولویت لید (از ۳۵)
-        outreach_score_str = f"{opp.outreach_score_val} از ۳۵"
+        # 4. امتیاز اولویت لید (از ۴۵)
+        outreach_score_str = f"{opp.outreach_score_val} از ۴۵"
 
         # 5. درصد احتمال موفقیت (٪)
         success_prob_str = f"{opp.success_probability_pct}٪"

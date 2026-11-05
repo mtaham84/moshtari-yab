@@ -416,7 +416,7 @@
         صف لیدهای اولویت‌بندی شده برای دایرکت (پرامتیازترین لیدها)
       </h2>
       <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
-        لیدها طبق فرمول رسمی ۳۵ امتیازی (۱۵ امتیاز پیج پابلیک + ۱۵ امتیاز سوال مشاوره‌ای یا کال‌تواکشن + ۵ امتیاز تازگی زمانی ۵ روز اخیر) رتبه‌بندی شده‌اند و ارسال دایرکت به ترتیب بالاترین امتیاز انجام می‌شود.
+        لیدها طبق فرمول ۴۵ امتیازی (۱۵ امتیاز پیج پابلیک + ۱۵ امتیاز سوال مشاوره‌ای یا کال‌تواکشن + تا ۵ امتیاز تازگی در ۵ روز اخیر + ۴ امتیاز پیج‌های هدف + تا ۶ امتیاز نوع خدمت) رتبه‌بندی شده‌اند و ارسال دایرکت به ترتیب بالاترین امتیاز انجام می‌شود.
       </p>
     </div>
 
@@ -424,7 +424,7 @@
     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; width:100%;">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <span class="p-badge" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
-          اولویت ویژه (۳۰ تا ۳۵ امتیاز): {{ high_priority_count }}
+          اولویت ویژه (۳۰ امتیاز و بالاتر): {{ high_priority_count }}
         </span>
         <span class="p-badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
           پیج‌های عمومی (پابلیک): {{ public_leads_count }}
@@ -511,9 +511,34 @@
                 <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
                   پیام کوتاه / کال‌تواکشن (+۱۵)
                 </span>
-              {% else %}
+              {% elif lead.comment_intent_type == 'GENERAL_BUYER' %}
                 <span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
                   قصد خرید عمومی (+۱۰)
+                </span>
+              {% else %}
+                <span style="background:#f1f5f9; color:#94a3b8; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  کامنت عمومی (+۰)
+                </span>
+              {% endif %}
+
+              <!-- Public profile Badge -->
+              {% if not lead.is_private %}
+                <span style="background:#dcfce7; color:#15803d; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیج پابلیک (+۱۵)
+                </span>
+              {% endif %}
+
+              <!-- Target page Badge -->
+              {% if lead.score_breakdown.target_page_score %}
+                <span title="{{ lead.score_breakdown.target_page_reason }}" style="background:#ede9fe; color:#6d28d9; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیج هدف (+{{ lead.score_breakdown.target_page_score }})
+                </span>
+              {% endif %}
+
+              <!-- Service Badge -->
+              {% if lead.score_breakdown.service_score %}
+                <span style="background:#ffedd5; color:#9a3412; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  خدمت: {{ lead.score_breakdown.service_name }} (+{{ lead.score_breakdown.service_score }})
                 </span>
               {% endif %}
 
@@ -670,10 +695,15 @@
                 <div>
                   <div style="font-weight:700; font-size:0.85rem; color:#1e293b; font-family:monospace;">@{{ lead.username }}</div>
                   <div style="font-size:0.7rem; color:#64748b;">امتیاز نیت: <strong style="color:#15803d;">{{ lead.intent_score|floatformat:2 }}</strong></div>
+                  {% if lead.captured_phone %}
+                    <div style="font-size:0.7rem; color:#92400e; margin-top:2px;">📞 <strong style="direction:ltr; unicode-bidi:embed; font-family:monospace;">{{ lead.captured_phone }}</strong></div>
+                  {% endif %}
                 </div>
               </div>
               <div>
-                {% if lead.has_replied %}
+                {% if lead.status == 'QUEUED' %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#fef3c7; color:#92400e;">⏳ در صف ارسال</span>
+                {% elif lead.has_replied %}
                   <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#dcfce7; color:#15803d;">پاسخ داده</span>
                 {% elif lead.status == 'FOLLOWUP_SENT' %}
                   <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#e0e7ff; color:#4338ca;">پیام ارسال شد</span>
@@ -744,6 +774,7 @@
               <span id="chatLeadIntentBadge" style="font-size:0.72rem; color:#15803d; font-weight:700;">احتمال خرید: --</span>
               <span style="color:#cbd5e1;">|</span>
               <span id="chatLeadStatusBadge" style="font-size:0.72rem; color:#64748b; font-weight:600;">وضعیت: --</span>
+              <span id="chatLeadPhoneBadge" style="display:none; font-size:0.72rem; background:#fef3c7; color:#92400e; border:1px solid #fde68a; padding:1px 8px; border-radius:4px; font-weight:700;"></span>
             </div>
           </div>
         </div>
@@ -1298,10 +1329,18 @@
       document.getElementById('chatLeadIntentBadge').innerText = `احتمال خرید: ${lead.intent_score}`;
 
       let statusText = 'در حال گفتگو';
-      if (lead.has_replied) statusText = 'پاسخ مشتری ثبت شده';
+      if (lead.status === 'QUEUED') statusText = 'پیام در صف ارسال امن';
+      else if (lead.has_replied) statusText = 'پاسخ مشتری ثبت شده';
       else if (lead.status === 'FOLLOWUP_SENT') statusText = 'پیگیری ارسال شد';
       else if (lead.status === 'DM_SENT') statusText = 'پیام اول تحویل شد';
       document.getElementById('chatLeadStatusBadge').innerText = `وضعیت: ${statusText}`;
+      const phoneBadge = document.getElementById('chatLeadPhoneBadge');
+      if (lead.captured_phone) {
+        phoneBadge.innerText = '📞 شماره تماس: ' + lead.captured_phone;
+        phoneBadge.style.display = 'inline-block';
+      } else {
+        phoneBadge.style.display = 'none';
+      }
 
       // Sender Account Info
       const senderAcc = lead.sender_account || lead.second_sender_username || '';
@@ -1380,7 +1419,8 @@
             isOut: isOut,
             sender: msg.sender || (isOut ? 'مشاور' : lead.username),
             text: msg.text,
-            time: msg.time
+            time: msg.time,
+            queued: msg.delivery_status === 'QUEUED'
           });
         });
       } else {
@@ -1428,7 +1468,7 @@
     });
   };
 
-  function renderChatBubble(container, { isOut, sender, text, time }) {
+  function renderChatBubble(container, { isOut, sender, text, time, queued }) {
     const bubble = document.createElement('div');
     bubble.style.maxWidth = '82%';
     bubble.style.borderRadius = '12px';
@@ -1445,8 +1485,8 @@
       bubble.style.color = '#1e3a8a';
       bubble.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px; font-size:0.73rem; color:#2563eb; font-weight:700;">
-          <span>ارسال شده توسط @${escapeHtml(sender)}:</span>
-          <span style="font-size:0.68rem; font-weight:400; color:#64748b;">${time ? escapeHtml(time).slice(0, 16) : ''}</span>
+          <span>${queued ? 'در صف ارسال توسط' : 'ارسال شده توسط'} @${escapeHtml(sender)}:</span>
+          <span style="font-size:0.68rem; font-weight:400; color:#64748b;">${queued ? '<span style="background:#fef3c7; color:#92400e; padding:1px 6px; border-radius:4px; font-weight:700;">⏳ در صف</span> ' : ''}${time ? escapeHtml(time).slice(0, 16) : ''}</span>
         </div>
         <div style="white-space:pre-wrap; word-break:break-word;">${escapeHtml(text)}</div>
       `;
@@ -1539,7 +1579,7 @@
     alertBox.style.display = 'inline-block';
     alertBox.style.background = '#eff6ff';
     alertBox.style.color = '#1d4ed8';
-    alertBox.innerText = 'در حال ارسال مستقیم به دایرکت اینستاگرام...';
+    alertBox.innerText = 'در حال ثبت پیام در صف ارسال امن...';
 
     const formData = new FormData();
     formData.append('lead_id', window._currentChatLeadId);
@@ -1565,15 +1605,16 @@
         textInput.value = '';
         alertBox.style.background = '#ecfdf5';
         alertBox.style.color = '#047857';
-        alertBox.innerText = 'پیام با موفقیت ارسال شد.';
-        setTimeout(() => { alertBox.style.display = 'none'; }, 4000);
+        alertBox.innerText = data.message || 'پیام در صف ارسال امن قرار گرفت.';
+        setTimeout(() => { alertBox.style.display = 'none'; }, 6000);
 
         const threadEl = document.getElementById('chatMessagesThread');
         renderChatBubble(threadEl, {
           isOut: true,
-          sender: senderUsername,
+          sender: data.sender || senderUsername,
           text: messageText,
-          time: data.sent_at || 'اکنون'
+          time: data.sent_at || '',
+          queued: !!data.queued
         });
         threadEl.scrollTop = threadEl.scrollHeight;
 
@@ -1585,7 +1626,7 @@
       } else {
         alertBox.style.background = '#fef2f2';
         alertBox.style.color = '#b91c1c';
-        alertBox.innerText = 'خطا در ارسال: ' + (data.error || 'نامشخص');
+        alertBox.innerText = 'خطا در ثبت پیام: ' + (data.error || 'نامشخص');
       }
     })
     .catch(err => {

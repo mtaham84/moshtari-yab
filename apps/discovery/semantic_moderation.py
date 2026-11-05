@@ -86,19 +86,111 @@ _CACHED_ANCHOR_VECTORS: Dict[str, np.ndarray] = {}
 _CACHED_POSITIVE_VECTORS: Optional[np.ndarray] = None
 
 
+def embeddings_enabled() -> bool:
+    """Embedding-based moderation is opt-in (SEMANTIC_MODERATION_EMBEDDINGS=1).
+
+    The live server runs keyword/heuristic-only moderation (no remote embedding calls,
+    no quota cost). Setting the flag adds the BGE/Gemini anchor-similarity check on top.
+    """
+    return os.getenv("SEMANTIC_MODERATION_EMBEDDINGS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _get_embedder():
-    return None
+    global _CACHED_EMBEDDER
+    if not embeddings_enabled():
+        return None
+    if _CACHED_EMBEDDER is not None:
+        return _CACHED_EMBEDDER if _CACHED_EMBEDDER is not False else None
+    if "PYTEST_CURRENT_TEST" in os.environ and not (os.getenv("NE_DATABASE_URL") or os.getenv("DATABASE_URL")):
+        _CACHED_EMBEDDER = False
+        return None
+    try:
+        from need_engine.config import EngineConfig
+        from need_engine.llm import LLMClient
+        from need_engine.store import Store
+        from need_engine.embeddings import Embedder
+        cfg = EngineConfig()
+        store = Store(cfg.database_url, cfg.state_schema)
+        llm = LLMClient(cfg, store)
+        _CACHED_EMBEDDER = Embedder(cfg, llm)
+        return _CACHED_EMBEDDER
+    except Exception as e:
+        log.warning('Could not initialize primary Embedder: %s', e)
+        _CACHED_EMBEDDER = False
+        return None
 
 
 def _init_anchor_vectors():
-    return False
+    global _CACHED_ANCHOR_VECTORS, _CACHED_POSITIVE_VECTORS
+    if not embeddings_enabled():
+        return False
+    if _CACHED_ANCHOR_VECTORS and _CACHED_POSITIVE_VECTORS is not None:
+        return True
+
+    cache_path = os.environ.get("ANCHOR_CACHE_PATH", "/app/data/anchor_vectors_cache.npz")
+    if os.path.exists(cache_path):
+        try:
+            data = np.load(cache_path, allow_pickle=True)
+            for cat in NEGATIVE_ANCHOR_CLUSTERS.keys():
+                if cat in data:
+                    _CACHED_ANCHOR_VECTORS[cat] = data[cat]
+            if "positive_buying" in data:
+                _CACHED_POSITIVE_VECTORS = data["positive_buying"]
+            if (_CACHED_ANCHOR_VECTORS and _CACHED_POSITIVE_VECTORS is not None
+                    and all(getattr(v, "ndim", 0) == 2 and v.shape[1] > 0 for v in _CACHED_ANCHOR_VECTORS.values())
+                    and getattr(_CACHED_POSITIVE_VECTORS, "ndim", 0) == 2 and _CACHED_POSITIVE_VECTORS.shape[1] > 0):
+                log.info("Loaded anchor embeddings from disk cache: %s", cache_path)
+                return True
+            _CACHED_ANCHOR_VECTORS.clear()
+            _CACHED_POSITIVE_VECTORS = None
+            log.warning("Ignoring unusable anchor cache %s", cache_path)
+        except Exception as e:
+            log.warning("Could not load anchor cache: %s", e)
+
+    emb = _get_embedder()
+    if not emb:
+        return False
+
+    def _usable(vecs, texts) -> bool:
+        # the embedder returns (n, 0) arrays when the API is down/over quota: never keep or cache those
+        return getattr(vecs, "ndim", 0) == 2 and vecs.shape[0] == len(texts) and vecs.shape[1] > 0
+
+    try:
+        fresh = {}
+        for cat, texts in NEGATIVE_ANCHOR_CLUSTERS.items():
+            vecs = emb.encode(texts)
+            if not _usable(vecs, texts):
+                log.warning("Anchor embeddings unavailable right now (category %s); semantic gate stays off until they are", cat)
+                return False
+            fresh[cat] = vecs
+        positive = emb.encode(POSITIVE_BUYING_ANCHORS)
+        if not _usable(positive, POSITIVE_BUYING_ANCHORS):
+            log.warning("Positive anchor embeddings unavailable right now; semantic gate stays off until they are")
+            return False
+        _CACHED_ANCHOR_VECTORS.update(fresh)
+        _CACHED_POSITIVE_VECTORS = positive
+
+        try:
+            save_dict = dict(_CACHED_ANCHOR_VECTORS)
+            save_dict["positive_buying"] = _CACHED_POSITIVE_VECTORS
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            np.savez(cache_path, **save_dict)
+            log.info("Saved anchor embeddings to disk cache: %s", cache_path)
+        except Exception as e:
+            log.debug("Failed to save anchor cache: %s", e)
+
+        log.info('Semantic moderation anchors initialized successfully.')
+        return True
+    except Exception as exc:
+        log.error('Failed to compute anchor embeddings: %s', exc)
+        return False
 
 
 def is_gibberish_heuristics(text: str) -> Tuple[bool, str]:
     """Quick heuristic for repeated characters, extreme punctuation or keyboard mashing."""
     clean = re.sub(r'\s+', '', text)
     if len(clean) >= 6:
-        max_run = max(len(m.group(0)) for m in re.finditer(r'(.) +', clean)) if re.search(r'(.) +', clean) else 0
+        max_run = max(len(m.group(0)) for m in re.finditer(r'(.)\1+', clean)) if re.search(r'(.)\1+', clean) else 0
         if max_run >= 5 and max_run / len(clean) >= 0.55:
             return True, 'repeated_char_gibberish'
 
@@ -108,10 +200,79 @@ def is_gibberish_heuristics(text: str) -> Tuple[bool, str]:
     return False, ''
 
 
+def _embedding_moderation(comment_text: str) -> Optional[Dict[str, Any]]:
+    """Anchor-similarity check (only when embeddings are enabled and available)."""
+    if not _init_anchor_vectors():
+        return None
+
+    emb = _get_embedder()
+    try:
+        comment_vec = emb.encode([comment_text])[0]
+    except Exception as exc:
+        log.warning('Failed to encode comment: %s', exc)
+        return None
+
+    # Check against negative clusters
+    max_neg_sim = -1.0
+    matched_cat = 'none'
+
+    for cat, anchor_mat in _CACHED_ANCHOR_VECTORS.items():
+        sims = anchor_mat @ comment_vec
+        cat_max = float(np.max(sims))
+        if cat_max > max_neg_sim:
+            max_neg_sim = cat_max
+            matched_cat = cat
+
+    # Check against positive buying anchors
+    pos_sims = _CACHED_POSITIVE_VECTORS @ comment_vec
+    max_pos_sim = float(np.max(pos_sims))
+
+    # Guard: Polite inquiries with buying cues (لطف میکنید، قیمت، دایرکت، بفرستید)
+    has_polite_buying_cue = any(k in comment_text for k in ['لطف میکنید', 'لطف می‌کنید', 'لطفا', 'لطفاً', 'سلام', 'ممنون', 'خسته نباشید']) and any(k in comment_text for k in ['قیمت', 'دایرکت', 'چند', 'سفارش', 'ارسال', 'کاتالوگ'])
+    has_explicit_hostility = any(k in comment_text for k in ['دلقک', 'جونتون', 'کلاهبردار', 'دزد', 'مسخره', 'دروغ', 'آشغال', 'بنجل', 'حرومزاده', 'جنده', 'لاشی', 'کثافت'])
+
+    is_rejected = False
+    reject_reason = ''
+
+    if matched_cat == 'political_and_news':
+        has_buying_guard = any(k in comment_text for k in BUYING_GUARD_KEYWORDS)
+        has_pol_kw = any(k in comment_text for k in POLITICAL_EXPLICIT_KEYWORDS)
+
+        # High confidence political check: strictly reject with 0 tokens if verified political
+        if has_pol_kw and not has_buying_guard:
+            if max_neg_sim >= 0.72 and (max_neg_sim - max_pos_sim) >= 0.04:
+                is_rejected = True
+                reject_reason = 'semantic_political_and_news'
+        elif not has_buying_guard:
+            if max_neg_sim >= 0.76 and (max_neg_sim - max_pos_sim) >= 0.10:
+                is_rejected = True
+                reject_reason = 'strong_semantic_political_and_news'
+        elif max_neg_sim >= 0.88 and not any(k in comment_text for k in ['بخرم', 'سفارش بدم', 'متری چند']):
+            is_rejected = True
+            reject_reason = 'strong_semantic_political_and_news'
+    elif has_explicit_hostility or not has_polite_buying_cue:
+        if max_neg_sim >= 0.82 and max_neg_sim > max_pos_sim:
+            is_rejected = True
+            reject_reason = f'strong_semantic_{matched_cat}'
+        elif max_neg_sim >= 0.74 and (max_neg_sim - max_pos_sim) > 0.05:
+            is_rejected = True
+            reject_reason = f'semantic_{matched_cat}'
+
+    return {
+        'is_rejected': is_rejected,
+        'reason': reject_reason,
+        'category': matched_cat if is_rejected else 'acceptable',
+        'confidence': max_neg_sim if is_rejected else max_pos_sim,
+        'max_negative_sim': max_neg_sim,
+        'max_positive_sim': max_pos_sim,
+    }
+
+
 def check_comment_semantic_moderation(comment_text: str) -> Dict[str, Any]:
     """
     Evaluates a comment/post against toxicity, political news, and gibberish
-    without any remote embedding calls (100% deterministic keyword and heuristic filtering).
+    with deterministic keyword/heuristic filtering; embedding similarity is added only
+    when SEMANTIC_MODERATION_EMBEDDINGS is enabled.
     """
     text = (comment_text or '').strip()
     if not text:
@@ -151,6 +312,12 @@ def check_comment_semantic_moderation(comment_text: str) -> Dict[str, Any]:
             'max_negative_sim': 0.90,
             'max_positive_sim': 0.0,
         }
+
+    # 4. Optional embedding check (opt-in, see embeddings_enabled)
+    if embeddings_enabled():
+        semantic = _embedding_moderation(text)
+        if semantic is not None:
+            return semantic
 
     return {
         'is_rejected': False,

@@ -544,10 +544,19 @@ def _refresh_cache_if_needed() -> None:
 
             # Merge with database if available
             try:
+                from django.db import connection
                 from apps.core.models import LLMPromptConfig
-                for row in LLMPromptConfig.objects.filter(is_customized=True):
-                    if row.prompt_text and row.prompt_text.strip():
-                        overrides[row.key] = row.prompt_text.strip()
+
+                # The engine calls this from its ThreadPoolExecutor workers, which never get Django's end-of-request
+                # cleanup: a connection opened here would stay open (and block dropping the test database).
+                opened_here = connection.connection is None
+                try:
+                    for row in LLMPromptConfig.objects.filter(is_customized=True):
+                        if row.prompt_text and row.prompt_text.strip():
+                            overrides[row.key] = row.prompt_text.strip()
+                finally:
+                    if opened_here and not connection.in_atomic_block:
+                        connection.close()
             except Exception:
                 pass
 

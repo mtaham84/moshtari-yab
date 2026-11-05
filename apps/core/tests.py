@@ -60,3 +60,45 @@ class SiteAppearanceTests(TestCase):
         self.assertIn('--ui-overlay: 0.45', html)
         self.assertIn('--ui-bg: url("/media/site/', html)
         row.background_image.delete(save=False)
+
+
+class PromptCacheWorkerThreadTests(TestCase):
+    """The need engine refreshes the prompt cache from ThreadPoolExecutor workers, which never get Django's
+    end-of-request cleanup. A connection left open there blocks dropping the test database in CI."""
+
+    def test_refresh_from_worker_thread_closes_the_connection_it_opened(self):
+        import threading
+
+        from django.db import connection
+
+        from apps.core import prompts
+
+        saved = (prompts._LAST_CACHE_CHECK, prompts._CACHE_MTIME, prompts._PROMPTS_CACHE)
+        self.addCleanup(lambda: setattr(prompts, '_LAST_CACHE_CHECK', saved[0]))
+        self.addCleanup(lambda: setattr(prompts, '_CACHE_MTIME', saved[1]))
+        self.addCleanup(lambda: setattr(prompts, '_PROMPTS_CACHE', saved[2]))
+        prompts._LAST_CACHE_CHECK = 0.0
+        prompts._PROMPTS_CACHE = {}
+        seen = {}
+
+        def worker():
+            queries = []
+
+            def count(execute, sql, params, many, context):
+                queries.append(sql)
+                return execute(sql, params, many, context)
+
+            try:
+                with connection.execute_wrapper(count):
+                    prompts._refresh_cache_if_needed()
+                seen['queries'] = len(queries)
+                seen['left_open'] = connection.connection is not None
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(timeout=30)
+
+        self.assertEqual(seen.get('queries'), 1)
+        self.assertFalse(seen.get('left_open'))

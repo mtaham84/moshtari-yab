@@ -1,113 +1,33 @@
 """
 Celery Task Definitions for Moshtari-Yab Distributed Asynchronous Engine.
-Handles atomic lead reservation, organic Instagram outreach dispatching,
+Celery ticks of the single Instagram DM dispatcher (apps.discovery.outreach_engine),
 fast reply synchronization, and automated proxy self-healing.
 """
 from __future__ import annotations
 
 import logging
 import random
-import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from celery import shared_task
-from django.db import transaction, models
+from django.conf import settings
 from django.utils import timezone as django_tz
 
-from apps.discovery.models.instagram import (
-    InstagramEngineAccount,
-    InstagramEngineLead,
-)
+from apps.discovery.models.instagram import InstagramEngineAccount
 from apps.discovery.models.proxy import ProxyConfig
-from apps.discovery.human_routine import HumanShiftPlanner
-from apps.discovery.outreach_service import (
-    qualify_recipient_profile,
-    build_bulletproof_message,
-    execute_organic_journey,
-    process_queued_outbox_message,
-    check_and_sync_lead_replies,
-    get_tier_specs,
-)
-from apps.discovery.management.commands.run_instagram_outreach import (
-    load_outreach_config,
-    DEFAULT_SENDER_PITCHES,
-)
-from apps.discovery.anti_ban import InstagramAntiBanManager
+from apps.discovery.human_routine import HumanShiftPlanner  # noqa: F401  (tests patch tasks.HumanShiftPlanner)
+from apps.discovery.outreach_engine import get_available_senders, reply_sync_allowed, run_outreach_batch
+from apps.discovery.outreach_service import check_and_sync_lead_replies
 
 logger = logging.getLogger("discovery.tasks")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+REPLY_SYNC_SKIP_CHANCE = 0.3  # share of 5-minute beat ticks that do not check the inbox (irregular 5-15 min gaps)
 
 
 def get_available_senders_atomic(tenant_ids: List[str]) -> List[InstagramEngineAccount]:
-    """
-    Returns active senders with remaining quotas and auto-recovers expired cooldowns.
-    """
-    now = django_tz.now()
-    now_tehran = datetime.now(TEHRAN_TZ)
-
-    # 1. Reset daily/hourly counts if new day/hour has arrived
-    for acc in InstagramEngineAccount.objects.filter(role="SENDER"):
-        updated = False
-        update_cols = []
-        if acc.last_action_at and acc.last_action_at.astimezone(TEHRAN_TZ).date() < now_tehran.date():
-            acc.daily_action_count = 0
-            update_cols.append("daily_action_count")
-            updated = True
-
-        if acc.last_hour_reset and acc.last_hour_reset.astimezone(TEHRAN_TZ).hour != now_tehran.hour:
-            acc.hourly_action_count = 0
-            acc.last_hour_reset = now
-            update_cols.extend(["hourly_action_count", "last_hour_reset"])
-            updated = True
-        elif not acc.last_hour_reset:
-            acc.last_hour_reset = now
-            update_cols.append("last_hour_reset")
-            updated = True
-
-        if updated:
-            acc.save(update_fields=list(set(update_cols)))
-
-    # 2. Auto-Recovery: Restore senders whose cooldown has ended
-    expired_senders = InstagramEngineAccount.objects.filter(
-        role="SENDER",
-        status="COOLDOWN",
-        tenant_id__in=tenant_ids,
-    ).filter(
-        models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
-    )
-    for exp_acc in expired_senders:
-        exp_acc.status = "ACTIVE"
-        exp_acc.cooldown_until = None
-        exp_acc.status_message = "پایان استراحت - بازگشت خودکار به مدار ارسال"
-        exp_acc.save(update_fields=["status", "cooldown_until", "status_message"])
-        logger.info("🟢 [Auto-Recovery] SENDER @%s restored to ACTIVE.", exp_acc.username)
-
-    senders = InstagramEngineAccount.objects.filter(
-        role="SENDER",
-        status="ACTIVE",
-        tenant_id__in=tenant_ids,
-    ).filter(
-        models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
-    )
-
-    available = []
-    for s in senders:
-        is_valid_role, _ = InstagramAntiBanManager.validate_account_role(s, "SENDER")
-        if not is_valid_role:
-            continue
-
-        tier_spec = get_tier_specs(s.account_tier)
-        limit_daily = min(s.daily_limit or tier_spec["default_daily"], tier_spec["max_daily"])
-        limit_hourly = min(s.hourly_limit or tier_spec["hourly_speed"], tier_spec["hourly_speed"])
-
-        if s.daily_action_count < limit_daily and (s.hourly_action_count or 0) < limit_hourly:
-            available.append(s)
-
-    # Least recently active first
-    available.sort(key=lambda s: s.last_action_at or datetime.min.replace(tzinfo=django_tz.utc))
-    return available
+    """Active senders with remaining tier-capped quota (shared with the ig-outreach command)."""
+    return get_available_senders(tenant_ids)
 
 
 @shared_task(
@@ -124,226 +44,34 @@ def task_dispatch_instagram_outreach(
     ignore_shift: bool = False,
 ) -> Dict[str, Any]:
     """
-    Asynchronous Celery task for atomic, resilient Instagram outreach:
-    1. Evaluates human shift planner (sleeps during night/lunch pause unless bypassed).
-    2. Atomically reserves candidate leads using `select_for_update(skip_locked=True)`
-       to completely prevent double-sends and race conditions.
-    3. Handles organic journey, Spintax variation, and mobile proxy verification.
-    4. Triggers reply checking.
+    Celery tick of the single DM dispatcher (apps.discovery.outreach_engine), same logic as ig-outreach:
+    queued messages first, then the best 45-point lead; per-sender and global pacing live in the DB,
+    a Postgres advisory lock keeps one step per tenant, so this task never sleeps between DMs.
+    `min_intent` is accepted for old beat entries only; ranking uses the 45-point outreach score.
     """
     tenant_ids = ["tenant_4", "sarv"] if tenant in ("sarv", "tenant_4") else [tenant]
-    now_tehran = datetime.now(TEHRAN_TZ)
 
-    # 1. Shift Check
-    if not ignore_shift:
-        is_active, shift_reason, wait_sec = HumanShiftPlanner.is_shift_active(now_tehran)
-        if not is_active:
-            logger.info("💤 [Celery Shift Pause] Task skipped: %s (Resuming in %dm)", shift_reason, wait_sec // 60)
-            return {
-                "success": True,
-                "paused": True,
-                "reason": shift_reason,
-                "wait_seconds": wait_sec,
-                "sent_count": 0,
-            }
+    # Single-dispatcher guard: never send in parallel with the ig-outreach command loop
+    dispatcher = getattr(settings, "INSTAGRAM_OUTREACH_DISPATCHER", "command")
+    if dispatcher != "celery":
+        logger.info("⏭️ [Celery Outreach] Skipped: INSTAGRAM_OUTREACH_DISPATCHER=%s (the ig-outreach command is the active dispatcher).", dispatcher)
+        return {"success": True, "skipped": True, "reason": "dispatcher_disabled", "sent_count": 0}
 
-    available_senders = get_available_senders_atomic(tenant_ids)
-    if not available_senders:
-        logger.warning("⚠️ No active SENDER accounts available with remaining quota.")
-        return {"success": False, "sent_count": 0, "message": "No available senders"}
-
-    sent_in_batch = 0
-    cfg = load_outreach_config()
-    sender_pitches = cfg.get("sender_pitches", {})
-
-    # Priority 1: Outbox Queued Messages (operator approved / urgent follow-ups)
-    queued_leads = list(
-        InstagramEngineLead.objects.filter(
-            tenant_id__in=tenant_ids,
-            status="QUEUED",
-        ).order_by("updated_at")[:batch_size]
-    )
-    for q_lead in queued_leads:
-        if sent_in_batch >= batch_size:
-            break
-        res = process_queued_outbox_message(q_lead)
-        if res.get("success"):
-            sent_in_batch += 1
-            logger.info("✅ Queued message sent to @%s by @%s", q_lead.username, res.get("sender"))
-            delay_sec, _ = HumanShiftPlanner.calculate_next_action_delay(is_priority_reply=True)
-            time.sleep(min(delay_sec, 15.0))
-
-    if sent_in_batch >= batch_size:
-        check_and_sync_lead_replies(tenant_ids)
-        return {"success": True, "sent_count": sent_in_batch, "mode": "queued_priority"}
-
-    # Priority 2: Cold Lead Direct Outreach with Atomic Lock (select_for_update)
-    remaining_slots = batch_size - sent_in_batch
-
-    with transaction.atomic():
-        # Atomically lock and fetch only unlocked leads
-        candidate_leads = list(
-            InstagramEngineLead.objects.select_for_update(skip_locked=True)
-            .filter(
-                tenant_id__in=tenant_ids,
-                status="NEW",
-                intent_score__gte=min_intent,
-            )
-            .order_by("-intent_score", "created_at")[:remaining_slots * 5]
-        )
-
-        # Adaptive intent fallback if high-intent leads are empty
-        if not candidate_leads and min_intent > 0.50:
-            candidate_leads = list(
-                InstagramEngineLead.objects.select_for_update(skip_locked=True)
-                .filter(
-                    tenant_id__in=tenant_ids,
-                    status="NEW",
-                    intent_score__gte=0.50,
-                )
-                .order_by("-intent_score", "created_at")[:remaining_slots * 5]
-            )
-
-        if not candidate_leads:
-            check_and_sync_lead_replies(tenant_ids)
-            return {"success": True, "sent_count": sent_in_batch, "message": "No new leads in queue"}
-
-        from apps.discovery.management.commands.run_instagram_outreach import Command as OutreachCommand
-        cmd = OutreachCommand()
-
-        for lead in candidate_leads:
-            if sent_in_batch >= batch_size:
-                break
-
-            chosen_sender = None
-            for cand in available_senders:
-                cand.refresh_from_db()
-                cand_daily_limit = cand.daily_limit or 18
-                cand_hourly_limit = cand.hourly_limit or 3
-                if (
-                    cand.status == "ACTIVE"
-                    and cand.daily_action_count < cand_daily_limit
-                    and (cand.hourly_action_count or 0) < cand_hourly_limit
-                    and (not cand.cooldown_until or cand.cooldown_until <= django_tz.now())
-                ):
-                    chosen_sender = cand
-                    break
-
-            if not chosen_sender:
-                logger.warning("No sender available with empty quota.")
-                break
-
-            sender = chosen_sender
-            sender_user = sender.username
-            pitch_info = (
-                sender_pitches.get(sender_user)
-                or sender_pitches.get(sender_user.lower())
-                or DEFAULT_SENDER_PITCHES.get(sender_user.lower(), {})
-            )
-            consultant_name = pitch_info.get("consultant_name", sender_user)
-            raw_template = pitch_info.get("template", "")
-
-            biz_name = "مجموعه تخصصی سرو"
-            if hasattr(lead, "business") and lead.business and getattr(lead.business, "name", None):
-                biz_name = lead.business.name
-
-            pitch_text = build_bulletproof_message(
-                pitch_template=raw_template,
-                lead=lead,
-                consultant_name=consultant_name,
-                business_name=biz_name,
-            )
-
-            try:
-                # 🛡️ Step 0: Mobile Proxy Verification
-                from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
-                prepare_sender_proxy_before_dm(sender)
-
-                # Initialize instagrapi client
-                from instagrapi import Client
-                cl = Client()
-                cl.delay_range = [1.5, 3.5]
-                clean_proxy = getattr(sender, "clean_proxy", None) or sender.proxy_url
-                if clean_proxy:
-                    cl.set_proxy(clean_proxy)
-
-                from apps.discovery.device_emulator import apply_device_profile_to_client
-                apply_device_profile_to_client(cl, sender)
-
-                session_cookies = (sender.session_json or {}).get("cookies", {})
-                sess_id = session_cookies.get("sessionid")
-                if sess_id:
-                    cl.login_by_sessionid(sess_id)
-
-                # 🛡️ Step 1: Pre-Flight Safety Qualification
-                qualify = qualify_recipient_profile(cl, lead.username, target_pk=lead.ig_user_pk)
-                if not qualify["eligible"]:
-                    lead.status = "SKIPPED"
-                    lead.comment_text = (lead.comment_text or "") + f"\n[گاردریل ایمنی]: {qualify['reason']}"
-                    lead.save(update_fields=["status", "comment_text", "updated_at"])
-                    continue
-
-                target_pk = qualify.get("target_pk") or (int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None)
-                if not target_pk:
-                    lead.status = "SKIPPED"
-                    lead.save(update_fields=["status", "updated_at"])
-                    continue
-
-                # 🛡️ Step 2: Full In-App Organic Journey
-                journey_res = execute_organic_journey(cl, lead.username, target_pk=target_pk)
-                final_pk = journey_res.get("target_pk") or target_pk
-
-                # 🛡️ Step 3: Direct Send Message
-                cl.direct_send(pitch_text, user_ids=[final_pk])
-
-                now = django_tz.now()
-                lead.status = "DM_SENT"
-                lead.sender_account = sender_user
-                lead.initial_dm_text = pitch_text
-                lead.initial_dm_at = now
-                lead.conversation_history = [{
-                    "sender": sender_user,
-                    "direction": "out",
-                    "role": "initial_outreach",
-                    "text": pitch_text,
-                    "time": now.isoformat(),
-                    "delivery_status": "SENT",
-                }]
-                lead.save(update_fields=[
-                    "status", "sender_account", "initial_dm_text", "initial_dm_at",
-                    "conversation_history", "updated_at"
-                ])
-
-                sender.daily_action_count += 1
-                sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
-                sender.last_action_at = now
-                sender.status_message = "پیام با موفقیت ارسال شد"
-                sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at", "status_message"])
-
-                sent_in_batch += 1
-                logger.info("✅ [Celery] DM sent successfully to @%s via @%s", lead.username, sender_user)
-
-            except Exception as exc:
-                exc_str = str(exc).lower()
-                logger.error("❌ Error sending DM to @%s: %s", lead.username, exc)
-                if "challenge" in exc_str or "login_required" in exc_str or "unauthorized" in exc_str:
-                    sender.status = "CHALLENGED"
-                    sender.status_message = f"نیازمند تایید سشن یا رفع چالش ({exc_str[:50]})"
-                    sender.save(update_fields=["status", "status_message"])
-                elif "connection" in exc_str or "proxy" in exc_str or "111" in exc_str:
-                    sender.status = "COOLDOWN"
-                    sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=5)
-                    sender.status_message = "خطای موقت پروکسی - استراحت ۵ دقیقه‌ای"
-                    sender.save(update_fields=["status", "cooldown_until", "status_message"])
-                lead.status = "NEW"
-                lead.save(update_fields=["status", "updated_at"])
-
-    # 4. Sync lead replies
-    check_and_sync_lead_replies(tenant_ids)
-
+    batch = run_outreach_batch(tenant_ids, max_sends=batch_size, ignore_shift=ignore_shift, log=logger.info)
+    last = batch["last"]
+    if last.get("action") == "paused":
+        logger.info("💤 [Celery Shift Pause] Task skipped: %s (Resuming in %dm)", last.get("reason"), (last.get("wait_seconds") or 0) // 60)
+        return {
+            "success": True,
+            "paused": True,
+            "reason": last.get("reason"),
+            "wait_seconds": last.get("wait_seconds"),
+            "sent_count": 0,
+        }
     return {
         "success": True,
-        "sent_count": sent_in_batch,
+        "sent_count": batch["sent"],
+        "last_action": last.get("action"),
         "tenant": tenant,
         "timestamp": django_tz.now().isoformat(),
     }
@@ -355,11 +83,17 @@ def task_dispatch_instagram_outreach(
 )
 def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     """
-    Asynchronous fast polling task for incoming Instagram lead replies.
-    Runs every 2 minutes via Celery Beat.
+    Polling task for incoming Instagram lead replies (Celery dispatcher only).
+    Beat ticks every 5 minutes; outside shift hours nothing is checked, and REPLY_SYNC_SKIP_CHANCE of the ticks are
+    skipped so the checks are not evenly spaced.
     """
     if not tenant_ids:
         tenant_ids = ["tenant_4", "sarv"]
+    allowed, reason = reply_sync_allowed()
+    if not allowed:
+        return {"success": True, "skipped": True, "reason": reason, "replies_found": 0}
+    if random.random() < REPLY_SYNC_SKIP_CHANCE:
+        return {"success": True, "skipped": True, "reason": "random_skip", "replies_found": 0}
     try:
         res = check_and_sync_lead_replies(tenant_ids)
         replies_count = res.get("replies_found", 0)

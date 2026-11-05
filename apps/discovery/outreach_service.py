@@ -62,6 +62,47 @@ def get_tier_specs(tier_key: str) -> dict:
     return TIER_LIMITS.get(tier_key or "NEW", TIER_LIMITS["NEW"])
 
 
+def get_effective_sender_limits(account, fallback_daily: Optional[int] = None) -> tuple[int, int]:
+    """
+    Daily/hourly DM caps for a SENDER account.
+    Uses the account's own limits (or the fallback), but never above the warm-up ceiling of its age tier,
+    e.g. a NEW account can never exceed 10 DMs/day and 2 DMs/hour even if its daily_limit is 18.
+    """
+    tier = get_tier_specs(getattr(account, "account_tier", None))
+    daily = min(getattr(account, "daily_limit", None) or fallback_daily or tier["default_daily"], tier["max_daily"])
+    hourly = min(getattr(account, "hourly_limit", None) or tier["hourly_speed"], tier["hourly_speed"])
+    return daily, hourly
+
+
+def select_outreach_candidates(tenant_ids: List[str], slots: int, *, now=None) -> List[Any]:
+    """
+    Cold-outreach candidates for the DM dispatcher (apps.discovery.outreach_engine):
+    NEW leads whose comment is from the last 5 days, rescored with the 45-point formula
+    (instagram_scoring) and returned highest score first. Leads that aged out are marked SKIPPED.
+    """
+    from django.db.models import Q
+    from apps.discovery.models import InstagramEngineLead
+    from apps.discovery.instagram_scoring import update_lead_scoring
+
+    now = now or timezone.now()
+    cutoff_5_days = now - timedelta(days=5)
+    candidates = list(
+        InstagramEngineLead.objects.filter(tenant_id__in=tenant_ids, status="NEW")
+        .filter(Q(comment_created_at__gte=cutoff_5_days) | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days))
+        .order_by("-outreach_score", "-comment_created_at", "-created_at")[:max(slots * 20, 50)]
+    )
+    leads = []
+    for cand in candidates:
+        calc = update_lead_scoring(cand, commit=True, now=now)
+        if calc.get("is_eligible", True):
+            leads.append(cand)
+        else:
+            cand.status = "SKIPPED"
+            cand.save(update_fields=["status", "updated_at"])
+    leads.sort(key=lambda lead: (lead.outreach_score, lead.comment_created_at or lead.created_at), reverse=True)
+    return leads
+
+
 def parse_spintax(text: str) -> str:
     """
     Recursively parse and resolve Spintax patterns such as {سلام|درود|وقت بخیر}.
@@ -73,6 +114,11 @@ def parse_spintax(text: str) -> str:
     while pattern.search(text):
         text = pattern.sub(lambda m: random.choice(m.group(1).split("|")), text)
     return text
+
+
+_SPINTAX_GROUP_RE = re.compile(r"\{[^{}]*\|[^{}]*\}")
+_LEADING_GREETING_RE = re.compile(r"^(?:درود بر شما|سلام وقتتون بخیر|سلام و احترام|سلام و درود|درود|سلام)[\s!،,.]*")
+STATIC_TEMPLATE_GREETING = "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز| گرامی|}!"
 
 
 def build_bulletproof_message(
@@ -116,6 +162,10 @@ def build_bulletproof_message(
         topic = "ترمیم، پر کردن و روکش دندان"
     elif "جرم" in combined_context or "بلیچینگ" in combined_context or "سفید" in combined_context:
         topic = "بلیچینگ و سفید کردن دندان"
+    elif "بوتاکس" in combined_context or "فیلر" in combined_context or "ژل" in combined_context:
+        topic = "تزریق ژل، بوتاکس و امور زیبایی"
+    elif "پوست" in combined_context or "فیشیال" in combined_context or "لیزر" in combined_context:
+        topic = "خدمات پوست، فیشیال و لیزر"
     else:
         topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
 
@@ -129,8 +179,14 @@ def build_bulletproof_message(
     # Case C: Direct short trigger or price inquiry
     is_price_inquiry = any(w in c_text for w in ["قیمت", "هزینه", "چند", "چنده", "دایرکت", "کامنت", "ارسال", "شرایط"])
 
-    if pitch_template:
+    if pitch_template and _SPINTAX_GROUP_RE.search(pitch_template):
+        # Template already carries its own Spintax variations
         text = pitch_template
+    elif pitch_template:
+        # Static (approved) template: keep the body as-is but vary the opening greeting,
+        # otherwise every DM from this sender would be byte-identical (spam-classifier risk).
+        body = _LEADING_GREETING_RE.sub("", pitch_template.strip(), count=1)
+        text = STATIC_TEMPLATE_GREETING + "\n" + body
     elif is_installment_inquiry:
         text = (
             "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
@@ -271,22 +327,38 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
     }
 
 
-def perform_organic_warmup(cl: Any, target_pk: int, username: str) -> Dict[str, Any]:
+def perform_organic_warmup(cl: Any, target_pk: int, username: str, *, story_chance: float = 1.0,
+                           like_chance: float = 1.0, medias: Optional[list] = None) -> Dict[str, Any]:
     """
-    Executes organic human warm-up actions before sending DM:
-    Likes the user's latest post (triggers official push notification on recipient's phone).
-    Instagram algorithm classifies the subsequent DM as a natural follow-up interaction!
+    Organic warm-up before a DM, each part with its own chance (1.0 = always, the default for direct calls):
+    1. Views up to 2 active stories (our account shows up in the recipient's story viewers).
+    2. Likes the user's latest post (`medias` already loaded by a profile view are reused, no second request).
     """
     actions = {"liked_post": False, "viewed_story": False}
 
-    # Like recent post
+    # 1. View active stories (if any)
     try:
-        medias = cl.user_medias(target_pk, amount=1)
-        if medias:
-            latest_media = medias[0]
-            cl.media_like(latest_media.id)
-            actions["liked_post"] = True
-            time.sleep(random.uniform(1.5, 3.0))
+        if random.random() < story_chance and hasattr(cl, "user_stories") and hasattr(cl, "story_seen"):
+            stories = cl.user_stories(str(target_pk))
+            if stories:
+                story_pks = [int(s.pk) for s in stories[:2]]
+                cl.story_seen(story_pks)
+                actions["viewed_story"] = True
+                logger.info("Organic story view executed for @%s (pks: %s)", username, story_pks)
+                time.sleep(random.uniform(2.0, 4.5))
+    except Exception as story_err:
+        logger.debug("Organic story view skipped for @%s: %s", username, story_err)
+
+    # 2. Like recent post
+    try:
+        if random.random() < like_chance:
+            if medias is None:
+                medias = cl.user_medias(target_pk, amount=1)
+            if medias:
+                latest_media = medias[0]
+                cl.media_like(latest_media.id)
+                actions["liked_post"] = True
+                time.sleep(random.uniform(1.5, 3.0))
     except Exception as like_err:
         logger.debug(f"Organic like warmup skipped for @{username}: {like_err}")
 
@@ -510,7 +582,6 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     extracts Iranian mobile numbers, and marks lead as REPLIED.
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, Customer
-    from apps.discovery.device_emulator import apply_device_profile_to_client
 
     if isinstance(tenant_ids, str):
         tenant_ids = [tenant_ids]
@@ -524,8 +595,6 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     if not senders.exists():
         return {"status": "no_senders", "replies_found": 0, "details": []}
 
-    from instagrapi import Client
-
     synced_count = 0
     details = []
 
@@ -538,14 +607,10 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
         if not sessionid:
             continue
 
-        cl = Client()
-        cl.delay_range = [0.2, 0.5]
-        if sender.proxy_url:
-            cl.set_proxy(sender.proxy_url)
-
         try:
-            apply_device_profile_to_client(cl, sender)
-            cl.login_by_sessionid(sessionid)
+            # Reuse the dispatcher's logged-in client instead of a fresh login on every poll
+            from apps.discovery.outreach_engine import get_sender_client
+            cl = get_sender_client(sender)
             current_user_id = str(cl.user_id)
 
             # Fast single chunk fetch (max 10 recent threads without paging loop)
@@ -673,7 +738,7 @@ def send_chat_message(
     Records the interaction into lead.conversation_history.
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-    from apps.discovery.device_emulator import apply_device_profile_to_client
+    from apps.discovery.device_emulator import connect_saved_session
     from instagrapi import Client
 
     lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
@@ -697,11 +762,10 @@ def send_chat_message(
 
     cl = Client()
     if sender.proxy_url:
-        cl.set_proxy(sender.proxy_url)
+        cl.set_proxy(sender.clean_proxy)
 
     try:
-        apply_device_profile_to_client(cl, sender)
-        cl.login_by_sessionid(sess_id)
+        connect_saved_session(cl, sender)
 
         target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None
         if not target_pk:
@@ -731,8 +795,9 @@ def send_chat_message(
         ])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
         sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
@@ -747,18 +812,28 @@ def send_chat_message(
         return {"success": False, "error": str(exc)}
 
 
+# Chance of each step before a cold DM. The same feed -> search -> profile -> story -> like chain before every single
+# DM is itself a bot signature (and every like is one more action on a new account); people often open the profile
+# straight from the comment and only sometimes watch a story or like a post before writing.
+ORGANIC_JOURNEY_ODDS = {"feed": 0.5, "feed_like": 0.1, "search": 0.6, "profile": 0.75, "story": 0.5, "like": 0.2}
+
+
+def _journey_step(step: str) -> bool:
+    return random.random() < ORGANIC_JOURNEY_ODDS.get(step, 0.0)
+
+
 def execute_organic_journey(
     cl: Any,
     target_username: str,
     target_pk: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Executes an organic, authentic human journey before sending a direct message:
-    1. Scrolls home timeline feed for 3-6s (with 15% probability to like a feed post).
-    2. Searches for the username in Instagram search bar (/users/search/).
-    3. Views target profile grid and inspects recent medias.
-    4. Views active stories (leaving avatar impression) & likes recent post.
-    5. Applies human typing jitter (15-28s).
+    A varied, human-like path before sending a direct message (see ORGANIC_JOURNEY_ODDS):
+    1. Sometimes scrolls the home timeline for 3-6s (rarely likes a feed post).
+    2. Sometimes searches the username in the search bar (always when the numeric PK is unknown).
+    3. Usually opens the target profile grid.
+    4. Sometimes views active stories; rarely likes the latest post (only after the profile was opened).
+    5. Applies human typing jitter (15-30s).
     """
     actions_taken = {
         "feed_scrolled": False,
@@ -772,13 +847,13 @@ def execute_organic_journey(
 
     # Step 1: Open Timeline Feed & simulate casual scrolling
     try:
-        if hasattr(cl, "get_timeline_feed"):
+        if _journey_step("feed") and hasattr(cl, "get_timeline_feed"):
             timeline = cl.get_timeline_feed()
             actions_taken["feed_scrolled"] = True
             time.sleep(random.uniform(3.0, 6.0))
 
             feed_items = getattr(timeline, "feed_items", []) or (timeline.get("feed_items", []) if isinstance(timeline, dict) else [])
-            if feed_items and random.random() < 0.15:
+            if feed_items and _journey_step("feed_like"):
                 first_item = feed_items[0]
                 m_id = None
                 if isinstance(first_item, dict):
@@ -796,8 +871,8 @@ def execute_organic_journey(
     # Step 2: Search for user in search bar (/users/search/)
     resolved_pk = target_pk
     try:
-        time.sleep(random.uniform(2.0, 4.0))
-        if hasattr(cl, "search_users"):
+        if (not target_pk or _journey_step("search")) and hasattr(cl, "search_users"):
+            time.sleep(random.uniform(2.0, 4.0))
             search_results = cl.search_users(target_username)
             actions_taken["user_searched"] = True
             for u in (search_results or []):
@@ -817,16 +892,22 @@ def execute_organic_journey(
 
     # Step 3: Browse target user profile and recent medias
     if resolved_pk:
+        medias = None
         try:
-            time.sleep(random.uniform(2.0, 4.0))
-            if hasattr(cl, "user_medias"):
-                cl.user_medias(resolved_pk, amount=3)
+            if _journey_step("profile") and hasattr(cl, "user_medias"):
+                time.sleep(random.uniform(2.0, 4.0))
+                medias = cl.user_medias(resolved_pk, amount=random.randint(3, 6))
                 actions_taken["profile_viewed"] = True
         except Exception as profile_err:
             logger.debug("Organic profile inspection skipped for @%s: %s", target_username, profile_err)
 
-        # Step 4: Perform existing story seen + post like interaction
-        warmup_res = perform_organic_warmup(cl, resolved_pk, target_username)
+        # Step 4: Sometimes a story view, rarely a like (only on posts actually seen on the profile)
+        warmup_res = perform_organic_warmup(
+            cl, resolved_pk, target_username,
+            story_chance=ORGANIC_JOURNEY_ODDS["story"],
+            like_chance=ORGANIC_JOURNEY_ODDS["like"] if medias else 0.0,
+            medias=medias or [],
+        )
         actions_taken["story_viewed"] = warmup_res.get("viewed_story", False)
         actions_taken["target_post_liked"] = warmup_res.get("liked_post", False)
 
@@ -898,17 +979,30 @@ def enqueue_direct_message(
     }
 
 
+def resolve_queued_sender(lead: Any, queued_item: Optional[Dict[str, Any]] = None):
+    """SENDER account that should deliver a queued message (chosen sender, else the lead's senders, else any ACTIVE)."""
+    from apps.discovery.models import InstagramEngineAccount
+
+    sender_username = (queued_item or {}).get("sender") or lead.second_sender_username or lead.sender_account
+    sender = None
+    if sender_username:
+        sender = InstagramEngineAccount.objects.filter(username__iexact=sender_username, role="SENDER").first()
+    if not sender:
+        sender = InstagramEngineAccount.objects.filter(tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE").first()
+    return sender
+
+
 def process_queued_outbox_message(
     lead: Any,
     client_cache: Optional[Dict[str, Any]] = None,
     dry_run: bool = False,
+    sender: Any = None,
 ) -> Dict[str, Any]:
     """
     Safely dispatches the oldest pending QUEUED message for a lead using
     organic navigation and account session.
     """
-    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-    from apps.discovery.device_emulator import apply_device_profile_to_client
+    from apps.discovery.device_emulator import connect_saved_session
     from instagrapi import Client
 
     history = list(getattr(lead, "conversation_history", []) or [])
@@ -924,9 +1018,8 @@ def process_queued_outbox_message(
         return {"success": False, "error": "هیچ پیام در صف برای این لید یافت نشد."}
 
     sender_username = queued_item.get("sender") or lead.second_sender_username or lead.sender_account
-    sender = InstagramEngineAccount.objects.filter(username__iexact=sender_username, role="SENDER").first()
-    if not sender:
-        sender = InstagramEngineAccount.objects.filter(tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE").first()
+    if sender is None:
+        sender = resolve_queued_sender(lead, queued_item)
 
     if dry_run:
         now = timezone.now()
@@ -945,8 +1038,9 @@ def process_queued_outbox_message(
 
         if sender:
             sender.daily_action_count = (sender.daily_action_count or 0) + 1
+            sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
             sender.last_action_at = now
-            sender.save(update_fields=["daily_action_count", "last_action_at"])
+            sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
@@ -970,10 +1064,9 @@ def process_queued_outbox_message(
         cl = client_cache[sender.username]
     else:
         cl = Client()
-        if sender.proxy_url:
-            cl.set_proxy(sender.proxy_url)
-        apply_device_profile_to_client(cl, sender)
-        cl.login_by_sessionid(sess_id)
+        if sender.clean_proxy:
+            cl.set_proxy(sender.clean_proxy)
+        connect_saved_session(cl, sender)
         if client_cache is not None:
             client_cache[sender.username] = cl
 
@@ -1000,8 +1093,9 @@ def process_queued_outbox_message(
         lead.save(update_fields=["status", "conversation_history", "second_message_text", "second_sender_username", "second_message_at", "updated_at"])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
         sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
@@ -1025,7 +1119,7 @@ def send_direct_message_to_lead(
     Appends the message to lead.conversation_history and updates tracking fields.
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-    from apps.discovery.device_emulator import apply_device_profile_to_client
+    from apps.discovery.device_emulator import connect_saved_session
     from instagrapi import Client
 
     lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
@@ -1068,11 +1162,10 @@ def send_direct_message_to_lead(
 
     cl = Client()
     if sender.proxy_url:
-        cl.set_proxy(sender.proxy_url)
+        cl.set_proxy(sender.clean_proxy)
 
     try:
-        apply_device_profile_to_client(cl, sender)
-        cl.login_by_sessionid(sess_id)
+        connect_saved_session(cl, sender)
 
         target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None
         if not target_pk:
@@ -1106,8 +1199,9 @@ def send_direct_message_to_lead(
         ])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
         sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,

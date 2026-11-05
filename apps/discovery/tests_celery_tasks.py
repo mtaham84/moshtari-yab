@@ -3,7 +3,7 @@ Unit tests for Celery distributed tasks, Redis task routing,
 and automated proxy self-healing.
 """
 from unittest.mock import MagicMock, patch
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from config.celery import app as celery_app
 from apps.discovery.tasks import (
@@ -23,6 +23,7 @@ class CeleryTaskQueueTestCase(SimpleTestCase):
         self.assertIn("apps.discovery.tasks.task_sync_telegram_channel_configs", celery_app.tasks)
         self.assertIn("apps.discovery.tasks.task_healthcheck_and_heal_proxies", celery_app.tasks)
 
+    @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="celery")
     @patch("apps.discovery.tasks.HumanShiftPlanner.is_shift_active")
     def test_task_dispatch_outreach_respects_shift_pause(self, mock_shift):
         """Task should return paused without sending DMs when shift is closed."""
@@ -33,14 +34,37 @@ class CeleryTaskQueueTestCase(SimpleTestCase):
         self.assertEqual(res["sent_count"], 0)
         self.assertIn("استراحت شبانه", res["reason"])
 
+    @patch("apps.discovery.tasks.random.random", return_value=0.9)
+    @patch("apps.discovery.tasks.reply_sync_allowed", return_value=(True, ""))
     @patch("apps.discovery.tasks.check_and_sync_lead_replies")
-    def test_task_sync_lead_replies_executes(self, mock_sync):
+    def test_task_sync_lead_replies_executes(self, mock_sync, _shift, _rand):
         """Verify reply polling task calls underlying sync engine."""
         mock_sync.return_value = {"success": True, "replies_found": 3, "details": []}
         res = task_sync_lead_replies(tenant_ids=["tenant_4"])
         self.assertTrue(res["success"])
         self.assertEqual(res["replies_found"], 3)
         mock_sync.assert_called_once_with(["tenant_4"])
+
+    @patch("apps.discovery.tasks.reply_sync_allowed", return_value=(False, "استراحت شبانه"))
+    @patch("apps.discovery.tasks.check_and_sync_lead_replies")
+    def test_task_sync_lead_replies_sleeps_outside_shift(self, mock_sync, _shift):
+        res = task_sync_lead_replies(tenant_ids=["tenant_4"])
+        self.assertTrue(res["skipped"])
+        mock_sync.assert_not_called()
+
+    @patch("apps.discovery.tasks.random.random", return_value=0.1)
+    @patch("apps.discovery.tasks.reply_sync_allowed", return_value=(True, ""))
+    @patch("apps.discovery.tasks.check_and_sync_lead_replies")
+    def test_task_sync_lead_replies_skips_some_ticks(self, mock_sync, _shift, _rand):
+        res = task_sync_lead_replies(tenant_ids=["tenant_4"])
+        self.assertEqual(res["reason"], "random_skip")
+        mock_sync.assert_not_called()
+
+    def test_reply_sync_beat_is_not_a_two_minute_poll(self):
+        from django.conf import settings
+        entry = settings.CELERY_BEAT_SCHEDULE.get("sync-lead-replies-fast")
+        if entry:  # only scheduled with INSTAGRAM_OUTREACH_DISPATCHER=celery
+            self.assertGreaterEqual(entry["schedule"], 300)
 
     @patch("apps.discovery.channel_config_automation.sync_all_active_channels")
     def test_task_sync_telegram_channels(self, mock_channels):

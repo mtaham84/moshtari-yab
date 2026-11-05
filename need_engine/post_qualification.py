@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -31,10 +31,8 @@ except Exception:
     def get_system_prompt(key, default):
         return default
 
-try:
+if TYPE_CHECKING:  # type hint only; avoids importing Django models at module import time
     from apps.products.models import Product
-except Exception:
-    Product = Any  # type: ignore
 
 ContentType = Literal[
     "genuine_need",
