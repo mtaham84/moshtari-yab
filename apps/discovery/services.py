@@ -1,6 +1,7 @@
 """Dashboard analytics built only from real data: engine opportunities, product-card visits and orders."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.db.models import Sum
@@ -11,6 +12,8 @@ from apps.products.models import Product
 
 from .engine_bridge import engine_totals
 from .models import Opportunity, ProductDailyMetric
+
+logger = logging.getLogger(__name__)
 
 HIGH_INTENT = 0.8
 PLATFORM_LABELS = {"telegram": "تلگرام", "x": "ایکس", "instagram": "اینستاگرام"}
@@ -102,6 +105,16 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
     }
 
 
+def business_for_tenant(tenant_id):
+    """The Business behind a tenant id ("tenant_<pk>" or a legacy alias such as "sarv"); None when unknown."""
+    from apps.discovery.ig_accounts import canonical_tenant
+
+    tenant = canonical_tenant(tenant_id)
+    if not tenant.startswith("tenant_") or not tenant[len("tenant_"):].isdigit():
+        return None
+    return Business.objects.filter(pk=int(tenant[len("tenant_"):])).first()
+
+
 def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain with accurate Luna GPT-6 billing."""
     import re
@@ -114,16 +127,10 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     from .models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch
 
     if business is None:
-        if lead.tenant_id and str(lead.tenant_id).startswith("tenant_"):
-            try:
-                biz_id = int(str(lead.tenant_id).replace("tenant_", ""))
-                business = Business.objects.filter(id=biz_id).first()
-            except (ValueError, TypeError):
-                pass
-        if not business:
-            business = Business.objects.filter(user__username="sang@peyda.ir").first() or Business.objects.first()
-
-    if not business:
+        business = business_for_tenant(lead.tenant_id)
+    if business is None:
+        # Never fall back to a default/first business: that leaks one seller's lead to another and bills them.
+        logger.warning("Instagram lead %s has unknown tenant %r; not synced", lead.pk, lead.tenant_id)
         return None
 
     post_match = re.search(r"/p/([A-Za-z0-9_-]+)", lead.source_post_url or "")
