@@ -565,7 +565,7 @@ def send_long_prompt(chat_id: int | str, header_text: str, prompt_text: str, foo
 
 
 def handle_prompts_list(chat_id: int | str) -> None:
-    """Lists all 19 system prompts grouped by category."""
+    """Lists all system prompts grouped by category."""
     register_subscriber(chat_id)
     from apps.core.prompts import get_all_prompts_info, ensure_prompts_seeded
 

@@ -102,3 +102,57 @@ class PromptCacheWorkerThreadTests(TestCase):
 
         self.assertEqual(seen.get('queries'), 1)
         self.assertFalse(seen.get('left_open'))
+
+
+class PromptSourceOfTruthTests(TestCase):
+    """BUG-14: the prompt a developer edits in code is the one that runs."""
+
+    def setUp(self):
+        from apps.core import prompts
+
+        saved = (prompts._LAST_CACHE_CHECK, prompts._PROMPTS_CACHE)
+        self.addCleanup(lambda: setattr(prompts, '_LAST_CACHE_CHECK', saved[0]))
+        self.addCleanup(lambda: setattr(prompts, '_PROMPTS_CACHE', saved[1]))
+        # no overrides, and don't hit the file/DB during these checks
+        prompts._PROMPTS_CACHE = {}
+        prompts._LAST_CACHE_CHECK = 10 ** 12
+
+    def test_every_catalog_prompt_has_a_default(self):
+        from apps.core.prompts import PROMPT_CATALOG, default_prompt
+
+        for key in PROMPT_CATALOG:
+            self.assertTrue(default_prompt(key), key)
+
+    def test_constant_backed_defaults_equal_the_module_constant(self):
+        import importlib
+
+        from apps.core.prompts import PROMPT_CATALOG, default_prompt, get_system_prompt
+
+        checked = 0
+        for key, meta in PROMPT_CATALOG.items():
+            path, _, attr = meta["module_path"].partition(":")
+            try:
+                module = importlib.import_module(path[:-3].replace("/", "."))
+            except ImportError:  # e.g. instagram_engine deps aren't in the web image
+                continue
+            value = getattr(module, attr, None)
+            if isinstance(value, str):
+                self.assertIsNone(meta["default"], f"{key}: catalog must not keep a second copy")
+                self.assertEqual(default_prompt(key), value.strip(), key)
+                self.assertEqual(get_system_prompt(key), value.strip(), key)
+                checked += 1
+        self.assertGreaterEqual(checked, 12)
+
+    def test_x_product_mode_uses_its_own_prompt(self):
+        from apps.core.prompts import get_system_prompt
+        from need_engine.prompts import NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
+
+        self.assertEqual(get_system_prompt("need_system_x_product", NEED_SYSTEM_X_PRODUCT), NEED_SYSTEM_X_PRODUCT.strip())
+        self.assertNotEqual(get_system_prompt("need_system_x_product"), NEED_SYSTEM_X.strip())
+
+    def test_caller_default_beats_catalog_but_override_beats_both(self):
+        from apps.core import prompts
+
+        self.assertEqual(prompts.get_system_prompt("ig_cta_extraction", "code default text"), "code default text")
+        prompts._PROMPTS_CACHE = {"ig_cta_extraction": "admin override text"}
+        self.assertEqual(prompts.get_system_prompt("ig_cta_extraction", "code default text"), "admin override text")

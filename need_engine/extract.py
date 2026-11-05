@@ -310,7 +310,7 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
                 post["reply_to"] = m.reply_to_text[:400]
             posts.append(post)
         user = json.dumps({"product": product, "posts": posts}, ensure_ascii=False)
-        data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, get_system_prompt("need_system_x", NEED_SYSTEM_X_PRODUCT), user,
+        data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, get_system_prompt("need_system_x_product", NEED_SYSTEM_X_PRODUCT), user,
                                         max_tokens=6000, ref=f"{chat_id}:{uncached[0].message_id}-{uncached[-1].message_id}",
                                         businesses=[payer] if payer else None)
         needs = (data or {}).get("needs") if isinstance(data, dict) else None
