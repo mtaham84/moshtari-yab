@@ -219,6 +219,7 @@ class Command(BaseCommand):
 
         cfg = load_outreach_config()
         sender_pitches = cfg.get("sender_pitches", {})
+        business_display_name = (cfg.get("business_name") or "").strip() or "مجموعه تخصصی سرو"
 
         # 🛡️ Self-Healing Recovery 1: Unblock previously skipped private leads
         try:
@@ -275,6 +276,15 @@ class Command(BaseCommand):
             cl.private.mount("https://", adapter)
             cl.private.mount("http://", adapter)
 
+            # Apply the persistent device fingerprint BEFORE authenticating, so the session
+            # login request already carries the account's own device IDs/headers.
+            try:
+                apply_device_profile_to_client(cl, account)
+                cl.private.mount("https://", adapter)
+                cl.private.mount("http://", adapter)
+            except Exception as dev_err:
+                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
+
             if account.session_json:
                 cookies = account.session_json.get("cookies", {})
                 sess_id = cookies.get("sessionid")
@@ -284,13 +294,6 @@ class Command(BaseCommand):
                     except Exception as login_err:
                         self.stderr.write(f"Error logging in by sessionid for @{account.username}: {login_err}")
                         raise
-
-            try:
-                apply_device_profile_to_client(cl, account)
-                cl.private.mount("https://", adapter)
-                cl.private.mount("http://", adapter)
-            except Exception as dev_err:
-                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             clients_cache[account.username] = cl
             return cl
@@ -543,7 +546,7 @@ class Command(BaseCommand):
                     pitch_template=raw_template,
                     lead=lead,
                     consultant_name=consultant_name,
-                    business_name="مجموعه تخصصی سرو",
+                    business_name=business_display_name,
                 )
 
                 limit_display, _ = get_effective_sender_limits(sender, fallback_daily=max_daily_dms)

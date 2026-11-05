@@ -87,6 +87,11 @@ def parse_spintax(text: str) -> str:
     return text
 
 
+_SPINTAX_GROUP_RE = re.compile(r"\{[^{}]*\|[^{}]*\}")
+_LEADING_GREETING_RE = re.compile(r"^(?:درود بر شما|سلام وقتتون بخیر|سلام و احترام|سلام و درود|درود|سلام)[\s!،,.]*")
+STATIC_TEMPLATE_GREETING = "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز| گرامی|}!"
+
+
 def build_bulletproof_message(
     pitch_template: str = "",
     lead: Any = None,
@@ -128,6 +133,10 @@ def build_bulletproof_message(
         topic = "ترمیم، پر کردن و روکش دندان"
     elif "جرم" in combined_context or "بلیچینگ" in combined_context or "سفید" in combined_context:
         topic = "بلیچینگ و سفید کردن دندان"
+    elif "بوتاکس" in combined_context or "فیلر" in combined_context or "ژل" in combined_context:
+        topic = "تزریق ژل، بوتاکس و امور زیبایی"
+    elif "پوست" in combined_context or "فیشیال" in combined_context or "لیزر" in combined_context:
+        topic = "خدمات پوست، فیشیال و لیزر"
     else:
         topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
 
@@ -141,8 +150,14 @@ def build_bulletproof_message(
     # Case C: Direct short trigger or price inquiry
     is_price_inquiry = any(w in c_text for w in ["قیمت", "هزینه", "چند", "چنده", "دایرکت", "کامنت", "ارسال", "شرایط"])
 
-    if pitch_template:
+    if pitch_template and _SPINTAX_GROUP_RE.search(pitch_template):
+        # Template already carries its own Spintax variations
         text = pitch_template
+    elif pitch_template:
+        # Static (approved) template: keep the body as-is but vary the opening greeting,
+        # otherwise every DM from this sender would be byte-identical (spam-classifier risk).
+        body = _LEADING_GREETING_RE.sub("", pitch_template.strip(), count=1)
+        text = STATIC_TEMPLATE_GREETING + "\n" + body
     elif is_installment_inquiry:
         text = (
             "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
@@ -286,12 +301,26 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
 def perform_organic_warmup(cl: Any, target_pk: int, username: str) -> Dict[str, Any]:
     """
     Executes organic human warm-up actions before sending DM:
-    Likes the user's latest post (triggers official push notification on recipient's phone).
+    1. Views up to 2 active stories (our account shows up in the recipient's story viewers).
+    2. Likes the user's latest post (triggers official push notification on recipient's phone).
     Instagram algorithm classifies the subsequent DM as a natural follow-up interaction!
     """
     actions = {"liked_post": False, "viewed_story": False}
 
-    # Like recent post
+    # 1. View active stories (if any)
+    try:
+        if hasattr(cl, "user_stories") and hasattr(cl, "story_seen"):
+            stories = cl.user_stories(str(target_pk))
+            if stories:
+                story_pks = [int(s.pk) for s in stories[:2]]
+                cl.story_seen(story_pks)
+                actions["viewed_story"] = True
+                logger.info("Organic story view executed for @%s (pks: %s)", username, story_pks)
+                time.sleep(random.uniform(2.0, 4.5))
+    except Exception as story_err:
+        logger.debug("Organic story view skipped for @%s: %s", username, story_err)
+
+    # 2. Like recent post
     try:
         medias = cl.user_medias(target_pk, amount=1)
         if medias:
