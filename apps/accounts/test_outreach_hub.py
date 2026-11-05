@@ -3,8 +3,10 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.businesses.models import Business
+from apps.discovery.instagram_scoring import update_lead_scoring
 from apps.discovery.models import Customer, InstagramEngineAccount, InstagramEngineLead
 
 User = get_user_model()
@@ -74,3 +76,13 @@ class OutreachHubSafeQueueTests(TestCase):
         html = r.content.decode()
         self.assertIn("⏳ در صف ارسال", html)
         self.assertIn("09123456789", html)
+
+    def test_outreach_page_shows_full_45_point_breakdown(self):
+        lead = InstagramEngineLead.objects.create(
+            tenant_id=self.tenant, username="fresh_buyer", ig_user_pk="888", status="NEW", is_private=False,
+            comment_text="قیمت کامپوزیت چنده؟", comment_created_at=timezone.now())
+        update_lead_scoring(lead)
+        html = self.client.get(reverse("accounts:outreach")).content.decode()
+        self.assertIn("۴۵ امتیازی", html)
+        self.assertIn("پیج پابلیک (+۱۵)", html)
+        self.assertIn(f"خدمت: {lead.score_breakdown['service_name']} (+{lead.score_breakdown['service_score']})", html)

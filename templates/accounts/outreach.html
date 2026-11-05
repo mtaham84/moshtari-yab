@@ -416,7 +416,7 @@
         صف لیدهای اولویت‌بندی شده برای دایرکت (پرامتیازترین لیدها)
       </h2>
       <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
-        لیدها طبق فرمول رسمی ۳۵ امتیازی (۱۵ امتیاز پیج پابلیک + ۱۵ امتیاز سوال مشاوره‌ای یا کال‌تواکشن + ۵ امتیاز تازگی زمانی ۵ روز اخیر) رتبه‌بندی شده‌اند و ارسال دایرکت به ترتیب بالاترین امتیاز انجام می‌شود.
+        لیدها طبق فرمول ۴۵ امتیازی (۱۵ امتیاز پیج پابلیک + ۱۵ امتیاز سوال مشاوره‌ای یا کال‌تواکشن + تا ۵ امتیاز تازگی در ۵ روز اخیر + ۴ امتیاز پیج‌های هدف + تا ۶ امتیاز نوع خدمت) رتبه‌بندی شده‌اند و ارسال دایرکت به ترتیب بالاترین امتیاز انجام می‌شود.
       </p>
     </div>
 
@@ -424,7 +424,7 @@
     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; width:100%;">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <span class="p-badge" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
-          اولویت ویژه (۳۰ تا ۳۵ امتیاز): {{ high_priority_count }}
+          اولویت ویژه (۳۰ امتیاز و بالاتر): {{ high_priority_count }}
         </span>
         <span class="p-badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
           پیج‌های عمومی (پابلیک): {{ public_leads_count }}
@@ -511,9 +511,34 @@
                 <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
                   پیام کوتاه / کال‌تواکشن (+۱۵)
                 </span>
-              {% else %}
+              {% elif lead.comment_intent_type == 'GENERAL_BUYER' %}
                 <span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
                   قصد خرید عمومی (+۱۰)
+                </span>
+              {% else %}
+                <span style="background:#f1f5f9; color:#94a3b8; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  کامنت عمومی (+۰)
+                </span>
+              {% endif %}
+
+              <!-- Public profile Badge -->
+              {% if not lead.is_private %}
+                <span style="background:#dcfce7; color:#15803d; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیج پابلیک (+۱۵)
+                </span>
+              {% endif %}
+
+              <!-- Target page Badge -->
+              {% if lead.score_breakdown.target_page_score %}
+                <span title="{{ lead.score_breakdown.target_page_reason }}" style="background:#ede9fe; color:#6d28d9; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیج هدف (+{{ lead.score_breakdown.target_page_score }})
+                </span>
+              {% endif %}
+
+              <!-- Service Badge -->
+              {% if lead.score_breakdown.service_score %}
+                <span style="background:#ffedd5; color:#9a3412; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  خدمت: {{ lead.score_breakdown.service_name }} (+{{ lead.score_breakdown.service_score }})
                 </span>
               {% endif %}
 

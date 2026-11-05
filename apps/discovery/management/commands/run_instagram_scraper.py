@@ -743,7 +743,7 @@ class Command(BaseCommand):
                     lead_type_label = "⚡ مستقیم (Zero Cost)" if eval_res.get("is_direct_cta") else "🤖 هوش مصنوعی (Luna GPT-6)"
                     self.stdout.write(
                         self.style.SUCCESS(
-                            f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {calc['total_score']}/35 - {calc['intent_type']}) | '{comment_text[:50]}'"
+                            f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {calc['total_score']}/45 - {calc['intent_type']}) | '{comment_text[:50]}'"
                         )
                     )
 
