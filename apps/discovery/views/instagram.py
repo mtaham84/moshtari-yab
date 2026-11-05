@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import sys
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -44,17 +43,6 @@ logger = logging.getLogger(__name__)
 INSTAGRAM_PAGE_CHANGE_LIMIT = max(1, int(os.getenv("IG_PAGE_CHANGES_PER_HOUR", "30")))
 
 
-def _get_page_change_limit():
-    pkg = sys.modules.get("apps.discovery.views")
-    return getattr(pkg, "INSTAGRAM_PAGE_CHANGE_LIMIT", INSTAGRAM_PAGE_CHANGE_LIMIT) if pkg else INSTAGRAM_PAGE_CHANGE_LIMIT
-
-
-def _check_instagram_change_allowed(request):
-    pkg = sys.modules.get("apps.discovery.views")
-    fn = getattr(pkg, "_instagram_change_allowed", _instagram_change_allowed) if pkg else _instagram_change_allowed
-    return fn(request)
-
-
 def _instagram_list(value: str, *, hashtags: bool = False) -> list[str]:
     parts = value.replace("،", ",").replace(";", ",").splitlines()
     if len(parts) == 1:
@@ -84,7 +72,7 @@ def _bounded_post_int(value: str | None, default: int, minimum: int, maximum: in
 
 def _instagram_change_allowed(request):
     key = f"ig-page-change:{request.user.pk}"
-    limit = _get_page_change_limit()
+    limit = INSTAGRAM_PAGE_CHANGE_LIMIT
     try:
         count = cache.get(key, 0)
         if count >= limit:
@@ -166,7 +154,7 @@ def instagram_pages_view(request):
                                  label=label, operator_id=request.user.pk)
                 messages.success(request, "برچسب انسانی ذخیره شد.")
             return redirect("discovery:instagram_pages")
-        if action in {"add", "remove", "save_category_target", "approve_candidate", "deny_candidate"} and not _check_instagram_change_allowed(request):
+        if action in {"add", "remove", "save_category_target", "approve_candidate", "deny_candidate"} and not _instagram_change_allowed(request):
             return render(request, "discovery/instagram_pages.html", {
                 **page_context, "throttled": True,
             }, status=429)
@@ -335,7 +323,7 @@ def instagram_post_review_view(request):
             return redirect(f"{reverse('discovery:instagram_post_review')}?{urlencode(query)}")
         if action != "label_post":
             return HttpResponse(status=400)
-        if not _check_instagram_change_allowed(request):
+        if not _instagram_change_allowed(request):
             context = _instagram_post_review_context(request, business, label_store)
             return render(request, "discovery/instagram_post_review.html", {
                 **context, "throttled": True,

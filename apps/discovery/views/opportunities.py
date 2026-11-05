@@ -3,7 +3,6 @@ import io
 import json
 import logging
 import re
-import sys
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -36,16 +35,6 @@ logger = logging.getLogger(__name__)
 _PLATFORM_ID_PREFIXES = ("telegram_", "x_", "instagram_", "divar_")
 
 
-def _get_drafts_for():
-    pkg = sys.modules.get("apps.discovery.views")
-    return getattr(pkg, "drafts_for", drafts_for) if pkg else drafts_for
-
-
-def _get_rewrite_reply():
-    pkg = sys.modules.get("apps.discovery.views")
-    return getattr(pkg, "rewrite_reply", rewrite_reply) if pkg else rewrite_reply
-
-
 def _strip_platform_prefix(value):
     for prefix in _PLATFORM_ID_PREFIXES:
         if value.startswith(prefix):
@@ -53,7 +42,7 @@ def _strip_platform_prefix(value):
     return value
 
 
-_safe_csv_cell = safe_csv_cell  # kept for existing imports
+_safe_csv_cell = safe_csv_cell
 
 
 def _filter_opportunities_queryset(business, params, is_admin=False, view_all_tenants=False):
@@ -445,7 +434,6 @@ def opportunity_export_view(request):
         "eitaa": "ایتا",
     }
 
-    _drafts_func = _get_drafts_for()
 
     for opp in qs.select_related("customer", "ai_analysis").prefetch_related("product_matches__product", "evidence_items"):
         c = opp.customer
@@ -538,7 +526,7 @@ def opportunity_export_view(request):
 
         if not suggested_reply:
             try:
-                drafts = _drafts_func(opp)
+                drafts = drafts_for(opp)
                 if drafts:
                     suggested_reply = next((v for v in drafts.values() if v), "").strip()
             except Exception:
@@ -637,8 +625,7 @@ def opportunity_detail_view(request, pk):
     except Exception:
         analysis = None
 
-    _drafts_func = _get_drafts_for()
-    drafts = _drafts_func(opportunity)
+    drafts = drafts_for(opportunity)
     customer_profile_url = opportunity.customer_profile_url or opportunity.customer.source_profile_url
     if not customer_profile_url and opportunity.customer.source_username:
         handle = opportunity.customer.source_username.lstrip("@").strip()
@@ -724,8 +711,7 @@ def opportunity_rewrite_view(request, pk):
     if match is None:
         return JsonResponse({"status": "error", "message": "برای این فرصت محصولی ثبت نشده است."}, status=400)
     try:
-        _rewrite_func = _get_rewrite_reply()
-        text = _rewrite_func(opportunity, match)
+        text = rewrite_reply(opportunity, match)
     except AgentUnavailable as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=503)
     return JsonResponse({"status": "success", "product_id": match.product_id, "reply": text})

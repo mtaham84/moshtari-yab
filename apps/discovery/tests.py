@@ -20,7 +20,7 @@ from apps.products.models import Category, Product
 
 from .engine_bridge import engine_totals, import_opportunity
 from .models import Customer, InstagramCategoryTarget, InstagramPage, Opportunity, ProductOrder
-from .views import _safe_csv_cell
+from .exports import safe_csv_cell as _safe_csv_cell
 
 User = get_user_model()
 T0 = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
@@ -355,7 +355,7 @@ class PanelViewTests(TestCase):
         self.mine.ai_analysis.suggested_reply = ""
         self.mine.ai_analysis.save(update_fields=["need", "suggested_reply"])
 
-        with patch("apps.discovery.views.drafts_for", return_value={}):
+        with patch("apps.discovery.views.opportunities.drafts_for", return_value={}):
             response = self.client.get(reverse("discovery:opportunity_export"))
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
 
@@ -382,7 +382,7 @@ class PanelViewTests(TestCase):
 
         self.mine.ai_analysis.suggested_reply = ""
         self.mine.ai_analysis.save(update_fields=["suggested_reply"])
-        with patch("apps.discovery.views.drafts_for", side_effect=RuntimeError("offline")):
+        with patch("apps.discovery.views.opportunities.drafts_for", side_effect=RuntimeError("offline")):
             with self.assertLogs("apps.discovery.views", level="WARNING") as logs:
                 response = self.client.get(reverse("discovery:opportunity_export"))
 
@@ -468,7 +468,7 @@ class PanelViewTests(TestCase):
         from unittest.mock import patch
 
         cache.clear()
-        with patch("apps.discovery.views.INSTAGRAM_PAGE_CHANGE_LIMIT", 1):
+        with patch("apps.discovery.views.instagram.INSTAGRAM_PAGE_CHANGE_LIMIT", 1):
             url = reverse("discovery:instagram_pages")
             self.assertEqual(self.client.post(url, {"page_ref": "seller_page"}).status_code, 302)
             response = self.client.post(url, {"action": "remove", "page_id": 999999})
@@ -504,7 +504,7 @@ class PanelViewTests(TestCase):
         theirs = Opportunity.objects.get(business=self.other)
         self.assertEqual(self.client.get(reverse("discovery:instagram_comment_detail", args=[theirs.pk])).status_code, 404)
         from unittest.mock import patch
-        with patch("apps.discovery.views.rewrite_reply", side_effect=AssertionError("must not call the LLM")) as rewrite:
+        with patch("apps.discovery.views.opportunities.rewrite_reply", side_effect=AssertionError("must not call the LLM")) as rewrite:
             response = self.client.post(reverse("discovery:opportunity_rewrite", args=[opportunity.pk]))
         self.assertEqual(response.status_code, 400)
         rewrite.assert_not_called()
@@ -1137,7 +1137,7 @@ class InstagramPostReviewViewTests(TestCase):
         from unittest.mock import patch
 
         self.queue_post()
-        with self.output_env(), patch("apps.discovery.views._instagram_change_allowed", return_value=False):
+        with self.output_env(), patch("apps.discovery.views.instagram._instagram_change_allowed", return_value=False):
             response = self.client.post(reverse("discovery:instagram_post_review"), {
                 "action": "label_post", "post_id": "ig:PostAbc1", "decision": "reject",
             })
