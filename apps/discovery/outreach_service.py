@@ -93,10 +93,12 @@ def build_bulletproof_message(
 
     # 1. Determine dental service topic from comment and post caption
     combined_context = ""
-    if hasattr(lead, "comment_text") and lead.comment_text:
-        combined_context += " " + lead.comment_text.lower()
-    if hasattr(lead, "post_caption_snippet") and lead.post_caption_snippet:
-        combined_context += " " + lead.post_caption_snippet.lower()
+    comment_val = getattr(lead, "comment_text", None)
+    if isinstance(comment_val, str):
+        combined_context += " " + comment_val.lower()
+    caption_val = getattr(lead, "post_caption_snippet", None)
+    if isinstance(caption_val, str):
+        combined_context += " " + caption_val.lower()
 
     if "کامپوزیت" in combined_context:
         topic = "کامپوزیت ونیر و اصلاح طرح لبخند"
@@ -233,28 +235,21 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
         media_count = int(user_data.get("media_count", 1))
         follower_count = int(user_data.get("follower_count", 1))
 
-        if is_private:
-            return {
-                "eligible": False,
-                "is_private": True,
-                "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
-                "user_info": user_data,
-                "target_pk": resolved_pk,
-            }
-
         if media_count == 0 and follower_count == 0:
             return {
                 "eligible": False,
-                "is_private": False,
+                "is_private": is_private,
                 "reason": "پروفایل غیرفعال یا مشکوک (۰ پست و ۰ فالوور) جهت ایمنی رد شد.",
                 "user_info": user_data,
                 "target_pk": resolved_pk,
             }
 
+        # Private accounts can safely receive direct messages (delivered into Message Requests / درخواست پیام)
+        # We allow them so outreach does not stall when prospective customers have private personal profiles.
         return {
             "eligible": True,
-            "is_private": False,
-            "reason": "واجد شرایط دریافت دایرکت",
+            "is_private": is_private,
+            "reason": "واجد شرایط دریافت دایرکت" if not is_private else "واجد شرایط دریافت دایرکت (پیج خصوصی - ارسال به صندوق درخواست پیام)",
             "user_info": user_data,
             "target_pk": resolved_pk,
         }

@@ -36,7 +36,7 @@ from .x_twitter import (
     XQueryScore,
     XSearchQuery,
 )
-from .proxy import ProxyConfig
+from .proxy import ProxyConfig, ConfigChannelSource
 
 __all__ = [
     # Core

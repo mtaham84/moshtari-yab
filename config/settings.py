@@ -210,3 +210,51 @@ LOGGING = {
     },
 }
 
+# ==============================================================================
+# CELERY & REDIS DISTRIBUTED TASK QUEUE CONFIGURATION
+# ==============================================================================
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
+CELERY_TIMEZONE = "Asia/Tehran"
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+
+CELERY_TASK_ROUTES = {
+    "apps.discovery.tasks.task_dispatch_instagram_outreach": {"queue": "outreach"},
+    "apps.discovery.tasks.task_sync_lead_replies": {"queue": "outreach"},
+    "apps.discovery.tasks.task_sync_telegram_channel_configs": {"queue": "periodic"},
+    "apps.discovery.tasks.task_healthcheck_and_heal_proxies": {"queue": "periodic"},
+}
+
+CELERY_BEAT_SCHEDULE = {
+    # 1. Instagram Outreach Dispatcher (runs every 12 minutes during active shifts)
+    "dispatch-instagram-outreach-periodic": {
+        "task": "apps.discovery.tasks.task_dispatch_instagram_outreach",
+        "schedule": 720.0,  # 12 minutes
+        "args": ("tenant_4",),
+        "kwargs": {"batch_size": 2, "min_intent": 0.65},
+    },
+    # 2. Fast Lead Reply Sync (runs every 2 minutes to detect customer responses rapidly)
+    "sync-lead-replies-fast": {
+        "task": "apps.discovery.tasks.task_sync_lead_replies",
+        "schedule": 120.0,  # 2 minutes
+        "args": (["tenant_4", "sarv"],),
+    },
+    # 3. Telegram Proxy Channel Configs Sync (runs every 180 seconds)
+    "sync-telegram-channel-configs": {
+        "task": "apps.discovery.tasks.task_sync_telegram_channel_configs",
+        "schedule": 180.0,  # 3 minutes
+        "kwargs": {"max_posts": 15, "max_add": 10},
+    },
+    # 4. Proxy Healthcheck & Auto-Healing (runs every 10 minutes)
+    "healthcheck-and-heal-proxies": {
+        "task": "apps.discovery.tasks.task_healthcheck_and_heal_proxies",
+        "schedule": 600.0,  # 10 minutes
+    },
+}
+
+

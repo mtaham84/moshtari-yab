@@ -30,7 +30,8 @@ from typing import Optional, Dict, Any, List, Tuple
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
-from django.db import transaction
+from django.db import models, transaction
+from django.db.models import Q
 
 try:
     from zoneinfo import ZoneInfo
@@ -186,6 +187,29 @@ class Command(BaseCommand):
         cfg = load_outreach_config()
         sender_pitches = cfg.get("sender_pitches", {})
 
+        # 🛡️ Self-Healing Recovery 1: Unblock previously skipped private leads
+        try:
+            unblocked_count = InstagramEngineLead.objects.filter(
+                tenant_id__in=tenant_ids,
+                status="SKIPPED",
+            ).filter(
+                models.Q(comment_text__contains="پروفایل خصوصی") | models.Q(comment_text__contains="Private")
+            ).update(status="NEW")
+            if unblocked_count > 0:
+                self.stdout.write(self.style.SUCCESS(
+                    f"♻️ [بازیابی خودکار]: تعداد {unblocked_count} لید معتبر که قبلاً به دلیل پرایوت بودن پروفایل رد شده بودند، به چرخه ارسال بازگردانده شدند."
+                ))
+        except Exception as unblock_err:
+            logger.debug("Failed unblocking private leads: %s", unblock_err)
+
+        # 🛡️ Self-Healing Recovery 2: Sync and restore sender accounts from pool file
+        try:
+            from apps.discovery import accounts_pool_file
+            pool_res = accounts_pool_file.import_pool(force=False)
+            logger.info("Accounts pool checked at startup: %s", pool_res)
+        except Exception as pool_err:
+            logger.debug("Pool file sync skipped: %s", pool_err)
+
         clients_cache: Dict[str, Any] = {}
 
         def get_or_create_client(account: InstagramEngineAccount):
@@ -273,6 +297,23 @@ class Command(BaseCommand):
 
                 if updated:
                     acc.save(update_fields=list(set(update_cols)))
+
+            # 🛡️ Self-Healing Recovery 3: Automatically unfreeze SENDER accounts whose cooldown has ended
+            expired_cooldowns = InstagramEngineAccount.objects.filter(
+                role="SENDER",
+                status="COOLDOWN",
+                tenant_id__in=tenant_ids,
+            ).filter(
+                models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
+            )
+            for expired_acc in expired_cooldowns:
+                expired_acc.status = "ACTIVE"
+                expired_acc.cooldown_until = None
+                expired_acc.status_message = "پایان دوره استراحت موقت - بازگشت خودکار به مدار ارسال دایرکت"
+                expired_acc.save(update_fields=["status", "cooldown_until", "status_message"])
+                self.stdout.write(self.style.SUCCESS(
+                    f"🟢 [بازیابی خودکار اکانت]: دوره استراحت @{expired_acc.username} به پایان رسید و به مدار ارسال بازگشت."
+                ))
 
             senders = InstagramEngineAccount.objects.filter(
                 role="SENDER",

@@ -613,6 +613,7 @@ def manage_dashboard(request):
         "proxy_configs": proxy_configs,
         "proxy_configs_total": proxy_configs_total,
         "proxy_configs_active": proxy_configs_active,
+        "proxy_channels": __import__("apps.discovery.channel_config_automation", fromlist=["get_monitored_channels"]).get_monitored_channels(),
         "scrapers": scrapers,
         "scrapers_total": scrapers_total,
         "scrapers_active": scrapers_active,
@@ -1258,7 +1259,7 @@ def manage_sender_clear_cooldown(request, pk):
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     account.cooldown_until = None
     account.status_message = "آماده به کار (استراحت دستی لغو شد)"
-    if account.status == "COOLDOWN":
+    if account.status in ("COOLDOWN", "CHALLENGED"):
         account.status = "ACTIVE"
     account.save(update_fields=["cooldown_until", "status_message", "status"])
 
@@ -2725,4 +2726,124 @@ def instagram_cockpit_organic_dm(request, pk: int):
     except Exception as exc:
         logger.exception("Error executing organic DM from cockpit @%s to @%s: %s", account.username, target_username, exc)
         return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+@require_POST
+def manage_channel_proxy_sync(request):
+    """
+    Triggers on-demand sync from a single channel or all active channels.
+    """
+    from apps.discovery.channel_config_automation import sync_channel_configs, sync_all_active_channels
+
+    channel = request.POST.get("channel", "").strip()
+    if not channel or channel.lower() == "all":
+        res = sync_all_active_channels(max_posts=20, max_add_per_channel=10)
+        return JsonResponse(res)
+
+    force_all = request.POST.get("force_all") == "1"
+    try:
+        res = sync_channel_configs(channel_username=channel, force_all=force_all, max_add_per_run=10)
+        return JsonResponse(res)
+    except Exception as exc:
+        return JsonResponse({"success": False, "message": f"خطا در بررسی کانال: {exc}"}, status=400)
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_channel_add(request):
+    """
+    Adds a new Telegram channel address to the proxy monitoring pool.
+    """
+    from apps.discovery.channel_config_automation import add_monitored_channel, normalize_channel_username
+
+    raw_channel = request.POST.get("channel_username", "").strip()
+    title = request.POST.get("title", "").strip()
+
+    if not raw_channel:
+        return JsonResponse({"success": False, "message": "لطفاً آدرس یا نام کاربری کانال تلگرام را وارد کنید."}, status=400)
+
+    try:
+        clean_user = normalize_channel_username(raw_channel)
+        channel_data = add_monitored_channel(clean_user, title=title)
+        messages.success(request, f"کانال @{clean_user} با موفقیت به لیست پایش کانفیگ اضافه شد.")
+        return JsonResponse({
+            "success": True,
+            "message": f"کانال @{clean_user} با موفقیت به لیست اضافه شد.",
+            "channel": channel_data,
+        })
+    except ValueError as val_err:
+        return JsonResponse({"success": False, "message": str(val_err)}, status=400)
+    except Exception as exc:
+        logger.exception("Error adding proxy channel: %s", exc)
+        return JsonResponse({"success": False, "message": f"خطا در ثبت کانال: {exc}"}, status=500)
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_channel_delete(request, pk):
+    """
+    Removes a Telegram channel from the proxy monitoring pool.
+    """
+    from apps.discovery.channel_config_automation import delete_monitored_channel
+
+    try:
+        delete_monitored_channel(pk)
+        return JsonResponse({
+            "success": True,
+            "message": "کانال با موفقیت از لیست پایش حذف شد.",
+            "id": pk,
+        })
+    except Exception as exc:
+        return JsonResponse({"success": False, "message": f"خطا در حذف کانال: {exc}"}, status=500)
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_channel_toggle(request, pk):
+    """
+    Toggles the active state of a monitored Telegram channel.
+    """
+    from apps.discovery.channel_config_automation import toggle_monitored_channel
+
+    try:
+        ch = toggle_monitored_channel(pk)
+        state_str = "فعال" if ch.get("is_active") else "متوقف"
+        return JsonResponse({
+            "success": True,
+            "message": f"وضعیت کانال به «{state_str}» تغییر یافت.",
+            "is_active": ch.get("is_active"),
+            "id": pk,
+        })
+    except Exception as exc:
+        return JsonResponse({"success": False, "message": f"خطا در تغییر وضعیت: {exc}"}, status=500)
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_channel_sync(request, pk):
+    """
+    Synchronizes newly published configs from a specific monitored channel.
+    """
+    from apps.discovery.channel_config_automation import sync_channel_configs, get_monitored_channels
+
+    channels = get_monitored_channels()
+    target_channel = next((c for c in channels if c.get("id") == int(pk)), None)
+    if not target_channel:
+        return JsonResponse({"success": False, "message": "کانال مورد نظر یافت نشد."}, status=404)
+
+    res = sync_channel_configs(target_channel["channel_username"], force_all=False, max_add_per_run=10)
+    return JsonResponse(res)
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_channels_sync_all(request):
+    """
+    Synchronizes newly published configs across all active monitored channels.
+    """
+    from apps.discovery.channel_config_automation import sync_all_active_channels
+
+    res = sync_all_active_channels(max_posts=20, max_add_per_channel=10)
+    return JsonResponse(res)
 
