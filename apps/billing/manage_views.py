@@ -1871,13 +1871,10 @@ def instagram_cockpit_thread_detail(request, pk: int, thread_id: str):
 @manage_access_required
 @require_POST
 def instagram_cockpit_send_direct(request, pk: int):
-    """AJAX endpoint: Send direct message from cockpit."""
+    """AJAX endpoint: Send direct message from cockpit (same limits as automated outreach)."""
     from django.shortcuts import get_object_or_404
+    from apps.discovery.outreach_service import manual_dm_block_reason, record_manual_dm
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-
-    cl, err = _get_cockpit_client(account)
-    if not cl:
-        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
 
     thread_id = request.POST.get("thread_id", "").strip()
     user_id = request.POST.get("user_id", "").strip()
@@ -1887,18 +1884,24 @@ def instagram_cockpit_send_direct(request, pk: int):
         return JsonResponse({"success": False, "error": "متن پیام نمی‌تواند خالی باشد."}, status=400)
     if user_id and not user_id.isdigit():
         return JsonResponse({"success": False, "error": "شناسهٔ کاربر نامعتبر است."}, status=400)
+    if not thread_id and not user_id:
+        return JsonResponse({"success": False, "error": "مخاطب پیام مشخص نیست."}, status=400)
+
+    blocked = manual_dm_block_reason(account)
+    if blocked:
+        return JsonResponse({"success": False, "error": blocked, "blocked": True}, status=429)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
 
     try:
         if thread_id:
             cl.direct_send(text, thread_ids=[thread_id])
-        elif user_id:
-            cl.direct_send(text, user_ids=[int(user_id)])
         else:
-            return JsonResponse({"success": False, "error": "مخاطب پیام مشخص نیست."}, status=400)
+            cl.direct_send(text, user_ids=[int(user_id)])
 
-        account.daily_action_count = (account.daily_action_count or 0) + 1
-        account.last_action_at = dj_timezone.now()
-        account.save(update_fields=["daily_action_count", "last_action_at"])
+        record_manual_dm(account, user_pk=user_id or None, text=text, actor=_ig_actor(request))
 
         return JsonResponse({
             "success": True,
@@ -2058,7 +2061,7 @@ def instagram_cockpit_search(request, pk: int):
 def instagram_cockpit_organic_dm(request, pk: int):
     """AJAX endpoint: Execute full organic journey to target user and dispatch DM."""
     from django.shortcuts import get_object_or_404
-    from apps.discovery.outreach_service import execute_organic_journey
+    from apps.discovery.outreach_service import execute_organic_journey, manual_dm_block_reason, record_manual_dm
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     target_username = request.POST.get("target_username", "").strip().lstrip("@")
@@ -2066,6 +2069,10 @@ def instagram_cockpit_organic_dm(request, pk: int):
 
     if not target_username or not message_text:
         return JsonResponse({"success": False, "error": "نام کاربری مقصد و متن پیام الزامی است."}, status=400)
+
+    blocked = manual_dm_block_reason(account)
+    if blocked:
+        return JsonResponse({"success": False, "error": blocked, "blocked": True}, status=429)
 
     cl, err = _get_cockpit_client(account)
     if not cl:
@@ -2079,9 +2086,7 @@ def instagram_cockpit_organic_dm(request, pk: int):
 
         cl.direct_send(message_text, user_ids=[target_pk])
 
-        account.daily_action_count = (account.daily_action_count or 0) + 1
-        account.last_action_at = dj_timezone.now()
-        account.save(update_fields=["daily_action_count", "last_action_at"])
+        record_manual_dm(account, user_pk=target_pk, text=message_text, actor=_ig_actor(request))
 
         return JsonResponse({
             "success": True,
