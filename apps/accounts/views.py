@@ -12,6 +12,7 @@ from apps.core.permissions import is_operator
 from apps.businesses.models import Business, MessageStyle
 from apps.businesses.services import ensure_business
 from apps.discovery.constants import DM_DELIVERED_STATUSES
+from apps.discovery.exports import safe_csv_row
 from apps.discovery.models import Opportunity, InstagramEngineAccount
 from apps.discovery.services import get_performance_analytics
 
@@ -974,7 +975,7 @@ def outreach_leads_export_csv(request):
         outreach_status_label = lead.get_status_display()
         reply_snippet = (lead.reply_text or "").strip() if lead.has_replied else "-"
 
-        writer.writerow([
+        writer.writerow(safe_csv_row([
             user_handle,
             page_type,
             comment_time,
@@ -991,10 +992,11 @@ def outreach_leads_export_csv(request):
             profile_url,
             outreach_status_label,
             reply_snippet,
-        ])
+        ]))
 
+    # One BOM only (encoding with utf-8-sig on top of "\ufeff" wrote two).
     csv_data = "\ufeff" + buffer.getvalue()
-    response = HttpResponse(csv_data.encode("utf-8-sig"), content_type="text/csv; charset=utf-8")
+    response = HttpResponse(csv_data.encode("utf-8"), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 

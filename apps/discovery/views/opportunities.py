@@ -18,6 +18,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.core.permissions import is_operator
+from apps.discovery.exports import safe_csv_cell
 from apps.businesses.models import Business
 from apps.businesses.services import ensure_business
 from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
@@ -52,11 +53,7 @@ def _strip_platform_prefix(value):
     return value
 
 
-def _safe_csv_cell(value):
-    value = str(value)
-    if value != "-" and value.startswith(("=", "+", "-", "@", "\t", "\r")):
-        return "'" + value
-    return value
+_safe_csv_cell = safe_csv_cell  # kept for existing imports
 
 
 def _filter_opportunities_queryset(business, params, is_admin=False, view_all_tenants=False):

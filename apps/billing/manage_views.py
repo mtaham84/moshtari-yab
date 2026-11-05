@@ -941,26 +941,21 @@ def manage_account_submit_code(request, pk):
 @require_GET
 def manage_leads_export_csv(request):
     """
-    Exports all extracted leads as a UTF-8 BOM CSV dataset.
+    Exports all extracted leads as a UTF-8 BOM CSV dataset (streamed, formula-safe).
     """
-    import csv
-    from django.http import HttpResponse
-
     from django.db.models import F
     from django.db.models.functions import Coalesce
+    from django.http import StreamingHttpResponse
+
+    from apps.discovery.exports import instagram_lead_row, stream_csv_rows
+
     leads = InstagramEngineLead.objects.all().order_by(
         F("outreach_score").desc(nulls_last=True),
         F("intent_score").desc(nulls_last=True),
         Coalesce("comment_created_at", "created_at").desc(nulls_last=True),
         "-id"
     )
-
-    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
-    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
-    response.write('\ufeff')
-
-    writer = csv.writer(response)
-    writer.writerow([
+    header = [
         "شناسه عددی کاربر (IG PK)",
         "نام کاربری (Username)",
         "نام کامل (Full Name)",
@@ -973,24 +968,20 @@ def manage_leads_export_csv(request):
         "وضعیت (Status)",
         "مستأجر / فروشگاه (Tenant ID)",
         "زمان کشف (Created At)",
-    ])
+    ]
 
-    for l in leads:
-        writer.writerow([
-            l.ig_user_pk,
-            l.username,
-            l.full_name or "",
-            l.profile_url or f"https://www.instagram.com/{l.username}/",
-            l.comment_text,
-            l.source_post_url or "",
-            l.post_caption_snippet or "",
-            l.matched_cta or "",
-            f"{l.intent_score:.2f}",
-            l.get_status_display(),
-            l.tenant_id,
-            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
-        ])
+    def rows():
+        for lead in leads.iterator(chunk_size=500):
+            r = instagram_lead_row(lead)
+            yield [
+                r["ig_user_pk"], r["username"], r["full_name"], r["profile_url"], r["comment_text"],
+                r["source_post_url"], r["post_caption_snippet"], r["matched_cta"], f"{r['intent_score']:.2f}",
+                r["status_display"], r["tenant_id"],
+                r["created_at"].strftime("%Y-%m-%d %H:%M:%S") if r["created_at"] else "",
+            ]
 
+    response = StreamingHttpResponse(stream_csv_rows(header, rows()), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
     return response
 
 
@@ -1000,23 +991,14 @@ def manage_leads_export_json(request):
     """
     Exports all extracted leads as a JSON dataset.
     """
-    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+    from apps.discovery.exports import instagram_lead_row
+
     data = []
-    for l in leads:
-        data.append({
-            "ig_user_pk": l.ig_user_pk,
-            "username": l.username,
-            "full_name": l.full_name,
-            "profile_url": l.profile_url or f"https://www.instagram.com/{l.username}/",
-            "comment_text": l.comment_text,
-            "source_post_url": l.source_post_url,
-            "post_caption_snippet": l.post_caption_snippet,
-            "matched_cta": l.matched_cta,
-            "intent_score": l.intent_score,
-            "status": l.status,
-            "tenant_id": l.tenant_id,
-            "created_at": l.created_at.isoformat() if l.created_at else None,
-        })
+    for lead in InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at").iterator(chunk_size=500):
+        r = instagram_lead_row(lead)
+        r.pop("status_display")
+        r["created_at"] = r["created_at"].isoformat() if r["created_at"] else None
+        data.append(r)
 
     response = JsonResponse(data, safe=False, json_dumps_params={"ensure_ascii": False, "indent": 2})
     response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.json"'
