@@ -189,6 +189,33 @@ def _filter_opportunities_queryset(business, params, is_admin=False, view_all_te
     return qs, filter_meta
 
 
+def _admin_scope(request, own_business):
+    """(business, view_all_tenants) an admin is looking at; the list, its CSV export and the new-count poll share it.
+
+    ?business_id=all → every tenant; ?business_id=<id> or ?product_id=<id> → that business; otherwise the admin's own
+    business if it has opportunities, else the first business that has any.
+    """
+    requested_biz_id = request.GET.get("business_id", "").strip().lower()
+    requested_prod_id = request.GET.get("product_id", "").strip()
+    if requested_biz_id == "all":
+        return None, True
+    if requested_biz_id.isdigit():
+        found = Business.objects.filter(id=int(requested_biz_id)).first()
+        if found:
+            return found, False
+    elif requested_prod_id.isdigit():
+        prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
+        if prod and prod.business:
+            return prod.business, False
+    if own_business is None or not own_business.opportunities.exists():
+        first_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().order_by("id").first()
+        if first_with_opps:
+            return first_with_opps, False
+        if own_business is None:
+            return Business.objects.order_by("id").first(), False
+    return own_business, False
+
+
 @login_required
 def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
@@ -199,28 +226,7 @@ def opportunity_list_view(request):
     if is_admin:
         from django.db.models import Count
         all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
-        requested_biz_id = request.GET.get("business_id", "").strip().lower()
-        requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id == "all":
-            business = None
-            view_all_tenants = True
-        elif requested_biz_id.isdigit():
-            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
-            if b_found:
-                business = b_found
-                view_all_tenants = False
-        elif requested_prod_id.isdigit():
-            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
-            if prod and prod.business:
-                business = prod.business
-                view_all_tenants = False
-        else:
-            if not business or business.opportunities.count() == 0:
-                first_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().first()
-                if first_with_opps:
-                    business = first_with_opps
-                elif not business:
-                    business = Business.objects.order_by("id").first()
+        business, view_all_tenants = _admin_scope(request, business)
     else:
         # Strict tenant isolation for regular sellers
         if not business:
@@ -395,21 +401,7 @@ def opportunity_export_view(request):
     is_admin = request.user.is_staff or request.user.is_superuser
     view_all_tenants = False
     if is_admin:
-        requested_biz_id = request.GET.get("business_id", "").strip().lower()
-        requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id == "all":
-            business = None
-            view_all_tenants = True
-        elif requested_biz_id.isdigit():
-            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
-            if b_found:
-                business = b_found
-        elif requested_prod_id.isdigit():
-            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
-            if prod and prod.business:
-                business = prod.business
-        elif not business:
-            business = Business.objects.order_by("id").first()
+        business, view_all_tenants = _admin_scope(request, business)
     else:
         if not business:
             return HttpResponse("کسب‌وکار یافت نشد.", status=404)
@@ -815,21 +807,16 @@ def opportunity_reply_suggestions_view(request, pk):
 def opportunity_new_count_view(request):
     """Polled every 20 s by the opportunities list: how many opportunities arrived after ``after`` (an id)."""
     business = getattr(request.user, "business", None)
+    view_all_tenants = False
     if request.user.is_staff or request.user.is_superuser:
-        requested_biz_id = request.GET.get("business_id", "").strip()
-        requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id.isdigit():
-            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
-            if b_found:
-                business = b_found
-        elif requested_prod_id.isdigit():
-            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
-            if prod and prod.business:
-                business = prod.business
+        business, view_all_tenants = _admin_scope(request, business)
 
     raw = (request.GET.get("after") or "0").strip()
     after = int(raw) if raw.isdigit() else 0
-    qs = Opportunity.objects.filter(business=business, id__gt=after) if business else Opportunity.objects.none()
+    if view_all_tenants:
+        qs = Opportunity.objects.filter(id__gt=after)
+    else:
+        qs = Opportunity.objects.filter(business=business, id__gt=after) if business else Opportunity.objects.none()
     return JsonResponse({"status": "success", "count": qs.count()})
 
 
