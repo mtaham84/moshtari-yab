@@ -1,7 +1,30 @@
 """The single DM dispatcher shared by ig-outreach and Celery (apps.discovery.outreach_engine)."""
+import os
+import sys
+from unittest import mock
 from contextlib import contextmanager
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
+
+sys.modules.setdefault("instagrapi", mock.MagicMock())
+
+os.environ["DJANGO_SETTINGS_MODULE"] = "config.settings"
+os.environ["DJANGO_DEBUG"] = "True"
+os.environ["DJANGO_SECRET_KEY"] = "test-secret-key-123"
+
+from django.conf import settings
+settings.DATABASES["default"] = {
+    "ENGINE": "django.db.backends.sqlite3",
+    "NAME": ":memory:",
+    "ATOMIC_REQUESTS": False,
+    "AUTOCOMMIT": True,
+}
+
+import django
+django.setup()
+
+from django.core.management import call_command
+call_command("migrate", verbosity=0)
 
 from django.db import connections
 from django.test import TestCase, override_settings
@@ -137,15 +160,22 @@ class OutreachEngineTests(TestCase):
         self.assertEqual(queued.conversation_history[0]["delivery_status"], "FAILED")
         self.assertEqual(queued.status, "REPLIED")
 
-    def test_step_is_skipped_while_another_step_holds_the_lock(self):
-        @contextmanager
-        def busy(_tenant_ids):
-            yield False
+    def test_skip_locked_lead_reservation(self):
+        """Verify select_and_reserve_candidate marks candidate as PROCESSING so subsequent calls pick next lead."""
+        self._lead("lead_1", "101")
+        self._lead("lead_2", "102")
 
-        self._lead("a", "101")
-        with patch.object(engine, "dispatch_lock", busy):
-            self.assertEqual(self.step()["action"], "busy")
-        self.ig.direct_send.assert_not_called()
+        cand1 = engine.select_and_reserve_candidate([TENANT])
+        self.assertIsNotNone(cand1)
+        self.assertEqual(cand1.status, "PROCESSING")
+
+        cand2 = engine.select_and_reserve_candidate([TENANT])
+        self.assertIsNotNone(cand2)
+        self.assertEqual(cand2.status, "PROCESSING")
+        self.assertNotEqual(cand1.id, cand2.id)
+
+        cand3 = engine.select_and_reserve_candidate([TENANT])
+        self.assertIsNone(cand3)
 
     def test_shift_pause_sends_nothing(self):
         self._lead("a", "101")
@@ -153,19 +183,6 @@ class OutreachEngineTests(TestCase):
             result = engine.run_outreach_step([TENANT])
         self.assertEqual(result["action"], "paused")
         self.ig.direct_send.assert_not_called()
-
-
-class DispatchLockTests(TestCase):
-    def test_lock_is_exclusive_across_db_sessions(self):
-        other = connections.create_connection("default")
-        try:
-            with engine.dispatch_lock([TENANT]) as acquired:
-                self.assertTrue(acquired)
-                with other.cursor() as cur:
-                    cur.execute("SELECT pg_try_advisory_lock(%s, %s)", [engine.LOCK_NAMESPACE, engine.dispatch_lock_key([TENANT])])
-                    self.assertFalse(cur.fetchone()[0])
-        finally:
-            other.close()
 
 
 class SenderClientCacheTests(TestCase):

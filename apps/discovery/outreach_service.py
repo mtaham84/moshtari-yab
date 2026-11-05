@@ -106,8 +106,8 @@ def select_outreach_candidates(tenant_ids: List[str], slots: int, *, now=None) -
 def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional[Any]:
     """
     Gold standard distributed locking:
-    Atomically selects and locks the best NEW candidate lead using select_for_update(skip_locked=True),
-    verifies eligibility and transitions status to 'PROCESSING'.
+    Atomically selects and locks candidate NEW leads using select_for_update(skip_locked=True),
+    updates scoring, skips ineligible ones, and marks the highest-scoring candidate as 'PROCESSING'.
     Ensures parallel workers never double-message leads or encounter race conditions.
     """
     from django.conf import settings
@@ -127,19 +127,35 @@ def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional
             .filter(Q(comment_created_at__gte=cutoff) | Q(comment_created_at__isnull=True, created_at__gte=cutoff))
             .order_by("-outreach_score", "-comment_created_at", "-created_at")[:15]
         )
+        if not candidates:
+            return None
+
+        scored = []
         for cand in candidates:
             calc = update_lead_scoring(cand, commit=False, now=now)
             if calc.get("is_eligible", True):
-                cand.status = "PROCESSING"
                 cand.outreach_score = calc.get("total_score", cand.outreach_score)
-                cand.save(update_fields=["status", "outreach_score", "updated_at"])
-                return cand
+                scored.append(cand)
             else:
                 cand.status = "SKIPPED"
                 cand.outreach_score = calc.get("total_score", cand.outreach_score)
                 cand.save(update_fields=["status", "outreach_score", "updated_at"])
 
-    return None
+        if not scored:
+            return None
+
+        # Pick the highest-scored candidate
+        scored.sort(
+            key=lambda l: (
+                l.outreach_score,
+                l.comment_created_at or l.created_at,
+            ),
+            reverse=True,
+        )
+        winner = scored[0]
+        winner.status = "PROCESSING"
+        winner.save(update_fields=["status", "outreach_score", "updated_at"])
+        return winner
 
 
 def parse_spintax(text: str) -> str:
