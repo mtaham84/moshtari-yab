@@ -8,6 +8,7 @@ from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 from apps.businesses.models import Business, MessageStyle
+from apps.businesses.services import ensure_business
 from apps.discovery.models import Opportunity, InstagramEngineAccount
 from apps.discovery.services import get_performance_analytics
 
@@ -161,14 +162,7 @@ def logout_view(request):
 
 @login_required
 def dashboard_view(request):
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     if request.method == "POST":
         if request.POST.get("update_targeting_constraints"):
@@ -201,14 +195,7 @@ def settings_view(request):
     Dedicated settings page for business profile, targeting constraints,
     and Telegram / messaging configuration.
     """
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name or request.user.username}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     if request.method == "POST":
         section = request.POST.get("section", "all")

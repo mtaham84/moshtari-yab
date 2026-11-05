@@ -8,6 +8,7 @@ from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from apps.businesses.models import Business
+from apps.businesses.services import ensure_business
 from apps.discovery.models import Opportunity, ProductDailyMetric, ProductOrder
 from .models import Category, Product, ProductImage
 from . import agent_card
@@ -51,14 +52,7 @@ def _categories_for(business):
 
 @login_required
 def product_list_view(request):
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     products = Product.objects.filter(business=business).select_related("category")
 
@@ -87,14 +81,7 @@ def product_list_view(request):
 
 @login_required
 def product_add_view(request):
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     categories = _categories_for(business)
 
@@ -474,14 +461,7 @@ def api_create_category(request):
     if request.method != "POST":
         return JsonResponse({"status": "error", "message": "روش نامعتبر است."}, status=405)
 
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     try:
         data = json.loads(request.body) if request.body else request.POST

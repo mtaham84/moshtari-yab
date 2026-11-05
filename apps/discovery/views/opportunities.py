@@ -18,6 +18,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.businesses.models import Business
+from apps.businesses.services import ensure_business
 from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
 from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.discovery.models import (
@@ -229,13 +230,7 @@ def opportunity_list_view(request):
         business, view_all_tenants = _admin_scope(request, business)
     else:
         # Strict tenant isolation for regular sellers
-        if not business:
-            business = Business.objects.create(
-                user=request.user,
-                name=f"کسب‌وکار {request.user.first_name or request.user.username}",
-                business_type="PHYSICAL",
-                business_domain="عمومی"
-            )
+        business = ensure_business(request.user)
         requested_prod_id = request.GET.get("product_id", "").strip()
         if requested_prod_id.isdigit():
             if not Product.objects.filter(id=int(requested_prod_id), business=business).exists():
