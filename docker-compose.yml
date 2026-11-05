@@ -13,6 +13,9 @@ x-app: &app
   environment: &app-env
     POSTGRES_HOST: db
     POSTGRES_PORT: "5432"
+    REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
     # crawler (schema "crawler") and need_engine (schema "need_engine") use the same POSTGRES_* settings
     TG_SESSION: data/telegram_crawler_session
     NE_MESSAGES_SOURCE: db
@@ -207,6 +210,51 @@ services:
       - media:/app/media
       - xdata:/app/output
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  celery-worker:
+    <<: *app
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-c", "2", "-Q", "outreach,periodic,default"]
+    depends_on:
+      web:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - media:/app/media
+      - ./apps:/app/apps
+      - ./templates:/app/templates
+      - ./instagram_engine:/app/instagram_engine
+      - ./workers:/app/workers
+      - ./xray:/app/xray
+    restart: unless-stopped
+
+  celery-beat:
+    <<: *app
+    command: ["celery", "-A", "config", "beat", "-l", "info"]
+    depends_on:
+      web:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - ./apps:/app/apps
+    restart: unless-stopped
+
   xray:
     image: ${XRAY_IMAGE:-teddysun/xray}
     profiles: ["proxy"]
@@ -222,3 +270,4 @@ volumes:
   appdata:
   media:
   xdata:
+  redisdata:
