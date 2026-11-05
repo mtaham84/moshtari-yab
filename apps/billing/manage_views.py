@@ -35,7 +35,8 @@ from apps.core.jalali import format_jalali_date, format_jalali_datetime
 from apps.core.http import wants_json
 from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
-from apps.discovery.ig_accounts import canonical_tenant, tenant_key
+from apps.discovery.channel_config_automation import get_monitored_channels
+from apps.discovery.ig_accounts import canonical_tenant, default_proxy_url, tenant_key, tenant_keys_for_business
 from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
@@ -565,7 +566,7 @@ def manage_dashboard(request):
     if business_id_filter and business_id_filter.isdigit():
         selected_outreach_biz = Business.objects.filter(id=int(business_id_filter)).first()
         if selected_outreach_biz:
-            b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
+            b_tenants = tenant_keys_for_business(selected_outreach_biz)
             senders = senders.filter(tenant_id__in=b_tenants)
             leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).order_by("-intent_score", "created_at")[:60]
             total_leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).count()
@@ -592,18 +593,12 @@ def manage_dashboard(request):
     if accounts_with_pitches:
         default_pitch = accounts_with_pitches[0]["template"]
         default_consultant = accounts_with_pitches[0]["consultant_name"]
-    if not default_pitch:
-        default_pitch = (
-            "درود بر شما \n"
-            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
-            "میتونید هر سوالی دارید از بنده بپرسید. \n"
-            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
-        )
-        default_consultant = "مشاور دندان‌پزشکی"
+    # No hard-coded industry pitch here: per-tenant pitches (and the old
+    # tenant_4 fallback) come from ig_accounts.tenant_pitch().
 
     outreach_replied_qs = InstagramEngineLead.objects.filter(has_replied=True)
     if selected_outreach_biz:
-        b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
+        b_tenants = tenant_keys_for_business(selected_outreach_biz)
         outreach_replied_qs = outreach_replied_qs.filter(tenant_id__in=b_tenants)
     outreach_replied_leads = outreach_replied_qs.order_by("-reply_at")[:50]
     outreach_replied_count = outreach_replied_qs.count()
@@ -615,7 +610,7 @@ def manage_dashboard(request):
         "proxy_configs": proxy_configs,
         "proxy_configs_total": proxy_configs_total,
         "proxy_configs_active": proxy_configs_active,
-        "proxy_channels": __import__("apps.discovery.channel_config_automation", fromlist=["get_monitored_channels"]).get_monitored_channels(),
+        "proxy_channels": get_monitored_channels(),
         "scrapers": scrapers,
         "scrapers_total": scrapers_total,
         "scrapers_active": scrapers_active,
@@ -735,14 +730,6 @@ def manage_exchange_rate_update(request):
         messages.error(request, f"خطا در به‌روزرسانی تنظیمات مالی: {exc}")
 
     return redirect("manage:dashboard")
-
-
-def _normalize_digits(s: str) -> str:
-    """Converts Persian and Arabic digits to ASCII digits."""
-    if not s:
-        return ""
-    trans = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-    return s.translate(trans).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1353,7 +1340,7 @@ def manage_twitter_account_add(request):
     password = request.POST.get("password", "").strip()
     auth_token = request.POST.get("auth_token", "").strip()
     ct0 = request.POST.get("ct0", "").strip()
-    proxy_url = request.POST.get("proxy_url", "").strip() or "socks5h://xray:1080"
+    proxy_url = request.POST.get("proxy_url", "").strip() or default_proxy_url() or "socks5h://xray:1080"
 
     if not username:
         err = "نام کاربری توییتر الزامی است."

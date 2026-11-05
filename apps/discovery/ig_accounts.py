@@ -1320,9 +1320,29 @@ def tenant_choices() -> list[tuple[str, str]]:
     return [(t, f"{names.get(t) or names.get(canonical_tenant(t)) or t} ({t})") for t in keys]
 
 
-def _tenant_ids(tenant_id) -> set[str]:
+# Lowest-priority pitch per tenant (below its profile and legacy sender pitches).
+# This used to be hard-coded as "if business.id == 4" in two views.
+FALLBACK_TENANT_PITCHES = {
+    "tenant_4": {
+        "consultant_name": "مشاور دندان‌پزشکی",
+        "pitch_template": (
+            "درود بر شما \n"
+            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
+            "میتونید هر سوالی دارید از بنده بپرسید. \n"
+            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
+        ),
+    },
+}
+
+
+def tenant_ids(tenant_id) -> list[str]:
+    """A tenant id plus every legacy alias of the same tenant ("sarv" <-> "tenant_4"), canonical first."""
     tid = canonical_tenant(tenant_id)
-    return {tid, str(tenant_id or "")} | {alias for alias, target in TENANT_ALIASES.items() if target == tid}
+    return [tid] + sorted({str(tenant_id or "")} - {tid, ""} | {a for a, t in TENANT_ALIASES.items() if t == tid})
+
+
+def _tenant_ids(tenant_id) -> set[str]:
+    return set(tenant_ids(tenant_id))
 
 
 def tenant_pitch(tenant_id, usernames=None) -> dict:
@@ -1346,4 +1366,9 @@ def tenant_pitch(tenant_id, usernames=None) -> dict:
         if prof.get(key):
             out[key] = prof[key]
             out["source"] = "profile"
+    fallback = FALLBACK_TENANT_PITCHES.get(canonical_tenant(tenant_id), {})
+    if not out["pitch_template"] and fallback.get("pitch_template"):
+        out["pitch_template"] = fallback["pitch_template"]
+        out["consultant_name"] = out["consultant_name"] or fallback.get("consultant_name", "")
+        out["source"] = out["source"] or "fallback"
     return out

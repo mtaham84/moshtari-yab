@@ -85,7 +85,8 @@ class Command(BaseCommand):
                 "Stop/remove the ig-outreach service (or use --dry-run) to avoid double-sending."
             )
 
-        tenant_ids = ["tenant_4", "sarv"] if tenant in ("sarv", "tenant_4") else [tenant]
+        from apps.discovery.ig_accounts import tenant_ids as ig_tenant_ids
+        tenant_ids = ig_tenant_ids(tenant)   # includes legacy aliases such as "sarv"
         min_gap = options["interval"] if options["interval"] is not None else settings.INSTAGRAM_OUTREACH_MIN_GAP_MINUTES
 
         self.stdout.write(self.style.SUCCESS("=" * 75))

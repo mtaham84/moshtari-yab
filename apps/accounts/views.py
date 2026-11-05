@@ -389,14 +389,6 @@ def outreach_view(request):
     default_pitch = pitch["pitch_template"]
     default_consultant = pitch["consultant_name"] or (accounts[0].username if accounts else "")
     default_username = accounts[0].username if accounts else ""
-    if not default_pitch and business.id == 4:
-        default_pitch = (
-            "درود بر شما \n"
-            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
-            "میتونید هر سوالی دارید از بنده بپرسید. \n"
-            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
-        )
-        default_consultant = pitch["consultant_name"] or "مشاور دندان‌پزشکی"
 
     # Top-Scoring Prioritized Leads (Ranked by 35-point scoring: Public + Intent + Freshness)
     from django.db.models import Q
@@ -947,9 +939,8 @@ def outreach_leads_export_csv(request):
     }
 
     from apps.discovery.outreach_service import build_bulletproof_message
-    default_consultant = "مشاور فروشگاه"
-    if business and business.id == 4:
-        default_consultant = "مشاور دندان‌پزشکی"
+    from apps.discovery.ig_accounts import tenant_key as business_tenant_key, tenant_pitch
+    default_consultant = (tenant_pitch(business_tenant_key(business))["consultant_name"] if business else "") or "مشاور فروشگاه"
 
     for lead in qs[:500]:
         if not lead.outreach_score:

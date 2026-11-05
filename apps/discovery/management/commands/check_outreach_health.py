@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
 
+from apps.discovery.ig_accounts import tenant_ids as ig_tenant_ids
+
 from apps.discovery.models.instagram import InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.human_routine import HumanShiftPlanner
 
@@ -28,9 +30,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         tenant = options["tenant"]
-        tenant_ids = [tenant]
-        if tenant in ("sarv", "tenant_4"):
-            tenant_ids = ["tenant_4", "sarv"]
+        tenant_ids = ig_tenant_ids(tenant)   # includes legacy aliases such as "sarv"
 
         now_utc = django_tz.now()
         now_tehran = datetime.now(TEHRAN_TZ)
