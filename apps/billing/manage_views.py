@@ -1305,7 +1305,9 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
                     account.status_message = "محدودیت موقت نرخ درخواست (429)"
                     account.save(update_fields=["status", "status_message", "cooldown_until"])
                     account._validation_result = XSessionValidationResult.RATE_LIMITED
-                    return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
+                    # A rate-limited session is not a confirmed session: report
+                    # failure so callers don't show "connected" for it.
+                    return False, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
                 elif code in ("not_authenticated", "auth_failed"):
                     account.status = "CHALLENGED"
                     account.status_message = "سشن منقضی یا نامعتبر است (HTTP 401) — auth_token/ct0 جدید ثبت کنید"
@@ -1320,7 +1322,9 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             account._validation_result = XSessionValidationResult.NETWORK_ERROR
             return False, account.status, "زمان پاسخ‌گویی موتور توییتر به پایان رسید (تایم‌اوت)."
         except Exception:
-            pass
+            # Fall back to the HTTP check below, but leave a trace of why the
+            # CLI path failed instead of swallowing it silently.
+            logger.warning("twitter-cli session check failed for @%s; falling back to HTTP", account.username, exc_info=True)
 
     response, exc = _call_twitter_settings_endpoint(auth_token, ct0, proxy_url=account.proxy_url)
     resp_ct0 = _extract_response_ct0(response)
