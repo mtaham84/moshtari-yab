@@ -545,7 +545,7 @@ class Command(BaseCommand):
             taken_at = getattr(media, "taken_at", None)
             if taken_at:
                 if dj_timezone.is_naive(taken_at):
-                    taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
+                    taken_at = dj_timezone.make_aware(taken_at, timezone.utc)
                 if taken_at < age_cutoff:
                     self.stdout.write(
                         self.style.WARNING(
@@ -632,7 +632,7 @@ class Command(BaseCommand):
                 c_time = getattr(c, "created_at_utc", None) or getattr(c, "created_at", None)
                 if c_time:
                     if dj_timezone.is_naive(c_time):
-                        c_time = dj_timezone.make_aware(c_time, dj_timezone.utc)
+                        c_time = dj_timezone.make_aware(c_time, timezone.utc)
                     if c_time < comment_cutoff:
                         continue  # strictly reject comments older than 5 days
 
@@ -825,7 +825,7 @@ class Command(BaseCommand):
             for post in media:
                 posted = getattr(post, "taken_at", None)
                 if posted and dj_timezone.is_naive(posted):
-                    posted = dj_timezone.make_aware(posted, dj_timezone.utc)
+                    posted = dj_timezone.make_aware(posted, timezone.utc)
                 if posted and posted < cutoff:
                     continue
                 recent_comments.append(int(getattr(post, "comment_count", 0) or 0))
@@ -985,7 +985,7 @@ class Command(BaseCommand):
             for m in all_medias:
                 t = getattr(m, "taken_at", None)
                 if t and dj_timezone.is_naive(t):
-                    t = dj_timezone.make_aware(t, dj_timezone.utc)
+                    t = dj_timezone.make_aware(t, timezone.utc)
                 c_cnt = int(getattr(m, "comment_count", 0) or 0)
                 if t and t >= post_cutoff and c_cnt >= 10:
                     cnt += 1
@@ -1069,7 +1069,7 @@ class Command(BaseCommand):
             if t is None:
                 return dj_timezone.now() - timedelta(days=9999)
             if dj_timezone.is_naive(t):
-                t = dj_timezone.make_aware(t, dj_timezone.utc)
+                t = dj_timezone.make_aware(t, timezone.utc)
             return t
 
         all_medias.sort(key=_sort_key, reverse=True)
@@ -1160,7 +1160,7 @@ class Command(BaseCommand):
             post_url = f"https://www.instagram.com/p/{code}/" if code else f"id:{media_id}"
             taken_at = getattr(media, "taken_at", None)
             if taken_at and dj_timezone.is_naive(taken_at):
-                taken_at = dj_timezone.make_aware(taken_at, dj_timezone.utc)
+                taken_at = dj_timezone.make_aware(taken_at, timezone.utc)
             comment_count = int(getattr(media, "comment_count", 0) or 0)
 
             # Rule 1: Post age limit <= 30 days
@@ -1221,7 +1221,7 @@ class Command(BaseCommand):
                         continue
                     c_time = getattr(comment, "created_at_utc", None) or getattr(comment, "created_at", None)
                     if c_time and dj_timezone.is_naive(c_time):
-                        c_time = dj_timezone.make_aware(c_time, dj_timezone.utc)
+                        c_time = dj_timezone.make_aware(c_time, timezone.utc)
                     raw_comments.append({
                         "id": str(getattr(comment, "pk", "") or getattr(comment, "id", "") or user_pk),
                         "user_pk": user_pk, "username": username,
@@ -1256,7 +1256,7 @@ class Command(BaseCommand):
                     try:
                         dt = datetime.fromisoformat(c_date)
                         if dj_timezone.is_naive(dt):
-                            dt = dj_timezone.make_aware(dt, dj_timezone.utc)
+                            dt = dj_timezone.make_aware(dt, timezone.utc)
                         if dt < comment_cutoff:
                             continue
                         row["_dt"] = dt
