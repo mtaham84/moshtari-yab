@@ -1,10 +1,8 @@
 import html
-import json
 import logging
 import os
 import secrets
 import string
-from pathlib import Path
 from typing import Any
 
 from django.conf import settings
@@ -14,30 +12,14 @@ from django.utils import timezone
 from apps.accounts.models import ActivationRequest
 from apps.businesses.models import Business
 from apps.billing.models import Wallet
+from shared.telegram_alerts import load_subscribers, proxy_candidates
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-DEFAULT_ADMIN_CHATS = {1245164686, 1817086635}
-SUBSCRIBERS_FILES = [
-    Path("/root/moshtari-yab/data/bot_subscribers.json"),
-    Path(__file__).resolve().parent.parent.parent / "data" / "bot_subscribers.json"
-]
-
 
 def get_subscribers() -> set[int]:
-    chats = set(DEFAULT_ADMIN_CHATS)
-    for p in SUBSCRIBERS_FILES:
-        try:
-            if p.exists():
-                with open(p, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        chats.update(int(c) for c in data if str(c).isdigit())
-                break
-        except Exception as e:
-            logger.warning("Could not read subscribers from %s: %s", p, e)
-    return chats
+    return load_subscribers()
 
 
 def send_telegram_alert(text: str, reply_markup: dict[str, Any] | None = None) -> bool:
@@ -48,31 +30,14 @@ def send_telegram_alert(text: str, reply_markup: dict[str, Any] | None = None) -
 
     token = os.environ.get("CONFIG_BOT_TOKEN", "").strip()
     if not token:
-        # Try loading from .env
-        for env_p in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().parent.parent.parent / ".env"]:
-            if env_p.exists():
-                with open(env_p, "r", encoding="utf-8") as ef:
-                    for line in ef:
-                        line = line.strip()
-                        if line.startswith("CONFIG_BOT_TOKEN="):
-                            token = line.split("=", 1)[1].strip()
-                            break
-            if token:
-                break
-
-    if not token:
         logger.warning("CONFIG_BOT_TOKEN is not set; skipping Telegram alert.")
         return False
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    proxy_candidates = [
-        os.environ.get("TG_BOT_PROXY", "").strip(),
-        "socks5h://127.0.0.1:1080",
-        "socks5h://xray:1080",
-        "http://127.0.0.1:8080",
-        None  # direct
-    ]
-    proxy_candidates = [p for p in proxy_candidates if p is not None or p == ""] + [None]
+    candidates = proxy_candidates()
+    # Once a route works, try it first for the remaining chats so one dead
+    # proxy doesn't add a timeout per subscriber.
+    working: str | None | bool = False
 
     subscribers = get_subscribers()
     success = False
@@ -87,15 +52,18 @@ def send_telegram_alert(text: str, reply_markup: dict[str, Any] | None = None) -
         if reply_markup:
             payload["reply_markup"] = reply_markup
 
-        for proxy_url in proxy_candidates:
+        ordered = candidates if working is False else [working] + [p for p in candidates if p != working]
+        for proxy_url in ordered:
             proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
             try:
                 r = requests.post(url, json=payload, proxies=proxies, timeout=10)
                 res = r.json()
                 if res.get("ok"):
                     success = True
+                    working = proxy_url
                     break
             except Exception:
+                logger.debug("Telegram alert via %s failed", proxy_url or "direct", exc_info=True)
                 continue
 
     return success

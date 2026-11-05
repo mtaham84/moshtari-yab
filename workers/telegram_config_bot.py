@@ -12,7 +12,6 @@ Telegram Config Management Bot (@config_peyda_bot)
 from __future__ import annotations
 
 import html
-import json
 import logging
 import os
 import re
@@ -31,10 +30,11 @@ logging.basicConfig(
 log = logging.getLogger("telegram_config_bot")
 
 # Setup Django Environment & Load .env
-sys.path.insert(0, "/root/moshtari-yab")
-sys.path.insert(0, "/home/taha/HDD/customerweb")
 from pathlib import Path
-for env_candidate in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().parent.parent / ".env"]:
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+for env_candidate in [REPO_ROOT / ".env"]:
     if env_candidate.exists():
         with open(env_candidate, "r", encoding="utf-8") as f:
             for line in f:
@@ -62,6 +62,7 @@ try:
 except Exception as exc:
     log.warning("Django setup warning: %s", exc)
 
+from shared.telegram_alerts import load_subscribers, save_subscribers  # noqa: E402
 from xray.multi_proxy_manager import (
     validate_config_format,
     add_proxy_config,
@@ -161,27 +162,12 @@ def send_message(chat_id: int | str, text: str, reply_markup: dict[str, Any] | N
             time.sleep(0.15)
 
 
-SUBSCRIBERS_FILE = Path("/root/moshtari-yab/data/bot_subscribers.json")
-if not SUBSCRIBERS_FILE.parent.exists():
-    SUBSCRIBERS_FILE = Path(__file__).resolve().parent.parent / "data" / "bot_subscribers.json"
-
-DEFAULT_ADMIN_CHATS = {1245164686, 1817086635}
-
 # In-memory user state tracker for interactive multi-step commands (e.g. prompt editing)
 USER_STATES: dict[int | str, dict[str, Any]] = {}
 
 
 def get_subscribers() -> set[int]:
-    chats = set(DEFAULT_ADMIN_CHATS)
-    try:
-        if SUBSCRIBERS_FILE.exists():
-            with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-                if isinstance(saved, list):
-                    chats.update(int(c) for c in saved if str(c).isdigit())
-    except Exception as e:
-        log.warning("Could not load subscribers: %s", e)
-    return chats
+    return load_subscribers()
 
 
 def register_subscriber(chat_id: int | str) -> None:
@@ -190,9 +176,7 @@ def register_subscriber(chat_id: int | str) -> None:
         current = get_subscribers()
         if cid not in current:
             current.add(cid)
-            SUBSCRIBERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
-                json.dump(sorted(list(current)), f)
+            save_subscribers(current)
     except Exception as e:
         log.warning("Could not register subscriber %s: %s", chat_id, e)
 
