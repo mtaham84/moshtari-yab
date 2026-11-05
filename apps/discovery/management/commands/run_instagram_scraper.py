@@ -624,10 +624,63 @@ class Command(BaseCommand):
                 )
             )
 
+            # --- Live Activity & Video Watching Simulation ---
+            from apps.discovery.live_logger import report_live_activity
+            m_type = getattr(media, "media_type", 1)
+            p_type = getattr(media, "product_type", "")
+            v_dur = getattr(media, "video_duration", 0.0) or 0.0
+            is_video = m_type == 2 or v_dur > 0 or p_type in ("clips", "igtv")
+            is_reel = p_type == "clips" or (source_post_url and "reel" in source_post_url.lower())
+
+            if is_video:
+                watch_sec = round(random.uniform(3.5, 6.5), 1)
+                self.stdout.write(
+                    self.style.NOTICE(f"    🎥 [تماشای زنده {'ریلز' if is_reel else 'ویدیو'}]: {watch_sec}s -> {source_post_url}")
+                )
+                report_live_activity(
+                    account_username=account.username,
+                    action_type="WATCH_VIDEO",
+                    title=f"تماشای {'ریلز' if is_reel else 'ویدیو'} پست {code}",
+                    description=f"اکانت @{account.username} در حال تماشای ویدیوی پست instagram.com/p/{code} است ({watch_sec} ثانیه مشاهده طبیعی).",
+                    media_type="REEL" if is_reel else "VIDEO",
+                    media_code=code,
+                    media_url=source_post_url or "",
+                    duration_seconds=watch_sec,
+                    level="INFO",
+                    update_worker="scraper",
+                    worker_active=True,
+                )
+                time.sleep(watch_sec)
+            else:
+                report_live_activity(
+                    account_username=account.username,
+                    action_type="SCRAPE",
+                    title=f"بررسی پست {code} ({comment_count} کامنت)",
+                    description=f"اکانت @{account.username} در حال بررسی پست {source_post_url}",
+                    media_type="CAROUSEL" if m_type == 8 else "POST",
+                    media_code=code,
+                    media_url=source_post_url or "",
+                    duration_seconds=1.5,
+                    level="INFO",
+                    update_worker="scraper",
+                    worker_active=True,
+                )
+
             cta_trigger = get_effective_caption_cta(caption_text)
             fetch_amount = min(comment_count, 100)
             comments = []
             try:
+                report_live_activity(
+                    account_username=account.username,
+                    action_type="COMMENTS",
+                    title=f"واکشی کامنت‌های پست {code}",
+                    description=f"در حال دریافت و ارزیابی {fetch_amount} کامنت از {source_post_url}",
+                    media_code=code,
+                    media_url=source_post_url or "",
+                    level="INFO",
+                    update_worker="scraper",
+                    worker_active=True,
+                )
                 comments = cl.media_comments(m_id, amount=fetch_amount)
             except Exception as exc:
                 try:
@@ -760,6 +813,18 @@ class Command(BaseCommand):
                         self.style.SUCCESS(
                             f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {calc['total_score']}/45 - {calc['intent_type']}) | '{comment_text[:50]}'"
                         )
+                    )
+                    report_live_activity(
+                        account_username=account.username,
+                        action_type="LEAD_FOUND",
+                        title=f"کشف خریدار جدید: @{username}",
+                        description=f"ثبت لید خریدار @{username} با امتیاز {calc.get('total_score')} از کامنت «{comment_text[:60]}»",
+                        media_code=code,
+                        media_url=source_post_url or "",
+                        level="SUCCESS",
+                        metadata={"username": username, "score": calc.get("total_score")},
+                        update_worker="scraper",
+                        worker_active=True,
                     )
 
                 try:
@@ -1589,6 +1654,16 @@ class Command(BaseCommand):
             if account.status != "ACTIVE":
                 break
             self.stdout.write(self.style.WARNING(f"\n  [🔍] Keyword Search: '{term}'"))
+            from apps.discovery.live_logger import report_live_activity
+            report_live_activity(
+                account_username=account.username,
+                action_type="SCRAPE",
+                title=f"جستجوی کلیدواژه '{term}'",
+                description=f"اکانت @{account.username} در حال جستجو و استخراج پست‌های مرتبط با '{term}' برای کسب‌وکار {business_name} است.",
+                level="INFO",
+                update_worker="scraper",
+                worker_active=True,
+            )
             term_err = ""
             term_medias = []
             try:
@@ -1693,6 +1768,16 @@ class Command(BaseCommand):
             if account.status != "ACTIVE":
                 break
             self.stdout.write(self.style.WARNING(f"\n  [#] Hashtag: #{tag}"))
+            from apps.discovery.live_logger import report_live_activity
+            report_live_activity(
+                account_username=account.username,
+                action_type="SCRAPE",
+                title=f"اسکرپ هشتگ #{tag}",
+                description=f"اکانت @{account.username} در حال استخراج و تحلیل پست‌های هشتگ #{tag} برای {business_name} است.",
+                level="INFO",
+                update_worker="scraper",
+                worker_active=True,
+            )
             tag_err = ""
             tag_medias = []
 

@@ -23,6 +23,8 @@ from .instagram import (
     InstagramEngineAccount,
     InstagramEngineLead,
     InstagramFamilyPlan,
+    InstagramLiveActivity,
+    InstagramLiveWorkerState,
     InstagramPage,
     InstagramReplySuggestion,
     InstagramSourceStat,
@@ -68,6 +70,8 @@ __all__ = [
     "InstagramAccountEvent",
     "OutreachTenantProfile",
     "InstagramEngineLead",
+    "InstagramLiveActivity",
+    "InstagramLiveWorkerState",
     "InstagramCrawledPost",
     "InstagramCrawlExecution",
     # X / Twitter

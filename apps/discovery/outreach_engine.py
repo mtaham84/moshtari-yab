@@ -577,6 +577,19 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
 
     delay, is_break = _mark_cold_sent(lead, sender, pitch_text, pace=True)
     persist_sender_session(sender)
+    try:
+        from apps.discovery.live_logger import report_live_activity
+        report_live_activity(
+            account_username=sender.username,
+            action_type="SEND_DM",
+            title=f"ارسال دایرکت به @{lead.username}",
+            description=f"دایرکت معرفی با موفقیت برای @{lead.username} توسط @{sender.username} ارسال شد.",
+            level="SUCCESS",
+            update_worker="outreach",
+            worker_active=True,
+        )
+    except Exception:
+        pass
     pause = "☕ استراحت طبیعی" if is_break else "⏳ وقفه ایمنی"
     ctx.log(f"   ✅ دایرکت به @{lead.username} ارسال شد. {pause}: دایرکت بعدی @{sender.username} "
             f"حداقل {delay / 60.0:.0f} دقیقه دیگر.")
