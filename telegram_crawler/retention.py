@@ -12,7 +12,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from django.db.models.functions import Coalesce
 
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 
 
 def _schema_name(value: str) -> str:

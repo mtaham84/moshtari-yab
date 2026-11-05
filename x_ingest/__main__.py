@@ -11,7 +11,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.records import RecordError, SourceRecord
 
 log = logging.getLogger("x_ingest")

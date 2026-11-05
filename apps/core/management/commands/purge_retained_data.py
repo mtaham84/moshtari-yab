@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from psycopg.conninfo import make_conninfo
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 from instagram_discovery.post_metrics import purge_post_review_data
 
 from need_engine.retention import (purge_retained_data, purge_panel_x_posts, purge_x_collector_state,

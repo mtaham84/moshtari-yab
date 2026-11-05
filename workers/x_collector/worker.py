@@ -16,7 +16,7 @@ from typing import Any, Callable
 from . import cli_mapping as mapping
 from .client import XCliClient, XCliError
 from .intent_queries import KIND_WEIGHTS
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.seen import SeenStore
 from shared.collector_kit.state_store import create_state_store

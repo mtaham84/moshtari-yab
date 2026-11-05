@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.collector_kit.jsonl import append_line, write_latest
 from shared.collector_kit.limits import CircuitBreaker, Cooldown, DailyCap, retry_delay
 from shared.collector_kit.seen import SeenStore
