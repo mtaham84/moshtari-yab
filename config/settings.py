@@ -223,6 +223,9 @@ CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
 INSTAGRAM_OUTREACH_DISPATCHER = os.environ.get("INSTAGRAM_OUTREACH_DISPATCHER", "command").strip().lower()
 if INSTAGRAM_OUTREACH_DISPATCHER not in {"command", "celery"}:
     raise ImproperlyConfigured("INSTAGRAM_OUTREACH_DISPATCHER must be 'command' or 'celery'.")
+# Global pacing for cold DMs (both dispatchers): at most one cold DM per this many minutes across all
+# senders (+0-50% jitter). Per-account tier delays and daily/hourly caps apply on top of it.
+INSTAGRAM_OUTREACH_MIN_GAP_MINUTES = max(0, int(os.environ.get("INSTAGRAM_OUTREACH_MIN_GAP_MINUTES", "20")))
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
@@ -239,11 +242,13 @@ CELERY_TASK_ROUTES = {
 
 CELERY_BEAT_SCHEDULE = {
     # 1. Instagram Outreach Dispatcher (runs every 12 minutes during active shifts)
+    # Short tick; pacing lives in the DB (apps.discovery.outreach_engine), so most ticks send nothing.
     "dispatch-instagram-outreach-periodic": {
         "task": "apps.discovery.tasks.task_dispatch_instagram_outreach",
-        "schedule": 720.0,  # 12 minutes
+        "schedule": 60.0,
         "args": ("tenant_4",),
-        "kwargs": {"batch_size": 2, "min_intent": 0.65},
+        "kwargs": {"batch_size": 2},
+        "options": {"expires": 55},
     },
     # 2. Fast Lead Reply Sync (runs every 2 minutes to detect customer responses rapidly)
     "sync-lead-replies-fast": {
@@ -264,6 +269,8 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-# The periodic DM dispatcher is only scheduled when Celery is the selected dispatcher (see INSTAGRAM_OUTREACH_DISPATCHER).
+# DM sending and reply polling belong to the selected dispatcher only (see INSTAGRAM_OUTREACH_DISPATCHER);
+# with "command" the ig-outreach service does both, so Celery must not poll inboxes a second time.
 if INSTAGRAM_OUTREACH_DISPATCHER != "celery":
     CELERY_BEAT_SCHEDULE.pop("dispatch-instagram-outreach-periodic", None)
+    CELERY_BEAT_SCHEDULE.pop("sync-lead-replies-fast", None)

@@ -50,6 +50,23 @@ class SingleDispatcherTests(SimpleTestCase):
         scheduled = "dispatch-instagram-outreach-periodic" in settings.CELERY_BEAT_SCHEDULE
         self.assertEqual(scheduled, settings.INSTAGRAM_OUTREACH_DISPATCHER == "celery")
 
+    def test_reply_polling_belongs_to_the_selected_dispatcher_only(self):
+        scheduled = "sync-lead-replies-fast" in settings.CELERY_BEAT_SCHEDULE
+        self.assertEqual(scheduled, settings.INSTAGRAM_OUTREACH_DISPATCHER == "celery")
+
+    @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="celery")
+    def test_celery_task_delegates_to_the_shared_engine(self):
+        from apps.discovery import tasks
+
+        batch = {"sent": 1, "last": {"action": "cold_sent", "sent": True}, "steps": []}
+        with patch.object(tasks, "run_outreach_batch", return_value=batch) as run:
+            result = tasks.task_dispatch_instagram_outreach("tenant_4", batch_size=2, ignore_shift=True)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0], ["tenant_4", "sarv"])
+        self.assertEqual(run.call_args.kwargs["max_sends"], 2)
+        self.assertTrue(run.call_args.kwargs["ignore_shift"])
+        self.assertEqual(result["sent_count"], 1)
+
     @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="command")
     def test_celery_task_is_noop_when_command_is_dispatcher(self):
         from apps.discovery import tasks
@@ -100,16 +117,3 @@ class CandidateSelectionTests(TestCase):
         self.assertEqual([lead.username for lead in picked], ["hot", "cold"])
         self.assertGreater(picked[0].outreach_score, picked[1].outreach_score)
         self.assertTrue(picked[0].score_breakdown["service_score"])
-
-    @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="celery")
-    def test_celery_dispatcher_uses_shared_selection_with_row_locks(self):
-        from apps.discovery import tasks
-
-        with patch.object(tasks, "get_available_senders_atomic", return_value=[SimpleNamespace(username="s")]), \
-                patch.object(tasks, "select_outreach_candidates", return_value=[]) as select, \
-                patch.object(tasks, "check_and_sync_lead_replies"):
-            result = tasks.task_dispatch_instagram_outreach("tenant_4", ignore_shift=True)
-
-        select.assert_called_once()
-        self.assertTrue(select.call_args.kwargs["lock"])
-        self.assertEqual(result["sent_count"], 0)

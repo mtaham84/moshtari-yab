@@ -19,6 +19,8 @@ x-app: &app
     # Only one DM dispatcher: "command" = ig-outreach service (default), "celery" = celery-beat.
     # If you switch to "celery", also remove/stop the ig-outreach service.
     INSTAGRAM_OUTREACH_DISPATCHER: ${INSTAGRAM_OUTREACH_DISPATCHER:-command}
+    # Min minutes between two cold DMs across all senders (both dispatchers); per-account tier delays apply on top.
+    INSTAGRAM_OUTREACH_MIN_GAP_MINUTES: ${INSTAGRAM_OUTREACH_MIN_GAP_MINUTES:-20}
     # crawler (schema "crawler") and need_engine (schema "need_engine") use the same POSTGRES_* settings
     TG_SESSION: data/telegram_crawler_session
     NE_MESSAGES_SOURCE: db

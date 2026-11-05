@@ -74,12 +74,11 @@ def get_effective_sender_limits(account, fallback_daily: Optional[int] = None) -
     return daily, hourly
 
 
-def select_outreach_candidates(tenant_ids: List[str], slots: int, *, lock: bool = False, now=None) -> List[Any]:
+def select_outreach_candidates(tenant_ids: List[str], slots: int, *, now=None) -> List[Any]:
     """
-    Cold-outreach candidates shared by both dispatchers (ig-outreach command and Celery):
+    Cold-outreach candidates for the DM dispatcher (apps.discovery.outreach_engine):
     NEW leads whose comment is from the last 5 days, rescored with the 45-point formula
     (instagram_scoring) and returned highest score first. Leads that aged out are marked SKIPPED.
-    With lock=True (call inside transaction.atomic) rows are reserved with SKIP LOCKED.
     """
     from django.db.models import Q
     from apps.discovery.models import InstagramEngineLead
@@ -87,11 +86,8 @@ def select_outreach_candidates(tenant_ids: List[str], slots: int, *, lock: bool 
 
     now = now or timezone.now()
     cutoff_5_days = now - timedelta(days=5)
-    qs = InstagramEngineLead.objects.all()
-    if lock:
-        qs = qs.select_for_update(skip_locked=True)
     candidates = list(
-        qs.filter(tenant_id__in=tenant_ids, status="NEW")
+        InstagramEngineLead.objects.filter(tenant_id__in=tenant_ids, status="NEW")
         .filter(Q(comment_created_at__gte=cutoff_5_days) | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days))
         .order_by("-outreach_score", "-comment_created_at", "-created_at")[:max(slots * 20, 50)]
     )
@@ -584,7 +580,6 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     extracts Iranian mobile numbers, and marks lead as REPLIED.
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, Customer
-    from apps.discovery.device_emulator import apply_device_profile_to_client
 
     if isinstance(tenant_ids, str):
         tenant_ids = [tenant_ids]
@@ -598,8 +593,6 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     if not senders.exists():
         return {"status": "no_senders", "replies_found": 0, "details": []}
 
-    from instagrapi import Client
-
     synced_count = 0
     details = []
 
@@ -612,14 +605,10 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
         if not sessionid:
             continue
 
-        cl = Client()
-        cl.delay_range = [0.2, 0.5]
-        if sender.proxy_url:
-            cl.set_proxy(sender.proxy_url)
-
         try:
-            apply_device_profile_to_client(cl, sender)
-            cl.login_by_sessionid(sessionid)
+            # Reuse the dispatcher's logged-in client instead of a fresh login on every poll
+            from apps.discovery.outreach_engine import get_sender_client
+            cl = get_sender_client(sender)
             current_user_id = str(cl.user_id)
 
             # Fast single chunk fetch (max 10 recent threads without paging loop)
@@ -805,8 +794,9 @@ def send_chat_message(
         ])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
         sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
@@ -972,16 +962,29 @@ def enqueue_direct_message(
     }
 
 
+def resolve_queued_sender(lead: Any, queued_item: Optional[Dict[str, Any]] = None):
+    """SENDER account that should deliver a queued message (chosen sender, else the lead's senders, else any ACTIVE)."""
+    from apps.discovery.models import InstagramEngineAccount
+
+    sender_username = (queued_item or {}).get("sender") or lead.second_sender_username or lead.sender_account
+    sender = None
+    if sender_username:
+        sender = InstagramEngineAccount.objects.filter(username__iexact=sender_username, role="SENDER").first()
+    if not sender:
+        sender = InstagramEngineAccount.objects.filter(tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE").first()
+    return sender
+
+
 def process_queued_outbox_message(
     lead: Any,
     client_cache: Optional[Dict[str, Any]] = None,
     dry_run: bool = False,
+    sender: Any = None,
 ) -> Dict[str, Any]:
     """
     Safely dispatches the oldest pending QUEUED message for a lead using
     organic navigation and account session.
     """
-    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
     from apps.discovery.device_emulator import apply_device_profile_to_client
     from instagrapi import Client
 
@@ -998,9 +1001,8 @@ def process_queued_outbox_message(
         return {"success": False, "error": "هیچ پیام در صف برای این لید یافت نشد."}
 
     sender_username = queued_item.get("sender") or lead.second_sender_username or lead.sender_account
-    sender = InstagramEngineAccount.objects.filter(username__iexact=sender_username, role="SENDER").first()
-    if not sender:
-        sender = InstagramEngineAccount.objects.filter(tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE").first()
+    if sender is None:
+        sender = resolve_queued_sender(lead, queued_item)
 
     if dry_run:
         now = timezone.now()
@@ -1019,8 +1021,9 @@ def process_queued_outbox_message(
 
         if sender:
             sender.daily_action_count = (sender.daily_action_count or 0) + 1
+            sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
             sender.last_action_at = now
-            sender.save(update_fields=["daily_action_count", "last_action_at"])
+            sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
@@ -1044,8 +1047,8 @@ def process_queued_outbox_message(
         cl = client_cache[sender.username]
     else:
         cl = Client()
-        if sender.proxy_url:
-            cl.set_proxy(sender.proxy_url)
+        if sender.clean_proxy:
+            cl.set_proxy(sender.clean_proxy)
         apply_device_profile_to_client(cl, sender)
         cl.login_by_sessionid(sess_id)
         if client_cache is not None:
@@ -1074,8 +1077,9 @@ def process_queued_outbox_message(
         lead.save(update_fields=["status", "conversation_history", "second_message_text", "second_sender_username", "second_message_at", "updated_at"])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
         sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
@@ -1180,8 +1184,9 @@ def send_direct_message_to_lead(
         ])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
         sender.last_action_at = now
-        sender.save(update_fields=["daily_action_count", "last_action_at"])
+        sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
 
         return {
             "success": True,
