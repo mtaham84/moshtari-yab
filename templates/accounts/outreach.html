@@ -63,11 +63,22 @@
 
 <div class="p-page-header" style="margin-bottom: 24px;">
   <div class="p-header-titles">
-    <div style="display:flex; align-items:center; gap:10px;">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
       <h1 class="p-page-title" style="margin:0;">پیام‌رسانی و ارسال دایرکت اینستاگرام</h1>
-      <span class="p-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; padding:4px 10px; border-radius:6px;">
-        {{ business.name }}
-      </span>
+      {% if all_businesses and all_businesses|length > 1 %}
+        <form method="GET" style="display:inline-flex; align-items:center; gap:6px; margin:0;">
+          <label style="font-size:0.82rem; font-weight:700; color:var(--panel-text-muted);">کسب‌وکار فعال:</label>
+          <select name="biz" onchange="this.form.submit()" style="padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.84rem; border:1px solid #cbd5e1; background:#f0fdf4; color:#15803d; cursor:pointer;">
+            {% for b in all_businesses %}
+              <option value="{{ b.id }}" {% if b.id == business.id %}selected{% endif %}>🏥 {{ b.name }} (مالک: {{ b.user.username }})</option>
+            {% endfor %}
+          </select>
+        </form>
+      {% else %}
+        <span class="p-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; padding:4px 10px; border-radius:6px;">
+          {{ business.name }}
+        </span>
+      {% endif %}
     </div>
     <p class="p-page-subtitle" style="margin-top:6px;">
       مدیریت اکانت‌های فرستنده اختصاصی، تنظیم متن پیام هوشمند با دستیار AI، پایش دایرکت‌ها و پاسخ‌های دریافتی مشتریان.
@@ -161,7 +172,8 @@
 
   <!-- Right Column: Add Sender Account Form with Dealism Tiers + Tutorial -->
   <div>
-    <!-- Add Account Card -->
+    {% if request.user.is_staff or request.user.is_superuser %}
+    <!-- Add Account Card (Restricted to Staff and Superusers) -->
     <div class="p-card" style="padding:22px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:20px;">
       <h2 style="margin:0 0 8px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#2563eb" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
@@ -232,6 +244,7 @@
         </button>
       </form>
     </div>
+    {% endif %}
 
     <!-- Step-by-Step sessionid Tutorial Box -->
     <div class="p-card" style="padding:20px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
@@ -433,10 +446,21 @@
           </div>
         </div>
 
-        <div>
-          {% if lead.status == 'FOLLOWUP_SENT' %}
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          {% if lead.captured_phone %}
+            <span style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-weight:800; padding:4px 10px; border-radius:6px; font-size:0.8rem; display:inline-flex; align-items:center; gap:5px;">
+              <span>📞 شماره تماس:</span>
+              <strong style="direction:ltr; font-family:monospace; font-size:0.9rem; color:#b45309;">{{ lead.captured_phone }}</strong>
+            </span>
+          {% endif %}
+
+          {% if lead.status == 'QUEUED' %}
+            <span class="p-badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-weight:700; padding:4px 10px; border-radius:6px; font-size:0.78rem;">
+              ⏳ پیام در صف ارسال امن
+            </span>
+          {% elif lead.status == 'FOLLOWUP_SENT' %}
             <span class="p-badge" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; font-weight:700; padding:4px 10px; border-radius:6px; font-size:0.78rem;">
-              ✓ پیام دوم ارسال شد (توسط @{{ lead.second_sender_username }})
+              ✓ پیام پیگیری ارسال شد
             </span>
           {% else %}
             <span class="p-badge" style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; font-weight:700; padding:4px 10px; border-radius:6px; font-size:0.78rem;">
@@ -446,45 +470,54 @@
         </div>
       </div>
 
-      <!-- Dialogue Timeline -->
-      <div class="outreach-timeline-grid" style="margin-bottom:14px;">
-        <!-- Initial DM sent by us -->
-        <div style="background:#f8fafc; border-radius:8px; padding:12px; font-size:0.83rem; line-height:1.6;">
-          <div style="font-size:0.74rem; color:#64748b; font-weight:700; margin-bottom:4px;">
-            ✉️ پیام اولیه ارسالی ما (توسط @{{ lead.sender_account|default:"مشاور" }}):
-          </div>
-          <div style="color:#334155; white-space:pre-wrap;">{{ lead.initial_dm_text|default:"(پیام مشاوره اولیه ارسال شده است)" }}</div>
-          {% if lead.initial_dm_at %}
-          <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">{{ lead.initial_dm_at|jalali_dt }}</div>
-          {% endif %}
+      <!-- Instagram Direct Conversation Thread -->
+      <div style="margin-bottom:14px;">
+        <div style="font-size:0.76rem; color:#475569; font-weight:700; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>💬 تاریخچه پیام‌های رد و بدل شده در دایرکت اینستاگرام:</span>
+          <span style="font-size:0.72rem; color:#64748b;">تعداد پیام‌ها: {{ lead.thread|length }}</span>
         </div>
 
-        <!-- Incoming Reply from Customer -->
-        <div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:12px; font-size:0.86rem; line-height:1.6;">
-          <div style="font-size:0.75rem; color:#065f46; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-            <span>💬 پاسخ دریافت شده از مشتری:</span>
-            {% if lead.reply_at %}
-            <span style="font-weight:400; font-size:0.72rem; color:#047857;">({{ lead.reply_at|jalali_dt }})</span>
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px; max-height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
+          {% for msg in lead.thread %}
+            {% if msg.is_incoming %}
+              <!-- Incoming Customer DM Bubble -->
+              <div style="align-self:flex-start; max-width:85%; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px 12px 12px 2px; padding:10px 14px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:4px; font-size:0.72rem; color:#047857; font-weight:700;">
+                  <span>💬 @{{ lead.username }} (مشتری):</span>
+                  {% if msg.time %}<span style="direction:ltr; font-family:monospace; color:#059669; font-size:0.7rem;">{{ msg.time|slice:":16" }}</span>{% endif %}
+                </div>
+                <div style="color:#064e3b; font-weight:600; font-size:0.86rem; line-height:1.6; white-space:pre-wrap;">{{ msg.text }}</div>
+              </div>
+            {% else %}
+              <!-- Outgoing Consultant DM Bubble -->
+              <div style="align-self:flex-end; max-width:85%; background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px 12px 2px 12px; padding:10px 14px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:4px; font-size:0.72rem; color:#1d4ed8; font-weight:700;">
+                  <span>✉️ @{{ msg.sender|default:"مشاور" }} (ما):</span>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    {% if msg.is_queued %}
+                      <span style="background:#fef3c7; color:#92400e; padding:1px 6px; border-radius:4px; font-size:0.68rem; font-weight:700;">⏳ در صف ارسال امن</span>
+                    {% endif %}
+                    {% if msg.time %}<span style="direction:ltr; font-family:monospace; color:#3b82f6; font-size:0.7rem;">{{ msg.time|slice:":16" }}</span>{% endif %}
+                  </div>
+                </div>
+                <div style="color:#1e3a8a; font-size:0.84rem; line-height:1.6; white-space:pre-wrap;">{{ msg.text }}</div>
+              </div>
             {% endif %}
-          </div>
-          <div style="color:#064e3b; font-weight:600; white-space:pre-wrap;">{{ lead.reply_text }}</div>
+          {% empty %}
+            <div style="color:#64748b; font-size:0.82rem; text-align:center; padding:12px;">پیامی در تاریخچه دایرکت ثبت نشده است.</div>
+          {% endfor %}
         </div>
       </div>
 
-      <!-- If second message was already sent -->
-      {% if lead.second_message_text %}
-      <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:12px; margin-bottom:14px; font-size:0.84rem;">
-        <strong style="color:#6d28d9; display:block; margin-bottom:4px; font-size:0.76rem;">
-          پیام دوم ارسال‌شده توسط @{{ lead.second_sender_username }} در تاریخ {{ lead.second_message_at|jalali_dt }}:
-        </strong>
-        <div style="color:#4c1d95; white-space:pre-wrap;">{{ lead.second_message_text }}</div>
-      </div>
-      {% endif %}
-
-      <!-- Send Second Message / Follow-up Action Box -->
+      <!-- Send Direct Message Action Box -->
       <div style="background:#f1f5f9; border-radius:8px; padding:14px;">
-        <div style="font-weight:700; font-size:0.84rem; color:#1e293b; margin-bottom:8px;">
-          ارسال پیام دوم / پیگیری (امکان ارسال از طرف اکانت دیگر):
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-weight:700; font-size:0.84rem; color:#1e293b;">
+            ارسال پیام در دایرکت اینستاگرام به @{{ lead.username }}:
+          </div>
+          <div style="font-size:0.74rem; color:#64748b;">
+            امکان ارسال پیام پیوسته با سشن فعال اینستاگرام
+          </div>
         </div>
 
         <form method="POST" action="{% url 'accounts:send_followup' %}">
@@ -493,10 +526,10 @@
 
           <div class="outreach-followup-grid">
             <div>
-              <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">اکانت فرستنده پیام دوم:</label>
+              <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">اکانت فرستنده دایرکت:</label>
               <select name="sender_username" required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; font-weight:600; background:#fff;">
                 {% for acc in accounts %}
-                <option value="{{ acc.obj.username }}" {% if lead.sender_account == acc.obj.username %}selected{% endif %}>
+                <option value="{{ acc.obj.username }}" {% if lead.second_sender_username == acc.obj.username or lead.sender_account == acc.obj.username %}selected{% endif %}>
                   @{{ acc.obj.username }} ({{ acc.consultant_name }})
                 </option>
                 {% endfor %}
@@ -504,14 +537,15 @@
             </div>
 
             <div>
-              <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">متن پیام دوم:</label>
-              <input type="text" name="message_text" required placeholder="مثال: سلام، شماره تماستون رو بفرستید تا مشاور ارشد کلینیک سرو برای رزرو ویزیت باهاتون هماهنگ کنه..."
+              <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">متن پیام جدید در دایرکت:</label>
+              <input type="text" name="message_text" required placeholder="متن پیام را بنویسید (مثال: شرایط اقساط ۱۰ ماهه بدون پیش‌پرداخت هست، شماره تماستون رو بفرمایید تا جدول کامل رو براتون بفرستم)..."
                      style="width:100%; padding:8px 12px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem; background:#fff;">
             </div>
 
             <div style="align-self:flex-end;">
-              <button type="submit" class="p-btn" style="width:100%; padding:8px; background:#2563eb; color:#fff; border:none; border-radius:6px; font-weight:700; font-size:0.82rem;">
-                ارسال پیام دوم ✉️
+              <button type="submit" class="p-btn" style="width:100%; padding:8px 16px; background:#2563eb; color:#fff; border:none; border-radius:6px; font-weight:700; font-size:0.82rem; display:flex; align-items:center; justify-content:center; gap:6px;">
+                <span>ارسال در دایرکت</span>
+                <span>✉️</span>
               </button>
             </div>
           </div>

@@ -26,7 +26,7 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
@@ -48,7 +48,10 @@ from apps.discovery.outreach_service import (
     perform_organic_warmup,
     build_bulletproof_message,
     parse_spintax,
+    execute_organic_journey,
+    process_queued_outbox_message,
 )
+from apps.discovery.human_routine import HumanShiftPlanner, DailyShiftSchedule
 
 logger = logging.getLogger("instagram_outreach")
 
@@ -154,8 +157,10 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--ignore-circadian",
+            "--ignore-shift",
             action="store_true",
-            help="Bypass circadian hours check (for testing outside 09:00 - 23:00).",
+            dest="ignore_circadian",
+            help="Bypass circadian/shift hours check (for testing outside active shift window).",
         )
 
     def handle(self, *args, **options):
@@ -177,8 +182,16 @@ class Command(BaseCommand):
             tenant_ids = ["tenant_4", "sarv"]
 
         self.stdout.write(self.style.SUCCESS("=" * 75))
-        self.stdout.write(self.style.SUCCESS("🚀 [موتور اختصاصی ارسال دایرکت هوشمند اینستاگرام (Instagram Outreach)]"))
+        self.stdout.write(self.style.SUCCESS("🚀 [موتور اختصاصی ارسال دایرکت هوشمند و ارگانیک اینستاگرام (Instagram Outreach)]"))
         self.stdout.write(self.style.SUCCESS(f"📌 هدف: مستأجر {tenant_ids} | حداقل احتمال خرید: {min_intent} | حالت تست: {dry_run}"))
+
+        today_sched = HumanShiftPlanner.get_or_create_daily_schedule()
+        self.stdout.write(self.style.SUCCESS(
+            f"📅 برنامه شیفت کاری امروز ({today_sched.date}):\n"
+            f"   • شیفت صبح: {today_sched.morning_start.strftime('%H:%M')} الی {today_sched.morning_end.strftime('%H:%M')}\n"
+            f"   • شیفت عصر: {today_sched.afternoon_start.strftime('%H:%M')} الی {today_sched.afternoon_end.strftime('%H:%M')}\n"
+            f"   • مجموع ساعت کار: {today_sched.total_work_minutes / 60.0:.1f} ساعت ({today_sched.total_work_minutes} دقیقه) | منبع: {today_sched.generated_by}"
+        ))
         self.stdout.write(self.style.SUCCESS("=" * 75))
 
         cfg = load_outreach_config()
@@ -238,13 +251,14 @@ class Command(BaseCommand):
             clients_cache[account.username] = cl
             return cl
 
-        def is_within_circadian_hours() -> bool:
+        def check_shift_status() -> Tuple[bool, str, int]:
             if ignore_circadian:
-                return True
-            now_tehran = datetime.now(TEHRAN_TZ)
-            mins = now_tehran.hour * 60 + now_tehran.minute
-            # Natural active hours: 08:30 AM to 02:00 AM Tehran time (pauses during deep sleep: 02:00 to 08:30)
-            return (8 * 60 + 30) <= mins or mins < (2 * 60)
+                return True, "بررسی شیفت کاری بر اساس فلگ دستی نادیده گرفته شد.", 0
+            return HumanShiftPlanner.is_shift_active()
+
+        def is_within_circadian_hours() -> bool:
+            active, _, _ = check_shift_status()
+            return active
 
         def get_available_senders() -> List[InstagramEngineAccount]:
             now = django_tz.now()
@@ -301,12 +315,25 @@ class Command(BaseCommand):
             return available
 
         sender_consecutive_errors: Dict[str, int] = {}
+        sender_action_counts: Dict[str, int] = {}
+
+        def _sync_replies():
+            # 📬 Automatic Reply Checking (Runs after DM sending so it never blocks outbound messages)
+            try:
+                reply_res = check_and_sync_lead_replies(tenant_ids)
+                if reply_res.get("replies_found", 0) > 0:
+                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
+                    for d in reply_res.get("details", []):
+                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
+            except Exception as reply_err:
+                self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
 
         def execute_batch() -> int:
-            if not is_within_circadian_hours():
+            is_active, shift_reason, wait_sec = check_shift_status()
+            if not is_active:
                 now_tehran_str = datetime.now(TEHRAN_TZ).strftime("%H:%M")
                 self.stdout.write(self.style.WARNING(
-                    f"💤 [CIRCADIAN PAUSE] ساعت محلی تهران {now_tehran_str} است. ارسال در ساعات استراحت شبانه (۰۲:۰۰ تا ۰۸:۳۰) متوقف است."
+                    f"💤 [SHIFT PAUSE] ساعت محلی تهران {now_tehran_str} است. وضعیت: {shift_reason}"
                 ))
                 return 0
 
@@ -317,8 +344,60 @@ class Command(BaseCommand):
 
             self.stdout.write(f"👥 اکانت‌های فرستنده در دسترس: {[f'@{s.username} (امروز: {s.daily_action_count}/{s.daily_limit or 18} | این ساعت: {s.hourly_action_count or 0}/{s.hourly_limit or 3})' for s in available_senders]}")
 
-            # Fetch top priority NEW leads (candidate pool for filtering)
-            candidate_pool = max(batch_size * 20, 50)
+            sent_in_batch = 0
+
+            # -------------------------------------------------------------
+            # 📬 PRIORITY 1: Secure Outbox Queue (Follow-ups & Operator DMs)
+            # -------------------------------------------------------------
+            queued_leads = list(
+                InstagramEngineLead.objects.filter(
+                    tenant_id__in=tenant_ids,
+                    status="QUEUED",
+                ).order_by("updated_at")[:batch_size]
+            )
+
+            if queued_leads:
+                self.stdout.write(self.style.SUCCESS(
+                    f"⚡ [اولویت ۱ - صف ارسال مستقیم]: تعداد {len(queued_leads)} پیام در صف اولویت یافت شد."
+                ))
+                for q_lead in queued_leads:
+                    if sent_in_batch >= batch_size:
+                        break
+                    if not is_within_circadian_hours():
+                        self.stdout.write(self.style.WARNING("ساعت کاری به پایان رسید. توقف صف."))
+                        break
+
+                    self.stdout.write(f"📨 ارسال پیام صف برای @{q_lead.username}...")
+                    res = process_queued_outbox_message(q_lead, client_cache=clients_cache, dry_run=dry_run)
+                    if res.get("success"):
+                        sent_in_batch += 1
+                        sender_name = res.get("sender") or "مشاور"
+                        sender_action_counts[sender_name] = sender_action_counts.get(sender_name, 0) + 1
+                        self.stdout.write(self.style.SUCCESS(
+                            f"   ✅ پیام صف با موفقیت برای @{q_lead.username} توسط @{sender_name} ارسال شد."
+                        ))
+                        delay_sec, _ = HumanShiftPlanner.calculate_next_action_delay(is_priority_reply=True)
+                        if not dry_run and sent_in_batch < batch_size:
+                            self.stdout.write(f"   ⏳ مکث کوتاه مکالمه اولویت‌دار ({delay_sec:.1f} ثانیه)...\n")
+                            time.sleep(delay_sec)
+                        elif dry_run:
+                            time.sleep(1)
+                    else:
+                        self.stderr.write(self.style.ERROR(
+                            f"   ❌ خطا در ارسال پیام صف برای @{q_lead.username}: {res.get('error')}"
+                        ))
+
+            # If quota for this batch was filled by queued messages, skip cold leads
+            if sent_in_batch >= batch_size:
+                self.stdout.write(self.style.SUCCESS(f"🎉 سقف ارسال این چرخه ({batch_size} پیام) از طریق صف اولویت تکمیل شد."))
+                _sync_replies()
+                return sent_in_batch
+
+            # -------------------------------------------------------------
+            # 🎯 PRIORITY 2: Cold Lead Direct Outreach (High-intent Leads)
+            # -------------------------------------------------------------
+            remaining_slots = batch_size - sent_in_batch
+            candidate_pool = max(remaining_slots * 20, 50)
             leads = list(
                 InstagramEngineLead.objects.filter(
                     tenant_id__in=tenant_ids,
@@ -329,10 +408,12 @@ class Command(BaseCommand):
             )
 
             if not leads:
-                self.stdout.write(self.style.NOTICE(f"🏁 هیچ لید جدیدی (NEW) با امتیاز بالای {min_intent} برای ارسال وجود ندارد."))
-                return 0
+                if sent_in_batch == 0:
+                    self.stdout.write(self.style.NOTICE(f"🏁 هیچ لید جدیدی (NEW) با امتیاز بالای {min_intent} یا پیام در صف برای ارسال وجود ندارد."))
+                _sync_replies()
+                return sent_in_batch
 
-            self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(leads)} لید کاندیدا انتخاب شدند (هدف ارسال در این چرخه: {batch_size} دایرکت)."))
+            self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(leads)} لید کاندیدا انتخاب شدند (هدف ارسال باقی‌مانده در این چرخه: {remaining_slots} دایرکت)."))
 
             sent_in_batch = 0
 
@@ -411,13 +492,22 @@ class Command(BaseCommand):
                         lead.sender_account = sender_user
                         lead.initial_dm_text = pitch_text
                         lead.initial_dm_at = django_tz.now()
-                        lead.save(update_fields=["status", "sender_account", "initial_dm_text", "initial_dm_at", "updated_at"])
+                        lead.conversation_history = [{
+                            "sender": sender_user,
+                            "direction": "out",
+                            "role": "initial_outreach",
+                            "text": pitch_text,
+                            "time": django_tz.now().isoformat(),
+                            "delivery_status": "SENT",
+                        }]
+                        lead.save(update_fields=["status", "sender_account", "initial_dm_text", "initial_dm_at", "conversation_history", "updated_at"])
                         sender.daily_action_count += 1
                         sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
                         sender.last_action_at = django_tz.now()
                         sender.save(update_fields=["daily_action_count", "hourly_action_count", "last_action_at"])
                     sent_in_batch += 1
-                    time.sleep(2)
+                    sender_action_counts[sender.username] = sender_action_counts.get(sender.username, 0) + 1
+                    time.sleep(1)
                     continue
 
                 # Live execution with Super Shield
@@ -429,7 +519,7 @@ class Command(BaseCommand):
                     cl = get_or_create_client(sender)
 
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
-                    self.stdout.write(f"   [۱/۴] 🔍 بررسی ایمنی اکانت مقصد @{lead.username} توسط گاردریل...")
+                    self.stdout.write(f"   [۱/۳] 🔍 بررسی ایمنی اکانت مقصد @{lead.username} توسط گاردریل...")
                     qualify = qualify_recipient_profile(cl, lead.username, target_pk=lead.ig_user_pk)
                     if not qualify["eligible"]:
                         self.stdout.write(self.style.WARNING(
@@ -447,22 +537,29 @@ class Command(BaseCommand):
                         lead.save(update_fields=["status", "updated_at"])
                         continue
 
-                    # 🛡️ Step 2: Organic Human Warm-Up (Like recent post + View story)
-                    self.stdout.write(f"   [۲/۴] ❤️ تعامل طبیعی انسانی با پیج @{lead.username}...")
-                    warmup_res = perform_organic_warmup(cl, target_pk, lead.username)
-                    if warmup_res.get("liked_post"):
-                        self.stdout.write("      ❤️ لایک پست اخیر مخاطب انجام شد (ارسال اعلان در گوشی کاربر).")
-                    if warmup_res.get("viewed_story"):
+                    # 🛡️ Step 2: Full In-App Organic Navigation Journey
+                    self.stdout.write(f"   [۲/۳] 🌐 پیمایش ارگانیک و تعامل طبیعی در اینستاگرام برای @{lead.username}...")
+                    journey_res = execute_organic_journey(cl, lead.username, target_pk=target_pk)
+                    actions = journey_res.get("actions", {})
+                    if actions.get("feed_scrolled"):
+                        self.stdout.write("      📱 اسکرول فید تایم‌لاین انجام شد.")
+                    if actions.get("feed_post_liked"):
+                        self.stdout.write("      👍 یک پست تصادفی در فید لایک شد.")
+                    if actions.get("user_searched"):
+                        self.stdout.write("      🔎 جستجوی نام کاربری در سرچ‌بار اینستاگرام انجام شد.")
+                    if actions.get("profile_viewed"):
+                        self.stdout.write("      👤 صفحه پروفایل و گرید پست‌های مخاطب بازدید شد.")
+                    if actions.get("story_viewed"):
                         self.stdout.write("      👁️ استوری فعال مخاطب مشاهده شد.")
+                    if actions.get("target_post_liked"):
+                        self.stdout.write("      ❤️ پست اخیر مخاطب لایک شد (اعلان در گوشی کاربر).")
+                    self.stdout.write(f"      ⌨️ وقفه تایپ طبیعی ({actions.get('typing_delay_sec', 20)} ثانیه) انجام شد.")
 
-                    # 🛡️ Step 3: Human Typing Jitter
-                    typing_delay = random.uniform(15.0, 32.0)
-                    self.stdout.write(f"   [۳/۴] ⌨️ شبیه‌سازی تایپ انسانی ({typing_delay:.1f} ثانیه)...")
-                    time.sleep(typing_delay)
+                    final_pk = journey_res.get("target_pk") or target_pk
 
-                    # 🛡️ Step 4: Direct Send Message
-                    self.stdout.write(f"   [۴/۴] ✉️ ارسال دایرکت ضد اسپم از طرف {consultant_name} (@{sender_user})...")
-                    cl.direct_send(pitch_text, user_ids=[target_pk])
+                    # 🛡️ Step 3: Direct Send Message
+                    self.stdout.write(f"   [۳/۳] ✉️ ارسال دایرکت ضد اسپم از طرف {consultant_name} (@{sender_user})...")
+                    cl.direct_send(pitch_text, user_ids=[final_pk])
 
                     # Success: Update DB atomically
                     now = django_tz.now()
@@ -477,6 +574,7 @@ class Command(BaseCommand):
                             "role": "initial_outreach",
                             "text": pitch_text,
                             "time": now.isoformat(),
+                            "delivery_status": "SENT",
                         }]
                         lead.save(update_fields=[
                             "status", "sender_account", "initial_dm_text", "initial_dm_at",
@@ -490,19 +588,27 @@ class Command(BaseCommand):
 
                     # Reset consecutive errors on successful send
                     sender_consecutive_errors[sender.username] = 0
+                    sender_action_counts[sender.username] = sender_action_counts.get(sender.username, 0) + 1
                     sent_in_batch += 1
                     self.stdout.write(self.style.SUCCESS(f"   ✅ [ارسال موفق و ایمن] دایرکت با موفقیت به @{lead.username} ارسال شد."))
 
-                    # Dynamic Safety delay according to Dealism benchmarks
-                    if idx + 1 < len(leads):
-                        tier_specs = get_tier_specs(sender.account_tier)
-                        calc_min = tier_specs.get("min_delay_sec", delay_min)
-                        calc_max = tier_specs.get("max_delay_sec", delay_max)
-                        safety_sleep = random.uniform(calc_min, calc_max)
-                        self.stdout.write(
-                            f"   ⏳ [وقفه ایمنی بر اساس رده {tier_specs['title']}]: {safety_sleep / 60.0:.1f} دقیقه ({int(safety_sleep)} ثانیه) تا پیام بعدی...\n"
+                    # Dynamic Safety delay with stochastic micro-breaks
+                    if idx + 1 < len(leads) and sent_in_batch < batch_size:
+                        calc_delay, is_micro_break = HumanShiftPlanner.calculate_next_action_delay(
+                            account_tier=sender.account_tier,
+                            consecutive_actions=sender_action_counts[sender.username],
+                            is_priority_reply=False,
                         )
-                        time.sleep(safety_sleep)
+                        if is_micro_break:
+                            self.stdout.write(self.style.WARNING(
+                                f"   ☕ [استراحت طبیعی / قهوه یا مکالمه تلفنی]: توقف {calc_delay / 60.0:.1f} دقیقه ({int(calc_delay)} ثانیه) تا اقدام بعدی...\n"
+                            ))
+                        else:
+                            tier_specs = get_tier_specs(sender.account_tier)
+                            self.stdout.write(
+                                f"   ⏳ [وقفه ایمنی طبیعی بر اساس رده {tier_specs['title']}]: {calc_delay / 60.0:.1f} دقیقه ({int(calc_delay)} ثانیه) تا پیام بعدی...\n"
+                            )
+                        time.sleep(calc_delay)
 
                 except Exception as exc:
                     self.stderr.write(self.style.ERROR(f"   ❌ خطا در ارسال دایرکت به @{lead.username}: {exc}"))
@@ -615,16 +721,7 @@ class Command(BaseCommand):
                         lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
 
-            # 📬 Automatic Reply Checking (Runs after DM sending so it never blocks outbound messages)
-            try:
-                reply_res = check_and_sync_lead_replies(tenant_ids)
-                if reply_res.get("replies_found", 0) > 0:
-                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {reply_res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
-                    for d in reply_res.get("details", []):
-                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
-            except Exception as reply_err:
-                self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {reply_err}")
-
+            _sync_replies()
             return sent_in_batch
 
         # Execution controller
@@ -637,6 +734,17 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"🔄 حالت اجرای پیوسته فعال شد (فاصله بررسی بچ‌ها: {interval} دقیقه)...\n"))
         while True:
             try:
+                is_active, shift_reason, wait_sec = check_shift_status()
+                if not is_active:
+                    now_tehran_str = datetime.now(TEHRAN_TZ).strftime("%H:%M")
+                    self.stdout.write(self.style.WARNING(
+                        f"💤 [SHIFT PAUSE] ساعت محلی تهران {now_tehran_str} است. وضعیت: {shift_reason}"
+                    ))
+                    pause = min(wait_sec, 300)
+                    self.stdout.write(f"⏳ مکث تا آغاز یا ادامه شیفت کاری ({pause // 60} دقیقه دیگر)...")
+                    time.sleep(pause)
+                    continue
+
                 sent = execute_batch()
             except Exception as batch_err:
                 self.stderr.write(self.style.ERROR(f"خطای کلی در حلقه اجرای بچ: {batch_err}"))

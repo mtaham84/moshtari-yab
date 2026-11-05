@@ -291,9 +291,25 @@ def outreach_view(request):
     """Business owner's dedicated Instagram Outreach & Sender Management page."""
     import json
     from pathlib import Path
+    from apps.businesses.models import Business
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 
     business = getattr(request.user, "business", None)
+
+    # For staff / superuser, support ?biz=<id> or default to tenant_4 (Sarv Dental) if current business is empty
+    all_businesses = []
+    if request.user.is_staff or request.user.is_superuser:
+        all_businesses = list(Business.objects.all().order_by("id"))
+        biz_param = request.GET.get("biz")
+        if biz_param and biz_param.isdigit():
+            b = Business.objects.filter(id=int(biz_param)).first()
+            if b:
+                business = b
+        elif not business or business.id not in [4, 6]:
+            sarv_biz = Business.objects.filter(id=4).first()
+            if sarv_biz:
+                business = sarv_biz
+
     if not business:
         messages.error(request, "ابتدا اطلاعات کسب‌وکار خود را تکمیل نمایید.")
         return redirect("accounts:dashboard")
@@ -301,7 +317,12 @@ def outreach_view(request):
     tenant_key = f"tenant_{business.id}"
     tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
 
-    from apps.discovery.outreach_service import TIER_LIMITS
+    from apps.discovery.outreach_service import (
+        TIER_LIMITS,
+        get_lead_conversation_thread,
+        extract_iranian_phone_number,
+    )
+    from apps.discovery.models import Customer
 
     accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
     sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:50]
@@ -309,14 +330,32 @@ def outreach_view(request):
     pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
 
     # Leads who replied to our direct outreach
-    replied_leads = InstagramEngineLead.objects.filter(
+    replied_leads_qs = InstagramEngineLead.objects.filter(
         tenant_id__in=tenant_keys,
         has_replied=True
     ).order_by("-reply_at")[:50]
+    replied_leads = list(replied_leads_qs)
     replied_count = InstagramEngineLead.objects.filter(
         tenant_id__in=tenant_keys,
         has_replied=True
     ).count()
+
+    # Decorate leads with full direct conversation thread and extracted phone number
+    for lead in replied_leads:
+        lead.thread = get_lead_conversation_thread(lead)
+        phone = None
+        if lead.ig_user_pk:
+            cust = Customer.objects.filter(external_user_id=str(lead.ig_user_pk)).first()
+            if cust and cust.phone_number:
+                phone = cust.phone_number
+        if not phone:
+            for m in lead.thread:
+                if m.get("is_incoming") or m.get("direction") == "in":
+                    extracted = extract_iranian_phone_number(m.get("text"))
+                    if extracted:
+                        phone = extracted
+                        break
+        lead.captured_phone = phone
 
     # Load pitch configuration
     config_path = Path("data/sarv_outreach_config.json")
@@ -368,6 +407,7 @@ def outreach_view(request):
         "default_pitch": default_pitch,
         "default_consultant": default_consultant,
         "default_username": default_username,
+        "all_businesses": all_businesses,
     })
 
 
@@ -417,7 +457,11 @@ def save_pitch_view(request):
 @login_required
 @require_POST
 def add_outreach_account_view(request):
-    """Connect a new Instagram sender account for the business."""
+    """Connect a new Instagram sender account for the business (restricted to staff/superusers)."""
+    if not (request.user.is_staff or request.user.is_superuser):
+        messages.error(request, "افزودن و اتصال اکانت اینستاگرام فقط توسط مدیران و پرسنل سیستم مجاز است.")
+        return redirect("accounts:outreach")
+
     import re
     import json
     from pathlib import Path
@@ -460,7 +504,7 @@ def add_outreach_account_view(request):
 
     account = InstagramEngineAccount.objects.filter(username__iexact=username).first()
     if not account:
-        account = InstagramEngineAccount(
+        account = InstagramEngineAccount.objects.create(
             username=username,
             password=password or "stored_session",
             role="SENDER",
@@ -480,6 +524,7 @@ def add_outreach_account_view(request):
         account.status = "ACTIVE"
         if password:
             account.password = password
+        account.save()
 
     # Attempt connection with instagrapi
     try:
@@ -600,9 +645,9 @@ def sync_replies_view(request):
 @login_required
 @require_POST
 def send_followup_view(request):
-    """Send a second / follow-up message to a lead from any selected sender account."""
+    """Enqueue a direct message / follow-up to an Instagram lead in the safe dispatch queue."""
     from django.http import JsonResponse
-    from apps.discovery.outreach_service import send_second_followup_message
+    from apps.discovery.outreach_service import enqueue_direct_message
 
     business = getattr(request.user, "business", None)
     if not business:
@@ -612,21 +657,63 @@ def send_followup_view(request):
     sender_username = request.POST.get("sender_username", "").strip().lstrip("@")
     message_text = request.POST.get("message_text", "").strip()
 
-    if not lead_id or not sender_username or not message_text:
+    if not lead_id or not message_text:
         if request.headers.get("x-requested-with") == "XMLHttpRequest":
             return JsonResponse({"success": False, "error": "اطلاعات ارسالی ناقص است."}, status=400)
-        messages.error(request, "لطفاً اکانت فرستنده و متن پیام را وارد فرمایید.")
+        messages.error(request, "لطفاً متن پیام را وارد فرمایید.")
         return redirect("accounts:outreach")
 
-    res = send_second_followup_message(int(lead_id), sender_username, message_text)
+    res = enqueue_direct_message(int(lead_id), message_text, sender_username or None)
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return JsonResponse(res)
 
     if res.get("success"):
-        messages.success(request, f"پیام دوم با موفقیت توسط @{sender_username} برای خریدار ارسال شد.")
+        sender_label = res.get("sender") or sender_username or "اکانت فعال"
+        messages.success(request, f"پیام با موفقیت در صف ارسال امن قرار گرفت و به زودی با الگوی طبیعی توسط @{sender_label} ارسال می‌شود.")
     else:
-        messages.error(request, f"خطا در ارسال پیام دوم: {res.get('error')}")
+        messages.error(request, f"خطا در ثبت پیام در صف: {res.get('error')}")
     return redirect("accounts:outreach")
+
+
+@login_required
+@require_POST
+def update_lead_phone_view(request):
+    """Manually update or save a customer's phone number from the direct outreach panel."""
+    from django.http import JsonResponse
+    from apps.discovery.models import InstagramEngineLead, Customer
+    from apps.discovery.outreach_service import extract_iranian_phone_number
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        return JsonResponse({"success": False, "error": "دسترسی غیرمجاز."}, status=403)
+
+    lead_id = request.POST.get("lead_id")
+    raw_phone = request.POST.get("phone_number", "").strip()
+
+    if not lead_id or not raw_phone:
+        return JsonResponse({"success": False, "error": "شناسه مشتری یا شماره تماس نامعتبر است."}, status=400)
+
+    lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
+    if not lead:
+        return JsonResponse({"success": False, "error": "لید یافت نشد."}, status=404)
+
+    norm_phone = extract_iranian_phone_number(raw_phone) or raw_phone
+
+    if lead.ig_user_pk:
+        cust, _ = Customer.objects.get_or_create(
+            business=business,
+            external_user_id=str(lead.ig_user_pk),
+            defaults={
+                "name": lead.full_name or lead.username,
+                "source_platform": "instagram",
+                "source_username": lead.username,
+                "source_profile_url": lead.profile_url or f"https://www.instagram.com/{lead.username}/",
+            }
+        )
+        cust.phone_number = norm_phone
+        cust.save(update_fields=["phone_number", "updated_at"])
+
+    return JsonResponse({"success": True, "phone_number": norm_phone})
 
 
 @login_required

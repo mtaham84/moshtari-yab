@@ -22,4 +22,13 @@ urlpatterns = [
     path("settings/exchange-rate/", manage_views.manage_exchange_rate_update, name="exchange_rate_update"),
     path("proxies/test/", manage_views.manage_proxy_test, name="proxy_test"),
     path("proxies/<int:pk>/test/", manage_views.manage_proxy_test, name="proxy_single_test"),
+    # Instagram Cockpit & Web-Client Simulator
+    path("instagram/accounts/<int:pk>/", manage_views.instagram_account_cockpit, name="instagram_account_cockpit"),
+    path("instagram/accounts/<int:pk>/api/threads/", manage_views.instagram_cockpit_threads, name="instagram_cockpit_threads"),
+    path("instagram/accounts/<int:pk>/api/threads/<str:thread_id>/", manage_views.instagram_cockpit_thread_detail, name="instagram_cockpit_thread_detail"),
+    path("instagram/accounts/<int:pk>/api/direct/send/", manage_views.instagram_cockpit_send_direct, name="instagram_cockpit_send_direct"),
+    path("instagram/accounts/<int:pk>/api/feed/", manage_views.instagram_cockpit_feed, name="instagram_cockpit_feed"),
+    path("instagram/accounts/<int:pk>/api/scroll-feed/", manage_views.instagram_cockpit_scroll_feed, name="instagram_cockpit_scroll_feed"),
+    path("instagram/accounts/<int:pk>/api/search/", manage_views.instagram_cockpit_search, name="instagram_cockpit_search"),
+    path("instagram/accounts/<int:pk>/api/organic-dm/", manage_views.instagram_cockpit_organic_dm, name="instagram_cockpit_organic_dm"),
 ]
