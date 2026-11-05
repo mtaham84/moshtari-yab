@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import logging
 import threading
 import time
@@ -15,10 +16,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger("core.prompts")
 
-# Candidate paths for shared prompt overrides across host and docker containers
+# Candidate paths for shared prompt overrides: PROMPTS_OVERRIDE_FILE, the container volume, the repo's data/
 OVERRIDE_FILE_CANDIDATES = [
+    *([Path(os.environ["PROMPTS_OVERRIDE_FILE"])] if os.environ.get("PROMPTS_OVERRIDE_FILE") else []),
     Path("/app/data/prompts_override.json"),
-    Path("/root/moshtari-yab/data/prompts_override.json"),
     Path(__file__).resolve().parent.parent.parent / "data" / "prompts_override.json",
 ]
 

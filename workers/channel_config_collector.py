@@ -23,7 +23,7 @@ log = logging.getLogger("workers.channel_config_collector")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-for env_candidate in [ROOT_DIR / ".env", Path("/root/moshtari-yab/.env")]:
+for env_candidate in [ROOT_DIR / ".env"]:
     if env_candidate.exists():
         try:
             with open(env_candidate, "r", encoding="utf-8") as f:
