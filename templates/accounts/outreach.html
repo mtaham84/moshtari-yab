@@ -6,6 +6,61 @@
 {% block nav_outreach %}active{% endblock %}
 
 {% block panel_content %}
+<style>
+  .outreach-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .outreach-2col-compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .outreach-timeline-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .outreach-followup-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr 140px;
+    gap: 10px;
+    align-items: center;
+  }
+  .outreach-modal-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 992px) {
+    .outreach-main-grid {
+      grid-template-columns: 1fr !important;
+      gap: 18px;
+    }
+    .outreach-timeline-grid {
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+    .outreach-followup-grid {
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .outreach-2col-compact {
+      grid-template-columns: 1fr !important;
+      gap: 8px;
+    }
+    .outreach-modal-2col {
+      grid-template-columns: 1fr !important;
+      gap: 10px;
+    }
+  }
+</style>
+
 <div class="p-page-header" style="margin-bottom: 24px;">
   <div class="p-header-titles">
     <div style="display:flex; align-items:center; gap:10px;">
@@ -86,23 +141,23 @@
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
-        🛡️ فیلتر خودکار اکانت‌های خصوصی
+        فیلتر خودکار اکانت‌های خصوصی
       </span>
       <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
-        ❤️ لایک + استوری ارگانیک قبل از پیام
+        لایک و استوری ارگانیک قبل از پیام
       </span>
       <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
-        🎲 موتور Spintax (متن ۱۰۰٪ یکتا)
+        موتور اسپین‌تکس متن یکتا
       </span>
       <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; font-size:0.78rem;">
-        ⚡ مدارشکن هوشمند استراحت خودکار
+        مدارشکن هوشمند استراحت خودکار
       </span>
     </div>
   </div>
 </div>
 
 <!-- Main 2-Column Grid -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:28px;">
+<div class="outreach-main-grid" style="margin-bottom:28px;">
 
   <!-- Right Column: Add Sender Account Form with Dealism Tiers + Tutorial -->
   <div>
@@ -137,9 +192,9 @@
           </label>
           <select name="account_tier" id="tier-select" onchange="onTierChange(this.value)"
                   style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-weight:600;">
-            <option value="NEW" selected>🔵 اکانت جدید (زیر ۳ ماه) — ۱۰ تا ۲۰ پیام در روز | ۲ تا ۳ پیام در ساعت</option>
-            <option value="MEDIUM">🟡 اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰ تا ۵۰ پیام در روز | ۵ تا ۱۰ پیام در ساعت</option>
-            <option value="AGED">🟢 اکانت قدیمی و فعال (بالای ۱ سال) — ۵۰ تا ۱۰۰ پیام در روز | ۱۰ تا ۱۵ پیام در ساعت</option>
+            <option value="NEW" selected>اکانت جدید (زیر ۳ ماه) — ۱۰ تا ۲۰ پیام در روز | ۲ تا ۳ پیام در ساعت</option>
+            <option value="MEDIUM">اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰ تا ۵۰ پیام در روز | ۵ تا ۱۰ پیام در ساعت</option>
+            <option value="AGED">اکانت قدیمی و فعال (بالای ۱ سال) — ۵۰ تا ۱۰۰ پیام در روز | ۱۰ تا ۱۵ پیام در ساعت</option>
           </select>
           <small style="color:var(--panel-text-muted); font-size:0.74rem; display:block; margin-top:4px;">
             الگوریتم بر اساس سن اکانت، وقفه بین پیام‌ها (از ۴ دقیقه تا ۳۰ دقیقه) را به طور خودکار تنظیم می‌کند.
@@ -237,7 +292,7 @@
           ✨ دستیار هوشمند تولید متن پیام با AI
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+        <div class="outreach-2col-compact" style="margin-bottom:10px;">
           <div>
             <label style="font-size:0.76rem; font-weight:600; display:block; margin-bottom:3px; color:#475569;">لحن پیام:</label>
             <select id="ai-tone-select" style="width:100%; padding:7px 10px; border:1px solid #e9d5ff; border-radius:6px; font-size:0.82rem; background:#fff;">
@@ -256,7 +311,7 @@
 
         <button type="button" onclick="generateAiPitches()" id="ai-generate-btn"
                 style="width:100%; padding:8px; background:#9333ea; color:#fff; border:none; border-radius:6px; font-weight:700; font-size:0.84rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
-          <span>🤖 تولید ۳ نمونه پیام هوشمند با AI</span>
+          <span>تولید ۳ نمونه پیام هوشمند با AI</span>
         </button>
 
         <!-- AI Pitch Choices Container -->
@@ -299,7 +354,7 @@
         </div>
 
         <div style="background:#fffbeb; border:1px solid #fef3c7; border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:0.78rem; color:#92400e; line-height:1.6;">
-          <strong>💡 نکته طلایی ضد اسپم:</strong> پیام دایرکت اول باید کوتاه و بدون لینک مستقیم باشد. هدف آن جلب اعتماد خریدار برای باز کردن گفتگو است.
+          <strong>نکته طلایی ضد اسپم:</strong> پیام دایرکت اول باید کوتاه و بدون لینک مستقیم باشد. هدف آن جلب اعتماد خریدار برای باز کردن گفتگو است.
         </div>
 
         <button type="submit" class="p-btn p-btn-primary" style="width:100%; padding:10px; font-weight:700; border-radius:8px; background:#c026d3; border-color:#c026d3;">
@@ -334,150 +389,455 @@
 
 </div>
 
-<!-- Inbox & Replies Section (پاسخ‌های دریافتی از مشتریان) -->
-<div id="inbox-section" class="p-card" style="padding:24px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:28px;">
-  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+<!-- Prioritized Top-Scoring Leads Section (صف اولویت‌بندی شده برای دایرکت) -->
+<div id="top-leads-section" class="p-card" style="padding:24px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:28px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:18px;">
     <div>
-      <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#7c3aed" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-        صندوق گفتگوها و پاسخ‌های دریافتی مشتریان (Inbox & Replies)
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="p-badge" style="background:#e0e7ff; color:#3730a3; font-weight:800; font-size:0.75rem; padding:4px 8px; border-radius:4px;">
+          الگوریتم اولویت‌بندی اختصاصی اینستاگرام
+        </span>
+        <span style="font-size:0.8rem; color:var(--panel-text-muted);">بازه مجاز: ۵ روز اخیر</span>
+      </div>
+      <h2 style="margin:6px 0 0; font-size:1.25rem; font-weight:800; color:var(--panel-text-main);">
+        صف لیدهای اولویت‌بندی شده برای دایرکت (پرامتیازترین لیدها)
       </h2>
       <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
-        خریدارانی که به دایرکت اولیه ما پاسخ داده‌اند در این بخش قرار دارند و می‌توانید مستقیماً یا با اکانت دیگر پیام دوم بفرستید.
+        لیدها طبق فرمول رسمی ۳۵ امتیازی (۱۵ امتیاز پیج پابلیک + ۱۵ امتیاز سوال مشاوره‌ای یا کال‌تواکشن + ۵ امتیاز تازگی زمانی ۵ روز اخیر) رتبه‌بندی شده‌اند و ارسال دایرکت به ترتیب بالاترین امتیاز انجام می‌شود.
+      </p>
+    </div>
+
+    <!-- Quick Filter Summary Badges & Excel Export -->
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; width:100%;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span class="p-badge" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
+          اولویت ویژه (۳۰ تا ۳۵ امتیاز): {{ high_priority_count }}
+        </span>
+        <span class="p-badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
+          پیج‌های عمومی (پابلیک): {{ public_leads_count }}
+        </span>
+        <span class="p-badge" style="background:#faf5ff; color:#7e22ce; border:1px solid #e9d5ff; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
+          سوالات مشاوره‌ای و اقساط: {{ inquiry_leads_count }}
+        </span>
+      </div>
+      <div>
+        <a href="{% url 'accounts:outreach_export' %}" class="p-btn"
+           style="background:#059669; color:#fff; padding:7px 14px; border-radius:8px; font-weight:700; font-size:0.82rem; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          خروجی اکسل لیدهای اینستاگرام (Excel .csv)
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {% if top_leads %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%; text-align:right; border-collapse:collapse;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.86rem; background:#f8fafc;">
+          <th style="padding:10px 12px; text-align:center; width:100px;">امتیاز و احتمال</th>
+          <th style="padding:10px 12px; width:180px;">مخاطب اینستاگرام</th>
+          <th style="padding:10px 12px; width:210px;">تفکیک امتیاز (پابلیک / نیت / تازگی)</th>
+          <th style="padding:10px 12px; min-width:240px;">متن کامنت و اطلاعات پست مبدا</th>
+          <th style="padding:10px 12px; min-width:240px;">پیش‌نویس پیام اختصاصی</th>
+          <th style="padding:10px 12px; text-align:center; width:110px;">وضعیت دایرکت</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in top_leads %}
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.85rem; {% if lead.outreach_score >= 30 %}background:#fcfdff;{% endif %}">
+          <!-- Total Score & Success Probability Badge -->
+          <td style="padding:12px; text-align:center; vertical-align:middle;">
+            <div style="display:inline-flex; flex-direction:column; align-items:center; justify-content:center; width:54px; height:54px; border-radius:12px;
+                        {% if lead.outreach_score >= 30 %}background:#ecfdf5; border:1px solid #86efac; color:#047857;{% elif lead.outreach_score >= 20 %}background:#eff6ff; border:1px solid #93c5fd; color:#1d4ed8;{% else %}background:#f8fafc; border:1px solid #e2e8f0; color:#475569;{% endif %}">
+              <span style="font-size:1.15rem; font-weight:900; line-height:1;">{{ lead.outreach_score }}</span>
+              <span style="font-size:0.62rem; font-weight:700; color:inherit; opacity:0.85;">از ۴۵</span>
+            </div>
+            <div style="margin-top:4px;">
+              <span style="font-size:0.72rem; font-weight:800; color:#0284c7; background:#e0f2fe; padding:2px 6px; border-radius:4px; display:inline-block;">
+                احتمال {{ lead.success_probability|default:50 }}٪
+              </span>
+            </div>
+          </td>
+
+          <!-- Username & Profile Privacy -->
+          <td style="padding:12px; vertical-align:top;">
+            <a href="https://instagram.com/{{ lead.username }}" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb; text-decoration:none; font-family:monospace; font-size:0.92rem; display:block; direction:ltr; text-align:right;">
+              @{{ lead.username }} ↗
+            </a>
+            {% if lead.full_name and lead.full_name != lead.username %}
+            <div style="font-size:0.78rem; color:#475569; margin-top:2px;">{{ lead.full_name }}</div>
+            {% endif %}
+            <div style="margin-top:4px;">
+              {% if lead.is_private %}
+                <span class="p-badge" style="background:#fee2e2; color:#b91c1c; font-size:0.72rem; padding:2px 6px; border-radius:4px; font-weight:700;">
+                  خصوصی (Private)
+                </span>
+              {% else %}
+                <span class="p-badge" style="background:#dcfce7; color:#15803d; font-size:0.72rem; padding:2px 6px; border-radius:4px; font-weight:700;">
+                  عمومی (Public)
+                </span>
+              {% endif %}
+            </div>
+            {% if lead.comment_created_at_jalali %}
+            <div style="margin-top:4px; font-size:0.72rem; color:#64748b;">
+              ثبت کامنت: {{ lead.comment_created_at_jalali }}
+            </div>
+            {% endif %}
+          </td>
+
+          <!-- Score Breakdown Badges -->
+          <td style="padding:12px; vertical-align:top;">
+            <div style="display:flex; flex-direction:column; gap:4px; font-size:0.76rem;">
+              <!-- Intent Type Badge -->
+              {% if lead.comment_intent_type == 'QUESTION_INQUIRY' %}
+                <span style="background:#f3e8ff; color:#6b21a8; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  سوال و نیاز مشاوره‌ای (+۱۵)
+                </span>
+              {% elif lead.comment_intent_type == 'DIRECT_SHORT_CTA' %}
+                <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیام کوتاه / کال‌تواکشن (+۱۵)
+                </span>
+              {% else %}
+                <span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  قصد خرید عمومی (+۱۰)
+                </span>
+              {% endif %}
+
+              <!-- Freshness Badge -->
+              <span style="background:#fef9c3; color:#854d0e; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                تازگی: {{ lead.score_breakdown.age_label|default:"۵ روز اخیر" }} (+{{ lead.score_breakdown.freshness_score|default:0 }})
+              </span>
+            </div>
+          </td>
+
+          <!-- Comment Text & Source Post Info -->
+          <td style="padding:12px; vertical-align:top;">
+            <div style="font-size:0.84rem; color:#1e293b; line-height:1.6; max-height:80px; overflow-y:auto; background:#f8fafc; border-radius:6px; padding:8px 10px; border:1px solid #f1f5f9;">
+              {{ lead.comment_text }}
+            </div>
+            <div style="margin-top:6px; display:flex; flex-direction:column; gap:3px; font-size:0.73rem;">
+              {% if lead.source_page_title or lead.source_page_username %}
+              <div>
+                <span style="color:#64748b;">پیج مبدا:</span>
+                <a href="{{ lead.source_page_url|default:'#' }}" target="_blank" rel="noopener" style="font-weight:700; color:#4f46e5; text-decoration:none;">
+                  {{ lead.source_page_title|default:lead.source_page_username }} ({{ lead.source_page_username }})
+                </a>
+              </div>
+              {% endif %}
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                {% if lead.source_post_url %}
+                <a href="{{ lead.source_post_url }}" target="_blank" rel="noopener" style="color:#0284c7; text-decoration:none; font-weight:600;">
+                  مشاهده پست مبدا ↗
+                </a>
+                {% endif %}
+                {% if lead.post_created_at_jalali %}
+                <span style="color:#94a3b8;">انتشار پست: {{ lead.post_created_at_jalali }}</span>
+                {% endif %}
+              </div>
+              {% if lead.post_caption_snippet %}
+              <div style="color:#64748b; font-size:0.71rem; line-height:1.4; background:#f1f5f9; padding:4px 6px; border-radius:4px; margin-top:2px;" title="{{ lead.post_caption_snippet }}">
+                کپشن: {{ lead.post_caption_snippet|truncatechars:90 }}
+              </div>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Personalized Pitch Preview -->
+          <td style="padding:12px; vertical-align:top;">
+            <div style="font-size:0.8rem; color:#475569; line-height:1.6; background:#faf5ff; border:1px solid #f3e8ff; border-radius:6px; padding:8px 10px; max-height:85px; overflow-y:auto; white-space:pre-wrap;">
+              {{ lead.pitch_preview }}
+            </div>
+          </td>
+
+          <!-- Status Badge -->
+          <td style="padding:12px; text-align:center; vertical-align:middle;">
+            {% if lead.status == 'NEW' %}
+              <span class="p-badge" style="background:#eff6ff; color:#1d4ed8; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                در صف ارسال
+              </span>
+            {% elif lead.status == 'DM_SENT' %}
+              <span class="p-badge" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                دایرکت ارسال شد
+              </span>
+            {% elif lead.status == 'REPLIED' %}
+              <span class="p-badge" style="background:#ede9fe; color:#6d28d9; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                پاسخ دریافت شد
+              </span>
+            {% elif lead.status == 'FOLLOWUP_SENT' %}
+              <span class="p-badge" style="background:#dbeafe; color:#1d4ed8; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                پیگیری شد
+              </span>
+            {% elif lead.status == 'SKIPPED' %}
+              <span class="p-badge" style="background:#f1f5f9; color:#64748b; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                رد شده (حفاظت)
+              </span>
+            {% else %}
+              <span class="p-badge" style="background:#fef2f2; color:#b91c1c; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                ناموفق
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="padding:30px; text-align:center; color:var(--panel-text-muted); font-size:0.9rem;">
+    هنوز لیدی با شرایط ۵ روز اخیر ثبت نشده است. اسکرپر در چرخه‌های بعدی به صورت خودکار کامنت‌های تازه را استخراج و امتیازدهی خواهد کرد.
+  </div>
+  {% endif %}
+</div>
+
+<!-- Instagram Direct Chat Room (روم اختصاصی گفتگو با خریداران) -->
+<div id="inbox-section" class="p-card" style="padding:22px; border-radius:14px; border:1px solid var(--panel-border); margin-bottom:28px; background:var(--panel-card);">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--panel-border);">
+    <div>
+      <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px; color:var(--panel-text-main);">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#2563eb" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        روم گفتگو و پیام‌رسانی دایرکت اینستاگرام (Direct Chat Room)
+      </h2>
+      <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
+        مشاهده پیام اولیه، پاسخ دریافتی خریدار و ارسال پیام دوم، سوم و پیگیری بدون محدودیت با امکان جابجایی اکانت‌های فرستنده.
       </p>
     </div>
 
     <div style="display:flex; align-items:center; gap:10px;">
-      <a href="{% url 'accounts:sync_replies' %}" class="p-btn"
-         style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; padding:8px 14px; border-radius:8px; font-weight:700; font-size:0.84rem; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+      <button type="button" id="syncRepliesBtn" onclick="syncChatReplies()" class="p-btn"
+              style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; padding:8px 14px; border-radius:8px; font-weight:700; font-size:0.84rem; display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-        بررسی فوری پاسخ‌ها (Check Replies Now)
-      </a>
-      <span class="p-badge" style="background:#ede9fe; color:#6d28d9; font-weight:700; padding:6px 12px; border-radius:6px;">
+        بررسی و همگام‌سازی فوری دایرکت‌ها
+      </button>
+      <span class="p-badge" style="background:#ede9fe; color:#6d28d9; font-weight:700; padding:6px 12px; border-radius:6px; font-size:0.84rem;">
         مجموع پاسخ‌ها: {{ replied_count }}
       </span>
     </div>
   </div>
 
-  {% if replied_leads %}
-  <div style="display:flex; flex-direction:column; gap:16px;">
-    {% for lead in replied_leads %}
-    <div style="border:1px solid #e2e8f0; border-radius:12px; padding:16px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.03);">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #f1f5f9;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div style="width:38px; height:38px; border-radius:50%; background:#e0e7ff; color:#3730a3; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.9rem;">
-            {{ lead.username|slice:":2"|upper }}
+  <!-- Chat Room 2-Column Responsive Layout -->
+  <div class="chat-room-container" style="display:grid; grid-template-columns:320px 1fr; gap:16px; border:1px solid #cbd5e1; border-radius:12px; overflow:hidden; background:#fff; min-height:560px;">
+
+    <!-- Right Sidebar: Conversations List -->
+    <div id="chatSidebarCol" style="border-left:1px solid #e2e8f0; display:flex; flex-direction:column; background:#f8fafc;">
+      <div style="padding:12px 14px; border-bottom:1px solid #e2e8f0; background:#f1f5f9;">
+        <div style="position:relative;">
+          <input type="text" id="chatSearchInput" oninput="filterChatLeads(this.value)" placeholder="جستجوی خریدار یا اکانت..."
+                 style="width:100%; padding:8px 12px; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">
+        </div>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button type="button" onclick="setChatFilter('all')" id="chatFilterAll"
+                  style="flex:1; padding:4px 6px; font-size:0.74rem; font-weight:700; border:1px solid #2563eb; background:#2563eb; color:#fff; border-radius:6px; cursor:pointer;">
+            همه گفتگوها
+          </button>
+          <button type="button" onclick="setChatFilter('replied')" id="chatFilterReplied"
+                  style="flex:1; padding:4px 6px; font-size:0.74rem; font-weight:700; border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:6px; cursor:pointer;">
+            پاسخ‌داده‌ها ({{ replied_count }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Leads Scrollable List -->
+      <div id="chatLeadsList" style="flex:1; overflow-y:auto; max-height:480px;">
+        {% with active_leads=conversation_leads|default:replied_leads %}
+        {% if active_leads %}
+          {% for lead in active_leads %}
+          <div class="chat-lead-item {% if forloop.first %}active{% endif %}"
+               id="lead-item-{{ lead.id }}"
+               data-lead-id="{{ lead.id }}"
+               data-username="{{ lead.username|lower }}"
+               data-has-replied="{% if lead.has_replied %}1{% else %}0{% endif %}"
+               onclick="selectChatLead({{ lead.id }})"
+               style="padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.15s; background:{% if forloop.first %}#eff6ff{% else %}transparent{% endif %}; border-right:{% if forloop.first %}4px solid #2563eb{% else %}4px solid transparent{% endif %};">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="width:32px; height:32px; border-radius:50%; background:#e0e7ff; color:#3730a3; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.8rem; font-family:monospace;">
+                  {{ lead.username|slice:":2"|upper }}
+                </div>
+                <div>
+                  <div style="font-weight:700; font-size:0.85rem; color:#1e293b; font-family:monospace;">@{{ lead.username }}</div>
+                  <div style="font-size:0.7rem; color:#64748b;">امتیاز نیت: <strong style="color:#15803d;">{{ lead.intent_score|floatformat:2 }}</strong></div>
+                </div>
+              </div>
+              <div>
+                {% if lead.has_replied %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#dcfce7; color:#15803d;">پاسخ داده</span>
+                {% elif lead.status == 'FOLLOWUP_SENT' %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#e0e7ff; color:#4338ca;">پیام ارسال شد</span>
+                {% else %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#f1f5f9; color:#64748b;">ارسال اولیه</span>
+                {% endif %}
+              </div>
+            </div>
+            <div style="font-size:0.75rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:4px;">
+              {{ lead.reply_text|default:lead.second_message_text|default:lead.initial_dm_text|default:"(شروع مکالمه)"|truncatechars:42 }}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <!-- Fallback to top_leads if no conversation leads yet -->
+          {% for lead in top_leads|slice:":25" %}
+          <div class="chat-lead-item {% if forloop.first %}active{% endif %}"
+               id="lead-item-{{ lead.id }}"
+               data-lead-id="{{ lead.id }}"
+               data-username="{{ lead.username|lower }}"
+               data-has-replied="{% if lead.has_replied %}1{% else %}0{% endif %}"
+               onclick="selectChatLead({{ lead.id }})"
+               style="padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.15s; background:{% if forloop.first %}#eff6ff{% else %}transparent{% endif %}; border-right:{% if forloop.first %}4px solid #2563eb{% else %}4px solid transparent{% endif %};">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="width:32px; height:32px; border-radius:50%; background:#e0e7ff; color:#3730a3; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.8rem; font-family:monospace;">
+                  {{ lead.username|slice:":2"|upper }}
+                </div>
+                <div>
+                  <div style="font-weight:700; font-size:0.85rem; color:#1e293b; font-family:monospace;">@{{ lead.username }}</div>
+                  <div style="font-size:0.7rem; color:#64748b;">امتیاز نیت: <strong style="color:#15803d;">{{ lead.intent_score|floatformat:2 }}</strong></div>
+                </div>
+              </div>
+              <div>
+                <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#f1f5f9; color:#64748b;">لید خریدار</span>
+              </div>
+            </div>
+            <div style="font-size:0.75rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:4px;">
+              {{ lead.comment_text|truncatechars:42 }}
+            </div>
+          </div>
+          {% endfor %}
+        {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+
+    <!-- Left Main Column: Active Chat Room -->
+    <div id="chatMainCol" style="display:flex; flex-direction:column; background:#ffffff;">
+      <!-- Active Lead Header -->
+      <div id="chatActiveHeader" style="padding:14px 18px; border-bottom:1px solid #e2e8f0; background:#f8fafc; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div id="chatLeadAvatar" style="width:40px; height:40px; border-radius:50%; background:#2563eb; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1rem; font-family:monospace;">
+            --
           </div>
           <div>
-            <a href="https://instagram.com/{{ lead.username }}" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb; text-decoration:none; font-family:monospace; font-size:0.95rem;">
-              @{{ lead.username }} ↗
-            </a>
-            <span style="font-size:0.75rem; color:#64748b; margin-right:8px;">
-              احتمال خرید: <strong style="color:#15803d;">{{ lead.intent_score|floatformat:2 }}</strong>
-            </span>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span id="chatLeadUsername" style="font-weight:800; font-size:1rem; color:#0f172a; font-family:monospace;">انتخاب خریدار...</span>
+              <a id="chatLeadProfileUrl" href="#" target="_blank" rel="noopener"
+                 style="font-size:0.76rem; color:#2563eb; text-decoration:none; background:#eff6ff; padding:2px 8px; border-radius:4px; font-weight:600;">
+                پروفایل اینستاگرام ↗
+              </a>
+              <span id="chatLeadSenderAccountBadge" style="font-size:0.75rem; background:#ede9fe; color:#6d28d9; padding:2px 8px; border-radius:4px; font-weight:700; font-family:monospace;">
+                اکانت فرستنده پیام: --
+              </span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:3px;">
+              <span id="chatLeadIntentBadge" style="font-size:0.72rem; color:#15803d; font-weight:700;">احتمال خرید: --</span>
+              <span style="color:#cbd5e1;">|</span>
+              <span id="chatLeadStatusBadge" style="font-size:0.72rem; color:#64748b; font-weight:600;">وضعیت: --</span>
+            </div>
           </div>
         </div>
 
-        <div>
-          {% if lead.status == 'FOLLOWUP_SENT' %}
-            <span class="p-badge" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; font-weight:700; padding:4px 10px; border-radius:6px; font-size:0.78rem;">
-              ✓ پیام دوم ارسال شد (توسط @{{ lead.second_sender_username }})
-            </span>
-          {% else %}
-            <span class="p-badge" style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; font-weight:700; padding:4px 10px; border-radius:6px; font-size:0.78rem;">
-              ⚠️ نیازمند پاسخ / پیگیری
-            </span>
-          {% endif %}
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="toggleLeadSourceBtn" onclick="toggleLeadSourceInfo()" class="p-btn"
+                  style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; padding:6px 12px; border-radius:6px; font-size:0.78rem; font-weight:700; cursor:pointer;">
+            نمایش اطلاعات مشتری و منبع کامنت
+          </button>
+          <button type="button" onclick="refreshCurrentChatLead()" class="p-btn"
+                  style="background:#fff; border:1px solid #cbd5e1; padding:6px 12px; border-radius:6px; font-size:0.78rem; font-weight:600; color:#475569; cursor:pointer;">
+            بروزرسانی پیام‌ها
+          </button>
         </div>
       </div>
 
-      <!-- Dialogue Timeline -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:14px;">
-        <!-- Initial DM sent by us -->
-        <div style="background:#f8fafc; border-radius:8px; padding:12px; font-size:0.83rem; line-height:1.6;">
-          <div style="font-size:0.74rem; color:#64748b; font-weight:700; margin-bottom:4px;">
-            ✉️ پیام اولیه ارسالی ما (توسط @{{ lead.sender_account|default:"مشاور" }}):
-          </div>
-          <div style="color:#334155; white-space:pre-wrap;">{{ lead.initial_dm_text|default:"(پیام مشاوره اولیه ارسال شده است)" }}</div>
-          {% if lead.initial_dm_at %}
-          <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">{{ lead.initial_dm_at|jalali_dt }}</div>
-          {% endif %}
+      <!-- Collapsible Lead & Comment Source Details Box -->
+      <div id="leadSourceInfoBox" style="display:none; padding:14px 18px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:0.83rem; line-height:1.6;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong style="color:#0369a1; font-size:0.88rem;">مشخصات کامل مشتری و منبع کامنت / پست</strong>
+          <button type="button" onclick="toggleLeadSourceInfo()" style="background:none; border:none; color:#0284c7; cursor:pointer; font-size:0.78rem; font-weight:700;">بستن کادر</button>
         </div>
 
-        <!-- Incoming Reply from Customer -->
-        <div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:12px; font-size:0.86rem; line-height:1.6;">
-          <div style="font-size:0.75rem; color:#065f46; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-            <span>💬 پاسخ دریافت شده از مشتری:</span>
-            {% if lead.reply_at %}
-            <span style="font-weight:400; font-size:0.72rem; color:#047857;">({{ lead.reply_at|jalali_dt }})</span>
-            {% endif %}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px;">
+          <div style="background:#fff; border:1px solid #e0f2fe; border-radius:8px; padding:10px;">
+            <div style="font-size:0.73rem; color:#64748b; font-weight:700; margin-bottom:4px;">متن کامنت ثبت‌شده توسط مشتری:</div>
+            <div id="leadSourceCommentText" style="color:#0f172a; font-weight:600; white-space:pre-wrap;">--</div>
+            <div id="leadSourceCommentTime" style="font-size:0.7rem; color:#0284c7; margin-top:4px;">--</div>
           </div>
-          <div style="color:#064e3b; font-weight:600; white-space:pre-wrap;">{{ lead.reply_text }}</div>
+
+          <div style="background:#fff; border:1px solid #e0f2fe; border-radius:8px; padding:10px;">
+            <div style="font-size:0.73rem; color:#64748b; font-weight:700; margin-bottom:4px;">اطلاعات پست و پیج مقصد:</div>
+            <div style="margin-bottom:4px;">
+              <span style="color:#64748b; font-size:0.75rem;">پیج اینستاگرام (رقیب/هدف):</span>
+              <a id="leadSourcePageLink" href="#" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb; text-decoration:none; font-family:monospace;">@--</a>
+            </div>
+            <div style="margin-bottom:4px;">
+              <span style="color:#64748b; font-size:0.75rem;">پست منبع کامنت:</span>
+              <a id="leadSourcePostLink" href="#" target="_blank" rel="noopener" style="font-weight:700; color:#0284c7; text-decoration:underline;">مشاهده پست در اینستاگرام ↗</a>
+            </div>
+            <div id="leadSourcePostSnippet" style="color:#64748b; font-size:0.74rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">--</div>
+          </div>
+        </div>
+
+        <div id="leadSourceSenderNotice" style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:6px; padding:6px 12px; font-size:0.78rem; color:#5b21b6;">
+          اکانت فرستنده پیام اولیه به این مشتری: <strong id="leadSourceSenderName" style="font-family:monospace;">@--</strong>
         </div>
       </div>
 
-      <!-- If second message was already sent -->
-      {% if lead.second_message_text %}
-      <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:8px; padding:12px; margin-bottom:14px; font-size:0.84rem;">
-        <strong style="color:#6d28d9; display:block; margin-bottom:4px; font-size:0.76rem;">
-          پیام دوم ارسال‌شده توسط @{{ lead.second_sender_username }} در تاریخ {{ lead.second_message_at|jalali_dt }}:
-        </strong>
-        <div style="color:#4c1d95; white-space:pre-wrap;">{{ lead.second_message_text }}</div>
+      <!-- Messages Thread Body -->
+      <div id="chatMessagesThread" style="flex:1; padding:18px; overflow-y:auto; height:340px; background:#f8fafc; display:flex; flex-direction:column; gap:12px;">
+        <div style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:0.86rem;">
+          در حال بارگذاری مکالمه خریدار...
+        </div>
       </div>
-      {% endif %}
 
-      <!-- Send Second Message / Follow-up Action Box -->
-      <div style="background:#f1f5f9; border-radius:8px; padding:14px;">
-        <div style="font-weight:700; font-size:0.84rem; color:#1e293b; margin-bottom:8px;">
-          ارسال پیام دوم / پیگیری (امکان ارسال از طرف اکانت دیگر):
+      <!-- Quick Preset Suggestions -->
+      <div style="padding:8px 18px; background:#f1f5f9; border-top:1px solid #e2e8f0; display:flex; gap:8px; overflow-x:auto;">
+        <span style="font-size:0.72rem; color:#64748b; align-self:center; white-space:nowrap; font-weight:700;">پاسخ‌های سریع:</span>
+        <button type="button" onclick="applyChatPreset('سلام وقت بخیر، برای اینکه مشاور ارشد کلینیک زمان ویزیت و معاینه رایگان رو باهاتون هماهنگ کنه، لطفاً شماره تماستون رو بفرستید.')"
+                style="background:#fff; border:1px solid #cbd5e1; border-radius:14px; padding:3px 10px; font-size:0.74rem; color:#334155; white-space:nowrap; cursor:pointer;">
+          درخواست شماره تماس جهت ویزیت
+        </button>
+        <button type="button" onclick="applyChatPreset('سلام، کلینیک سرو شرایط پرداخت اقساطی منعطف بدون ضامن هم در نظر گرفته. تمایل دارید شرایط دقیق اقساط رو براتون بفرستم؟')"
+                style="background:#fff; border:1px solid #cbd5e1; border-radius:14px; padding:3px 10px; font-size:0.74rem; color:#334155; white-space:nowrap; cursor:pointer;">
+          توضیح شرایط اقساط و قیمت
+        </button>
+        <button type="button" onclick="applyChatPreset('سلام، مطب کلینیک تخصصی سرو در سعادت‌آباد است و روزهای شنبه تا پنجشنبه از ۱۰ تا ۲۰ فعاله. چه روزی برای مراجعه شما مناسب‌تره؟')"
+                style="background:#fff; border:1px solid #cbd5e1; border-radius:14px; padding:3px 10px; font-size:0.74rem; color:#334155; white-space:nowrap; cursor:pointer;">
+          ارسال لوکیشن و ساعات ویزیت
+        </button>
+      </div>
+
+      <!-- Composer Area -->
+      <div style="padding:14px 18px; border-top:1px solid #e2e8f0; background:#ffffff;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <label style="font-size:0.78rem; font-weight:700; color:#334155;">ارسال از طرف اکانت:</label>
+            <select id="chatSenderSelect" onchange="onChatSenderChanged()" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.8rem; font-weight:700; background:#fff; color:#1e293b;">
+              {% for acc in accounts %}
+              <option value="{{ acc.obj.username }}">
+                @{{ acc.obj.username }} ({{ acc.consultant_name }})
+              </option>
+              {% endfor %}
+            </select>
+            <span id="chatSameSenderBadge" style="display:none; font-size:0.72rem; color:#15803d; font-weight:700; background:#dcfce7; padding:2px 8px; border-radius:4px;">
+              پاسخ با همان اکانت فرستنده قبلی
+            </span>
+            <span id="chatDifferentSenderNotice" style="display:none; font-size:0.72rem; color:#b45309; font-weight:700; background:#fef3c7; padding:2px 8px; border-radius:4px;">
+              اکانت تغییر یافته است
+            </span>
+          </div>
+          <div id="chatSendingAlert" style="display:none; font-size:0.76rem; font-weight:700; padding:2px 8px; border-radius:4px;"></div>
         </div>
 
-        <form method="POST" action="{% url 'accounts:send_followup' %}">
-          {% csrf_token %}
-          <input type="hidden" name="lead_id" value="{{ lead.id }}">
-
-          <div style="display:grid; grid-template-columns:220px 1fr 140px; gap:10px; align-items:center;">
-            <div>
-              <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">اکانت فرستنده پیام دوم:</label>
-              <select name="sender_username" required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; font-weight:600; background:#fff;">
-                {% for acc in accounts %}
-                <option value="{{ acc.obj.username }}" {% if lead.sender_account == acc.obj.username %}selected{% endif %}>
-                  @{{ acc.obj.username }} ({{ acc.consultant_name }})
-                </option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <div>
-              <label style="font-size:0.75rem; display:block; color:#475569; margin-bottom:2px;">متن پیام دوم:</label>
-              <input type="text" name="message_text" required placeholder="مثال: سلام، شماره تماستون رو بفرستید تا مشاور ارشد کلینیک سرو برای رزرو ویزیت باهاتون هماهنگ کنه..."
-                     style="width:100%; padding:8px 12px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.84rem; background:#fff;">
-            </div>
-
-            <div style="align-self:flex-end;">
-              <button type="submit" class="p-btn" style="width:100%; padding:8px; background:#2563eb; color:#fff; border:none; border-radius:6px; font-weight:700; font-size:0.82rem;">
-                ارسال پیام دوم ✉️
-              </button>
-            </div>
-          </div>
-        </form>
+        <div style="display:flex; gap:10px; align-items:flex-end;">
+          <textarea id="chatComposerInput" rows="2" placeholder="متن پیام جدید را تایپ کنید (پیام دوم، پیام سوم، پاسخ به سوال خریدار و...)..."
+                    style="flex:1; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.86rem; line-height:1.5; resize:none;"></textarea>
+          <button type="button" id="chatSendButton" onclick="submitChatMessage()"
+                  style="background:#2563eb; color:#fff; border:none; padding:10px 18px; border-radius:8px; font-weight:700; font-size:0.86rem; cursor:pointer; min-height:44px; display:inline-flex; align-items:center; gap:6px;">
+            ارسال دایرکت
+          </button>
+        </div>
       </div>
 
     </div>
-    {% endfor %}
   </div>
-  {% else %}
-  <div style="text-align:center; padding:32px; background:#f8fafc; border-radius:10px; border:1px dashed #cbd5e1;">
-    <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#94a3b8" stroke-width="1.5" style="margin-bottom:8px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
-    <div style="font-weight:700; color:#475569; margin-bottom:4px;">تاکنون پاسخی از مخاطبان ثبت نشده است</div>
-    <div style="font-size:0.82rem; color:#64748b; margin-bottom:12px;">
-      به محض اینکه مشتریان به دایرکت اولیه مشاوران پاسخ دهند، متن پیام آن‌ها در اینجا نمایش داده می‌شود.
-    </div>
-    <a href="{% url 'accounts:sync_replies' %}" class="p-btn" style="font-size:0.82rem; padding:6px 14px; background:#fff; border:1px solid #cbd5e1;">
-      🔄 بررسی صندوق همین الان
-    </a>
-  </div>
-  {% endif %}
 </div>
 
 <!-- Senders List of this Business with Dealism Benchmarks -->
@@ -650,15 +1010,15 @@
           <td style="padding:12px; text-align:center;">
             {% if lead.has_replied %}
               <span style="background:#ede9fe; color:#6d28d9; padding:3px 10px; border-radius:99px; font-weight:700; font-size:0.78rem;">
-                💬 پاسخ داد
+                پاسخ داد
               </span>
             {% elif lead.status == 'FOLLOWUP_SENT' %}
               <span style="background:#dbeafe; color:#1d4ed8; padding:3px 10px; border-radius:99px; font-weight:700; font-size:0.78rem;">
-                ✓ پیگیری ارسال شد
+                پیگیری ارسال شد
               </span>
             {% else %}
               <span style="background:#e6f9f0; color:#0e8a4a; padding:3px 10px; border-radius:99px; font-weight:700; font-size:0.78rem;">
-                ✓ تحویل داده شد
+                تحویل داده شد
               </span>
             {% endif %}
           </td>
@@ -712,7 +1072,7 @@
     const container = document.getElementById('ai-pitches-container');
 
     btn.disabled = true;
-    btn.innerHTML = '<span>⏳ در حال نگارش ۳ متن هوشمند با هوش مصنوعی...</span>';
+    btn.innerHTML = '<span>در حال نگارش ۳ متن هوشمند با هوش مصنوعی...</span>';
 
     const formData = new FormData();
     formData.append('consultant_name', consultant);
@@ -732,7 +1092,7 @@
     .then(r => r.json())
     .then(data => {
       btn.disabled = false;
-      btn.innerHTML = '<span>🤖 تولید مجدد پیام‌ها با AI</span>';
+      btn.innerHTML = '<span>تولید مجدد پیام‌ها با AI</span>';
 
       if (data.success && data.pitches && data.pitches.length > 0) {
         container.style.display = 'flex';
@@ -758,7 +1118,7 @@
             </div>
             <button type="button" onclick="useAiPitch(${idx})"
                     style="padding:5px 12px; background:#7c3aed; color:#fff; border:none; border-radius:6px; font-size:0.76rem; font-weight:700; cursor:pointer;">
-              ✍️ انتخاب و انتقال به کادر ویرایش
+              انتخاب و انتقال به کادر ویرایش
             </button>
           `;
           container.appendChild(card);
@@ -771,7 +1131,7 @@
     })
     .catch(err => {
       btn.disabled = false;
-      btn.innerHTML = '<span>🤖 تولید ۳ نمونه پیام هوشمند با AI</span>';
+      btn.innerHTML = '<span>تولید ۳ نمونه پیام هوشمند با AI</span>';
       alert('خطا در ارتباط با سرور: ' + err);
     });
   }
@@ -880,8 +1240,429 @@
         alert('خطا: ' + (data.message || 'عملیات ناموفق بود.'));
       }
     })
-    .catch(err => alert('خطا در ارتباط با سرور: ' + err));
+    .catch(err => alert('خطای ارتباط با سرور: ' + err));
   };
+
+  // Chat Room Logic
+  window._currentChatLeadId = null;
+
+  window.selectChatLead = function(leadId) {
+    if (!leadId) return;
+    window._currentChatLeadId = leadId;
+
+    document.querySelectorAll('.chat-lead-item').forEach(el => {
+      el.style.background = 'transparent';
+      el.style.borderRight = '4px solid transparent';
+      el.classList.remove('active');
+    });
+    const activeEl = document.getElementById(`lead-item-${leadId}`);
+    if (activeEl) {
+      activeEl.style.background = '#eff6ff';
+      activeEl.style.borderRight = '4px solid #2563eb';
+      activeEl.classList.add('active');
+    }
+
+    const threadEl = document.getElementById('chatMessagesThread');
+    threadEl.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:0.86rem;">در حال دریافت سوابق گفتگو...</div>';
+
+    fetch(`/accounts/outreach/lead-chat/${leadId}/`, {
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.success || !data.lead) {
+        threadEl.innerHTML = `<div style="text-align:center; padding:30px; color:#ef4444; font-size:0.86rem;">${data.error || 'خطا در دریافت گفتگو'}</div>`;
+        return;
+      }
+
+      const lead = data.lead;
+      document.getElementById('chatLeadUsername').innerText = '@' + lead.username;
+      document.getElementById('chatLeadAvatar').innerText = lead.username.slice(0, 2).toUpperCase();
+      document.getElementById('chatLeadProfileUrl').href = lead.profile_url || `https://instagram.com/${lead.username}`;
+      document.getElementById('chatLeadIntentBadge').innerText = `احتمال خرید: ${lead.intent_score}`;
+
+      let statusText = 'در حال گفتگو';
+      if (lead.has_replied) statusText = 'پاسخ مشتری ثبت شده';
+      else if (lead.status === 'FOLLOWUP_SENT') statusText = 'پیگیری ارسال شد';
+      else if (lead.status === 'DM_SENT') statusText = 'پیام اول تحویل شد';
+      document.getElementById('chatLeadStatusBadge').innerText = `وضعیت: ${statusText}`;
+
+      // Sender Account Info
+      const senderAcc = lead.sender_account || lead.second_sender_username || '';
+      window._currentLeadSenderAccount = senderAcc;
+
+      const senderBadge = document.getElementById('chatLeadSenderAccountBadge');
+      if (senderAcc) {
+        senderBadge.innerText = 'ارسال شده با اکانت فرستنده: @' + senderAcc;
+        senderBadge.style.display = 'inline-block';
+      } else {
+        senderBadge.style.display = 'none';
+      }
+
+      // Populate Lead & Comment Source Drawer
+      document.getElementById('leadSourceCommentText').innerText = lead.comment_text || '(متن کامنت ثبت نشده است)';
+      document.getElementById('leadSourceCommentTime').innerText = lead.comment_created_at ? ('زمان ثبت کامنت: ' + lead.comment_created_at) : 'زمان کامنت: نامشخص';
+
+      const postLink = document.getElementById('leadSourcePostLink');
+      if (lead.source_post_url) {
+        postLink.href = lead.source_post_url;
+        postLink.innerText = 'مشاهده پست در اینستاگرام ↗';
+        postLink.style.display = 'inline';
+      } else {
+        postLink.removeAttribute('href');
+        postLink.innerText = 'لینک پست اختصاصی ثبت نشده (مراجعه مستقیم در دایرکت)';
+      }
+
+      const pageLink = document.getElementById('leadSourcePageLink');
+      if (lead.source_page_username) {
+        const cleanPage = lead.source_page_username.replace('@', '');
+        pageLink.href = 'https://instagram.com/' + cleanPage;
+        pageLink.innerText = '@' + cleanPage;
+      } else {
+        pageLink.removeAttribute('href');
+        pageLink.innerText = '(پیج هدف نامشخص)';
+      }
+
+      document.getElementById('leadSourcePostSnippet').innerText = lead.post_caption_snippet ? ('موضوع پست: ' + lead.post_caption_snippet) : '';
+      document.getElementById('leadSourceSenderName').innerText = senderAcc ? ('@' + senderAcc) : 'مشاور کلینیک';
+
+      // Auto-set sender select in composer and update badge
+      const select = document.getElementById('chatSenderSelect');
+      let foundInOptions = false;
+      if (senderAcc) {
+        for (let i = 0; i < select.options.length; i++) {
+          if (select.options[i].value.toLowerCase() === senderAcc.toLowerCase()) {
+            select.selectedIndex = i;
+            foundInOptions = true;
+            break;
+          }
+        }
+      }
+
+      const sameBadge = document.getElementById('chatSameSenderBadge');
+      const diffNotice = document.getElementById('chatDifferentSenderNotice');
+      if (foundInOptions) {
+        sameBadge.innerText = `پاسخ با همان اکانت فرستنده قبلی (@${senderAcc})`;
+        sameBadge.style.display = 'inline-block';
+        diffNotice.style.display = 'none';
+      } else if (senderAcc) {
+        sameBadge.style.display = 'none';
+        diffNotice.innerText = `پیام اولیه با @${senderAcc} بود — پاسخ با اکانت انتخابی ارسال می‌شود`;
+        diffNotice.style.display = 'inline-block';
+      } else {
+        sameBadge.style.display = 'none';
+        diffNotice.style.display = 'none';
+      }
+
+      threadEl.innerHTML = '';
+      const history = lead.conversation_history || [];
+
+      if (history.length > 0) {
+        history.forEach(msg => {
+          const isOut = (msg.direction === 'out' || msg.sender !== lead.username);
+          renderChatBubble(threadEl, {
+            isOut: isOut,
+            sender: msg.sender || (isOut ? 'مشاور' : lead.username),
+            text: msg.text,
+            time: msg.time
+          });
+        });
+      } else {
+        let hasAnyMsg = false;
+        if (lead.initial_dm_text) {
+          hasAnyMsg = true;
+          renderChatBubble(threadEl, {
+            isOut: true,
+            sender: lead.sender_account || 'مشاور کلینیک',
+            text: lead.initial_dm_text,
+            time: lead.initial_dm_at
+          });
+        }
+        if (lead.reply_text) {
+          hasAnyMsg = true;
+          renderChatBubble(threadEl, {
+            isOut: false,
+            sender: lead.username,
+            text: lead.reply_text,
+            time: lead.reply_at
+          });
+        }
+        if (lead.second_message_text) {
+          hasAnyMsg = true;
+          renderChatBubble(threadEl, {
+            isOut: true,
+            sender: lead.second_sender_username || 'مشاور کلینیک',
+            text: lead.second_message_text,
+            time: lead.second_message_at
+          });
+        }
+        if (!hasAnyMsg) {
+          threadEl.innerHTML = `
+            <div style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:0.86rem;">
+              هنوز پیامی رد و بدل نشده است. می‌توانید با نوشتن متن در کادر زیر پیام ارسال فرمایید.
+            </div>
+          `;
+        }
+      }
+
+      threadEl.scrollTop = threadEl.scrollHeight;
+    })
+    .catch(err => {
+      threadEl.innerHTML = `<div style="text-align:center; padding:30px; color:#ef4444; font-size:0.86rem;">خطای ارتباط با سرور: ${err}</div>`;
+    });
+  };
+
+  function renderChatBubble(container, { isOut, sender, text, time }) {
+    const bubble = document.createElement('div');
+    bubble.style.maxWidth = '82%';
+    bubble.style.borderRadius = '12px';
+    bubble.style.padding = '10px 14px';
+    bubble.style.fontSize = '0.86rem';
+    bubble.style.lineHeight = '1.6';
+    bubble.style.marginBottom = '10px';
+    bubble.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
+
+    if (isOut) {
+      bubble.style.alignSelf = 'flex-start';
+      bubble.style.background = '#eff6ff';
+      bubble.style.border = '1px solid #bfdbfe';
+      bubble.style.color = '#1e3a8a';
+      bubble.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px; font-size:0.73rem; color:#2563eb; font-weight:700;">
+          <span>ارسال شده توسط @${escapeHtml(sender)}:</span>
+          <span style="font-size:0.68rem; font-weight:400; color:#64748b;">${time ? escapeHtml(time).slice(0, 16) : ''}</span>
+        </div>
+        <div style="white-space:pre-wrap; word-break:break-word;">${escapeHtml(text)}</div>
+      `;
+    } else {
+      bubble.style.alignSelf = 'flex-end';
+      bubble.style.background = '#f0fdf4';
+      bubble.style.border = '1px solid #bbf7d0';
+      bubble.style.color = '#064e3b';
+      bubble.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px; font-size:0.73rem; color:#15803d; font-weight:700;">
+          <span>پاسخ مشتری @${escapeHtml(sender)}:</span>
+          <span style="font-size:0.68rem; font-weight:400; color:#64748b;">${time ? escapeHtml(time).slice(0, 16) : ''}</span>
+        </div>
+        <div style="white-space:pre-wrap; word-break:break-word; font-weight:600;">${escapeHtml(text)}</div>
+      `;
+    }
+    container.appendChild(bubble);
+  }
+
+  window.refreshCurrentChatLead = function() {
+    if (window._currentChatLeadId) {
+      window.selectChatLead(window._currentChatLeadId);
+    }
+  };
+
+  window.applyChatPreset = function(text) {
+    const input = document.getElementById('chatComposerInput');
+    input.value = text;
+    input.focus();
+  };
+
+  window.toggleLeadSourceInfo = function() {
+    const box = document.getElementById('leadSourceInfoBox');
+    const btn = document.getElementById('toggleLeadSourceBtn');
+    if (box.style.display === 'none' || !box.style.display) {
+      box.style.display = 'block';
+      btn.innerText = 'بستن اطلاعات مشتری';
+      btn.style.background = '#e2e8f0';
+      btn.style.color = '#334155';
+    } else {
+      box.style.display = 'none';
+      btn.innerText = 'نمایش اطلاعات مشتری و منبع کامنت';
+      btn.style.background = '#e0f2fe';
+      btn.style.color = '#0369a1';
+    }
+  };
+
+  window.onChatSenderChanged = function() {
+    const select = document.getElementById('chatSenderSelect');
+    const chosen = select.value.toLowerCase();
+    const prev = (window._currentLeadSenderAccount || '').toLowerCase();
+    const sameBadge = document.getElementById('chatSameSenderBadge');
+    const diffNotice = document.getElementById('chatDifferentSenderNotice');
+
+    if (prev && chosen === prev) {
+      sameBadge.innerText = `پاسخ با همان اکانت فرستنده قبلی (@${select.value})`;
+      sameBadge.style.display = 'inline-block';
+      diffNotice.style.display = 'none';
+    } else if (prev) {
+      sameBadge.style.display = 'none';
+      diffNotice.innerText = `اکانت تغییر کرد: پاسخ توسط @${select.value} ارسال خواهد شد`;
+      diffNotice.style.display = 'inline-block';
+    } else {
+      sameBadge.style.display = 'none';
+      diffNotice.style.display = 'none';
+    }
+  };
+
+  window.submitChatMessage = function() {
+    if (!window._currentChatLeadId) {
+      alert('لطفاً ابتدا یک خریدار را از لیست انتخاب کنید.');
+      return;
+    }
+
+    const textInput = document.getElementById('chatComposerInput');
+    const messageText = textInput.value.trim();
+    if (!messageText) {
+      alert('لطفاً متن پیام را وارد فرمایید.');
+      textInput.focus();
+      return;
+    }
+
+    const senderSelect = document.getElementById('chatSenderSelect');
+    const senderUsername = senderSelect.value;
+    const sendBtn = document.getElementById('chatSendButton');
+    const alertBox = document.getElementById('chatSendingAlert');
+
+    sendBtn.disabled = true;
+    sendBtn.innerText = 'در حال ارسال پیام...';
+    alertBox.style.display = 'inline-block';
+    alertBox.style.background = '#eff6ff';
+    alertBox.style.color = '#1d4ed8';
+    alertBox.innerText = 'در حال ارسال مستقیم به دایرکت اینستاگرام...';
+
+    const formData = new FormData();
+    formData.append('lead_id', window._currentChatLeadId);
+    formData.append('sender_username', senderUsername);
+    formData.append('message_text', messageText);
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    fetch("{% url 'accounts:send_followup' %}", {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": csrfToken,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: formData,
+    })
+    .then(r => r.json())
+    .then(data => {
+      sendBtn.disabled = false;
+      sendBtn.innerText = 'ارسال دایرکت';
+
+      if (data.success) {
+        textInput.value = '';
+        alertBox.style.background = '#ecfdf5';
+        alertBox.style.color = '#047857';
+        alertBox.innerText = 'پیام با موفقیت ارسال شد.';
+        setTimeout(() => { alertBox.style.display = 'none'; }, 4000);
+
+        const threadEl = document.getElementById('chatMessagesThread');
+        renderChatBubble(threadEl, {
+          isOut: true,
+          sender: senderUsername,
+          text: messageText,
+          time: data.sent_at || 'اکنون'
+        });
+        threadEl.scrollTop = threadEl.scrollHeight;
+
+        const activeItem = document.getElementById(`lead-item-${window._currentChatLeadId}`);
+        if (activeItem) {
+          const snippetEl = activeItem.querySelector('div:last-child');
+          if (snippetEl) snippetEl.innerText = messageText.slice(0, 42);
+        }
+      } else {
+        alertBox.style.background = '#fef2f2';
+        alertBox.style.color = '#b91c1c';
+        alertBox.innerText = 'خطا در ارسال: ' + (data.error || 'نامشخص');
+      }
+    })
+    .catch(err => {
+      sendBtn.disabled = false;
+      sendBtn.innerText = 'ارسال دایرکت';
+      alertBox.style.background = '#fef2f2';
+      alertBox.style.color = '#b91c1c';
+      alertBox.innerText = 'خطای ارتباطی: ' + err;
+    });
+  };
+
+  window.syncChatReplies = function() {
+    const btn = document.getElementById('syncRepliesBtn');
+    btn.disabled = true;
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<span>در حال پایش دایرکت‌ها...</span>';
+
+    fetch("{% url 'accounts:sync_replies' %}?format=json", {
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+      const count = data.replies_found || 0;
+      if (count > 0) {
+        alert(`پایش انجام شد: ${count} پاسخ جدید از خریداران دریافت و ثبت شد.`);
+        window.location.reload();
+      } else {
+        alert('صندوق دایرکت‌ها بررسی شد؛ پاسخ جدیدی تا این لحظه ثبت نشده است.');
+        refreshCurrentChatLead();
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+      alert('خطا در پایش صندوق: ' + err);
+    });
+  };
+
+  window.filterChatLeads = function(query) {
+    const q = (query || '').toLowerCase().trim();
+    document.querySelectorAll('.chat-lead-item').forEach(el => {
+      const uname = el.getAttribute('data-username') || '';
+      if (!q || uname.includes(q)) {
+        el.style.display = 'block';
+      } else {
+        el.style.display = 'none';
+      }
+    });
+  };
+
+  window.setChatFilter = function(type) {
+    const btnAll = document.getElementById('chatFilterAll');
+    const btnReplied = document.getElementById('chatFilterReplied');
+
+    if (type === 'all') {
+      btnAll.style.background = '#2563eb';
+      btnAll.style.color = '#fff';
+      btnAll.style.borderColor = '#2563eb';
+      btnReplied.style.background = '#fff';
+      btnReplied.style.color = '#475569';
+      btnReplied.style.borderColor = '#cbd5e1';
+
+      document.querySelectorAll('.chat-lead-item').forEach(el => {
+        el.style.display = 'block';
+      });
+    } else {
+      btnReplied.style.background = '#2563eb';
+      btnReplied.style.color = '#fff';
+      btnReplied.style.borderColor = '#2563eb';
+      btnAll.style.background = '#fff';
+      btnAll.style.color = '#475569';
+      btnAll.style.borderColor = '#cbd5e1';
+
+      document.querySelectorAll('.chat-lead-item').forEach(el => {
+        const hasReplied = el.getAttribute('data-has-replied') === '1';
+        el.style.display = hasReplied ? 'block' : 'none';
+      });
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const firstLead = document.querySelector('.chat-lead-item');
+    if (firstLead) {
+      const leadId = firstLead.getAttribute('data-lead-id');
+      if (leadId) selectChatLead(parseInt(leadId));
+    }
+  });
 </script>
 
 <!-- Outreach Sender Edit Modal -->
@@ -890,7 +1671,7 @@
     <div style="background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color:#fff; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
       <div>
         <h3 style="margin:0; font-size:1.05rem; display:flex; align-items:center; gap:8px;">
-          <span>⚙️ ویرایش سشن و مشخصات اکانت</span>
+          <span>ویرایش سشن و مشخصات اکانت</span>
           <span id="outreachModalUsername" style="color:#67e8f9; font-family:monospace; font-weight:800;"></span>
         </h3>
         <p style="margin:4px 0 0; font-size:0.75rem; color:#94a3b8;">
@@ -919,7 +1700,7 @@
         </small>
       </div>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+      <div class="outreach-modal-2col" style="margin-bottom:14px;">
         <div>
           <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">نام مشاور در پیام‌ها</label>
           <input type="text" name="consultant_name" id="editOutreachConsultant"
@@ -934,14 +1715,14 @@
         </div>
       </div>
 
-      <div style="display:grid; grid-template-columns:1.3fr 1fr; gap:12px; margin-bottom:14px;">
+      <div class="outreach-modal-2col" style="margin-bottom:14px;">
         <div>
           <label style="font-weight:600; font-size:0.82rem; display:block; margin-bottom:4px;">رده و سن اکانت (Dealism)</label>
           <select name="account_tier" id="editOutreachTier"
-                  style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; font-weight:600;">
-            <option value="NEW">🔵 اکانت جدید (زیر ۳ ماه) — ۱۰-۲۰ پیام</option>
-            <option value="MEDIUM">🟡 اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰-۵۰ پیام</option>
-            <option value="AGED">🟢 اکانت قدیمی (بالای ۱ سال) — ۵۰-۱۰۰ پیام</option>
+                 style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; font-weight:600;">
+            <option value="NEW">اکانت جدید (زیر ۳ ماه) — ۱۰-۲۰ پیام</option>
+            <option value="MEDIUM">اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰-۵۰ پیام</option>
+            <option value="AGED">اکانت قدیمی (بالای ۱ سال) — ۵۰-۱۰۰ پیام</option>
           </select>
         </div>
         <div>
@@ -965,7 +1746,7 @@
         </button>
         <button type="submit" id="editOutreachSubmitBtn"
                 style="padding:9px 20px; background:#2563eb; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer; font-size:0.84rem;">
-          ذخیره تغییرات و فعال‌سازی 💾
+          ذخیره تغییرات و فعال‌سازی
         </button>
       </div>
     </form>

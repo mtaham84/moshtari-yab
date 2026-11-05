@@ -10,7 +10,8 @@ from django.conf import settings
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Q, F
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse, JsonResponse
 from django.core.paginator import Paginator
 from django.core.cache import cache
@@ -113,21 +114,26 @@ def api_analytics_report_view(request):
     return JsonResponse({"status": "success", "data": data}, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
 
-def _filter_opportunities_queryset(business, params):
+def _filter_opportunities_queryset(business, params, is_admin=False, view_all_tenants=False):
     """
     Unified filter and sort engine for opportunities table and Excel export.
     Supports platform, status, catalog product filter, Jalali date range, search,
     and sorting by Jalali time or purchase intent score.
     """
-    if not business:
+    if not business and not view_all_tenants:
         return Opportunity.objects.none(), {
             "platform": "", "status": "", "product_id": None, "min_score": "",
             "min_intent": "", "q": "", "date_from": "", "date_to": "", "sort": "newest", "hide_stale": False,
         }
 
-    qs = Opportunity.objects.filter(business=business).select_related(
-        "customer", "category", "ai_analysis"
-    ).prefetch_related("product_matches__product")
+    if view_all_tenants or not business:
+        qs = Opportunity.objects.all().select_related(
+            "customer", "category", "ai_analysis", "business"
+        ).prefetch_related("product_matches__product")
+    else:
+        qs = Opportunity.objects.filter(business=business).select_related(
+            "customer", "category", "ai_analysis", "business"
+        ).prefetch_related("product_matches__product")
 
     # Platform filter
     platform_filter = params.get("platform", "").strip().lower()
@@ -146,10 +152,15 @@ def _filter_opportunities_queryset(business, params):
     product_id_str = params.get("product_id", "").strip()
     selected_product_id = int(product_id_str) if product_id_str.isdigit() else None
     if selected_product_id:
-        qs = qs.filter(
-            product_matches__product_id=selected_product_id,
-            product_matches__product__business=business,
-        )
+        if business:
+            qs = qs.filter(
+                product_matches__product_id=selected_product_id,
+                product_matches__product__business=business,
+            )
+        else:
+            qs = qs.filter(
+                product_matches__product_id=selected_product_id,
+            )
 
     # Search query
     q = params.get("q", "").strip()
@@ -189,26 +200,47 @@ def _filter_opportunities_queryset(business, params):
             qs = qs.filter(created_at__date__lte=d_to)
 
     # Sorting
-    # If filtering by a specific product, default sort is highest purchase intent score first!
-    default_sort = "intent_desc" if selected_product_id else "newest"
-    sort_order = params.get("sort", default_sort).strip()
+    # Default sort is highest score/intent first, then newest source comment/message time
+    default_sort = "intent_desc"
+    sort_order = params.get("sort", default_sort).strip() or default_sort
+    comment_or_source_time = Coalesce("source_message_timestamp", "source_posted_at", "created_at")
 
-    if sort_order == "newest":
-        qs = qs.order_by("-created_at", "-id")
+    if sort_order == "intent_desc":
+        qs = qs.order_by(
+            F("ai_analysis__intent_score").desc(nulls_last=True),
+            comment_or_source_time.desc(nulls_last=True),
+            "-id"
+        )
+    elif sort_order == "newest":
+        qs = qs.order_by(comment_or_source_time.desc(nulls_last=True), "-id")
     elif sort_order == "oldest":
-        qs = qs.order_by("created_at", "id")
+        qs = qs.order_by(comment_or_source_time.asc(nulls_last=True), "id")
     elif sort_order == "source_newest":
-        qs = qs.order_by("-source_posted_at", "-created_at", "-id")
-    elif sort_order == "intent_desc":
-        qs = qs.order_by("-ai_analysis__intent_score", "-created_at", "-id")
+        qs = qs.order_by(comment_or_source_time.desc(nulls_last=True), "-id")
     elif sort_order == "intent_asc":
-        qs = qs.order_by("ai_analysis__intent_score", "created_at", "id")
+        qs = qs.order_by(
+            F("ai_analysis__intent_score").asc(nulls_last=True),
+            comment_or_source_time.desc(nulls_last=True),
+            "id"
+        )
     elif sort_order == "fit_desc":
-        qs = qs.order_by("-ai_analysis__product_fit_score", "-created_at", "-id")
+        qs = qs.order_by(
+            F("ai_analysis__product_fit_score").desc(nulls_last=True),
+            comment_or_source_time.desc(nulls_last=True),
+            "-id"
+        )
     elif sort_order == "cost_desc":
-        qs = qs.order_by("-ai_analysis__cost_toman", "-created_at", "-id")
+        qs = qs.order_by(
+            F("ai_analysis__cost_toman").desc(nulls_last=True),
+            comment_or_source_time.desc(nulls_last=True),
+            "-id"
+        )
     else:
-        qs = qs.order_by("-created_at", "-id")
+        qs = qs.order_by(
+            F("ai_analysis__intent_score").desc(nulls_last=True),
+            comment_or_source_time.desc(nulls_last=True),
+            "-id"
+        )
 
     filter_meta = {
         "platform": platform_filter,
@@ -230,25 +262,34 @@ def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
     all_businesses = None
     is_admin = request.user.is_staff or request.user.is_superuser
+    view_all_tenants = False
 
     if is_admin:
         from django.db.models import Count
         all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
-        requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_biz_id = request.GET.get("business_id", "").strip().lower()
         requested_prod_id = request.GET.get("product_id", "").strip()
 
-        if requested_biz_id.isdigit():
+        if requested_biz_id == "all":
+            business = None
+            view_all_tenants = True
+        elif requested_biz_id.isdigit():
             b_found = Business.objects.filter(id=int(requested_biz_id)).first()
             if b_found:
                 business = b_found
+                view_all_tenants = False
         elif requested_prod_id.isdigit():
             prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
             if prod and prod.business:
                 business = prod.business
-        elif not business:
-            first_biz = Business.objects.order_by("id").first()
-            if first_biz:
-                business = first_biz
+                view_all_tenants = False
+        else:
+            if not business or business.opportunities.count() == 0:
+                first_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().first()
+                if first_with_opps:
+                    business = first_with_opps
+                elif not business:
+                    business = Business.objects.order_by("id").first()
     else:
         # Strict tenant isolation for regular sellers
         if not business:
@@ -291,7 +332,7 @@ def opportunity_list_view(request):
                 }
                 return render(request, "discovery/opportunities_list.html", context)
 
-    qs, filter_meta = _filter_opportunities_queryset(business, request.GET)
+    qs, filter_meta = _filter_opportunities_queryset(business, request.GET, is_admin=is_admin, view_all_tenants=view_all_tenants)
 
     # View layout mode (table vs cards)
     view_mode = request.GET.get("view", "table").strip().lower()
@@ -299,7 +340,10 @@ def opportunity_list_view(request):
         view_mode = "table"
 
     # Seller's products for catalog filter dropdown
-    seller_products = Product.objects.filter(business=business).order_by("name")
+    if view_all_tenants or not business:
+        seller_products = Product.objects.all().order_by("name")[:100]
+    else:
+        seller_products = Product.objects.filter(business=business).order_by("name")
 
     paginator = Paginator(qs, 25)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -334,7 +378,10 @@ def opportunity_list_view(request):
 
 
     # Global summary stats
-    all_opps = Opportunity.objects.filter(business=business)
+    if view_all_tenants or not business:
+        all_opps = Opportunity.objects.all()
+    else:
+        all_opps = Opportunity.objects.filter(business=business)
     stats = {
         "total": all_opps.count(),
         "filtered_count": paginator.count,
@@ -359,13 +406,19 @@ def opportunity_list_view(request):
     export_query = request.GET.copy()
     for key in ("view", "page"):
         export_query.pop(key, None)
-    if is_admin and business and getattr(request.user, "business", None) != business:
-        export_query["business_id"] = business.id
+    if is_admin:
+        if view_all_tenants:
+            export_query["business_id"] = "all"
+        elif business:
+            export_query["business_id"] = business.id
 
     pagination_query = request.GET.copy()
     pagination_query.pop("page", None)
-    if is_admin and business and getattr(request.user, "business", None) != business:
-        pagination_query["business_id"] = business.id
+    if is_admin:
+        if view_all_tenants:
+            pagination_query["business_id"] = "all"
+        elif business:
+            pagination_query["business_id"] = business.id
     pagination_query_string = pagination_query.urlencode()
     pagination_base_url = f"?{pagination_query_string}&page=" if pagination_query_string else "?page="
 
@@ -375,6 +428,7 @@ def opportunity_list_view(request):
         "stats": stats,
         "all_businesses": all_businesses,
         "selected_business": business,
+        "view_all_tenants": view_all_tenants,
         "seller_products": seller_products,
         "selected_platform": filter_meta["platform"],
         "selected_status": filter_meta["status"],
@@ -409,10 +463,14 @@ def opportunity_export_view(request):
     """
     business = getattr(request.user, "business", None)
     is_admin = request.user.is_staff or request.user.is_superuser
+    view_all_tenants = False
     if is_admin:
-        requested_biz_id = request.GET.get("business_id", "").strip()
+        requested_biz_id = request.GET.get("business_id", "").strip().lower()
         requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id.isdigit():
+        if requested_biz_id == "all":
+            business = None
+            view_all_tenants = True
+        elif requested_biz_id.isdigit():
             b_found = Business.objects.filter(id=int(requested_biz_id)).first()
             if b_found:
                 business = b_found
@@ -430,10 +488,10 @@ def opportunity_export_view(request):
             if not Product.objects.filter(id=int(requested_prod_id), business=business).exists():
                 return HttpResponse("محصول در این فروشگاه یافت نشد.", status=403)
 
-    if not business:
+    if not business and not view_all_tenants:
         return HttpResponse("کسب‌وکار یافت نشد.", status=404)
 
-    qs, _ = _filter_opportunities_queryset(business, request.GET)
+    qs, _ = _filter_opportunities_queryset(business, request.GET, is_admin=is_admin, view_all_tenants=view_all_tenants)
 
     today_str = format_jalali_date(timezone.now().date(), persian_digits=False).replace("/", "-")
     filename = f"customers_{today_str}.csv"
@@ -442,12 +500,23 @@ def opportunity_export_view(request):
     writer = csv.writer(buffer, dialect="excel", quoting=csv.QUOTE_ALL, lineterminator="\r\n")
 
     headers = [
-        "آیدی مشتری",
-        "شبکه اجتماعی مشتری",
-        "لینک پروفایل کامل مشتری",
-        "پیام مشتری",
-        "کالا های پیشنهاد شده برای مشتری",
-        "پیام ساجست شده برای مشتری",
+        "آیدی مشتری (متقاضی)",
+        "وضعیت حساب کاربر (Public/Private)",
+        "زمان ثبت کامنت (تقویم شمسی)",
+        "امتیاز اولویت لید (از ۳۵)",
+        "درصد احتمال موفقیت (٪)",
+        "نوع نیت و تقاضای خریدار",
+        "متن کامنت خریدار",
+        "نام و عنوان پیج مبدا (ناشر پست)",
+        "آدرس اینستاگرام پیج مبدا",
+        "آدرس پست مبدا (لینک مستقیم)",
+        "محتوا و خلاصه کپشن پست",
+        "زمان انتشار پست مبدا",
+        "شبکه اجتماعی",
+        "کالاهای پیشنهادی کاتالوگ فروشگاه",
+        "پیام ساجست‌شده اختصاصی",
+        "لینک پروفایل مشتری",
+        "وضعیت لید در سیستم",
     ]
     writer.writerow(headers)
 
@@ -478,41 +547,33 @@ def opportunity_export_view(request):
             elif c.name and c.name.strip():
                 customer_id = c.name.strip()
 
-        # 2. شبکه اجتماعی مشتری
-        social_network = platform_map.get(opp.source_platform.lower(), opp.source_platform or "نامشخص")
+        # 2. وضعیت حساب کاربر (Public vs Private)
+        profile_privacy = opp.display_page_type
 
-        # 3. لینک پروفایل کامل مشتری (Complete English URL)
-        profile_link = ""
-        if c:
-            if c.source_profile_url and c.source_profile_url.startswith("http"):
-                profile_link = c.source_profile_url.strip()
-            elif c.source_username and c.source_username.strip():
-                clean_un = c.source_username.strip().lstrip("@")
-                if clean_un:
-                    if opp.source_platform == "telegram":
-                        profile_link = f"https://t.me/{clean_un}"
-                    elif opp.source_platform in ("x", "twitter"):
-                        profile_link = f"https://x.com/{clean_un}"
-                    elif opp.source_platform == "instagram":
-                        profile_link = f"https://instagram.com/{clean_un}"
-            elif c.external_user_id and c.external_user_id.strip():
-                raw_id = _strip_platform_prefix(c.external_user_id.strip())
-                if raw_id.isdigit():
-                    if opp.source_platform == "telegram":
-                        profile_link = f"https://t.me/c/{raw_id}"
-                    elif opp.source_platform in ("x", "twitter"):
-                        profile_link = f"https://x.com/i/user/{raw_id}"
-        if opp.source_platform == "instagram":
-            try:
-                handle = parse_page_ref(c.source_username or "") if c else None
-            except PageRefError:
-                profile_link = "-"
-            else:
-                profile_link = f"https://www.instagram.com/{handle}/" if handle else "-"
-        elif not profile_link:
-            profile_link = "-"
+        # 3. زمان ثبت کامنت (تقویم شمسی)
+        c_time_jalali = opp.instagram_comment_created_at_jalali
+        if not c_time_jalali or c_time_jalali == "-":
+            c_time_jalali = getattr(opp, "created_at_jalali", "") or "-"
 
-        # 4. پیام مشتری (Persian Message - Newlines normalized to keep single row)
+        # 4. امتیاز اولویت لید (از ۳۵)
+        outreach_score_str = f"{opp.outreach_score_val} از ۳۵"
+
+        # 5. درصد احتمال موفقیت (٪)
+        success_prob_str = f"{opp.success_probability_pct}٪"
+
+        # 6. نوع نیت و تقاضای خریدار
+        intent_type_str = opp.get_intent_type_display() if hasattr(opp, "get_intent_type_display") else "-"
+        if opp.source_platform == "instagram" and isinstance(opp.trace_metadata, dict):
+            ig = opp.trace_metadata.get("instagram", {})
+            itype = ig.get("comment_intent_type")
+            if itype == "QUESTION_INQUIRY":
+                intent_type_str = "سوال و استعلام نیاز (مشاوره‌ای/اقساط)"
+            elif itype == "DIRECT_SHORT_CTA":
+                intent_type_str = "پیام کوتاه کال‌تواکشن (قیمت/دایرکت)"
+            elif itype == "GENERAL_BUYER":
+                intent_type_str = "قصد خرید عمومی"
+
+        # 7. پیام و متن کامنت مشتری
         raw_msg = (opp.source_raw_message or "").strip()
         if not raw_msg:
             cust_evs = [e.content.strip() for e in opp.evidence_items.all() if e.evidence_type == "customer_message" and e.content]
@@ -527,7 +588,23 @@ def opportunity_export_view(request):
 
         customer_message = " ".join(raw_msg.split()) if raw_msg else "-"
 
-        # 5. کالا های پیشنهاد شده برای مشتری (Comma-separated product names)
+        # 8 & 9. نام و آدرس پیج مبدا (ناشر پست)
+        source_page_title = opp.instagram_source_page_title or opp.instagram_source_page_username or "-"
+        source_page_url = opp.instagram_source_page_url or "-"
+
+        # 10. آدرس مستقیم پست مبدا
+        source_post_url = opp.instagram_post_url or opp.source_post_url or "-"
+
+        # 11. محتوا و خلاصه کپشن پست
+        post_caption = " ".join((opp.instagram_post_caption or "-").split())
+
+        # 12. زمان انتشار پست مبدا
+        post_published_time = opp.instagram_post_created_at_jalali or "-"
+
+        # 13. شبکه اجتماعی مشتری
+        social_network = platform_map.get(opp.source_platform.lower(), opp.source_platform or "نامشخص")
+
+        # 14. کالاهای پیشنهادی کاتالوگ فروشگاه
         matches = list(opp.product_matches.all())
         if matches:
             prods = [m.product.name.strip() for m in matches if m.product and m.product.name]
@@ -537,7 +614,7 @@ def opportunity_export_view(request):
         else:
             recommended_products = "-"
 
-        # 6. پیام ساجست شده برای مشتری
+        # 15. پیام ساجست‌شده اختصاصی برای مشتری
         suggested_reply = ""
         if hasattr(opp, "ai_analysis") and opp.ai_analysis:
             suggested_reply = (opp.ai_analysis.suggested_reply or "").strip()
@@ -562,13 +639,58 @@ def opportunity_export_view(request):
         else:
             suggested_reply = " ".join(suggested_reply.split())
 
+        # 16. لینک پروفایل کامل مشتری (Complete URL)
+        profile_link = ""
+        if c:
+            if c.source_profile_url and c.source_profile_url.startswith("http"):
+                profile_link = c.source_profile_url.strip()
+            elif c.source_username and c.source_username.strip():
+                clean_un = c.source_username.strip().lstrip("@")
+                if clean_un:
+                    if opp.source_platform == "telegram":
+                        profile_link = f"https://t.me/{clean_un}"
+                    elif opp.source_platform in ("x", "twitter"):
+                        profile_link = f"https://x.com/{clean_un}"
+                    elif opp.source_platform == "instagram":
+                        profile_link = f"https://instagram.com/{clean_un}"
+            elif c.external_user_id and c.external_user_id.strip():
+                raw_id = _strip_platform_prefix(c.external_user_id.strip())
+                if raw_id.isdigit():
+                    if opp.source_platform == "telegram":
+                        profile_link = f"https://t.me/c/{raw_id}"
+                    elif opp.source_platform in ("x", "twitter"):
+                        profile_link = f"https://x.com/i/user/{raw_id}"
+        if opp.source_platform == "instagram":
+            try:
+                handle = parse_page_ref(c.source_username or "") if c else None
+            except PageRefError:
+                profile_link = profile_link or "-"
+            else:
+                profile_link = f"https://www.instagram.com/{handle}/" if handle else (profile_link or "-")
+        elif not profile_link:
+            profile_link = "-"
+
+        # 17. وضعیت لید در سیستم
+        lead_status = opp.get_status_display()
+
         writer.writerow([
             _safe_csv_cell(customer_id),
-            _safe_csv_cell(social_network),
-            _safe_csv_cell(profile_link),
+            _safe_csv_cell(profile_privacy),
+            _safe_csv_cell(c_time_jalali),
+            _safe_csv_cell(outreach_score_str),
+            _safe_csv_cell(success_prob_str),
+            _safe_csv_cell(intent_type_str),
             _safe_csv_cell(customer_message),
+            _safe_csv_cell(source_page_title),
+            _safe_csv_cell(source_page_url),
+            _safe_csv_cell(source_post_url),
+            _safe_csv_cell(post_caption),
+            _safe_csv_cell(post_published_time),
+            _safe_csv_cell(social_network),
             _safe_csv_cell(recommended_products),
             _safe_csv_cell(suggested_reply),
+            _safe_csv_cell(profile_link),
+            _safe_csv_cell(lead_status),
         ])
 
     csv_bytes = b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")
@@ -1483,4 +1605,31 @@ def x_product_view(request, pk):
         "phrases": x_activity.search_phrases(product), "events": x_activity.timeline(product, business, show),
         "show": show, "filters": x_activity.FILTERS, "collector": x_activity.collector_line(),
         "wallet_empty": _x_wallet_empty(business),
+    })
+
+
+@login_required
+def api_leaf_category_stats_view(request):
+    """
+    Returns JSON dashboard metrics for all active leaf categories and platforms.
+    Accepts ?platform=x, ?platform=instagram, or returns both.
+    """
+    business = getattr(request.user, "business", None)
+    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
+        b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
+        if b_found:
+            business = b_found
+
+    if not business:
+        return JsonResponse({"status": "error", "message": "کسب‌وکار معتبری یافت نشد."}, status=400)
+
+    platform_param = request.GET.get("platform")
+    from .services import get_leaf_category_dashboard_stats
+    data = get_leaf_category_dashboard_stats(business, platform=platform_param)
+    return JsonResponse({
+        "status": "success",
+        "business_id": business.id,
+        "business_name": business.name,
+        "leaf_categories_count": len(data),
+        "results": data,
     })

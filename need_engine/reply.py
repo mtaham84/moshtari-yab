@@ -13,6 +13,11 @@ from typing import Any
 from need_engine.config import EngineConfig
 from need_engine.prompts import REPLY_SYSTEM
 from need_engine.x_replies import fit_public_reply, x_weighted_length
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 TONES = {
     "FORMAL": "formal and respectful (address the person with «شما»)",
@@ -140,7 +145,7 @@ def generate_outreach_variants(llm: Any, cfg: EngineConfig, *, context: dict, pl
         user["regeneration_instruction"] = regenerate_instruction[:200]
     if generation:
         user["generation"] = int(generation)  # bypasses identical-input response caches on regeneration
-    data, usage = llm.complete_json("reply", cfg.reply_model, OUTREACH_SYSTEM,
+    data, usage = llm.complete_json("reply", cfg.reply_model, get_system_prompt("outreach_system_reply", OUTREACH_SYSTEM),
                                     json.dumps(user, ensure_ascii=False), max_tokens=1800, temperature=0.7,
                                     ref=ref, businesses=businesses)
     result = validate_outreach_result(data or {}, platform=platform, style=style,

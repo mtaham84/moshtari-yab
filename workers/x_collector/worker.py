@@ -207,7 +207,7 @@ class XCollector:
         self.state_backend = os.getenv("COLLECTOR_STATE_BACKEND", "sqlite").strip().lower()
         self.state: Any = None
         self.max_per_query = max_per_query if max_per_query is not None else int(os.getenv("X_COLLECT_MAX_PER_QUERY", "50"))
-        self.daily_cap = daily_cap if daily_cap is not None else int(os.getenv("X_COLLECT_DAILY_CAP", "500"))
+        self.daily_cap = daily_cap if daily_cap is not None else int(os.getenv("X_COLLECT_DAILY_CAP", "2500"))
         self.sleep_min = sleep_min if sleep_min is not None else float(os.getenv("X_COLLECT_SLEEP_MIN", "2"))
         self.sleep_max = sleep_max if sleep_max is not None else float(os.getenv("X_COLLECT_SLEEP_MAX", "5"))
         self.max_retries = max_retries if max_retries is not None else int(os.getenv("X_COLLECT_MAX_RETRIES", "3"))
@@ -275,8 +275,13 @@ class XCollector:
                     mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
             log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
+        if hasattr(self, "account_pool") and self.account_pool:
+            try:
+                self.account_pool.refresh()
+            except Exception as pool_exc:
+                log.debug("Account pool refresh failed: %s", pool_exc)
         is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
-        enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "true").lower() in {"1", "true", "yes", "on"}
+        enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "false").lower() in {"1", "true", "yes", "on"}
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
@@ -400,7 +405,7 @@ class XCollector:
                             if added_count > 0:
                                 self._record_search(query, query_products, query_sellers, mock_records,
                                                     raw_items, collected, new_before, started_at, stats=search_stats)
-                                self.state.record_lead_success(query, leads_count=added_count)
+                                # Note: Raw crawled tweets are not leads. Leads are verified and emitted by need_engine with Luna.
                             else:
                                 self._record_search(query, query_products, query_sellers, mock_records,
                                                     raw_items, collected, len(collected), started_at, stats=search_stats)

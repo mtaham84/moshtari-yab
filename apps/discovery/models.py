@@ -348,12 +348,17 @@ class Opportunity(models.Model):
         blank=True,
         default="",
         choices=[
-            ("buy_signal", "سیگنال خرید صریح"),
-            ("recommendation_ask", "درخواست معرفی / پیشنهاد"),
-            ("complaint", "نارضایتی از محصول فعلی"),
-            ("comparison", "مقایسه گزینه‌ها"),
-            ("switching", "تغییر و جایگزینی"),
-            ("general", "عمومی"),
+            ("direct_intent", "قصد خرید مستقیم (بالاترین احتمال)"),
+            ("comparison", "مقایسه محصولات (احتمال بالا)"),
+            ("advice_seeking", "مشورت خرید (احتمال بالا)"),
+            ("competitor_churn", "نارضایتی از محصول رقیب"),
+            ("pain_need", "بیان درد و نیاز (احتمال کمتر)"),
+            # Legacy choices mapped for compatibility
+            ("buy_signal", "قصد خرید مستقیم (بالاترین احتمال)"),
+            ("recommendation_ask", "مشورت خرید (احتمال بالا)"),
+            ("complaint", "نارضایتی از محصول رقیب"),
+            ("switching", "نارضایتی از محصول رقیب"),
+            ("general", "بیان درد و نیاز (احتمال کمتر)"),
         ],
         verbose_name="نوع قصد خرید",
     )
@@ -503,6 +508,167 @@ class Opportunity(models.Model):
         from apps.billing.models import BillingSettings
         s = BillingSettings.get()
         return int(round(self.raw_cost_usd * float(s.usd_to_toman)))
+
+    @property
+    def instagram_lead(self):
+        if hasattr(self, "_cached_ig_lead"):
+            return self._cached_ig_lead
+        lead = None
+        if isinstance(self.trace_metadata, dict):
+            lead_id = self.trace_metadata.get("instagram", {}).get("lead_id")
+            if lead_id:
+                from apps.discovery.models import InstagramEngineLead
+                lead = InstagramEngineLead.objects.filter(id=lead_id).first()
+        self._cached_ig_lead = lead
+        return lead
+
+    @property
+    def instagram_comment_created_at(self):
+        from django.utils.dateparse import parse_datetime
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            c_at = ig.get("comment_created_at")
+            if c_at:
+                if isinstance(c_at, str):
+                    parsed = parse_datetime(c_at)
+                    if parsed:
+                        return parsed
+                return c_at
+        lead = self.instagram_lead
+        if lead and lead.comment_created_at:
+            return lead.comment_created_at
+        if self.source_message_timestamp:
+            return self.source_message_timestamp
+        return None
+
+    @property
+    def instagram_comment_created_at_jalali(self) -> str:
+        dt = self.instagram_comment_created_at
+        if not dt:
+            return ""
+        from apps.core.jalali import format_jalali_datetime
+        try:
+            return format_jalali_datetime(dt)
+        except Exception:
+            return str(dt)[:19]
+
+    @property
+    def instagram_source_page_username(self) -> str:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            u = ig.get("source_page_username")
+            if u:
+                return u
+        lead = self.instagram_lead
+        if lead and lead.source_page_username:
+            return lead.source_page_username
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            return ig.get("source_label", "")
+        return ""
+
+    @property
+    def instagram_source_page_title(self) -> str:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            t = ig.get("source_page_title")
+            if t:
+                return t
+        lead = self.instagram_lead
+        if lead and lead.source_page_title:
+            return lead.source_page_title
+        return ""
+
+    @property
+    def instagram_source_page_url(self) -> str:
+        u = self.instagram_source_page_username
+        return f"https://www.instagram.com/{u.lstrip('@')}/" if u else ""
+
+    @property
+    def instagram_post_created_at(self):
+        from django.utils.dateparse import parse_datetime
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            p_at = ig.get("post_created_at")
+            if p_at:
+                if isinstance(p_at, str):
+                    parsed = parse_datetime(p_at)
+                    if parsed:
+                        return parsed
+                return p_at
+        lead = self.instagram_lead
+        if lead and lead.post_created_at:
+            return lead.post_created_at
+        return None
+
+    @property
+    def instagram_post_created_at_jalali(self) -> str:
+        dt = self.instagram_post_created_at
+        if not dt:
+            return ""
+        from apps.core.jalali import format_jalali_datetime
+        try:
+            return format_jalali_datetime(dt)
+        except Exception:
+            return str(dt)[:19]
+
+    @property
+    def is_private_account(self) -> bool:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            if "is_private" in ig and ig["is_private"] is not None:
+                return bool(ig["is_private"])
+        lead = self.instagram_lead
+        if lead and lead.is_private is not None:
+            return bool(lead.is_private)
+        if self.customer and isinstance(self.customer.metadata, dict):
+            return bool(self.customer.metadata.get("is_private", False))
+        return False
+
+    @property
+    def display_page_type(self) -> str:
+        return "خصوصی (Private)" if self.is_private_account else "عمومی (Public)"
+
+    @property
+    def outreach_score_val(self) -> int:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            if "outreach_score" in ig and ig["outreach_score"]:
+                return int(ig["outreach_score"])
+        lead = self.instagram_lead
+        if lead and lead.outreach_score:
+            return int(lead.outreach_score)
+        if hasattr(self, "ai_analysis") and self.ai_analysis and self.ai_analysis.intent_score:
+            return int(round(float(self.ai_analysis.intent_score) * 45.0))
+        return int(round((self.intent_score_percentage / 100.0) * 45))
+
+    @property
+    def success_probability_pct(self) -> int:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            if "success_probability" in ig and ig["success_probability"]:
+                return int(ig["success_probability"])
+        lead = self.instagram_lead
+        if lead and lead.success_probability:
+            return int(lead.success_probability)
+        score = self.outreach_score_val
+        is_priv = self.is_private_account
+        from apps.discovery.instagram_scoring import calculate_success_probability
+        age_days = 0.0
+        c_at = self.instagram_comment_created_at
+        if c_at and hasattr(c_at, "timestamp"):
+            import django.utils.timezone as dj_tz
+            try:
+                age_days = max(0.0, (dj_tz.now() - c_at).total_seconds() / 86400.0)
+            except Exception:
+                age_days = 0.0
+        return calculate_success_probability(
+            outreach_score=score,
+            is_private=is_priv,
+            intent_type=self.intent_type or "OTHER",
+            age_days=age_days,
+            comment_text=self.source_raw_message or "",
+        )
 
 
 class AIAnalysis(models.Model):
@@ -870,6 +1036,7 @@ class InstagramSourceStat(models.Model):
     leads = models.PositiveIntegerField(default=0)
     alpha = models.FloatField(default=1.0)
     beta = models.FloatField(default=1.0)
+    generation_version = models.CharField(max_length=20, default="v1", db_index=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
 
     @property
@@ -916,10 +1083,12 @@ class InstagramCategoryTarget(models.Model):
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="instagram_category_targets")
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="instagram_targets")
     terms = models.JSONField(default=list, blank=True)
+    archived_terms = models.JSONField(default=list, blank=True)
     hashtags = models.JSONField(default=list, blank=True)
     max_posts = models.PositiveSmallIntegerField(default=5)
     window_days = models.PositiveSmallIntegerField(default=7)
     is_active = models.BooleanField(default=False)
+    generation_version = models.CharField(max_length=20, default="v1", db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -943,14 +1112,17 @@ class EngineSyncCursor(models.Model):
 
 class XSearchQuery(models.Model):
     KIND = [(x, x) for x in ("auto_intent", "auto_problem", "auto_product", "manual", "suggested")]
-    STATE = [(x, x) for x in ("active", "paused_manual", "paused_auto", "suggested", "rejected", "stale")]
+    STATE = [(x, x) for x in ("active", "paused_manual", "paused_auto", "suggested", "rejected", "stale", "archived")]
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="x_search_queries")
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="x_search_queries")
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="x_search_queries")
     text = models.CharField(max_length=100)
     normalized_text = models.CharField(max_length=100)
     kind = models.CharField(max_length=20, choices=KIND, default="manual")
     state = models.CharField(max_length=20, choices=STATE, default="active", db_index=True)
     weight = models.FloatField(default=1.0)
+    generation_version = models.CharField(max_length=20, default="v1", db_index=True)
+    domain = models.CharField(max_length=50, blank=True, default="")
     state_reason = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_state_change_at = models.DateTimeField(auto_now=True)
@@ -1192,6 +1364,30 @@ class InstagramEngineLead(models.Model):
     intent_score = models.FloatField(default=0.85, db_index=True, verbose_name="ضریب احتمال خرید")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW", db_index=True, verbose_name="وضعیت لید")
 
+    # Priority Scoring & Freshness System (Max 35 points: 15 Public + 15 Intent + 5 Freshness)
+    comment_created_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان ارسال کامنت")
+    is_private = models.BooleanField(default=False, db_index=True, verbose_name="حساب خصوصی (Private)")
+    comment_intent_type = models.CharField(
+        max_length=32,
+        choices=[
+            ("QUESTION_INQUIRY", "سوال و استعلام نیاز"),
+            ("DIRECT_SHORT_CTA", "پیام مستقیم و کوتاه"),
+            ("GENERAL_BUYER", "قصد خرید عمومی"),
+            ("OTHER", "سایر"),
+        ],
+        default="DIRECT_SHORT_CTA",
+        db_index=True,
+        verbose_name="نوع کامنت و نیت"
+    )
+    outreach_score = models.IntegerField(default=0, db_index=True, verbose_name="امتیاز اولویت دایرکت (تا ۴۵ امتیاز)")
+    success_probability = models.PositiveIntegerField(default=0, db_index=True, verbose_name="درصد احتمال موفقیت لید (۰ تا ۱۰۰)")
+    score_breakdown = models.JSONField(default=dict, blank=True, verbose_name="جزئیات و تفکیک امتیاز")
+
+    # Source Page (Target Account) & Post Meta
+    source_page_username = models.CharField(max_length=100, blank=True, default="", db_index=True, verbose_name="نام کاربری پیج مبدا (ناشر پست)")
+    source_page_title = models.CharField(max_length=255, blank=True, default="", verbose_name="عنوان یا نام کامل پیج مبدا")
+    post_created_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان انتشار پست مبدا")
+
     # Outreach tracking & multi-turn conversations
     sender_account = models.CharField(max_length=100, blank=True, default="", verbose_name="اکانت ارسال‌کننده پیام اول")
     initial_dm_text = models.TextField(blank=True, default="", verbose_name="متن پیام اول ارسالی")
@@ -1217,10 +1413,46 @@ class InstagramEngineLead(models.Model):
         indexes = [
             models.Index(fields=["tenant_id", "status"], name="ix_leads_t_status"),
             models.Index(fields=["intent_score"], name="ix_leads_intent_score"),
+            models.Index(fields=["tenant_id", "status", "-outreach_score"], name="ix_leads_t_stat_score"),
+            models.Index(fields=["outreach_score"], name="ix_leads_outreach_score"),
+            models.Index(fields=["comment_created_at"], name="ix_leads_comment_created"),
+            models.Index(fields=["success_probability"], name="ix_leads_success_prob"),
+            models.Index(fields=["tenant_id", "-outreach_score", "-comment_created_at"], name="ix_leads_t_score_time"),
         ]
 
     def __str__(self):
-        return f"@{self.username} (احتمال خرید: {int(self.intent_score * 100)}% - {self.get_status_display()})"
+        return f"@{self.username} (احتمال خرید: {self.success_probability or int(self.intent_score * 100)}% - {self.get_status_display()})"
+
+    @property
+    def display_page_type(self) -> str:
+        return "خصوصی (Private)" if self.is_private else "عمومی (Public)"
+
+    @property
+    def source_page_url(self) -> str:
+        if self.source_page_username:
+            u = self.source_page_username.lstrip("@").strip()
+            return f"https://www.instagram.com/{u}/"
+        return ""
+
+    @property
+    def comment_created_at_jalali(self) -> str:
+        if not self.comment_created_at:
+            return "-"
+        from apps.core.jalali import format_jalali_datetime
+        try:
+            return format_jalali_datetime(self.comment_created_at)
+        except Exception:
+            return str(self.comment_created_at)[:19]
+
+    @property
+    def post_created_at_jalali(self) -> str:
+        if not self.post_created_at:
+            return "-"
+        from apps.core.jalali import format_jalali_datetime
+        try:
+            return format_jalali_datetime(self.post_created_at)
+        except Exception:
+            return str(self.post_created_at)[:19]
 
 
 class InstagramCrawledPost(models.Model):

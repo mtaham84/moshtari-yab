@@ -167,14 +167,9 @@ def cheap_x_filter(msg: ChatMessage, cfg, catalog=None) -> FilterDecision:
         "author_signals": round(author_score, 2),
     }
 
-    # Strict check: post must have BOTH valid intent and relevant topic (if catalog given)
-    if not has_intent:
-        return FilterDecision(False, "no_intent", signals)
+    # Note: intent classification (7-Tier) is handled directly by Luna LLM.
+    # Topic gate via cached BM25 index on catalog (only when catalog with products is explicitly provided)
     if catalog is not None and getattr(catalog, "products", None) and not has_topic:
         return FilterDecision(False, "no_topic", signals)
-
-    min_score = getattr(cfg, "x_filter_min_score", 25.0)
-    if score_100 < min_score:
-        return FilterDecision(False, "low_score", signals)
 
     return FilterDecision(True, "ok", signals)

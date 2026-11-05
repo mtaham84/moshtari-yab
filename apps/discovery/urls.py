@@ -25,4 +25,5 @@ urlpatterns = [
     path("communities/<int:community_id>/toggle/", views.community_toggle_status_view, name="community_toggle"),
     path("communities/<int:community_id>/delete/", views.community_delete_view, name="community_delete"),
     path("api/analytics/", views.api_analytics_report_view, name="api_analytics"),
+    path("api/leaf-categories/stats/", views.api_leaf_category_stats_view, name="api_leaf_category_stats"),
 ]

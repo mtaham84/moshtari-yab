@@ -154,6 +154,7 @@ class NeedCard(BaseModel):
     evidence_time_estimated: bool = False
     author_bio: str | None = None
     intent_type: str | None = None
+    tier: int | None = None
 
     def summary_text(self) -> str:
         return " ".join([self.situation or "", self.need or ""] + self.solution_queries[:3])
@@ -215,6 +216,7 @@ class NeedOut(BaseModel):
     constraints: dict[str, Any] = Field(default_factory=dict)
     priority: float = 0.0
     intent_type: str | None = None
+    tier: int | None = None
 
 
 class Cost(BaseModel):
@@ -238,3 +240,4 @@ class Opportunity(BaseModel):
     thread: dict[str, Any] | None = None
     retention_scrubbed: bool = False
     intent_type: str | None = None
+    tier: int | None = None

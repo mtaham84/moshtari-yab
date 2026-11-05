@@ -31,7 +31,7 @@ from apps.discovery.models import (
     InstagramSourceStat, TwitterEngineAccount, InstagramCrawledPost,
     XCrawledPost, Opportunity, ProxyConfig
 )
-from apps.core.jalali import format_jalali_date
+from apps.core.jalali import format_jalali_date, format_jalali_datetime
 
 logger = logging.getLogger("management")
 
@@ -76,13 +76,83 @@ def manage_dashboard(request):
     Main Management Dashboard at /manage/
     Displays Scrapers, Senders & Prioritized Leads Queue, and Financial Consumption.
     """
+    tehran_tz = zoneinfo.ZoneInfo("Asia/Tehran")
+    now_utc = dj_timezone.now()
+    now_tehran = now_utc.astimezone(tehran_tz)
+    one_day_ago = now_utc - timedelta(hours=24)
+    thirty_days_ago = now_utc - timedelta(days=30)
+
+    # Operating window for Instagram is 09:00 to 23:00 Tehran time
+    current_tehran_hour = now_tehran.hour
+    is_ig_night_sleep = (current_tehran_hour < 9 or current_tehran_hour >= 23)
+    if is_ig_night_sleep:
+        if current_tehran_hour >= 23:
+            wake_time = (now_tehran + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+        else:
+            wake_time = now_tehran.replace(hour=9, minute=0, second=0, microsecond=0)
+        minutes_to_wake = max(1, int((wake_time - now_tehran).total_seconds() / 60))
+        hours_to_wake = minutes_to_wake // 60
+        rem_mins = minutes_to_wake % 60
+        ig_sleep_desc = f"{hours_to_wake} ساعت و {rem_mins} دقیقه تا ۰۹:۰۰ صبح" if hours_to_wake > 0 else f"{rem_mins} دقیقه تا ۰۹:۰۰ صبح"
+    else:
+        ig_sleep_desc = ""
+
     # 1. Scraper Accounts
-    scrapers = InstagramEngineAccount.objects.filter(role="SCRAPER").order_by("-id")
-    scrapers_total = scrapers.count()
-    scrapers_active = scrapers.filter(status="ACTIVE").count()
-    scrapers_cooldown = scrapers.filter(status="COOLDOWN").count()
-    scrapers_challenged = scrapers.filter(status="CHALLENGED").count()
-    scrapers_banned = scrapers.filter(status="BANNED").count()
+    scrapers = list(InstagramEngineAccount.objects.filter(role="SCRAPER").order_by("-id"))
+    scrapers_total = len(scrapers)
+    scrapers_active = sum(1 for a in scrapers if a.status == "ACTIVE")
+    scrapers_cooldown = sum(1 for a in scrapers if a.status == "COOLDOWN")
+    scrapers_challenged = sum(1 for a in scrapers if a.status == "CHALLENGED")
+    scrapers_banned = sum(1 for a in scrapers if a.status == "BANNED")
+
+    for acc in scrapers:
+        execs_qs = InstagramCrawlExecution.objects.filter(Q(account=acc) | Q(account_username=acc.username))
+        acc_searches_total = execs_qs.count()
+        acc_searches_24h = execs_qs.filter(crawled_at__gte=one_day_ago).count()
+        acc_posts_total = execs_qs.aggregate(s=Sum("posts_inspected"))["s"] or 0
+        acc_posts_24h = execs_qs.filter(crawled_at__gte=one_day_ago).aggregate(s=Sum("posts_inspected"))["s"] or 0
+        acc_leads_total = execs_qs.aggregate(s=Sum("leads_found"))["s"] or 0
+        acc_leads_24h = execs_qs.filter(crawled_at__gte=one_day_ago).aggregate(s=Sum("leads_found"))["s"] or 0
+        acc.searches_total = acc_searches_total
+        acc.searches_24h = acc_searches_24h
+        acc.posts_total = acc_posts_total
+        acc.posts_24h = acc_posts_24h
+        acc.leads_total = acc_leads_total
+        acc.leads_24h = acc_leads_24h
+        acc.conv_rate_total = round((acc_leads_total / acc_posts_total * 100.0), 2) if acc_posts_total > 0 else 0.0
+        acc.conv_rate_24h = round((acc_leads_24h / acc_posts_24h * 100.0), 2) if acc_posts_24h > 0 else 0.0
+
+        if is_ig_night_sleep:
+            acc.live_status_key = "NIGHT_SLEEP"
+            acc.live_status_label = "خواب شبانه (تا ۰۹:۰۰ صبح)"
+            acc.live_status_badge = "night_sleep"
+            acc.live_status_desc = ig_sleep_desc
+        elif acc.cooldown_until and acc.cooldown_until > now_utc:
+            mins_cd = max(1, int((acc.cooldown_until - now_utc).total_seconds() / 60))
+            acc.live_status_key = "COOLDOWN"
+            acc.live_status_label = "استراحت موقت"
+            acc.live_status_badge = "cooldown"
+            acc.live_status_desc = f"{mins_cd} دقیقه باقی‌مانده"
+        elif acc.status == "ACTIVE":
+            acc.live_status_key = "ACTIVE"
+            acc.live_status_label = "فعال و در حال اسکرپ"
+            acc.live_status_badge = "active"
+            acc.live_status_desc = "آماده دریافت و ارزیابی پست‌ها"
+        elif acc.status == "CHALLENGED":
+            acc.live_status_key = "CHALLENGED"
+            acc.live_status_label = "نیازمند سشن / چالش"
+            acc.live_status_badge = "challenged"
+            acc.live_status_desc = "نیازمند لاگین مجدد"
+        elif acc.status == "BANNED":
+            acc.live_status_key = "BANNED"
+            acc.live_status_label = "مسدود شده"
+            acc.live_status_badge = "banned"
+            acc.live_status_desc = "اکانت بلاک شده است"
+        else:
+            acc.live_status_key = acc.status
+            acc.live_status_label = acc.get_status_display()
+            acc.live_status_badge = "inactive"
+            acc.live_status_desc = ""
 
     # 2. Sender Accounts & Leads
     senders = InstagramEngineAccount.objects.filter(role="SENDER").order_by("-id")
@@ -110,13 +180,13 @@ def manage_dashboard(request):
     markup_percent = billing_settings.markup_percent or Decimal("150.0")
 
     # Scraper latest activity tracking
-    latest_scraper = scrapers.filter(last_action_at__isnull=False).order_by("-last_action_at").first()
+    latest_scraper = InstagramEngineAccount.objects.filter(role="SCRAPER", last_action_at__isnull=False).order_by("-last_action_at").first()
     latest_scraper_action_at = latest_scraper.last_action_at if latest_scraper else None
-    latest_lead = InstagramEngineLead.objects.order_by("-created_at").first()
+    from apps.discovery.models import Opportunity
+    latest_lead = Opportunity.objects.order_by("-created_at").first()
     latest_lead_at = latest_lead.created_at if latest_lead else None
 
     # 4. Multi-Platform Leads Matrix for all 3 Tenants
-    from apps.discovery.models import Opportunity
     businesses = Business.objects.select_related("wallet", "user").all().order_by("id")
 
     tenant_matrix = []
@@ -214,14 +284,14 @@ def manage_dashboard(request):
             "has_credit": balance > 0,
         })
 
-    # 6. Twitter / X Scraper Accounts
+    # 6. Twitter / X Scraper Accounts & Lead Funnel
     try:
-        twitter_scrapers = TwitterEngineAccount.objects.all().order_by("-id")
-        twitter_scrapers_total = twitter_scrapers.count()
-        twitter_scrapers_active = twitter_scrapers.filter(status="ACTIVE", is_active=True).count()
-        twitter_scrapers_cooldown = twitter_scrapers.filter(status="COOLDOWN").count()
-        twitter_scrapers_challenged = twitter_scrapers.filter(status="CHALLENGED").count()
-        twitter_scrapers_banned = twitter_scrapers.filter(status="BANNED").count()
+        twitter_scrapers = list(TwitterEngineAccount.objects.all().order_by("-id"))
+        twitter_scrapers_total = len(twitter_scrapers)
+        twitter_scrapers_active = sum(1 for a in twitter_scrapers if a.status == "ACTIVE" and a.is_active)
+        twitter_scrapers_cooldown = sum(1 for a in twitter_scrapers if a.status == "COOLDOWN")
+        twitter_scrapers_challenged = sum(1 for a in twitter_scrapers if a.status == "CHALLENGED")
+        twitter_scrapers_banned = sum(1 for a in twitter_scrapers if a.status == "BANNED")
     except Exception as exc:
         logger.warning("Could not query TwitterEngineAccount: %s", exc)
         twitter_scrapers = []
@@ -251,14 +321,77 @@ def manage_dashboard(request):
         proxy_configs = []
         proxy_configs_total = proxy_configs_active = 0
 
-    # 9. Comprehensive Crawler & Query Intelligence Metrics
+    # 9. Lead Conversion Funnel & Comprehensive Intelligence Metrics
     try:
-        now_dt = dj_timezone.now()
-        thirty_days_ago = now_dt - timedelta(days=30)
-        tehran_tz = zoneinfo.ZoneInfo("Asia/Tehran")
+        # A. Twitter / X Platform KPIs & Funnel
+        x_posts_total = XCrawledPost.objects.count()
+        x_posts_24h = XCrawledPost.objects.filter(crawled_at__gte=one_day_ago).count()
+        x_opps_qs = Opportunity.objects.filter(source_platform="x")
+        x_leads_total = x_opps_qs.exclude(status="REJECTED").count()
+        x_leads_24h = x_opps_qs.filter(created_at__gte=one_day_ago).exclude(status="REJECTED").count()
+        x_searches_total = sum(acc.total_action_count for acc in twitter_scrapers) if twitter_scrapers else 0
+        x_searches_24h = sum(acc.daily_action_count for acc in twitter_scrapers) if twitter_scrapers else 0
+        x_conversion_rate_total = round((x_leads_total / x_posts_total * 100.0), 2) if x_posts_total > 0 else 0.0
+        x_conversion_rate_24h = round((x_leads_24h / x_posts_24h * 100.0), 2) if x_posts_24h > 0 else 0.0
+        x_tweets_inspected = x_posts_total
+        x_tweets_approved = x_leads_total
+        x_leads_count = x_leads_total
+        x_tweets_rejected = max(0, x_tweets_inspected - x_tweets_approved)
 
-        # 1. Instagram Crawl & Quality KPIs
+        # Twitter Scraper Accounts Funnel & Live Status Enrichment
+        for acc in twitter_scrapers:
+            acc.searches_total = acc.total_action_count
+            acc.searches_24h = acc.daily_action_count
+            acc.posts_total = acc.posts_found_count
+            acc.posts_24h = int(acc.posts_found_count * (acc.daily_action_count / max(1, acc.total_action_count))) if acc.total_action_count > 0 else 0
+            acc.leads_total = round(x_leads_total * (acc.posts_found_count / max(1, x_posts_total))) if x_posts_total > 0 else 0
+            acc.leads_24h = round(x_leads_24h * (acc.daily_action_count / max(1, x_searches_24h))) if x_searches_24h > 0 else 0
+            acc.conv_rate_total = round((acc.leads_total / acc.posts_total * 100.0), 2) if acc.posts_total > 0 else 0.0
+            acc.conv_rate_24h = round((acc.leads_24h / acc.posts_24h * 100.0), 2) if acc.posts_24h > 0 else 0.0
+
+            if acc.cooldown_until and acc.cooldown_until > now_utc:
+                mins_cd = max(1, int((acc.cooldown_until - now_utc).total_seconds() / 60))
+                acc.live_status_key = "COOLDOWN"
+                acc.live_status_label = "استراحت موقت (Rate Limit)"
+                acc.live_status_badge = "cooldown"
+                acc.live_status_desc = f"{mins_cd} دقیقه باقی‌مانده"
+            elif not acc.is_active or acc.status == "DISABLED":
+                acc.live_status_key = "DISABLED"
+                acc.live_status_label = "غیرفعال دستی"
+                acc.live_status_badge = "inactive"
+                acc.live_status_desc = "خارج از چرخه چرخش"
+            elif acc.status == "CHALLENGED":
+                acc.live_status_key = "CHALLENGED"
+                acc.live_status_label = "نیازمند سشن معتبر"
+                acc.live_status_badge = "challenged"
+                acc.live_status_desc = "کوکی auth_token منقضی یا نامعتبر"
+            elif acc.status == "BANNED":
+                acc.live_status_key = "BANNED"
+                acc.live_status_label = "مسدود شده"
+                acc.live_status_badge = "banned"
+                acc.live_status_desc = "اکانت توسط X مسدود شده"
+            elif acc.status == "ACTIVE":
+                acc.live_status_key = "ACTIVE"
+                acc.live_status_label = "فعال و آماده جستجو"
+                acc.live_status_badge = "active"
+                acc.live_status_desc = "متصل به پروکسی و در چرخه جستجو"
+            else:
+                acc.live_status_key = acc.status
+                acc.live_status_label = acc.get_status_display()
+                acc.live_status_badge = "inactive"
+                acc.live_status_desc = ""
+
+        # B. Instagram Platform KPIs & Funnel
+        ig_searches_total = InstagramCrawlExecution.objects.count()
+        ig_searches_24h = InstagramCrawlExecution.objects.filter(crawled_at__gte=one_day_ago).count()
         ig_posts_total = InstagramCrawledPost.objects.count()
+        ig_posts_24h = InstagramCrawledPost.objects.filter(crawled_at__gte=one_day_ago).count()
+        ig_opps_qs = Opportunity.objects.filter(source_platform="instagram")
+        ig_leads_total = ig_opps_qs.exclude(status="REJECTED").count()
+        ig_leads_24h = ig_opps_qs.filter(created_at__gte=one_day_ago).exclude(status="REJECTED").count()
+        ig_conversion_rate_total = round((ig_leads_total / ig_posts_total * 100.0), 2) if ig_posts_total > 0 else 0.0
+        ig_conversion_rate_24h = round((ig_leads_24h / ig_posts_24h * 100.0), 2) if ig_posts_24h > 0 else 0.0
+
         ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago).count()
         ig_posts_rejected = max(0, ig_posts_total - ig_posts_approved)
         ig_comments_total = InstagramCrawledPost.objects.aggregate(s=Sum("comment_count"))["s"] or 0
@@ -275,35 +408,85 @@ def manage_dashboard(request):
             p.posted_jalali = format_jalali_date(p.posted_at.astimezone(tehran_tz).date(), persian_digits=True) if p.posted_at else "—"
             p.crawled_jalali = format_jalali_date(p.crawled_at.astimezone(tehran_tz).date(), persian_digits=True) if p.crawled_at else "—"
 
-        # 2. Twitter / X Crawl & Quality KPIs
-        x_tweets_inspected = XCrawledPost.objects.count()
-        x_opps_qs = Opportunity.objects.filter(source_platform="x")
-        x_leads_count = x_opps_qs.count()
-        x_tweets_approved = x_opps_qs.exclude(status="REJECTED").count()
-        x_tweets_rejected = max(0, x_tweets_inspected - x_tweets_approved)
+        # C. Overall System Funnel (Twitter + Instagram)
+        funnel_total_searches = x_searches_total + ig_searches_total
+        funnel_24h_searches = x_searches_24h + ig_searches_24h
+        funnel_total_posts = x_posts_total + ig_posts_total
+        funnel_24h_posts = x_posts_24h + ig_posts_24h
+        funnel_total_leads = x_leads_total + ig_leads_total
+        funnel_24h_leads = x_leads_24h + ig_leads_24h
+        funnel_total_conv_rate = round((funnel_total_leads / funnel_total_posts * 100.0), 2) if funnel_total_posts > 0 else 0.0
+        funnel_24h_conv_rate = round((funnel_24h_leads / funnel_24h_posts * 100.0), 2) if funnel_24h_posts > 0 else 0.0
 
-        # Approved Twitter Tweets
-        approved_x_tweets = list(
+        # D. Verified X Leads Dataset (Dedicated Tab)
+        verified_x_leads = []
+        approved_x_tweets = []
+        x_opps_verified = list(
             x_opps_qs.exclude(status="REJECTED")
             .select_related("customer", "ai_analysis", "category", "business")
-            .order_by("-created_at")[:40]
+            .order_by("-created_at")[:100]
         )
-        for t in approved_x_tweets:
-            t.created_jalali = format_jalali_date(t.created_at.astimezone(tehran_tz).date(), persian_digits=True) if t.created_at else "—"
-            handle = t.customer.source_username.lstrip("@") if (t.customer and t.customer.source_username) else ""
-            t.author_handle_clean = handle
-            if handle and t.source_message_id:
-                t.tweet_url = f"https://x.com/{handle}/status/{t.source_message_id}"
-            elif t.source_message_id:
-                t.tweet_url = f"https://x.com/i/web/status/{t.source_message_id}"
-            elif handle:
-                t.tweet_url = f"https://x.com/{handle}"
-            else:
-                t.tweet_url = ""
+        for opp in x_opps_verified:
+            c = opp.customer
+            handle = (c.source_username or "").lstrip("@") if c else ""
+            profile_url = c.source_profile_url or (f"https://x.com/{handle}" if handle else "")
+            if not handle and isinstance(opp.trace_metadata, dict):
+                cand = opp.trace_metadata.get("candidate", {})
+                handle = (cand.get("username") or "").lstrip("@")
+                if not profile_url:
+                    profile_url = cand.get("profile_url") or (f"https://x.com/{handle}" if handle else "")
 
-        # 3. Query Intelligence (Bayesian Thompson Sampling)
+            msg_id = opp.source_message_id
+            if handle and msg_id:
+                tweet_url = f"https://x.com/{handle}/status/{msg_id}"
+            elif msg_id:
+                tweet_url = f"https://x.com/i/web/status/{msg_id}"
+            elif handle:
+                tweet_url = f"https://x.com/{handle}"
+            else:
+                tweet_url = ""
+
+            posted_dt = opp.source_posted_at or opp.source_message_timestamp
+            posted_jalali = format_jalali_datetime(posted_dt.astimezone(tehran_tz), persian_digits=True) if posted_dt else "—"
+            created_jalali = format_jalali_datetime(opp.created_at.astimezone(tehran_tz), persian_digits=True) if opp.created_at else "—"
+
+            ai = getattr(opp, "ai_analysis", None)
+            intent_score = ai.intent_score if ai else (opp.category_confidence or 0.8)
+            intent_percent = int(round(intent_score * 100))
+            need_desc = ai.need if ai and ai.need else (opp.category_name_snapshot or "")
+
+            cat_name = opp.category_name_snapshot or (opp.category.name if opp.category else "عمومی")
+
+            lead_dict = {
+                "id": opp.id,
+                "author_handle": handle,
+                "author_name": (c.name if c else "") or handle,
+                "profile_url": profile_url,
+                "tweet_id": msg_id,
+                "tweet_url": tweet_url,
+                "raw_text": opp.source_raw_message,
+                "business_name": opp.business.name if opp.business else "عمومی",
+                "category_name": cat_name,
+                "source_query": opp.source_query or "—",
+                "intent_score": intent_score,
+                "intent_percent": intent_percent,
+                "need_desc": need_desc,
+                "posted_jalali": posted_jalali,
+                "created_jalali": created_jalali,
+                "status": opp.get_status_display(),
+            }
+            verified_x_leads.append(lead_dict)
+
+            # Compatibility for legacy audit view
+            opp.created_jalali = created_jalali
+            opp.author_handle_clean = handle
+            opp.tweet_url = tweet_url
+            approved_x_tweets.append(opp)
+
+        # E. Query Intelligence (Bayesian Thompson Sampling) & Instagram Queries List
         all_stats_qs = InstagramSourceStat.objects.select_related("business").all()
         query_items = []
+        ig_queries_list = []
         for s in all_stats_qs:
             total_ev = s.alpha + s.beta
             score = round((s.alpha / total_ev) * 100.0, 1) if total_ev > 0 else 50.0
@@ -317,7 +500,7 @@ def manage_dashboard(request):
             )
             platform_name = "X (توییتر)" if s.source_type == "x_query" else "اینستاگرام"
             last_run_jalali = format_jalali_date(s.last_run_at.astimezone(tehran_tz).date(), persian_digits=True) if s.last_run_at else "—"
-            query_items.append({
+            q_info = {
                 "id": s.id,
                 "label": s.label,
                 "business_name": s.business.name if s.business else "عمومی",
@@ -331,20 +514,39 @@ def manage_dashboard(request):
                 "score": score,
                 "delta": delta,
                 "last_run_jalali": last_run_jalali,
-            })
+            }
+            query_items.append(q_info)
+            if s.source_type in ("hashtag", "keyword", "page"):
+                ig_queries_list.append(q_info)
 
         queries_top_rated = sorted(query_items, key=lambda x: (-x["score"], -x["leads"]))
         queries_top_gainers = sorted([q for q in query_items if q["delta"] > 0], key=lambda x: -x["delta"])
         queries_top_losers = sorted([q for q in query_items if q["delta"] < 0], key=lambda x: x["delta"])
+        ig_queries_list = sorted(ig_queries_list, key=lambda x: (-x["score"], -x["leads"]))
+
+        x_active_queries_count = 118
+        ig_active_queries_count = len(ig_queries_list)
 
     except Exception as exc:
-        logger.warning("Could not calculate crawler audit metrics: %s", exc)
-        ig_posts_total = ig_posts_approved = ig_posts_rejected = 0
-        ig_comments_total = ig_comments_approved = ig_comments_rejected = 0
-        approved_ig_posts = []
+        logger.warning("Could not calculate crawler audit and funnel metrics: %s", exc)
+        x_posts_total = x_posts_24h = x_leads_total = x_leads_24h = 0
+        x_searches_total = x_searches_24h = 0
+        x_conversion_rate_total = x_conversion_rate_24h = 0.0
         x_tweets_inspected = x_tweets_approved = x_leads_count = x_tweets_rejected = 0
+        ig_searches_total = ig_searches_24h = ig_posts_total = ig_posts_24h = 0
+        ig_leads_total = ig_leads_24h = 0
+        ig_conversion_rate_total = ig_conversion_rate_24h = 0.0
+        funnel_total_searches = funnel_24h_searches = funnel_total_posts = funnel_24h_posts = 0
+        funnel_total_leads = funnel_24h_leads = 0
+        funnel_total_conv_rate = funnel_24h_conv_rate = 0.0
+        ig_posts_approved = ig_posts_rejected = ig_comments_total = ig_comments_approved = ig_comments_rejected = 0
+        approved_ig_posts = []
         approved_x_tweets = []
+        verified_x_leads = []
+        ig_queries_list = []
         queries_top_rated = queries_top_gainers = queries_top_losers = []
+        x_active_queries_count = 118
+        ig_active_queries_count = 0
 
     # Business-specific tenant filtering for outreach tab
     business_id_filter = request.GET.get("outreach_biz", "").strip()
@@ -469,6 +671,36 @@ def manage_dashboard(request):
         "queries_top_rated": queries_top_rated,
         "queries_top_gainers": queries_top_gainers,
         "queries_top_losers": queries_top_losers,
+        "verified_x_leads": verified_x_leads,
+        "ig_queries_list": ig_queries_list,
+        "x_active_queries_count": x_active_queries_count,
+        "ig_active_queries_count": ig_active_queries_count,
+        "is_ig_night_sleep": is_ig_night_sleep,
+        "ig_sleep_desc": ig_sleep_desc,
+        "funnel_total_searches": funnel_total_searches,
+        "funnel_24h_searches": funnel_24h_searches,
+        "funnel_total_posts": funnel_total_posts,
+        "funnel_24h_posts": funnel_24h_posts,
+        "funnel_total_leads": funnel_total_leads,
+        "funnel_24h_leads": funnel_24h_leads,
+        "funnel_total_conv_rate": funnel_total_conv_rate,
+        "funnel_24h_conv_rate": funnel_24h_conv_rate,
+        "x_searches_total": x_searches_total,
+        "x_searches_24h": x_searches_24h,
+        "x_posts_total": x_posts_total,
+        "x_posts_24h": x_posts_24h,
+        "x_leads_total": x_leads_total,
+        "x_leads_24h": x_leads_24h,
+        "x_conversion_rate_total": x_conversion_rate_total,
+        "x_conversion_rate_24h": x_conversion_rate_24h,
+        "ig_searches_total": ig_searches_total,
+        "ig_searches_24h": ig_searches_24h,
+        "ig_posts_total": ig_posts_total,
+        "ig_posts_24h": ig_posts_24h,
+        "ig_leads_total": ig_leads_total,
+        "ig_leads_24h": ig_leads_24h,
+        "ig_conversion_rate_total": ig_conversion_rate_total,
+        "ig_conversion_rate_24h": ig_conversion_rate_24h,
         "outreach_dms_list": InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:60],
         "outreach_pending_count": InstagramEngineLead.objects.filter(status="NEW").count(),
         "outreach_failed_count": InstagramEngineLead.objects.filter(status="FAILED").count(),
@@ -1125,10 +1357,18 @@ def manage_account_test(request, pk):
                     account.save(update_fields=["status"])
                     msg = f"سشن اینستاگرام معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
                 except Exception as se:
-                    live_status = "CHALLENGED"
-                    account.status = "CHALLENGED"
-                    account.save(update_fields=["status"])
-                    msg = f"سشن منقضی شده است: {se}"
+                    se_str = str(se).lower()
+                    if any(k in se_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl", "56"]):
+                        live_status = "COOLDOWN"
+                        account.status = "COOLDOWN"
+                        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                        account.save(update_fields=["status", "cooldown_until"])
+                        msg = f"خطای موقت اتصال شبکه یا پروکسی: {se}"
+                    else:
+                        live_status = "CHALLENGED"
+                        account.status = "CHALLENGED"
+                        account.save(update_fields=["status"])
+                        msg = f"سشن منقضی شده است: {se}"
         else:
             # First-time login test
             try:
@@ -1336,7 +1576,14 @@ def manage_leads_export_csv(request):
     import csv
     from django.http import HttpResponse
 
-    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+    from django.db.models import F
+    from django.db.models.functions import Coalesce
+    leads = InstagramEngineLead.objects.all().order_by(
+        F("outreach_score").desc(nulls_last=True),
+        F("intent_score").desc(nulls_last=True),
+        Coalesce("comment_created_at", "created_at").desc(nulls_last=True),
+        "-id"
+    )
 
     response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
     response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'

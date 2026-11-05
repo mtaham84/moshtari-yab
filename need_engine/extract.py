@@ -12,6 +12,11 @@ from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient, QuotaExhausted
 from need_engine.prompts import NEED_SYSTEM, NEED_SYSTEM_X, NEED_SYSTEM_X_PRODUCT
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 from need_engine.platforms import for_chat_id, for_message
 from need_engine.platforms.x import X, batch_limits, product_id_from_chat
 from need_engine.schemas import OPPORTUNITY_LABELS, STRENGTH_RANK, Constraints, NeedCard, Requirement
@@ -74,7 +79,7 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
     if not w.new:
         return [], 0.0
     platform = for_message(w.new[0])
-    system = NEED_SYSTEM_X if platform.key == X.key else NEED_SYSTEM
+    system = get_system_prompt("need_system_x", NEED_SYSTEM_X) if platform.key == X.key else get_system_prompt("need_system_tg", NEED_SYSTEM)
     data, usage = llm.complete_json("need_extraction", cfg.extract_model, system, render(w, cfg), max_tokens=6000,
                                     ref=f"{w.chat_id}:{w.new[0].message_id}-{w.new[-1].message_id}", businesses=payers)
     authors = {m.author_id: m for m in w.new + w.context + w.parents}
@@ -84,12 +89,43 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
         if not isinstance(n, dict):
             continue
         raw_it = str(n.get("intent_type") or "").strip().lower()
-        intent_type = raw_it if raw_it in {"buy_signal", "recommendation_ask", "complaint", "comparison", "switching", "general"} else "general"
+        tier_val = n.get("tier")
+        try:
+            tier = int(tier_val) if tier_val is not None else None
+        except (ValueError, TypeError):
+            tier = None
+
+        valid_types = {
+            "direct_intent", "comparison", "advice_seeking", "competitor_churn", "pain_need",
+            "buy_signal", "recommendation_ask", "complaint", "switching", "general"
+        }
+        if raw_it in valid_types:
+            intent_type = raw_it
+        elif tier == 7:
+            intent_type = "direct_intent"
+        elif tier == 6:
+            intent_type = "comparison"
+        elif tier == 5:
+            intent_type = "advice_seeking"
+        elif tier == 4:
+            intent_type = "competitor_churn"
+        elif tier == 3:
+            intent_type = "pain_need"
+        else:
+            intent_type = "general"
+
         strength = n.get("strength") if n.get("strength") in STRENGTH_RANK else "weak"
-        if intent_type in {"complaint", "comparison", "switching"} and strength == "weak":
+        if intent_type in {"direct_intent", "buy_signal"}:
+            strength = "strong"
+            n["strength"] = "strong"
+        elif intent_type in {"comparison", "advice_seeking", "competitor_churn", "complaint", "switching"} and strength == "weak":
             strength = "medium"
             n["strength"] = "medium"
         n["intent_type"] = intent_type
+        n["tier"] = tier
+
+        if not n.get("solution_queries") and (n.get("need") or n.get("situation")):
+            n["solution_queries"] = [n.get("need") or n.get("situation")]
 
         ev = sorted({int(e) for e in (n.get("evidence_message_ids") or []) if str(e).lstrip("-").isdigit()} & w.all_ids)
         aid = str(n.get("author_id") or "")
@@ -122,7 +158,7 @@ def extract_window(w: Window, llm: LLMClient, cfg: EngineConfig, now: datetime,
             evidence_ids=ev, status="open" if is_opp else "not_opportunity", created_at=now, updated_at=now,
             evidence_posted_at=max((x.date for x in w.new if x.message_id in ev), default=None),
             evidence_time_estimated=any(x.date_estimated for x in w.new if x.message_id in ev),
-            author_bio=a.author_bio, intent_type=intent_type))
+            author_bio=a.author_bio, intent_type=intent_type, tier=tier))
     if dropped:
         log.info("window %s: dropped %d needs without valid evidence in new messages%s", w.chat_id, dropped,
                  f" (X: {reasons})" if reasons else "")
@@ -185,7 +221,7 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
                         "bio": (m.author_bio or "")[:cfg.x_bio_chars], "text": m.text, "created_at": m.date.isoformat()}
                        for i, m in enumerate(uncached)]
             try:
-                data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, NEED_SYSTEM_X,
+                data, usage = llm.complete_json("need_extraction_x_batch", cfg.extract_model, get_system_prompt("need_system_x", NEED_SYSTEM_X),
                                                 json.dumps(payload, ensure_ascii=False), max_tokens=6000,
                                                 ref=f"{X.key}:{uncached[0].message_id}-{uncached[-1].message_id}")
             except QuotaExhausted:
@@ -274,7 +310,7 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
                 post["reply_to"] = m.reply_to_text[:400]
             posts.append(post)
         user = json.dumps({"product": product, "posts": posts}, ensure_ascii=False)
-        data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, NEED_SYSTEM_X_PRODUCT, user,
+        data, usage = llm.complete_json("need_extraction_x_product", cfg.extract_model, get_system_prompt("need_system_x", NEED_SYSTEM_X_PRODUCT), user,
                                         max_tokens=6000, ref=f"{chat_id}:{uncached[0].message_id}-{uncached[-1].message_id}",
                                         businesses=[payer] if payer else None)
         needs = (data or {}).get("needs") if isinstance(data, dict) else None

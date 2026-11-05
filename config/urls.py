@@ -6,10 +6,13 @@ from django.views.static import serve
 
 
 from apps.products.views import product_click_view, public_product_card_view
-from apps.accounts.views import login_view
+from apps.accounts.views import login_view, request_activation_view
 from apps.accounts.shop import shop_view
  
 urlpatterns = [
+    path("demo/", request_activation_view, name="top_demo"),
+    path("request-demo/", request_activation_view, name="top_request_demo"),
+    path("activate/", request_activation_view, name="top_activate"),
     path("manage/", include("apps.billing.manage_urls")),
     path("admin/", admin.site.urls),
     path("ops/", include("apps.billing.urls")),

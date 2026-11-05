@@ -302,22 +302,43 @@ class Command(BaseCommand):
 
             self.stdout.write(f"👥 اکانت‌های فرستنده در دسترس: {[f'@{s.username} (امروز: {s.daily_action_count}/{s.daily_limit or 18} | این ساعت: {s.hourly_action_count or 0}/{s.hourly_limit or 3})' for s in available_senders]}")
 
-            # Fetch top priority NEW leads (candidate pool for filtering)
-            candidate_pool = max(batch_size * 20, 50)
-            leads = list(
+            # Fetch top priority NEW leads within the strict 5-day window
+            cutoff_5_days = django_tz.now() - timedelta(days=5)
+            from django.db.models import Q
+            from apps.discovery.instagram_scoring import update_lead_scoring
+
+            candidate_pool = max(batch_size * 25, 60)
+            candidate_leads = list(
                 InstagramEngineLead.objects.filter(
                     tenant_id__in=tenant_ids,
                     status="NEW",
-                    intent_score__gte=min_intent,
                 )
-                .order_by("-intent_score", "created_at")[:candidate_pool]
+                .filter(
+                    Q(comment_created_at__gte=cutoff_5_days)
+                    | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days)
+                )
+                .order_by("-outreach_score", "-comment_created_at", "-created_at")[:candidate_pool]
             )
 
+            # Ensure each candidate lead has up-to-date score and verify 5-day eligibility
+            leads = []
+            now_dt = django_tz.now()
+            for cand in candidate_leads:
+                calc = update_lead_scoring(cand, commit=True, now=now_dt)
+                if calc.get("is_eligible", True):
+                    leads.append(cand)
+                else:
+                    cand.status = "SKIPPED"
+                    cand.save(update_fields=["status", "updated_at"])
+
+            # Sort strictly by highest outreach_score first (up to 35 points)
+            leads.sort(key=lambda l: (l.outreach_score, l.comment_created_at or l.created_at), reverse=True)
+
             if not leads:
-                self.stdout.write(self.style.NOTICE(f"🏁 هیچ لید جدیدی (NEW) با امتیاز بالای {min_intent} برای ارسال وجود ندارد."))
+                self.stdout.write(self.style.NOTICE(f"هیچ لید جدیدی (NEW) در بازه ۵ روز اخیر برای ارسال وجود ندارد."))
                 return 0
 
-            self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(leads)} لید کاندیدا انتخاب شدند (هدف ارسال در این چرخه: {batch_size} دایرکت)."))
+            self.stdout.write(self.style.SUCCESS(f"تعداد {len(leads)} لید با اولویت بالا انتخاب شدند (هدف ارسال در این چرخه: {batch_size} دایرکت)."))
 
             sent_in_batch = 0
 
@@ -373,7 +394,7 @@ class Command(BaseCommand):
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
-                    f"| احتمال خرید: {int(lead.intent_score * 100)}% | نیاز: {lead.comment_text[:40]}"
+                    f"| امتیاز اولویت: {lead.outreach_score}/35 ({lead.comment_intent_type}) | نیاز: {lead.comment_text[:40]}"
                 )
                 self.stdout.write(
                     f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
@@ -403,6 +424,10 @@ class Command(BaseCommand):
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
                     self.stdout.write(f"   [۱/۴] 🔍 بررسی ایمنی اکانت مقصد @{lead.username} توسط گاردریل...")
                     qualify = qualify_recipient_profile(cl, lead.username, target_pk=lead.ig_user_pk)
+                    if "is_private" in qualify and qualify["is_private"] != lead.is_private:
+                        lead.is_private = qualify["is_private"]
+                        lead.save(update_fields=["is_private", "updated_at"])
+
                     if not qualify["eligible"]:
                         self.stdout.write(self.style.WARNING(
                             f"   ⏭️ [سپر ضد بلاک]: ارسال به @{lead.username} لغو شد: {qualify['reason']}"

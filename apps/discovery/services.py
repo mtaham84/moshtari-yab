@@ -200,7 +200,8 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                 "source_raw_message": lead.comment_text,
                 "normalized_message": lead.comment_text,
                 "category_confidence": 0.95,
-                "source_posted_at": lead.created_at,
+                "source_posted_at": lead.comment_created_at or lead.created_at,
+                "source_message_timestamp": lead.comment_created_at,
                 "source_query": lead.matched_cta or "instagram_lead",
                 "status": "NEW",
                 "trace_metadata": {
@@ -212,6 +213,14 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                         "source_label": ai_meta.get("source_label", "") if ai_meta else "",
                         "ig_user_pk": str(lead.ig_user_pk),
                         "lead_id": lead.id,
+                        "is_private": lead.is_private,
+                        "comment_created_at": lead.comment_created_at.isoformat() if lead.comment_created_at else None,
+                        "source_page_username": lead.source_page_username or "",
+                        "source_page_title": lead.source_page_title or "",
+                        "source_page_url": f"https://www.instagram.com/{lead.source_page_username.lstrip('@')}/" if lead.source_page_username else "",
+                        "post_created_at": lead.post_created_at.isoformat() if lead.post_created_at else None,
+                        "outreach_score": lead.outreach_score,
+                        "success_probability": lead.success_probability,
                         "billing": {
                             "cost_usd": float(cost_usd_dec),
                             "raw_cost_toman": int(round(raw_toman_dec)),
@@ -230,8 +239,21 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             if ai_meta and ai_meta.get("source_type"):
                 ig_m["source_type"] = ai_meta["source_type"]
                 ig_m["source_label"] = ai_meta.get("source_label", "")
+            ig_m["is_private"] = lead.is_private
+            ig_m["outreach_score"] = lead.outreach_score
+            ig_m["success_probability"] = lead.success_probability
+            if lead.source_page_username:
+                ig_m["source_page_username"] = lead.source_page_username
+                ig_m["source_page_title"] = lead.source_page_title or lead.source_page_username
+                ig_m["source_page_url"] = f"https://www.instagram.com/{lead.source_page_username.lstrip('@')}/"
+            if lead.post_created_at:
+                ig_m["post_created_at"] = lead.post_created_at.isoformat()
+            if lead.comment_created_at:
+                ig_m["comment_created_at"] = lead.comment_created_at.isoformat()
+                opp.source_posted_at = lead.comment_created_at
+                opp.source_message_timestamp = lead.comment_created_at
             opp.trace_metadata["instagram"] = ig_m
-            opp.save(update_fields=["trace_metadata"])
+            opp.save(update_fields=["trace_metadata", "source_posted_at", "source_message_timestamp"])
 
         intent_flt = float(lead.intent_score or (ai_meta.get("intent_score") if ai_meta else 0.90) or 0.90)
         prod_name = matched_product.name if matched_product else "محصول مورد نظر"
@@ -488,4 +510,170 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
     match.reply_history = history[-50:]
     match.save(update_fields=["reply_variants", "reply_history"])
     return validated
+
+
+def get_leaf_category_dashboard_stats(business: Business, platform: str | None = None) -> list[dict[str, Any]]:
+    """
+    Computes all 22 required dashboard metrics per active Leaf Category and platform.
+    Strictly distinguishes X and Instagram without merging their query performance statistics.
+    Ensures statistical integrity:
+    - Raw posts retrieved != opportunities.
+    - Evaluated posts != qualified leads.
+    - Potential opportunities separated from qualified opportunities.
+    - Delivered opportunities counted only if delivered/visible to seller.
+    - Rejected posts explicitly tracked without creating opportunities.
+    """
+    from django.db.models import Q, Sum
+    from apps.products.taxonomy import get_active_leaf_categories
+    from apps.discovery.models import (
+        InstagramCategoryTarget,
+        InstagramCrawlExecution,
+        Opportunity,
+        XQueryDaily,
+        XSearchQuery,
+    )
+
+    leaf_categories = get_active_leaf_categories(business)
+    results = []
+
+    platforms = ["x", "instagram"]
+    if platform and platform.lower() in ("x", "twitter"):
+        platforms = ["x"]
+    elif platform and platform.lower() in ("instagram", "ig"):
+        platforms = ["instagram"]
+
+    for leaf in leaf_categories:
+        products = list(leaf.products.filter(business=business, status="ACTIVE"))
+        prod_names = [p.name for p in products]
+
+        for p_key in platforms:
+            stat_row: dict[str, Any] = {
+                "leaf_category_id": leaf.id,
+                "category_path": leaf.get_full_path(),
+                "category_depth": leaf.depth,
+                "platform": p_key,
+                "products_associated": prod_names,
+                "products_count": len(products),
+            }
+
+            if p_key == "x":
+                x_queries = XSearchQuery.objects.filter(business=business, category=leaf)
+                q_texts = list(x_queries.values_list("normalized_text", flat=True))
+                active_q_count = x_queries.filter(state="active").count()
+                archived_q_count = x_queries.filter(state="archived").count()
+                total_q_count = x_queries.count()
+
+                daily_stats = XQueryDaily.objects.filter(query_text__in=q_texts).aggregate(
+                    total_fetched=Sum("fetched"),
+                    total_new=Sum("new_posts"),
+                    total_analysed=Sum("analysed"),
+                )
+                raw_retrieved = int(daily_stats.get("total_fetched") or 0)
+                new_unique = int(daily_stats.get("total_new") or 0)
+                evaluated_luna = int(daily_stats.get("total_analysed") or 0)
+                queries_executed = XQueryDaily.objects.filter(query_text__in=q_texts, fetched__gt=0).count()
+
+                stat_row.update({
+                    "generated_queries_count": total_q_count,
+                    "active_queries_count": active_q_count,
+                    "archived_queries_count": archived_q_count,
+                    "queries_executed_count": queries_executed,
+                    "raw_posts_retrieved": raw_retrieved,
+                    "new_unique_posts": new_unique,
+                    "posts_evaluated_by_luna": evaluated_luna,
+                })
+
+            else:  # Instagram
+                target = InstagramCategoryTarget.objects.filter(business=business, category=leaf).first()
+                active_terms = list(target.terms or []) if target else []
+                archived_terms = list(target.archived_terms or []) if target else []
+                total_terms = list(set(active_terms + archived_terms))
+
+                ig_crawls = InstagramCrawlExecution.objects.filter(
+                    business=business,
+                    query_text__in=total_terms,
+                ).aggregate(
+                    inspected=Sum("posts_inspected"),
+                    qualifying=Sum("qualifying_posts"),
+                )
+                raw_retrieved = int(ig_crawls.get("inspected") or 0)
+                new_unique = int(ig_crawls.get("qualifying") or 0)
+                queries_executed = InstagramCrawlExecution.objects.filter(
+                    business=business, query_text__in=total_terms, posts_inspected__gt=0
+                ).count()
+                evaluated_luna = new_unique
+
+                stat_row.update({
+                    "generated_queries_count": len(total_terms),
+                    "active_queries_count": len(active_terms),
+                    "archived_queries_count": len(archived_terms),
+                    "queries_executed_count": queries_executed,
+                    "raw_posts_retrieved": raw_retrieved,
+                    "new_unique_posts": new_unique,
+                    "posts_evaluated_by_luna": evaluated_luna,
+                })
+
+            # Opportunities for this leaf category & platform
+            opps = Opportunity.objects.filter(
+                business=business,
+                category=leaf,
+                source_platform=p_key,
+            )
+
+            # Need signal classification counts
+            genuine_needs_cnt = opps.filter(
+                Q(intent_type__in=["buy_signal", "recommendation_ask", "price_inquiry"])
+                | Q(ai_analysis__why_selected__icontains="genuine")
+            ).count()
+
+            implicit_needs_cnt = opps.filter(
+                Q(intent_type="implicit_need") | Q(ai_analysis__why_selected__icontains="implicit")
+            ).count()
+
+            competitor_dissatisfaction_cnt = opps.filter(
+                Q(intent_type__in=["complaint", "switching"])
+                | Q(ai_analysis__why_selected__icontains="competitor")
+            ).count()
+
+            # Purchase stages
+            advice_seeking_cnt = opps.filter(intent_type="recommendation_ask").count()
+            product_comparisons_cnt = opps.filter(intent_type="comparison").count()
+            price_inquiries_cnt = opps.filter(intent_type="price_inquiry").count()
+            purchase_intent_cnt = opps.filter(intent_type="buy_signal").count()
+            ready_to_buy_cnt = opps.filter(ai_analysis__intent_score__gte=0.88).count()
+
+            # Decision levels
+            potential_opps_cnt = opps.filter(
+                Q(status="NEW") & Q(trace_metadata__engine__decision="POTENTIAL")
+            ).count()
+
+            qualified_opps_cnt = opps.filter(
+                Q(status="NEW") & ~Q(trace_metadata__engine__decision="POTENTIAL")
+            ).count()
+
+            # Delivered opportunities: delivered/visible to seller (not REJECTED)
+            delivered_opps_cnt = opps.exclude(status="REJECTED").count()
+
+            # Rejected posts: strictly 0 opportunities created
+            rejected_posts_cnt = opps.filter(status="REJECTED").count()
+
+            stat_row.update({
+                "genuine_needs_count": genuine_needs_cnt,
+                "implicit_needs_count": implicit_needs_cnt,
+                "competitor_dissatisfaction_count": competitor_dissatisfaction_cnt,
+                "advice_seeking_count": advice_seeking_cnt,
+                "product_comparisons_count": product_comparisons_cnt,
+                "price_inquiries_count": price_inquiries_cnt,
+                "purchase_intent_count": purchase_intent_cnt,
+                "ready_to_buy_count": ready_to_buy_cnt,
+                "potential_opportunities_count": potential_opps_cnt,
+                "qualified_opportunities_count": qualified_opps_cnt,
+                "rejected_posts_count": rejected_posts_cnt,
+                "delivered_opportunities_count": delivered_opps_cnt,
+            })
+
+            results.append(stat_row)
+
+    return results
+
 

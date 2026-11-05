@@ -25,6 +25,11 @@ import sqlite3
 from typing import Any
 
 from need_engine.text import norm, tokens
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 log = logging.getLogger("x_collector.proqe")
 
@@ -502,27 +507,15 @@ def expand_queries_with_proqe(
         data, _ = llm.complete_json(
             "x_query_expand",
             primary_model,
-            PROQE_EXPANSION_SYSTEM,
+            get_system_prompt("proqe_expansion_x", PROQE_EXPANSION_SYSTEM),
             user_prompt,
             max_tokens=2048,
             temperature=0.3,
             ref=f"proqe:{pid}"
         )
     except Exception as exc:
-        log.warning("ProQE expansion with %s failed for product %s: %s; falling back to Gemini", primary_model, pid, exc)
-        try:
-            data, _ = llm.complete_json(
-                "x_query_expand",
-                "gemini-3.5-flash-lite",
-                PROQE_EXPANSION_SYSTEM,
-                user_prompt,
-                max_tokens=2048,
-                temperature=0.3,
-                ref=f"proqe:{pid}:fallback"
-            )
-        except Exception as exc2:
-            log.warning("ProQE expansion fallback also failed for product %s: %s", pid, exc2)
-            return exemplar_store.get_expanded_queries(pid)
+        log.warning("ProQE expansion with %s failed for product %s: %s", primary_model, pid, exc)
+        return exemplar_store.get_expanded_queries(pid)
 
 
     expanded = []

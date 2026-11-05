@@ -71,20 +71,26 @@ class Category(models.Model):
         verbose_name_plural = "دسته‌بندی‌ها"
         ordering = ["product_type", "name"]
 
+    @property
+    def is_leaf(self) -> bool:
+        """Returns True if this category has no active child categories."""
+        return not self.children.filter(is_active=True).exists()
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if self.parent:
             if self.parent_id == self.id:
                 raise ValidationError("یک دسته‌بندی نمی‌تواند والد خودش باشد.")
             curr = self.parent
-            d = 2
-            while curr.parent:
-                if curr.parent_id == self.id:
+            visited = {self.id} if self.id else set()
+            while curr:
+                if curr.id and curr.id in visited:
                     raise ValidationError("حلقه دورانی در ساختار درختی مجاز نیست.")
+                if curr.id:
+                    visited.add(curr.id)
+                if len(visited) > 50:
+                    raise ValidationError("عمق بیش از حد مجاز در ساختار سلسله‌مراتبی.")
                 curr = curr.parent
-                d += 1
-            if d > 5:
-                raise ValidationError("حداکثر عمق مجاز دسته‌بندی ۵ سطح است.")
 
     def save(self, *args, **kwargs):
         from django.core.exceptions import ValidationError
@@ -99,9 +105,7 @@ class Category(models.Model):
         if self.parent:
             if self.parent_id == self.id:
                 raise ValidationError("دسته‌بندی نمی‌تواند والد خودش باشد.")
-            self.depth = self.parent.depth + 1
-            if self.depth > 5:
-                raise ValidationError("حداکثر عمق مجاز دسته‌بندی ۵ سطح است.")
+            self.depth = (self.parent.depth or 1) + 1
         else:
             self.depth = 1
 

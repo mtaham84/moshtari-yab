@@ -113,6 +113,8 @@ class Lead(Base):
     post_caption_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     matched_cta: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     intent_score: Mapped[float] = mapped_column(Float, default=0.8, nullable=False, index=True)
+    outreach_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    comment_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     status: Mapped[LeadStatus] = mapped_column(
         Enum(LeadStatus, name="lead_status_enum", native_enum=False),
         default=LeadStatus.NEW,

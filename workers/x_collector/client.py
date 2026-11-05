@@ -104,7 +104,9 @@ class XCliClient:
         cutoff_ts = int(cutoff_utc.timestamp())
 
         # Construct native request query ensuring language and date filters are applied
-        clean_q = query.strip()
+        # In Twitter's Top tab, quotes force strict literal substring matching and disable semantic relevance.
+        # Strip all quotes to unleash Twitter's native semantic / topical discovery (matching synonyms, related questions, etc.)
+        clean_q = re.sub(r'["\']+', '', query.strip()).strip()
         ops = []
         if "lang:fa" not in clean_q.casefold():
             ops.append("lang:fa")
@@ -145,7 +147,7 @@ class XCliClient:
 
         log.info(
             "Starting X Top search for '%s' [Account: @%s, Proxy: %s, Cutoff: %s]",
-            query, acc_user, proxy, cutoff_utc.isoformat(),
+            full_query, acc_user, proxy, cutoff_utc.isoformat(),
         )
 
         use_in_process = False
@@ -225,19 +227,24 @@ class XCliClient:
                         seen_in_job.add(tid)
                         new_valid_this_page += 1
                         author = getattr(tw, "author", None)
+                        handle = (getattr(author, "screen_name", None) or getattr(author, "username", None) or getattr(author, "handle", None)) if author else None
                         raw_dict = {
                             "id": tid,
                             "text": text,
                             "created_at": getattr(tw, "created_at", None),
                             "createdAtISO": getattr(tw, "created_at", None),
-                            "author_handle": getattr(author, "username", None) if author else None,
+                            "author_handle": handle,
+                            "handle": handle,
+                            "username": handle,
+                            "screen_name": handle,
                             "author_name": getattr(author, "name", None) if author else None,
                             "author_id": str(getattr(author, "id", "")) if author else None,
                             "author_verified": getattr(author, "verified", False) if author else False,
                             "lang": lang_meta or "fa",
                             "isRetweet": getattr(tw, "is_retweet", False),
                             "author": {
-                                "screenName": getattr(author, "username", None) if author else None,
+                                "screenName": handle,
+                                "username": handle,
                                 "name": getattr(author, "name", None) if author else None,
                                 "id": getattr(author, "id", None) if author else None,
                                 "verified": getattr(author, "verified", False) if author else False,
@@ -321,7 +328,8 @@ class XCliClient:
             return valid_records[:target_posts], stats
         except Exception as cli_exc:
             stats["stop_reason"] = f"SEARCH_FAILED: {cli_exc}"
-            raise
+            log.warning("X search fallback failed for query '%s': %s", query, cli_exc)
+            return valid_records[:target_posts], stats
 
     def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:
         if query.lstrip().startswith("-"):

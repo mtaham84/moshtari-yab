@@ -79,37 +79,99 @@ def build_bulletproof_message(
     pitch_template: str = "",
     lead: Any = None,
     consultant_name: str = "مشاور",
-    business_name: str = "مجموعه تخصصی سرو",
+    business_name: str = "کلینیک تخصصی دندانپزشکی",
 ) -> str:
     """
-    Creates a 100% unique, anti-fingerprint DM using Spintax + dynamic personalization.
-    Injects random polite variations, Persian half-spaces, and unique cryptographic hashes
-    to defeat Meta/Instagram semantic duplicate spam classifiers.
+    Creates a 100% unique, anti-fingerprint DM using Spintax + dynamic context-aware personalization.
+    Tailors the message directly to:
+    1. The specific comment the user left (e.g. installment question, procedure inquiry, direct CTA).
+    2. The specific post topic / caption context (composite, laminate, implant, ortho, etc.).
+    3. Strictly ZERO EMOJIS, zero forbidden characters/links to prevent Meta spam blocks.
     """
     raw_name = (getattr(lead, "full_name", None) or getattr(lead, "username", "")).strip()
     clean_name = f" {raw_name}" if raw_name and not raw_name.startswith("@") and len(raw_name) < 25 else ""
 
-    topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+    # 1. Determine dental service topic from comment and post caption
+    combined_context = ""
     if hasattr(lead, "comment_text") and lead.comment_text:
-        c_text = lead.comment_text.lower()
-        if "کامپوزیت" in c_text:
-            topic = "کامپوزیت و اصلاح طرح لبخند"
-        elif "لمینت" in c_text:
-            topic = "لمینت سرامیکی و امور زیبایی"
-        elif "ایمپلنت" in c_text:
-            topic = "کاشت ایمپلنت دندان"
-        elif "ارتودنسی" in c_text:
-            topic = "خدمات ارتودنسی تخصصی"
-        elif "قیمت" in c_text or "هزینه" in c_text or "چند" in c_text:
-            topic = "هزینه‌ها و شرایط اقساطی"
+        combined_context += " " + lead.comment_text.lower()
+    if hasattr(lead, "post_caption_snippet") and lead.post_caption_snippet:
+        combined_context += " " + lead.post_caption_snippet.lower()
 
-    text = pitch_template or (
-        "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
-        "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
-        "{متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
-        "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم.|اگر سوالی درباره هزینه‌ها یا شرایط اقساطی دارید در خدمتم.|پاسخگوی تمام سوالات تخصصی شما هستم.}\n"
-        "{اگر مایل بودید شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی تلفنی خدمتتون تماس بگیریم.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا ۱۰ دقیقه مشاوره رایگان باهاتون هماهنگ بشه.|می‌تونید همینجا بفرمایید یا شماره تماس بذارید تا کامل راهنماییتون کنیم.}"
-    )
+    if "کامپوزیت" in combined_context:
+        topic = "کامپوزیت ونیر و اصلاح طرح لبخند"
+    elif "لمینت" in combined_context:
+        topic = "لمینت سرامیکی و امور زیبایی دندان"
+    elif "ایمپلنت" in combined_context or "کاشت" in combined_context:
+        topic = "کاشت تخصصی ایمپلنت دندان"
+    elif "ارتودنسی" in combined_context or "سیم کشی" in combined_context:
+        topic = "خدمات ارتودنسی ثابت و نامرئی"
+    elif "عصب کشی" in combined_context or "ریشه" in combined_context:
+        topic = "عصب‌کشی و درمان ریشه دندان"
+    elif "جراحی" in combined_context or "عقل" in combined_context:
+        topic = "جراحی دندان عقل و لثه"
+    elif "ترمیم" in combined_context or "پر کردن" in combined_context or "روکش" in combined_context:
+        topic = "ترمیم، پر کردن و روکش دندان"
+    elif "جرم" in combined_context or "بلیچینگ" in combined_context or "سفید" in combined_context:
+        topic = "بلیچینگ و سفید کردن دندان"
+    else:
+        topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+
+    # 2. Determine contextual response based on comment intent
+    c_text = (getattr(lead, "comment_text", "") or "").lower()
+
+    # Case A: User asked about installments or financial terms
+    is_installment_inquiry = any(w in c_text for w in ["اقساط", "قسط", "چک", "تخفیف", "بیمه"])
+    # Case B: User asked about procedure, duration, how it works, or pain
+    is_procedure_inquiry = any(w in c_text for w in ["چطوری", "چطور", "نحوه", "چگونه", "چند جلسه", "درد", "طول", "مراحل"])
+    # Case C: Direct short trigger or price inquiry
+    is_price_inquiry = any(w in c_text for w in ["قیمت", "هزینه", "چند", "چنده", "دایرکت", "کامنت", "ارسال", "شرایط"])
+
+    if pitch_template:
+        text = pitch_template
+    elif is_installment_inquiry:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور تخصصی {business_name}.\n"
+            "{پیرو سوال شما در کامنت درباره شرایط اقساط و هزینه‌ها|درباره سوالتون پیرامون پرداخت اقساطی}: "
+            "بله، تمامی خدمات {topic} با شرایط اقساطی منعطف، بدون کارمزد و با چک صیادی ارائه می‌شود.\n"
+            "{خوشحال می‌شوم هر ابهام یا سوالی درباره طرح درمان دارید بفرمایید تا کامل راهنمایی کنم.|"
+            "برای برآورد دقیق هزینه‌ها متناسب با شرایط دندانتان در خدمت شما هستم.}\n"
+            "{در صورت تمایل می‌توانید شماره تماستان را ارسال بفرمایید تا برای ۱۰ دقیقه مشاوره تخصصی رایگان هماهنگ شود.|"
+            "اگر مایل بودید شماره تماستون رو بگذارید تا برای بررسی دقیق‌تر خدمتتون تماس بگیریم.}"
+        )
+    elif is_procedure_inquiry:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور تخصصی {business_name}.\n"
+            "{پیرو سوال شما زیر پست درباره نحوه و مراحل انجام {topic}|در خصوص سوالتون پیرامون چگونگی این درمان}: "
+            "این خدمات در کمترین تعداد جلسات با متریال معتبر اورجینال و بدون درد با متدهای دیجیتال انجام می‌گیرد و ویزیت اولیه نیز کاملاً رایگان است.\n"
+            "{خوشحال می‌شوم هر سوالی درباره ماندگاری یا انتخاب روش مناسب دارید پاسخگو باشم.|"
+            "پاسخگوی تمامی پرسش‌های تخصصی شما در این زمینه هستم.}\n"
+            "{اگر مایل بودید شماره تماستان را ارسال کنید تا برای مشاوره دقیق تلفنی با شما هماهنگ شود.|"
+            "می‌توانید همینجا بفرمایید یا شماره تماس بگذارید تا کامل راهنماییتان کنیم.}"
+        )
+    elif is_price_inquiry:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
+            "{پیرو پیام شما زیر پست {topic}|در پاسخ به استعلام شما درباره {topic}}: "
+            "تعرفه‌ها، پکیج‌های جشنواره و شرایط ویژه برای شما آماده شده است.\n"
+            "{با توجه به اینکه وضعیت دندان‌های هر فرد متفاوت است، خوشحال می‌شوم راهنماییتان کنم.|"
+            "برای انتخاب بهترین روش و برآورد متناسب با دندان‌های شما در خدمتم.}\n"
+            "{در صورت تمایل می‌توانید شماره تماستان را بگذارید تا برای ۱۰ دقیقه مشاوره اختصاصی رایگان خدمتتان تماس بگیریم.|"
+            "اگر مایل بودید شماره تماس ارسال بفرمایید تا برای هماهنگی با شما تماس حاصل شود.}"
+        )
+    else:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
+            "{متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
+            "{خوشحال می‌شوم هر سوال یا ابهامی درباره هزینه‌ها یا نحوه انجام دارید راهنماییتان کنم.|"
+            "پاسخگوی تمام سوالات تخصصی شما در این حوزه هستم.}\n"
+            "{اگر مایل بودید شماره تماستان را ارسال بفرمایید تا برای یک مشاوره اختصاصی تلفنی خدمتتان تماس بگیریم.|"
+            "می‌توانید همینجا بفرمایید یا شماره تماس بگذارید تا راهنمایی کامل دریافت کنید.}"
+        )
 
     text = text.replace("{consultant_name}", consultant_name)
     text = text.replace("{business_name}", business_name)
@@ -119,10 +181,17 @@ def build_bulletproof_message(
     # Resolve Spintax
     text = parse_spintax(text)
 
-    # Anti-Fingerprint Watermarking: random polite closer so no two messages share the same hash
-    closers = ["", " 🌸", " 🙏", " ✨", " 🌷", ""]
+    # Anti-Fingerprint Watermarking: textual polite closer (STRICTLY NO EMOJIS)
+    closers = [
+        "",
+        "\nبا احترام",
+        "\nبا آرزوی تندرستی",
+        "\nارادتمند شما",
+        "\nموفق و سلامت باشید",
+        "\nدر پناه حق",
+    ]
     selected_closer = random.choice(closers)
-    if selected_closer and not any(text.endswith(c.strip()) for c in ["🌸", "🙏", "✨", "🌷"]):
+    if selected_closer and not any(text.endswith(c.strip()) for c in ["با احترام", "ارادتمند شما", "سلامت باشید", "در پناه حق"]):
         text = text.rstrip() + selected_closer
 
     return text
@@ -135,7 +204,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
     1. Detects Private Accounts: Sending cold DMs to private accounts triggers Instagram error 1404006.
     2. Detects Ghost/Fake Accounts: Accounts with 0 posts & 0 followers risk spam flagging.
     Returns:
-        {"eligible": True/False, "reason": str, "user_info": Any, "target_pk": int}
+        {"eligible": True/False, "reason": str, "user_info": Any, "target_pk": int, "is_private": bool}
     """
     user_data = None
     numeric_pk = int(target_pk) if target_pk and str(target_pk).isdigit() else None
@@ -167,6 +236,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
         if is_private:
             return {
                 "eligible": False,
+                "is_private": True,
                 "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
                 "user_info": user_data,
                 "target_pk": resolved_pk,
@@ -175,6 +245,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
         if media_count == 0 and follower_count == 0:
             return {
                 "eligible": False,
+                "is_private": False,
                 "reason": "پروفایل غیرفعال یا مشکوک (۰ پست و ۰ فالوور) جهت ایمنی رد شد.",
                 "user_info": user_data,
                 "target_pk": resolved_pk,
@@ -182,6 +253,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
 
         return {
             "eligible": True,
+            "is_private": False,
             "reason": "واجد شرایط دریافت دایرکت",
             "user_info": user_data,
             "target_pk": resolved_pk,
@@ -269,8 +341,10 @@ def generate_ai_outreach_pitches(
 
     try:
         from apps.core.llm import chat_json
+        from apps.core.prompts import get_system_prompt
+        active_system = get_system_prompt("ig_outreach_pitches", system_prompt)
         res = chat_json(
-            system=system_prompt,
+            system=active_system,
             user=user_prompt,
             purpose="instagram_outreach_pitch",
             max_tokens=1500,
@@ -459,14 +533,15 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     }
 
 
-def send_second_followup_message(
+def send_chat_message(
     lead_id: int,
     sender_username: str,
     message_text: str,
 ) -> Dict[str, Any]:
     """
-    Sends a follow-up or second message to a lead using the chosen SENDER account.
-    Allows seamlessly switching accounts (e.g. from consultant Raha to specialist Pania).
+    Sends a direct message to a lead using the chosen SENDER account.
+    Supports initial, follow-up, or ongoing conversational messages.
+    Records the interaction into lead.conversation_history.
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
     from apps.discovery.device_emulator import apply_device_profile_to_client
@@ -503,7 +578,7 @@ def send_second_followup_message(
         if not target_pk:
             target_pk = cl.user_id_from_username(lead.username)
 
-        # Dispatch follow-up direct
+        # Dispatch direct message
         cl.direct_send(message_text, user_ids=[target_pk])
 
         now = timezone.now()
@@ -533,9 +608,20 @@ def send_second_followup_message(
         return {
             "success": True,
             "lead": lead.username,
+            "lead_id": lead.id,
             "sender": sender.username,
             "sent_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "conversation_history": lead.conversation_history,
         }
     except Exception as exc:
-        logger.exception("Error sending follow-up message: %s", exc)
+        logger.exception("Error sending chat message: %s", exc)
         return {"success": False, "error": str(exc)}
+
+
+def send_second_followup_message(
+    lead_id: int,
+    sender_username: str,
+    message_text: str,
+) -> Dict[str, Any]:
+    """Backward-compatible wrapper for send_chat_message."""
+    return send_chat_message(lead_id=lead_id, sender_username=sender_username, message_text=message_text)

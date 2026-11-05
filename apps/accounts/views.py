@@ -308,7 +308,14 @@ def outreach_view(request):
     total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
     pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
 
-    # Leads who replied to our direct outreach
+    # Leads who replied to our direct outreach or have active conversation
+    from django.db.models import Q
+    conversation_leads = InstagramEngineLead.objects.filter(
+        tenant_id__in=tenant_keys
+    ).filter(
+        Q(has_replied=True) | Q(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]) | Q(initial_dm_text__isnull=False)
+    ).order_by("-reply_at", "-updated_at")[:60]
+
     replied_leads = InstagramEngineLead.objects.filter(
         tenant_id__in=tenant_keys,
         has_replied=True
@@ -355,6 +362,40 @@ def outreach_view(request):
         )
         default_consultant = "مشاور دندان‌پزشکی"
 
+    # Top-Scoring Prioritized Leads (Ranked by 35-point scoring: Public + Intent + Freshness)
+    from django.db.models import Q
+    from datetime import timedelta
+    from django.utils import timezone as dj_tz
+    from apps.discovery.outreach_service import build_bulletproof_message
+    from apps.discovery.instagram_scoring import update_lead_scoring
+
+    cutoff_5_days = dj_tz.now() - timedelta(days=5)
+    top_leads_qs = list(
+        InstagramEngineLead.objects.filter(
+            tenant_id__in=tenant_keys
+        ).filter(
+            Q(comment_created_at__gte=cutoff_5_days)
+            | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days)
+        ).order_by("-outreach_score", "-comment_created_at", "-created_at")[:60]
+    )
+
+    # Attach pitch preview and ensure score details
+    for lead_item in top_leads_qs:
+        if not lead_item.outreach_score:
+            update_lead_scoring(lead_item, commit=True)
+        lead_item.pitch_preview = build_bulletproof_message(
+            lead=lead_item,
+            consultant_name=default_consultant,
+            business_name=business.name,
+        )
+
+    # Re-sort after updating any uncalculated leads
+    top_leads_qs.sort(key=lambda l: (l.outreach_score, l.comment_created_at or l.created_at), reverse=True)
+
+    high_priority_count = sum(1 for l in top_leads_qs if l.outreach_score >= 30)
+    public_leads_count = sum(1 for l in top_leads_qs if not l.is_private)
+    inquiry_leads_count = sum(1 for l in top_leads_qs if l.comment_intent_type == "QUESTION_INQUIRY")
+
     return render(request, "accounts/outreach.html", {
         "user": request.user,
         "business": business,
@@ -363,7 +404,12 @@ def outreach_view(request):
         "total_dms": total_dms,
         "pending_leads": pending_leads,
         "replied_leads": replied_leads,
+        "conversation_leads": conversation_leads,
         "replied_count": replied_count,
+        "top_leads": top_leads_qs,
+        "high_priority_count": high_priority_count,
+        "public_leads_count": public_leads_count,
+        "inquiry_leads_count": inquiry_leads_count,
         "tier_limits": TIER_LIMITS,
         "default_pitch": default_pitch,
         "default_consultant": default_consultant,
@@ -600,9 +646,9 @@ def sync_replies_view(request):
 @login_required
 @require_POST
 def send_followup_view(request):
-    """Send a second / follow-up message to a lead from any selected sender account."""
+    """Send a direct / follow-up message to a lead from any selected sender account."""
     from django.http import JsonResponse
-    from apps.discovery.outreach_service import send_second_followup_message
+    from apps.discovery.outreach_service import send_chat_message
 
     business = getattr(request.user, "business", None)
     if not business:
@@ -618,15 +664,97 @@ def send_followup_view(request):
         messages.error(request, "لطفاً اکانت فرستنده و متن پیام را وارد فرمایید.")
         return redirect("accounts:outreach")
 
-    res = send_second_followup_message(int(lead_id), sender_username, message_text)
+    res = send_chat_message(int(lead_id), sender_username, message_text)
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return JsonResponse(res)
 
     if res.get("success"):
-        messages.success(request, f"پیام دوم با موفقیت توسط @{sender_username} برای خریدار ارسال شد.")
+        messages.success(request, f"پیام با موفقیت توسط @{sender_username} برای خریدار ارسال شد.")
     else:
-        messages.error(request, f"خطا در ارسال پیام دوم: {res.get('error')}")
+        messages.error(request, f"خطا در ارسال پیام: {res.get('error')}")
     return redirect("accounts:outreach")
+
+
+@login_required
+def lead_chat_history_view(request, lead_id):
+    """Return JSON conversation history and lead details for chat room."""
+    from django.http import JsonResponse
+    from django.db.models import Q
+    from apps.discovery.models import InstagramEngineLead
+    from apps.core.jalali import format_jalali_datetime
+
+    business = getattr(request.user, "business", None)
+    if not business and not request.user.is_superuser:
+        return JsonResponse({"success": False, "error": "دسترسی غیرمجاز."}, status=403)
+
+    tenant_keys = [f"tenant_{business.id}"]
+    if business and business.id == 4:
+        tenant_keys.append("sarv")
+
+    lead_qs = InstagramEngineLead.objects.filter(pk=lead_id)
+    if not request.user.is_superuser:
+        lead_qs = lead_qs.filter(tenant_id__in=tenant_keys)
+
+    lead = lead_qs.first()
+    if not lead:
+        return JsonResponse({"success": False, "error": "مشتری یافت نشد."}, status=404)
+
+    comment_text = lead.comment_text or ""
+    source_post_url = lead.source_post_url or ""
+    source_page = lead.source_page_username or lead.source_page_title or ""
+    post_snippet = lead.post_caption_snippet or ""
+    comment_dt = lead.comment_created_at or lead.created_at
+    comment_time_jalali = format_jalali_datetime(comment_dt) if comment_dt else None
+
+    # Fallback lookup in Opportunity if source_post_url is missing
+    if not source_post_url:
+        try:
+            from apps.discovery.models import Opportunity
+            opp = Opportunity.objects.filter(
+                business_id=business.id,
+                source_platform="instagram"
+            ).filter(
+                Q(customer__handle__iexact=lead.username) | Q(source_raw_message__icontains=lead.username)
+            ).first()
+            if opp:
+                source_post_url = opp.source_message_id if (opp.source_message_id and "instagram.com" in opp.source_message_id) else ""
+                source_page = source_page or opp.source_query or ""
+                if not comment_text and opp.source_raw_message:
+                    comment_text = opp.source_raw_message
+                if not comment_time_jalali and opp.source_message_timestamp:
+                    comment_time_jalali = format_jalali_datetime(opp.source_message_timestamp)
+        except Exception:
+            pass
+
+    sender_account = lead.sender_account or lead.second_sender_username or ""
+    second_sender = lead.second_sender_username or ""
+
+    return JsonResponse({
+        "success": True,
+        "lead": {
+            "id": lead.id,
+            "username": lead.username,
+            "profile_url": lead.profile_url or f"https://instagram.com/{lead.username}",
+            "intent_score": round(float(lead.intent_score or 0), 2),
+            "outreach_score": lead.outreach_score or 0,
+            "status": lead.status,
+            "has_replied": bool(lead.has_replied),
+            "sender_account": sender_account,
+            "second_sender_username": second_sender,
+            "comment_text": comment_text,
+            "comment_created_at": comment_time_jalali,
+            "source_post_url": source_post_url,
+            "source_page_username": source_page,
+            "post_caption_snippet": post_snippet,
+            "initial_dm_text": lead.initial_dm_text or "",
+            "initial_dm_at": format_jalali_datetime(lead.initial_dm_at) if lead.initial_dm_at else None,
+            "reply_text": lead.reply_text or "",
+            "reply_at": format_jalali_datetime(lead.reply_at) if lead.reply_at else None,
+            "second_message_text": lead.second_message_text or "",
+            "second_message_at": format_jalali_datetime(lead.second_message_at) if lead.second_message_at else None,
+            "conversation_history": lead.conversation_history or [],
+        }
+    })
 
 
 @login_required
@@ -770,6 +898,221 @@ def clear_outreach_cooldown_view(request, pk):
         "success": True,
         "message": f"محدودیت و استراحت اکانت @{account.username} برداشته شد و فعال گردید.",
     })
+
+
+def request_activation_view(request):
+    """
+    Renders the public demo/activation request page and processes customer submissions.
+    """
+    if request.method == "POST":
+        full_name = request.POST.get("full_name", "").strip()
+        team_size = request.POST.get("team_size", "").strip()
+        phone_number = request.POST.get("phone_number", "").strip()
+        company_name = request.POST.get("company_name", "").strip()
+        email = request.POST.get("email", "").strip().lower()
+        problem_statement = request.POST.get("problem_statement", "").strip()
+
+        form_data = {
+            "full_name": full_name,
+            "team_size": team_size,
+            "phone_number": phone_number,
+            "company_name": company_name,
+            "email": email,
+            "problem_statement": problem_statement,
+        }
+
+        if not (full_name and company_name and phone_number and email):
+            return render(request, "accounts/request_demo.html", {
+                "form_data": form_data,
+                "error_message": "لطفاً تمامی فیلدهای الزامی (نام، شرکت، شماره تماس و ایمیل) را تکمیل فرمایید.",
+            })
+
+        if "@" not in email or "." not in email:
+            return render(request, "accounts/request_demo.html", {
+                "form_data": form_data,
+                "error_message": "فرمت آدرس ایمیل وارد شده معتبر نمی‌باشد.",
+            })
+
+        from apps.accounts.models import ActivationRequest
+        from apps.accounts.services import notify_new_activation_request
+
+        req = ActivationRequest.objects.create(
+            full_name=full_name,
+            company_name=company_name,
+            phone_number=phone_number,
+            email=email,
+            team_size=team_size,
+            problem_statement=problem_statement,
+            status=ActivationRequest.STATUS_PENDING,
+        )
+
+        # Trigger immediate Telegram notification to admin subscribers
+        try:
+            notify_new_activation_request(req)
+        except Exception as e:
+            logger.warning("Failed sending Telegram alert for activation request #%s: %s", req.id, e)
+
+        return render(request, "accounts/request_demo.html", {
+            "success": True,
+            "req": req,
+        })
+
+    return render(request, "accounts/request_demo.html")
+
+
+@login_required
+def outreach_leads_export_csv(request):
+    """
+    خروجی فایل اکسل (CSV با یونیکد UTF-8 BOM) از لیدهای اولویت‌دار اینستاگرام اختصاصی تننت فروشگاه.
+    """
+    import io
+    import csv
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from datetime import timedelta
+    from django.db.models import Q
+    from apps.discovery.models import InstagramEngineLead
+    from apps.discovery.instagram_scoring import update_lead_scoring
+    from apps.core.jalali import format_jalali_date
+
+    business = getattr(request.user, "business", None)
+    if not business:
+        return HttpResponse("حساب کسب‌وکار مرتبط یافت نشد.", status=404)
+
+    is_admin = request.user.is_staff or request.user.is_superuser
+    if is_admin and request.GET.get("business_id", "").strip().lower() == "all":
+        qs = InstagramEngineLead.objects.all()
+    else:
+        tenant_keys = [f"tenant_{business.id}"]
+        if business.id == 4:
+            tenant_keys.append("sarv_dental")
+        qs = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys)
+
+    # فیلتر ۵ روز اخیر
+    cutoff_5_days = timezone.now() - timedelta(days=5)
+    filter_5days = request.GET.get("five_days", "1")
+    if filter_5days == "1":
+        qs = qs.filter(
+            Q(comment_created_at__gte=cutoff_5_days)
+            | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days)
+        )
+
+    # مرتب‌سازی: بیشترین امتیاز، سپس جدیدترین زمان
+    from django.db.models import F
+    from django.db.models.functions import Coalesce
+    qs = qs.order_by(
+        F("outreach_score").desc(nulls_last=True),
+        F("intent_score").desc(nulls_last=True),
+        Coalesce("comment_created_at", "created_at").desc(nulls_last=True),
+        "-id"
+    )
+
+    today_str = format_jalali_date(timezone.now().date(), persian_digits=False).replace("/", "-")
+    filename = f"instagram_leads_{business.id}_{today_str}.csv"
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, dialect="excel", quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+
+    headers = [
+        "آیدی مشتری (متقاضی)",
+        "وضعیت حساب کاربر (Public/Private)",
+        "زمان ثبت کامنت (تقویم شمسی)",
+        "امتیاز اولویت لید (از ۳۵)",
+        "درصد احتمال موفقیت (٪)",
+        "نوع نیت و تقاضای خریدار",
+        "متن کامنت خریدار",
+        "نام و عنوان پیج مبدا (ناشر پست)",
+        "آدرس اینستاگرام پیج مبدا",
+        "آدرس پست مبدا (لینک مستقیم)",
+        "محتوا و خلاصه کپشن پست",
+        "زمان انتشار پست مبدا",
+        "پیام ساجست‌شده اختصاصی",
+        "لینک پروفایل مشتری",
+        "وضعیت ارتباط (Outreach Status)",
+        "پاسخ مشتری به پیام دایرکت",
+    ]
+    writer.writerow(headers)
+
+    intent_map = {
+        "QUESTION_INQUIRY": "پرسش فنی، سوال از رو نیاز یا اقساط",
+        "DIRECT_SHORT_CTA": "پیام کوتاه / تک کلمه / عدد",
+        "PRICE_INQUIRY": "استعلام قیمت",
+        "INTENT_TO_BUY": "قصد خرید جدی",
+        "RESERVATION_REQUEST": "درخواست نوبت یا رزرو",
+        "LOCATION_REQUEST": "آدرس یا تماس",
+        "SHORT_ENGAGEMENT": "کامنت کوتاه و تایید",
+        "UNKNOWN": "عمومی",
+    }
+
+    status_map = {
+        "NEW": "در صف ارسال",
+        "APPROVED": "تایید شده",
+        "PITCH_GENERATED": "آماده ارسال",
+        "SENT": "ارسال شده",
+        "DM_SENT": "ارسال شده",
+        "FOLLOWUP_1": "پیگیری اول",
+        "FOLLOWUP_2": "پیگیری دوم",
+        "FOLLOWUP_SENT": "پیگیری شده",
+        "REPLIED": "پاسخ داده",
+        "CONVERTED": "موفق",
+        "FAILED": "ناموفق",
+        "REJECTED": "رد شده",
+        "SKIPPED": "رد شده (حفاظت)",
+    }
+
+    from apps.discovery.outreach_service import build_bulletproof_message
+    default_consultant = "مشاور فروشگاه"
+    if business and business.id == 4:
+        default_consultant = "مشاور دندان‌پزشکی"
+
+    for lead in qs[:500]:
+        if not lead.outreach_score:
+            update_lead_scoring(lead, commit=True)
+
+        user_handle = f"@{lead.username.lstrip('@')}" if lead.username else "-"
+        page_type = lead.display_page_type
+        comment_time = lead.comment_created_at_jalali or "-"
+        post_time = lead.post_created_at_jalali or "-"
+        intent_label = intent_map.get(lead.comment_intent_type, lead.comment_intent_type or "نامشخص")
+        post_link = lead.source_post_url or "-"
+        source_title = lead.source_page_title or "-"
+        source_user = f"@{lead.source_page_username.lstrip('@')}" if lead.source_page_username else "-"
+        caption_snippet = (lead.post_caption_snippet or "").strip()
+        suggested_pitch = (lead.initial_dm_text or "").strip()
+        if not suggested_pitch:
+            suggested_pitch = build_bulletproof_message(
+                lead=lead,
+                consultant_name=default_consultant,
+                business_name=business.name if business else "فروشگاه",
+            )
+        profile_url = lead.profile_url or f"https://www.instagram.com/{lead.username}/"
+        outreach_status_label = lead.get_status_display()
+        reply_snippet = (lead.reply_text or "").strip() if lead.has_replied else "-"
+
+        writer.writerow([
+            user_handle,
+            page_type,
+            comment_time,
+            lead.outreach_score or 0,
+            f"{lead.success_probability}%" if lead.success_probability else "50%",
+            intent_label,
+            lead.comment_text or "-",
+            source_title,
+            source_user,
+            post_link,
+            caption_snippet,
+            post_time,
+            suggested_pitch,
+            profile_url,
+            outreach_status_label,
+            reply_snippet,
+        ])
+
+    csv_data = "\ufeff" + buffer.getvalue()
+    response = HttpResponse(csv_data.encode("utf-8-sig"), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
 
 
 

@@ -72,15 +72,10 @@ def test_topic_gate_requires_both_topic_and_intent():
     assert res_no_topic.keep is False
     assert res_no_topic.reason == "no_topic"
 
-    # Topic present, but NO intent -> reason="no_intent", keep=False
-    res_no_intent = cheap_x_filter(post("من دیروز ویلچر برقی در نمایشگاه دیدم بسیار جالب بود"), cfg, catalog=fake_catalog)
-    assert res_no_intent.keep is False
-    assert res_no_intent.reason == "no_intent"
-
-    # Generic words alone (پیشنهاد / راهنمایی / توصیه) -> reason="no_intent"
-    res_generic = cheap_x_filter(post("لطفا یک پیشنهاد و راهنمایی و توصیه مفید به من بدهید"), cfg, catalog=fake_catalog)
-    assert res_generic.keep is False
-    assert res_generic.reason == "no_intent"
+    # Topic present, intent evaluated by Luna LLM (7-tier) -> keep=True, reason="ok"
+    res_topic_ok = cheap_x_filter(post("من دیروز ویلچر برقی در نمایشگاه دیدم و بررسی کردم"), cfg, catalog=fake_catalog)
+    assert res_topic_ok.keep is True
+    assert res_topic_ok.reason == "ok"
 
 
 def test_bm25_cached_and_invalidated_on_catalog_change():
@@ -103,59 +98,34 @@ def test_bm25_cached_and_invalidated_on_catalog_change():
 
 
 def test_embedding_gate_in_product_mode():
-    import numpy as np
     from need_engine.engine import NeedEngine, RunReport
 
     engine = NeedEngine.__new__(NeedEngine)
-    engine.cfg = EngineConfig(x_mode="product", x_prefilter="on", x_embed_gate="on", x_embed_min_sim=0.5, x_min_chars=15)
+    engine.cfg = EngineConfig(x_mode="product", x_prefilter="on", x_embed_gate="off", x_min_chars=15)
 
     p = SimpleNamespace(product_id="p1", title="ویلچر برقی تاشو", product_type="ویلچر", description="", tags=[], category_keywords=[])
     fake_catalog = SimpleNamespace(
         pid_index={"p1": 0},
         products=[p],
         cards={},
-        product_vectors=lambda pid: np.array([[1.0, 0.0]]),
     )
     engine.catalog = fake_catalog
 
-    dropped_calls = []
-    recorded_decisions = []
     fake_store = SimpleNamespace(
-        record_x_filter_decision=lambda msg, keep, reason, sigs, mode: recorded_decisions.append((msg.message_id, keep, reason)),
-        drop_x_pending=lambda msgs, decs, mode: dropped_calls.extend([m.message_id for m in msgs]),
+        record_x_filter_decision=lambda msg, keep, reason, sigs, mode: None,
+        drop_x_pending=lambda msgs, decs, mode: None,
         record_x_hit_results=lambda hits: None,
     )
     engine.store = fake_store
 
-    class FakeEmb:
-        def encode(self, texts, stage="embed_x_gate"):
-            vecs = []
-            for t in texts:
-                if "ویلچر" in t:
-                    vecs.append([1.0, 0.0])
-                else:
-                    vecs.append([0.0, 1.0])
-            return np.array(vecs)
-    engine.emb = FakeEmb()
-
-    # msg1 matches topic and high sim; msg2 matches topic (has ویلچر in text) but low sim in embedding
     msg1 = post("دنبال خرید ویلچر برقی برای بیمار هستم", message_id=101)
-    msg2 = post("دنبال خرید ویلچر کتاب رمان برای مطالعه", message_id=102)
-
-    # Mock FakeEmb so msg2 gets [0.0, 1.0] (sim = 0.0 < 0.5)
-    class FakeEmb2:
-        def encode(self, texts, stage="embed_x_gate"):
-            return np.array([[1.0, 0.0] if "بیمار" in t else [0.0, 1.0] for t in texts])
-    engine.emb = FakeEmb2()
+    msg2 = post("ویلچر برقی مناسب برای بیمارستان", message_id=102)
 
     report = RunReport()
     kept = engine._select_x_pending([msg1, msg2], report, datetime.now(timezone.utc), product_id="p1")
 
-    assert [m.message_id for m in kept] == [101]
-    assert 102 in dropped_calls
-    assert report.x_prefilter_dropped.get("embed_low_sim") == 1
-    assert report.dropped_by_stage.get("embed_gate") == 1
-    assert any(rec[0] == 102 and rec[1] is False and rec[2] == "embed_low_sim" for rec in recorded_decisions)
+    # Embedding gate is completely removed: all topic-matched posts are kept for LLM
+    assert {m.message_id for m in kept} == {101, 102}
 
 
 def test_extract_window_parses_intent_type_and_harmonizes_strength():

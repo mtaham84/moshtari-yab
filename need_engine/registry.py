@@ -163,7 +163,15 @@ class ModelRegistry:
         return list(snap.models_by_role.get(role, []))
 
     def entry(self, model: str) -> ModelEntry | None:
-        return self.refresh().models.get(model)
+        models = self.refresh().models
+        if model in models:
+            return models[model]
+        if "/" in model and model.split("/")[-1] in models:
+            return models[model.split("/")[-1]]
+        for k, v in models.items():
+            if k.split("/")[-1] == model or model.split("/")[-1] == k:
+                return v
+        return None
 
     def endpoint(self, model: str) -> tuple[str, str]:
         """(base_url, api_key) for a model: its provider in the panel, else NE_LLM_BASE_URL / NE_LLM_API_KEY.
