@@ -31,7 +31,7 @@ from apps.billing.models import Wallet, WalletTransaction, BillingSettings
 from apps.discovery.models import (
     InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
     InstagramSourceStat, TwitterEngineAccount, InstagramCrawledPost,
-    XCrawledPost, Opportunity, ProxyConfig
+    XCrawledPost, XSearchQuery, Opportunity, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
 from apps.discovery.device_emulator import connect_saved_session
@@ -230,7 +230,6 @@ def manage_dashboard(request):
     total_spent_all = Decimal("0")
     total_cost_usd_all = Decimal("0")
     total_raw_toman_all = Decimal("0")
-    total_payable_all = Decimal("0")
     total_calls_all = 0
 
     for b in businesses:
@@ -253,14 +252,14 @@ def manage_dashboard(request):
             cost_usd = Decimal("0")
             calls = 0
 
+        # Raw cost at *today's* rate, for reference only. What the tenant
+        # actually paid is ``spent`` (sum of the debited transactions), which
+        # used the rate/markup in force at the time of each call.
         raw_toman = (cost_usd * usd_rate).quantize(Decimal("1"))
-        markup_toman = (raw_toman * (markup_percent / Decimal("100"))).quantize(Decimal("1"))
-        total_payable = raw_toman + markup_toman
 
         total_spent_all += spent
         total_cost_usd_all += cost_usd
         total_raw_toman_all += raw_toman
-        total_payable_all += total_payable
         total_calls_all += calls
 
         # Business associated Instagram leads & senders
@@ -275,9 +274,6 @@ def manage_dashboard(request):
             "spent": spent,
             "cost_usd": cost_usd,
             "raw_toman": raw_toman,
-            "markup_percent": markup_percent,
-            "markup_toman": markup_toman,
-            "total_payable": total_payable,
             "calls": calls,
             "leads_count": b_leads_count,
             "dms_sent": b_dms_sent,
@@ -349,6 +345,9 @@ def manage_dashboard(request):
             acc.leads_24h = round(x_leads_24h * (acc.daily_action_count / max(1, x_searches_24h))) if x_searches_24h > 0 else 0
             acc.conv_rate_total = round((acc.leads_total / acc.posts_total * 100.0), 2) if acc.posts_total > 0 else 0.0
             acc.conv_rate_24h = round((acc.leads_24h / acc.posts_24h * 100.0), 2) if acc.posts_24h > 0 else 0.0
+            # posts_24h / leads_* are proportional shares of the totals (X
+            # results don't record which account found them) -> shown with "≈".
+            acc.metrics_estimated = True
 
             if acc.cooldown_until and acc.cooldown_until > now_utc:
                 mins_cd = max(1, int((acc.cooldown_until - now_utc).total_seconds() / 60))
@@ -396,6 +395,8 @@ def manage_dashboard(request):
         ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=settings.INSTAGRAM_MIN_COMMENTS, posted_at__gte=thirty_days_ago).count()
         ig_posts_rejected = max(0, ig_posts_total - ig_posts_approved)
         ig_comments_total = InstagramCrawledPost.objects.aggregate(s=Sum("comment_count"))["s"] or 0
+        # Saved leads (one per qualifying comment), not "approved comments":
+        # comment evaluations themselves are not stored.
         ig_comments_approved = InstagramEngineLead.objects.count()
         ig_comments_rejected = max(0, ig_comments_total - ig_comments_approved)
 
@@ -525,7 +526,7 @@ def manage_dashboard(request):
         queries_top_losers = sorted([q for q in query_items if q["delta"] < 0], key=lambda x: x["delta"])
         ig_queries_list = sorted(ig_queries_list, key=lambda x: (-x["score"], -x["leads"]))
 
-        x_active_queries_count = 118
+        x_active_queries_count = XSearchQuery.objects.filter(state="active").count()
         ig_active_queries_count = len(ig_queries_list)
 
     except Exception as exc:
@@ -546,7 +547,7 @@ def manage_dashboard(request):
         verified_x_leads = []
         ig_queries_list = []
         queries_top_rated = queries_top_gainers = queries_top_losers = []
-        x_active_queries_count = 118
+        x_active_queries_count = 0
         ig_active_queries_count = 0
 
     # Business-specific tenant filtering for outreach tab
@@ -648,7 +649,6 @@ def manage_dashboard(request):
         "total_spent_all": total_spent_all,
         "total_cost_usd_all": total_cost_usd_all,
         "total_raw_toman_all": total_raw_toman_all,
-        "total_payable_all": total_payable_all,
         "total_calls_all": total_calls_all,
         "businesses": businesses,
         "crawl_executions": InstagramCrawlExecution.objects.all().select_related("business", "account").order_by("-crawled_at")[:60],
@@ -671,6 +671,7 @@ def manage_dashboard(request):
         "verified_x_leads": verified_x_leads,
         "ig_queries_list": ig_queries_list,
         "x_active_queries_count": x_active_queries_count,
+        "ig_min_comments": settings.INSTAGRAM_MIN_COMMENTS,
         "ig_active_queries_count": ig_active_queries_count,
         "is_ig_night_sleep": is_ig_night_sleep,
         "ig_window_label": ig_window_label,

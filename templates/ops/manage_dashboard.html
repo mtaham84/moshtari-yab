@@ -359,8 +359,8 @@
   </div>
 
   <div class="card stat">
-    <div class="label">مبلغ صورت‌حساب کل مستأجرین (+۱۵۰٪)</div>
-    <div class="value" style="color:var(--down);">{{ total_payable_all|floatformat:0 }} <small style="font-size:0.75rem;">تومان</small></div>
+    <div class="label">مبلغ کسرشده از کیف‌پول مستأجرین</div>
+    <div class="value" style="color:var(--down);">{{ total_spent_all|floatformat:0 }} <small style="font-size:0.75rem;">تومان</small></div>
     <div class="sub">موجودی کیف‌پول‌ها: {{ total_balance_all|floatformat:0 }} تومان</div>
   </div>
 </div>
@@ -598,9 +598,8 @@
             <th>کسب‌وکار / مستأجر</th>
             <th>فراخوانی هوش مصنوعی</th>
             <th style="color:var(--muted);">هزینه خام AI ($)</th>
-            <th style="color:var(--muted);">هزینه خام (تومان)</th>
-            <th style="color:#c2410c;">کارمزد پلتفرم ({{ markup_percent|floatformat:0 }}٪)</th>
-            <th style="font-weight:800; color:var(--down);">مبلغ کل قابل پرداخت مستأجر</th>
+            <th style="color:var(--muted);">هزینه خام به نرخ امروز (تومان)</th>
+            <th style="font-weight:800; color:var(--down);">مبلغ واقعی کسرشده (کارمزد فعلی {{ markup_percent|floatformat:0 }}٪)</th>
             <th>موجودی کیف‌پول</th>
             <th>وضعیت اعتبار</th>
           </tr>
@@ -616,9 +615,8 @@
             <td class="n">{{ row.calls }}</td>
             <td class="n" style="color:var(--muted);">${{ row.cost_usd|floatformat:5 }}</td>
             <td class="n" style="color:var(--muted);">{{ row.raw_toman|floatformat:0 }} تومان</td>
-            <td class="n" style="color:#c2410c;">+{{ row.markup_toman|floatformat:0 }} تومان</td>
             <td class="n" style="font-weight:800; font-size:1.05rem; color:var(--down);">
-              {{ row.total_payable|floatformat:0 }} تومان
+              {{ row.spent|floatformat:0 }} تومان
             </td>
             <td class="n" style="font-weight:700;">
               {{ row.balance|floatformat:0 }} تومان
@@ -633,7 +631,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="9" style="text-align:center; padding:30px;" class="muted">
+            <td colspan="8" style="text-align:center; padding:30px;" class="muted">
               هیچ مستأجری در سیستم ثبت نشده است.
             </td>
           </tr>
@@ -645,8 +643,7 @@
             <td class="n">{{ total_calls_all }}</td>
             <td class="n">${{ total_cost_usd_all|floatformat:4 }}</td>
             <td class="n">{{ total_raw_toman_all|floatformat:0 }} تومان</td>
-            <td class="n" style="color:#c2410c;">+{{ total_payable_all|floatformat:0 }}</td>
-            <td class="n" style="color:var(--down); font-size:1.1rem;">{{ total_payable_all|floatformat:0 }} تومان</td>
+            <td class="n" style="color:var(--down); font-size:1.1rem;">{{ total_spent_all|floatformat:0 }} تومان</td>
             <td class="n">{{ total_balance_all|floatformat:0 }} تومان</td>
             <td>—</td>
           </tr>
@@ -1105,13 +1102,13 @@
               <strong style="color:#0284c7;">{{ acc.searches_24h }}</strong> <span class="muted">/ {{ acc.searches_total }}</span>
             </td>
             <td class="n">
-              <strong style="color:#0f172a;">{{ acc.posts_24h }}</strong> <span class="muted">/ {{ acc.posts_total }}</span>
+              <strong style="color:#0f172a;">{% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.posts_24h }}</strong> <span class="muted">/ {{ acc.posts_total }}</span>
             </td>
             <td class="n">
-              <strong style="color:#10b981;">{{ acc.leads_24h }}</strong> <span class="muted">/ {{ acc.leads_total }}</span>
+              <strong style="color:#10b981;">{% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.leads_24h }}</strong> <span class="muted">/ {% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.leads_total }}</span>
             </td>
             <td class="n" style="font-family:monospace; font-weight:700;">
-              <span style="color:#7c3aed;">{{ acc.conv_rate_24h }}٪</span> <span class="muted">/ {{ acc.conv_rate_total }}٪</span>
+              <span style="color:#7c3aed;">{% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.conv_rate_24h }}٪</span> <span class="muted">/ {{ acc.conv_rate_total }}٪</span>
             </td>
             <td class="jalali-time-cell">
               {% if acc.last_action_at %}
@@ -2334,12 +2331,12 @@
       <div class="card stat" style="border-right:3px solid var(--down);">
         <div class="label">پست‌های ردشده</div>
         <div class="value" style="color:var(--down);">{{ ig_posts_rejected }}</div>
-        <div class="sub">کمتر از ۱۰ کامنت یا قدیمی‌تر از ۳۰ روز</div>
+        <div class="sub">کمتر از {{ ig_min_comments }} کامنت یا قدیمی‌تر از ۳۰ روز</div>
       </div>
       <div class="card stat" style="border-right:3px solid #0284c7;">
-        <div class="label">کامنت‌های تاییدشده / کل کامنت‌ها</div>
+        <div class="label">لیدهای ثبت‌شده / کل کامنت‌ها</div>
         <div class="value" style="color:#0284c7;">{{ ig_comments_approved }} <span style="font-size:0.85rem; color:var(--muted);">/ {{ ig_comments_total }}</span></div>
-        <div class="sub">کامنت‌های ردشده (غیرلید): {{ ig_comments_rejected }}</div>
+        <div class="sub">کامنت‌های بدون لید: {{ ig_comments_rejected }}</div>
       </div>
     </div>
 
