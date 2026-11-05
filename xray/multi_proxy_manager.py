@@ -335,9 +335,34 @@ def parse_link_to_outbound(link: str) -> dict[str, Any]:
 def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) -> tuple[bool, float, str]:
     """
     Tests an outbound config using a temporary ephemeral Xray instance and curl.
+    Falls back to direct TCP socket handshake if Xray binary is not on host.
     Returns (is_connected: bool, ping_ms: float, error_message: str).
     """
     if not XRAY_BIN.exists():
+        # Fallback to direct TCP socket ping to server & port
+        try:
+            addr = None
+            port = None
+            servers = outbound_dict.get("settings", {}).get("servers") or outbound_dict.get("settings", {}).get("vnext")
+            if servers and len(servers) > 0:
+                s0 = servers[0]
+                addr = s0.get("address")
+                port = s0.get("port")
+            if addr and port:
+                t0 = time.perf_counter()
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(min(float(timeout_sec), 2.5))
+                res = sock.connect_ex((addr, int(port)))
+                sock.close()
+                elapsed = (time.perf_counter() - t0) * 1000.0
+                if res == 0 and elapsed <= 2000.0:
+                    return True, round(elapsed, 1), ""
+                elif res == 0:
+                    return False, -1.0, f"پینگ بالا ({elapsed:.0f}ms > ۲۰۰۰ms)"
+                else:
+                    return False, -1.0, f"عدم پاسخگویی {addr}:{port} (کد {res})"
+        except Exception as exc:
+            return False, -1.0, f"خطای تست TCP: {exc}"
         return False, -1.0, f"Xray binary not found at {XRAY_BIN}"
 
     test_port = get_free_port()
@@ -568,7 +593,7 @@ def get_next_available_local_port() -> int:
     return port
 
 
-def add_proxy_config(raw_link: str) -> dict[str, Any]:
+def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
     """
     Validates, tests latency, and if alive, saves to DB and assigns dedicated port.
     If ping == -1 / dead, does not save and returns failure.
@@ -604,6 +629,9 @@ def add_proxy_config(raw_link: str) -> dict[str, Any]:
 
     # Extract tag, server, port
     tag = ob.get("tag") or f"{proto}_{int(time.time())}"
+    if tag_prefix and not tag.startswith(tag_prefix):
+        tag = f"{tag_prefix}_{tag}"
+    tag = tag[:145]
     server = ""
     port = 443
     if proto in ("vless", "vmess"):

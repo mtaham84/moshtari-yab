@@ -1262,7 +1262,7 @@ def manage_sender_clear_cooldown(request, pk):
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     account.cooldown_until = None
     account.status_message = "آماده به کار (استراحت دستی لغو شد)"
-    if account.status == "COOLDOWN":
+    if account.status in ("COOLDOWN", "CHALLENGED"):
         account.status = "ACTIVE"
     account.save(update_fields=["cooldown_until", "status_message", "status"])
 
@@ -2714,6 +2714,28 @@ def instagram_cockpit_organic_dm(request, pk: int):
     except Exception as exc:
         logger.exception("Error executing organic DM from cockpit @%s to @%s: %s", account.username, target_username, exc)
         return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+@require_POST
+def manage_channel_proxy_sync(request):
+    """
+    Triggers on-demand sync from the authorized Telegram channel (AR14N24B).
+    Strictly verifies authorization and returns JSON summary.
+    """
+    from apps.discovery.channel_config_automation import sync_channel_configs, AUTHORIZED_CHANNELS
+
+    channel = request.POST.get("channel", "AR14N24B").strip().lstrip("@")
+    if channel.upper() not in [c.upper() for c in AUTHORIZED_CHANNELS]:
+        return JsonResponse({
+            "success": False,
+            "message": f"کانال '{channel}' مجاز نمی‌باشد. طبق تنظیمات تنها کانال {AUTHORIZED_CHANNELS[0]} مجاز است."
+        }, status=403)
+
+    force_all = request.POST.get("force_all") == "1"
+    res = sync_channel_configs(channel_username=channel, force_all=force_all, max_add_per_run=10)
+    return JsonResponse(res)
+
 
 
 

@@ -1414,12 +1414,19 @@
           ربات آن را اعتبارسنجی کرده، پورت اختصاصی Xray تخصیص می‌دهد و سلامت اتصال آن را پایش می‌کند.
         </p>
       </div>
-      <div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <!-- Telegram Channel Auto-Sync Button -->
+        <button type="button" id="btn-sync-ar14n24b" class="btn" onclick="syncChannelConfigs(this)"
+                style="background: #0284c7; color: #ffffff; border: none; padding: 10px 18px; font-weight: 700; font-size: 0.9rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); transition: all 0.2s ease;">
+          <svg class="ico" aria-hidden="true" style="width: 16px; height: 16px; fill: currentColor;"><use href="#i-download"/></svg>
+          <span id="btn-sync-ar14n24b-text">📥 دریافت کانفیگ از کانال @AR14N24B</span>
+        </button>
+
         <!-- Main Blue Button for Live Proxy Testing -->
-        <button type="button" id="btn-live-test-all-proxies" class="btn" onclick="testAllProxiesLive(this)"
-                style="background: #2563eb; color: #ffffff; border: none; padding: 10px 22px; font-weight: 700; font-size: 0.92rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35); transition: all 0.2s ease;">
+        <button type="button" id="btn-live-test-all-proxies" class="btn" onclick="testAllProxiesLive(this)" title="تست زنده پینگ تمام کانفیگ‌ها"
+                style="background: #1d4ed8; color: #ffffff; border: none; padding: 11px 26px; font-weight: 700; font-size: 0.95rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(29, 78, 216, 0.4); transition: all 0.2s ease;">
           <svg class="ico" aria-hidden="true" style="width: 18px; height: 18px; fill: currentColor;"><use href="#i-bolt"/></svg>
-          <span id="btn-live-test-text">⚡ تست زنده پروکسی‌ها (Live Test)</span>
+          <span id="btn-live-test-text">تست زنده</span>
         </button>
       </div>
     </div>
@@ -3525,6 +3532,74 @@
       }
     })
     .catch(err => alert('خطای ارتباط: ' + err));
+  };
+
+  window.syncChannelConfigs = function(btn) {
+    const textSpan = document.getElementById('btn-sync-ar14n24b-text') || btn;
+    const alertBox = document.getElementById('proxy-live-alert');
+    const origHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.style.opacity = '0.75';
+    if (textSpan) textSpan.innerHTML = '⏳ در حال دریافت و تست کانفیگ‌ها...';
+
+    if (alertBox) {
+      alertBox.style.display = 'block';
+      alertBox.style.background = '#f0f9ff';
+      alertBox.style.color = '#0369a1';
+      alertBox.style.border = '1px solid #bae6fd';
+      alertBox.innerHTML = '📥 در حال اتصال به کانال @AR14N24B، استخراج کانفیگ‌های تازه و سنجش پینگ بلادرنگ...';
+    }
+
+    const formData = new FormData();
+    formData.append('channel', 'AR14N24B');
+
+    fetch('/manage/proxies/channel-sync/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = origHtml;
+
+      if (!data.success) {
+        if (alertBox) {
+          alertBox.style.background = '#fef2f2';
+          alertBox.style.color = '#991b1b';
+          alertBox.style.border = '1px solid #fecaca';
+          alertBox.innerHTML = '❌ ' + (data.error || data.message || 'خطا در ارتباط با کانال');
+        }
+        return;
+      }
+
+      if (alertBox) {
+        alertBox.style.background = '#ecfdf5';
+        alertBox.style.color = '#065f46';
+        alertBox.style.border = '1px solid #a7f3d0';
+        alertBox.innerHTML = `✓ ${data.message}`;
+      }
+
+      if (data.added_count > 0) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = origHtml;
+      if (alertBox) {
+        alertBox.style.background = '#fef2f2';
+        alertBox.style.color = '#991b1b';
+        alertBox.style.border = '1px solid #fecaca';
+        alertBox.innerHTML = '❌ خطای شبکه در ارتباط با سرور: ' + err;
+      }
+    });
   };
 
   window.testAllProxiesLive = function(btn) {

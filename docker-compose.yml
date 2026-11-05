@@ -167,6 +167,24 @@ services:
       - ./shared:/app/shared
     restart: unless-stopped
 
+  channel-config-sync:
+    <<: *app
+    environment:
+      <<: *app-env
+    command: ["python", "-u", "manage.py", "run_channel_config_automation", "--channel", "AR14N24B", "--loop", "--interval", "180", "--max-add", "10"]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - ./backups:/app/backups
+      - media:/app/media
+      - ./apps:/app/apps
+      - ./templates:/app/templates
+      - ./xray:/app/xray
+      - ./workers:/app/workers
+    restart: unless-stopped
+
   retention:
     <<: *app
     profiles: ["maintenance"]

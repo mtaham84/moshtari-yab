@@ -239,14 +239,6 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
         media_count = int(user_data.get("media_count", 1))
         follower_count = int(user_data.get("follower_count", 1))
 
-        if is_private:
-            return {
-                "eligible": False,
-                "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
-                "user_info": user_data,
-                "target_pk": resolved_pk,
-            }
-
         if media_count == 0 and follower_count == 0:
             return {
                 "eligible": False,
@@ -255,9 +247,11 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
                 "target_pk": resolved_pk,
             }
 
+        # Private accounts can safely receive direct messages (delivered into Message Requests / درخواست پیام)
+        # We allow them so outreach does not stall when prospective customers have private personal profiles.
         return {
             "eligible": True,
-            "reason": "واجد شرایط دریافت دایرکت",
+            "reason": "واجد شرایط دریافت دایرکت" if not is_private else "واجد شرایط دریافت دایرکت (پیج خصوصی - ارسال به صندوق درخواست پیام)",
             "user_info": user_data,
             "target_pk": resolved_pk,
         }
