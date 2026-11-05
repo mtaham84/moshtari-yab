@@ -1,7 +1,7 @@
 import json
 import logging
 import socket
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from functools import wraps
@@ -1898,6 +1898,8 @@ def instagram_cockpit_send_direct(request, pk: int):
 
     if not text:
         return JsonResponse({"success": False, "error": "متن پیام نمی‌تواند خالی باشد."}, status=400)
+    if user_id and not user_id.isdigit():
+        return JsonResponse({"success": False, "error": "شناسهٔ کاربر نامعتبر است."}, status=400)
 
     try:
         if thread_id:
@@ -1908,7 +1910,7 @@ def instagram_cockpit_send_direct(request, pk: int):
             return JsonResponse({"success": False, "error": "مخاطب پیام مشخص نیست."}, status=400)
 
         account.daily_action_count = (account.daily_action_count or 0) + 1
-        account.last_action_at = timezone.now()
+        account.last_action_at = dj_timezone.now()
         account.save(update_fields=["daily_action_count", "last_action_at"])
 
         return JsonResponse({
@@ -2091,7 +2093,7 @@ def instagram_cockpit_organic_dm(request, pk: int):
         cl.direct_send(message_text, user_ids=[target_pk])
 
         account.daily_action_count = (account.daily_action_count or 0) + 1
-        account.last_action_at = timezone.now()
+        account.last_action_at = dj_timezone.now()
         account.save(update_fields=["daily_action_count", "last_action_at"])
 
         return JsonResponse({

@@ -65,3 +65,59 @@ class InstagramCockpitViewTests(TestCase):
         data = {"profile_pic_url": MockHttpUrl(), "items": [MockHttpUrl()]}
         serialized = json.dumps(data, cls=SafeCockpitJSONEncoder)
         self.assertIn("https://instagram.fna.fbcdn.net", serialized)
+
+
+class InstagramCockpitSendCounterTests(TestCase):
+    """A sent DM must be counted (regression: datetime.timezone.now crashed after sending)."""
+
+    def setUp(self):
+        self.user = User.objects.create_superuser(username="admin_send", email="send@test.com", password="pw")
+        self.business = Business.objects.create(name="تست ارسال", user=self.user)
+        self.account = InstagramEngineAccount.objects.create(
+            username="sender_acc", role="SENDER", status="ACTIVE",
+            tenant_id=f"tenant_{self.business.id}", daily_limit=18,
+            session_json={"cookies": {"sessionid": "dummy"}},
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_send_direct_updates_counter(self):
+        from unittest.mock import MagicMock, patch
+
+        fake = MagicMock()
+        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)):
+            res = self.client.post(
+                reverse("manage:instagram_cockpit_send_direct", args=[self.account.pk]),
+                {"thread_id": "123", "text": "سلام"},
+            )
+        self.assertEqual(res.status_code, 200, res.content)
+        fake.direct_send.assert_called_once()
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.daily_action_count, 1)
+        self.assertIsNotNone(self.account.last_action_at)
+
+    def test_send_direct_rejects_non_numeric_user_id(self):
+        from unittest.mock import MagicMock, patch
+
+        fake = MagicMock()
+        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)):
+            res = self.client.post(
+                reverse("manage:instagram_cockpit_send_direct", args=[self.account.pk]),
+                {"user_id": "abc", "text": "سلام"},
+            )
+        self.assertEqual(res.status_code, 400)
+        fake.direct_send.assert_not_called()
+
+    def test_organic_dm_updates_counter(self):
+        from unittest.mock import MagicMock, patch
+
+        fake = MagicMock()
+        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)), \
+                patch("apps.discovery.outreach_service.execute_organic_journey", return_value={"target_pk": 1}):
+            res = self.client.post(
+                reverse("manage:instagram_cockpit_organic_dm", args=[self.account.pk]),
+                {"target_username": "someone", "message_text": "سلام"},
+            )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.daily_action_count, 1)
