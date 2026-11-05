@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from apps.businesses.models import Business, MessageStyle
 from apps.businesses.services import ensure_business
+from apps.discovery.constants import DM_DELIVERED_STATUSES
 from apps.discovery.models import Opportunity, InstagramEngineAccount
 from apps.discovery.services import get_performance_analytics
 
@@ -339,8 +340,8 @@ def outreach_view(request):
     from apps.discovery.models import Customer
 
     accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
-    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:50]
-    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=DM_DELIVERED_STATUSES).order_by("-updated_at")[:50]
+    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=DM_DELIVERED_STATUSES).count()
     pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
 
     # Leads who replied to our direct outreach or have active conversation
@@ -348,7 +349,7 @@ def outreach_view(request):
     conversation_leads = list(InstagramEngineLead.objects.filter(
         tenant_id__in=tenant_keys
     ).filter(
-        Q(has_replied=True) | Q(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT", "QUEUED"]) | Q(initial_dm_text__isnull=False)
+        Q(has_replied=True) | Q(status__in=[*DM_DELIVERED_STATUSES, "QUEUED"]) | Q(initial_dm_text__isnull=False)
     ).order_by("-reply_at", "-updated_at")[:60])
 
     # Leads who replied to our direct outreach

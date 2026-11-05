@@ -34,6 +34,8 @@ from apps.discovery.models import (
     XCrawledPost, XSearchQuery, Opportunity, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
+from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
+from apps.discovery.ig_accounts import tenant_keys_for_business
 from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
@@ -171,9 +173,9 @@ def manage_dashboard(request):
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]
     total_leads = InstagramEngineLead.objects.count()
-    dms_sent_total = InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+    dms_sent_total = InstagramEngineLead.objects.filter(status__in=DM_DELIVERED_STATUSES).count()
     dms_replied_total = InstagramEngineLead.objects.filter(has_replied=True).count()
-    high_intent_leads = InstagramEngineLead.objects.filter(intent_score__gte=0.85).count()
+    high_intent_leads = InstagramEngineLead.objects.filter(intent_score__gte=HIGH_INTENT_THRESHOLD).count()
 
     # 3. Settings & Exchange Rate
     billing_settings = BillingSettings.get()
@@ -205,8 +207,8 @@ def manage_dashboard(request):
         tg_count = Opportunity.objects.filter(business=b, source_platform="telegram").count()
         x_count = Opportunity.objects.filter(business=b, source_platform="x").count()
         b_total = Opportunity.objects.filter(business=b).count()
-        b_high_intent = Opportunity.objects.filter(business=b, ai_analysis__intent_score__gte=0.80).count()
-        b_dms = InstagramEngineLead.objects.filter(tenant_id=f"tenant_{b.id}", status="DM_SENT").count()
+        b_high_intent = Opportunity.objects.filter(business=b, ai_analysis__intent_score__gte=HIGH_INTENT_THRESHOLD).count()
+        b_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys_for_business(b), status__in=DM_DELIVERED_STATUSES).count()
 
         tenant_matrix.append({
             "business": b,
@@ -263,10 +265,10 @@ def manage_dashboard(request):
         total_calls_all += calls
 
         # Business associated Instagram leads & senders
-        tenant_key = f"tenant_{b.id}"
-        b_leads_count = InstagramEngineLead.objects.filter(tenant_id=tenant_key).count()
-        b_dms_sent = InstagramEngineLead.objects.filter(tenant_id=tenant_key, status="DM_SENT").count()
-        b_senders = InstagramEngineAccount.objects.filter(tenant_id=tenant_key, role="SENDER")
+        b_tenant_keys = tenant_keys_for_business(b)
+        b_leads_count = InstagramEngineLead.objects.filter(tenant_id__in=b_tenant_keys).count()
+        b_dms_sent = InstagramEngineLead.objects.filter(tenant_id__in=b_tenant_keys, status__in=DM_DELIVERED_STATUSES).count()
+        b_senders = InstagramEngineAccount.objects.filter(tenant_id__in=b_tenant_keys, role="SENDER")
 
         financial_rows.append({
             "business": b,
@@ -561,7 +563,7 @@ def manage_dashboard(request):
             senders = senders.filter(tenant_id__in=b_tenants)
             leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).order_by("-intent_score", "created_at")[:60]
             total_leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).count()
-            dms_sent_total = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+            dms_sent_total = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants, status__in=DM_DELIVERED_STATUSES).count()
             senders_total = senders.count()
             senders_active = senders.filter(status="ACTIVE").count()
 
@@ -700,7 +702,7 @@ def manage_dashboard(request):
         "ig_leads_24h": ig_leads_24h,
         "ig_conversion_rate_total": ig_conversion_rate_total,
         "ig_conversion_rate_24h": ig_conversion_rate_24h,
-        "outreach_dms_list": InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:60],
+        "outreach_dms_list": InstagramEngineLead.objects.filter(status__in=DM_DELIVERED_STATUSES).order_by("-updated_at")[:60],
         "outreach_pending_count": InstagramEngineLead.objects.filter(status="NEW").count(),
         "outreach_failed_count": InstagramEngineLead.objects.filter(status="FAILED").count(),
         "now": dj_timezone.now(),

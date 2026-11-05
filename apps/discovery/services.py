@@ -10,12 +10,12 @@ from apps.businesses.models import Business
 from apps.core.jalali import format_jalali_date
 from apps.products.models import Product
 
+from .constants import HIGH_INTENT_THRESHOLD as HIGH_INTENT  # noqa: F401  (kept for importers)
 from .engine_bridge import engine_totals
 from .models import Opportunity, ProductDailyMetric
 
 logger = logging.getLogger(__name__)
 
-HIGH_INTENT = 0.8
 PLATFORM_LABELS = {"telegram": "تلگرام", "x": "ایکس", "instagram": "اینستاگرام"}
 
 

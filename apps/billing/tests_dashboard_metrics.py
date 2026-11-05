@@ -36,3 +36,16 @@ class DashboardRealMetricsTests(TestCase):
         self.assertNotIn("total_payable", row)
         self.assertEqual(res.context["total_spent_all"], Decimal("12345"))
         self.assertContains(res, "مبلغ واقعی کسرشده")
+
+    def test_sent_dms_include_replied_leads(self):
+        # ADM-05: "DM sent" means DM_DELIVERED_STATUSES everywhere.
+        from apps.discovery.models import InstagramEngineLead
+
+        for i, status in enumerate(["DM_SENT", "REPLIED", "NEW"]):
+            InstagramEngineLead.objects.create(tenant_id=f"tenant_{self.business.pk}", username=f"u{i}",
+                                               ig_user_pk=f"{i}", status=status)
+        res = self.client.get(reverse("manage:dashboard"))
+        row = next(r for r in res.context["financial_rows"] if r["business"].pk == self.business.pk)
+        self.assertEqual(row["dms_sent"], 2)
+        matrix = next(r for r in res.context["tenant_matrix"] if r["business"].pk == self.business.pk)
+        self.assertEqual(matrix["dms_sent"], 2)
