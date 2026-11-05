@@ -299,8 +299,8 @@ def build_tenant_child_queries(business, max_queries: int = MAX_INSTAGRAM_TENANT
 
 def ensure_family_plan(business, family, call_llm: Callable | None = None):
     """
-    Builds or retrieves family plan using clean child categories (max 30 per tenant).
-    Initial queries are constructed directly from subcategories without AI hallucination.
+    Builds or retrieves family plan.
+    Supports both LLM planning with cache/daily cap and intelligent subcategory generation.
     """
     from .models import InstagramFamilyPlan
     from apps.billing.services import is_blocked
@@ -308,82 +308,90 @@ def ensure_family_plan(business, family, call_llm: Callable | None = None):
     if is_blocked(business):
         return None, False
 
+    # Check cache matching exact content_hash
+    cached = InstagramFamilyPlan.objects.filter(
+        business=business, family_id=family.product_id, content_hash=family.content_hash(), status="ready"
+    ).first()
+    if cached:
+        return cached, False
+
+    # Daily plan cap (maximum 8 planned families per tenant)
+    planned_count = InstagramFamilyPlan.objects.filter(business=business).count()
+    if planned_count >= 8:
+        return None, False
+
     biz_name = (getattr(business, "name", "") or "").casefold()
     is_dental = "دند" in biz_name
 
-    cached = InstagramFamilyPlan.objects.filter(
-        business=business, family_id=family.product_id, status="ready"
-    ).first()
-    # If cached plan contains weak old terms or lacks any of the 8 core dental services, rebuild it
-    if cached and cached.keywords and not any("اپ استور" in k or "تولیدی شومیز" in k for k in (cached.keywords or [])):
-        if is_dental:
-            has_routine = any("دندانپزشک" in k or "دندانپزشکی" in k for k in (cached.keywords or []))
-            has_all_services = all(
-                any(srv in k for k in (cached.keywords or []))
-                for srv in ("کامپوزیت", "لمینت", "ایمپلنت", "زیبایی", "درد", "بلیچینگ", "روکش", "اوردنچر")
-            )
-            if has_routine and has_all_services:
-                return cached, False
-        else:
-            return cached, False
-
-    # Build queries directly from subcategories
-    child_queries = build_tenant_child_queries(business, max_queries=MAX_INSTAGRAM_TENANT_QUERIES)
-
-    fam_path = (getattr(family, "category_path", "") or "").casefold()
-    fam_titles = [t.casefold() for t in getattr(family, "titles", []) or []]
-
-    # Select queries matching this family or share tenant's core child queries
-    family_kw = []
-    for q in child_queries:
-        if any(w in fam_path or any(w in ft for ft in fam_titles) for w in q.casefold().split()):
-            family_kw.append(q)
-
-    # For dental, ensure routine dental terms + all 8 core services are always included in every dental family
-    if is_dental:
-        routine_dental_tags = [
-            "دندانپزشکی", "دندانپزشک", "دندان_پزشکی", "دندان_پزشک",
-            "کلینیک_دندانپزشکی", "مطب_دندانپزشکی", "دندونپزشکی", "دندونپزشک",
-            "دندانپزشک_خوب", "دندانپزشکی_اقساطی", "دندانپزشکی_زیبایی",
-            "کامپوزیت_دندان", "لمینت_دندان", "ایمپلنت_دندان", "طرح_لبخند",
-            "دندان_درد", "دندون_درد", "بلیچینگ_دندان", "روکش_دندان", "اوردنچر",
-        ]
-        dental_universal = [
-            "دندانپزشکی", "دندونپزشکی", "دندان پزشکی", "دندون پزشکی",
-            "دندانپزشک", "دندونپزشک", "کلینیک دندانپزشکی", "مطب دندانپزشکی",
-            "دندانپزشک خوب", "دندانپزشک اقساطی", "دندانپزشکی اقساطی",
-            "کامپوزیت دندان", "کامپوزیت",
-            "لمینت دندان", "لمینت",
-            "ایمپلنت دندان", "ایمپلنت",
-            "زیبایی دندان", "طرح لبخند",
-            "دندان درد", "دندون درد",
-            "بلیچینگ دندان", "بلیچینگ",
-            "روکش دندان", "روکش سرامیکی",
-            "اوردنچر دندان", "اوردنچر",
-            "عصب کشی",
-        ]
-        for u in dental_universal:
-            if u not in family_kw:
-                family_kw.append(u)
-
-    if not family_kw:
-        family_kw = child_queries[:20]
-
-    family_tags = [q.replace(" ", "_") for q in family_kw if " " in q or len(q) >= 4]
-    if is_dental:
-        all_tags = list(dict.fromkeys(routine_dental_tags + family_tags))[:25]
+    if call_llm is not None:
+        type_names = list(business.business_types.values_list("name", flat=True)) if hasattr(business, "business_types") else []
+        payload = {
+            "family_path": getattr(family, "category_path", ""),
+            "product_titles": (getattr(family, "titles", []) or [])[:12],
+            "seller_notes": (getattr(family, "notes", "") or "")[:1000],
+            "business_types": type_names,
+        }
+        raw_res = call_llm(PLAN_SYSTEM, json.dumps(payload, ensure_ascii=False), purpose="instagram_family_plan",
+                           business_id=business.pk)
+        plan_data = _validate_plan(raw_res, family=family)
     else:
-        all_tags = family_tags[:16]
+        # Build queries directly from subcategories
+        child_queries = build_tenant_child_queries(business, max_queries=MAX_INSTAGRAM_TENANT_QUERIES)
 
-    page_terms = list(dict.fromkeys(family_kw))[:15]
+        fam_path = (getattr(family, "category_path", "") or "").casefold()
+        fam_titles = [t.casefold() for t in getattr(family, "titles", []) or []]
 
-    plan_data = {
-        "hashtags": all_tags,
-        "keywords": family_kw[:35],
-        "page_search_terms": page_terms,
-        "buyer_signals": list(GENERIC_BUYER_SIGNALS),
-        "negative_signals": ["اخبار", "سیاست", "فروشگاه عمده چینی"],
-    }
+        # Select queries matching this family or share tenant's core child queries
+        family_kw = []
+        for q in child_queries:
+            if any(w in fam_path or any(w in ft for ft in fam_titles) for w in q.casefold().split()):
+                family_kw.append(q)
+
+        # For dental, ensure routine dental terms + all 8 core services are always included in every dental family
+        if is_dental:
+            routine_dental_tags = [
+                "دندانپزشکی", "دندانپزشک", "دندان_پزشکی", "دندان_پزشک",
+                "کلینیک_دندانپزشکی", "مطب_دندانپزشکی", "دندونپزشکی", "دندونپزشک",
+                "دندانپزشک_خوب", "دندانپزشکی_اقساطی", "دندانپزشکی_زیبایی",
+                "کامپوزیت_دندان", "لمینت_دندان", "ایمپلنت_دندان", "طرح_لبخند",
+                "دندان_درد", "دندون_درد", "بلیچینگ_دندان", "روکش_دندان", "اوردنچر",
+            ]
+            dental_universal = [
+                "دندانپزشکی", "دندونپزشکی", "دندان پزشکی", "دندون پزشکی",
+                "دندانپزشک", "دندونپزشک", "کلینیک دندانپزشکی", "مطب دندانپزشکی",
+                "دندانپزشک خوب", "دندانپزشک اقساطی", "دندانپزشکی اقساطی",
+                "کامپوزیت دندان", "کامپوزیت",
+                "لمینت دندان", "لمینت",
+                "ایمپلنت دندان", "ایمپلنت",
+                "زیبایی دندان", "طرح لبخند",
+                "دندان درد", "دندون درد",
+                "بلیچینگ دندان", "بلیچینگ",
+                "روکش دندان", "روکش سرامیکی",
+                "اوردنچر دندان", "اوردنچر",
+                "عصب کشی",
+            ]
+            for u in dental_universal:
+                if u not in family_kw:
+                    family_kw.append(u)
+
+        if not family_kw:
+            family_kw = child_queries[:20]
+
+        family_tags = [q.replace(" ", "_") for q in family_kw if " " in q or len(q) >= 4]
+        if is_dental:
+            all_tags = list(dict.fromkeys(routine_dental_tags + family_tags))[:25]
+        else:
+            all_tags = family_tags[:16]
+
+        page_terms = list(dict.fromkeys(family_kw))[:15]
+
+        plan_data = {
+            "hashtags": all_tags,
+            "keywords": family_kw[:35],
+            "page_search_terms": page_terms,
+            "buyer_signals": list(GENERIC_BUYER_SIGNALS),
+            "negative_signals": ["اخبار", "سیاست", "فروشگاه عمده چینی"],
+        }
 
     with transaction.atomic():
         row, _ = InstagramFamilyPlan.objects.update_or_create(
@@ -525,11 +533,9 @@ def record_source_result(business, source: DiscoverySource, leads: int, status: 
     row.requests += 1
     row.leads += max(0, int(leads))
     if leads:
-        # ProQE Bandit Reward: +1.0 for each verified buyer lead found
-        row.alpha += min(2.0, 1.0 * float(leads))
+        row.alpha += round(0.3 * float(leads), 2)
     else:
-        # ProQE Bandit Penalty: +0.5 for non-performing or disqualified queries
-        row.beta += 0.50
+        row.beta += 0.15 if status in {"FAILED", "THROTTLED"} else 0.5
     row.last_run_at = timezone.now()
     row.save(update_fields=["requests", "leads", "alpha", "beta", "last_run_at"])
     return row

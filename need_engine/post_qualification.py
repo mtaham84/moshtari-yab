@@ -31,6 +31,11 @@ except Exception:
     def get_system_prompt(key, default):
         return default
 
+try:
+    from apps.products.models import Product
+except Exception:
+    Product = Any  # type: ignore
+
 ContentType = Literal[
     "genuine_need",
     "joke",

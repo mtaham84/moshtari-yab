@@ -322,6 +322,7 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
             "Return strictly JSON: {\"category_id\": <number>, \"reason\": \"<Persian explanation>\"}"
         )
         system_prompt = get_system_prompt("suggest_category", default_system_prompt)
+        tree_lines = [f"{c.id}: {c.get_full_path()}" for c in categories]
         user_prompt = f"Product title: {clean_name}\nDescription: {description}\n\nCATEGORIES:\n" + "\n".join(tree_lines[:60])
         ai_resp = chat_json(system_prompt, user_prompt, purpose="suggest_category", max_tokens=150, timeout=12.0)
         if isinstance(ai_resp, dict) and ai_resp.get("category_id"):

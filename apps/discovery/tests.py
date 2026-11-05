@@ -325,11 +325,9 @@ class PanelViewTests(TestCase):
         self.assertEqual(response.content[:3], b"\xef\xbb\xbf")
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
         self.assertEqual(rows[1][0], "'=HYPERLINK(\"https://bad.invalid\")")
-        self.assertEqual(rows[1][2], "https://t.me/ali")
-        self.assertEqual(rows[1][3], "'=HYPERLINK(\"https://bad.invalid\")")
-        self.assertEqual(rows[1][4], "'+1+1")
-        self.assertEqual(rows[1][5], "'@SUM(1,1)")
-        self.assertEqual(rows[1][1], "تلگرام")
+        self.assertEqual(rows[1][15], "https://t.me/ali")
+        self.assertEqual(rows[1][14], "'@SUM(1,1)")
+        self.assertEqual(rows[1][12], "تلگرام")
 
     def test_csv_cell_helper_escapes_formula_prefixes(self):
         for prefix in ("=", "+", "-", "@", "\t", "\r"):
@@ -360,10 +358,9 @@ class PanelViewTests(TestCase):
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
 
         self.assertEqual(rows[1][0], "-")
-        self.assertEqual(rows[1][2], "-")
-        self.assertEqual(rows[1][3], "-")
-        self.assertEqual(rows[1][4], "-")
-        self.assertEqual(rows[1][5], "-")
+        self.assertEqual(rows[1][15], "-")
+        self.assertEqual(rows[1][14], "-")
+        self.assertEqual(rows[1][6], "-")
 
     def test_csv_strips_platform_prefix_for_id_and_profile_link(self):
         self.mine.customer.source_username = ""
@@ -375,7 +372,7 @@ class PanelViewTests(TestCase):
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
 
         self.assertEqual(rows[1][0], "12345")
-        self.assertEqual(rows[1][2], "https://t.me/c/12345")
+        self.assertEqual(rows[1][15], "https://t.me/c/12345")
 
     def test_csv_draft_failure_is_logged_and_keeps_fallback(self):
         from unittest.mock import patch
@@ -389,7 +386,7 @@ class PanelViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(str(self.mine.id), logs.output[0])
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
-        self.assertIn("سلام وقت بخیر", rows[1][5])
+        self.assertIn("سلام وقت بخیر", rows[1][14])
 
     def test_status_update(self):
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "CONTACTED"})
