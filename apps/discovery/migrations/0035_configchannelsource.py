@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('discovery', '0032_instagramcategorytarget_archived_terms_and_more'),
+        ('discovery', '0034_instagramenginelead_post_created_at_and_more'),
     ]
 
     operations = [

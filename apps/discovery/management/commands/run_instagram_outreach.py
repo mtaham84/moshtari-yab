@@ -30,7 +30,8 @@ from typing import Optional, Dict, Any, List, Tuple
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
-from django.db import transaction
+from django.db import models, transaction
+from django.db.models import Q
 
 try:
     from zoneinfo import ZoneInfo
