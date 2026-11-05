@@ -255,6 +255,10 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 
+# Tenants served by the Instagram DM dispatcher and reply sync, e.g. OUTREACH_TENANTS=tenant_4,tenant_7.
+# Empty = every tenant that has an ACTIVE SENDER account (apps.discovery.ig_accounts.outreach_tenants).
+OUTREACH_TENANTS = [t.strip() for t in os.getenv("OUTREACH_TENANTS", "").split(",") if t.strip()]
+
 CELERY_TASK_ROUTES = {
     "apps.discovery.tasks.task_dispatch_instagram_outreach": {"queue": "outreach"},
     "apps.discovery.tasks.task_sync_lead_replies": {"queue": "outreach"},
@@ -268,8 +272,7 @@ CELERY_BEAT_SCHEDULE = {
     "dispatch-instagram-outreach-periodic": {
         "task": "apps.discovery.tasks.task_dispatch_instagram_outreach",
         "schedule": 60.0,
-        "args": ("tenant_4",),
-        "kwargs": {"batch_size": 2},
+        "kwargs": {"batch_size": 2},   # tenants: OUTREACH_TENANTS (default: every tenant with an active sender)
         "options": {"expires": 55},
     },
     # 2. Lead Reply Sync: ticks every 5 minutes; the task itself skips outside shift hours and skips some ticks at
@@ -277,7 +280,6 @@ CELERY_BEAT_SCHEDULE = {
     "sync-lead-replies-fast": {
         "task": "apps.discovery.tasks.task_sync_lead_replies",
         "schedule": 300.0,
-        "args": (["tenant_4", "sarv"],),
         "options": {"expires": 280},
     },
     # 3. Telegram Proxy Channel Configs Sync (runs every 180 seconds)

@@ -307,6 +307,24 @@ def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, 
     return None
 
 
+def _operator_outreach_business(biz_param, own_business, all_businesses):
+    """Business shown to an operator on the outreach page (TEN-03: no hardcoded business ids).
+
+    Explicit ?biz=<id> wins, then the operator's own business if it runs outreach, then the first business that
+    runs outreach (OUTREACH_TENANTS / ACTIVE SENDER), then the operator's own business, then the first business."""
+    from apps.discovery.ig_accounts import outreach_tenants, tenant_business_id
+
+    by_id = {b.id: b for b in all_businesses}
+    if biz_param and str(biz_param).isdigit() and int(biz_param) in by_id:
+        return by_id[int(biz_param)]
+    outreach_ids = [bid for bid in (tenant_business_id(t) for t in outreach_tenants()) if bid in by_id]
+    if own_business and own_business.id in outreach_ids:
+        return own_business
+    if outreach_ids:
+        return by_id[outreach_ids[0]]
+    return own_business or (all_businesses[0] if all_businesses else None)
+
+
 @login_required
 def outreach_view(request):
     """Business owner's dedicated Instagram Outreach & Sender Management page."""
@@ -315,19 +333,11 @@ def outreach_view(request):
 
     business = getattr(request.user, "business", None)
 
-    # For staff / superuser, support ?biz=<id> or default to tenant_4 (Sarv Dental) if current business is empty
+    # Operators pick a business with ?biz=<id>; otherwise their own, else the first one running outreach.
     all_businesses = []
     if is_operator(request.user):
         all_businesses = list(Business.objects.all().order_by("id"))
-        biz_param = request.GET.get("biz")
-        if biz_param and biz_param.isdigit():
-            b = Business.objects.filter(id=int(biz_param)).first()
-            if b:
-                business = b
-        elif not business or business.id not in [4, 6]:
-            sarv_biz = Business.objects.filter(id=4).first()
-            if sarv_biz:
-                business = sarv_biz
+        business = _operator_outreach_business(request.GET.get("biz"), business, all_businesses)
 
     if not business:
         messages.error(request, "ابتدا اطلاعات کسب‌وکار خود را تکمیل نمایید.")

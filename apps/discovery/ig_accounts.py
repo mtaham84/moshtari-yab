@@ -1271,6 +1271,12 @@ def tenant_key(business_or_id) -> str:
     return f"tenant_{getattr(business_or_id, 'pk', business_or_id)}"
 
 
+def tenant_business_id(tenant_id) -> int | None:
+    """Business pk of a tenant id ("tenant_7" / legacy alias), None for unknown formats."""
+    m = re.fullmatch(r"tenant_(\d+)", canonical_tenant(tenant_id))
+    return int(m.group(1)) if m else None
+
+
 def tenant_keys_for_business(business_or_id) -> list[str]:
     """Every tenant id whose rows belong to a business: the canonical one plus legacy aliases (e.g. "sarv")."""
     key = tenant_key(business_or_id)
@@ -1339,6 +1345,22 @@ def tenant_ids(tenant_id) -> list[str]:
     """A tenant id plus every legacy alias of the same tenant ("sarv" <-> "tenant_4"), canonical first."""
     tid = canonical_tenant(tenant_id)
     return [tid] + sorted({str(tenant_id or "")} - {tid, ""} | {a for a, t in TENANT_ALIASES.items() if t == tid})
+
+
+def outreach_tenants() -> list[str]:
+    """Canonical tenants the DM dispatcher and reply sync serve (TEN-03).
+
+    settings.OUTREACH_TENANTS (env OUTREACH_TENANTS="tenant_4,tenant_7") when set, otherwise every tenant that
+    has an ACTIVE SENDER account."""
+    configured = [str(t).strip() for t in getattr(settings, "OUTREACH_TENANTS", None) or [] if str(t).strip()]
+    raw = configured or InstagramEngineAccount.objects.filter(role="SENDER", status="ACTIVE").exclude(
+        tenant_id__isnull=True).exclude(tenant_id="").values_list("tenant_id", flat=True).distinct()
+    return list(dict.fromkeys(canonical_tenant(t) for t in raw))
+
+
+def outreach_tenant_ids() -> list[str]:
+    """`outreach_tenants()` expanded with legacy aliases (for lead/sender filters)."""
+    return [tid for tenant in outreach_tenants() for tid in tenant_ids(tenant)]
 
 
 def _tenant_ids(tenant_id) -> set[str]:
