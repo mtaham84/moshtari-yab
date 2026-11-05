@@ -315,9 +315,14 @@ def ensure_family_plan(business, family, call_llm: Callable | None = None):
     if cached:
         return cached, False
 
-    # Daily plan cap (maximum 8 planned families per tenant)
-    planned_count = InstagramFamilyPlan.objects.filter(business=business).count()
-    if planned_count >= 8:
+    # Daily plan cap: at most INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT plans built per tenant per day.
+    # Rebuilding this family's own (stale) plan does not count against the cap.
+    planned_today = (
+        InstagramFamilyPlan.objects.filter(business=business, built_at__date=timezone.localdate())
+        .exclude(family_id=family.product_id)
+        .count()
+    )
+    if planned_today >= INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT:
         return None, False
 
     biz_name = (getattr(business, "name", "") or "").casefold()
@@ -533,7 +538,7 @@ def record_source_result(business, source: DiscoverySource, leads: int, status: 
     row.requests += 1
     row.leads += max(0, int(leads))
     if leads:
-        row.alpha += round(0.3 * float(leads), 2)
+        row.alpha += round(min(1.0, 0.3 * float(leads)), 2)
     else:
         row.beta += 0.15 if status in {"FAILED", "THROTTLED"} else 0.5
     row.last_run_at = timezone.now()
