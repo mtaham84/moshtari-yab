@@ -41,14 +41,36 @@ echo "--- خلاصه تغییرات فایل‌ها (Diff Stat) ---"
 git diff --stat origin/main..taha
 echo ""
 
-# 5. Dry-run conflict check
+# 5. Dry-run conflict check and detailed report
 echo "در حال بررسی و اعتبارسنجی تعارضات (Conflict Check)..."
-if ! git merge-tree --write-tree origin/main taha > /dev/null 2>&1; then
-    echo "خطای بحرانی: بین شاخه taha و main تعارض (Merge Conflict) وجود دارد!"
-    echo "ادغام متوقف شد. تعارضات باید در شاخه taha با دستور git merge origin/main رفع گردند."
+set +e
+CONFLICT_OUTPUT=$(git merge-tree --write-tree origin/main taha 2>&1)
+CONFLICT_EXIT=$?
+set -e
+
+if [ $CONFLICT_EXIT -ne 0 ]; then
+    echo ""
+    echo "=========================================================="
+    echo "گزارش تعارضات ادغام (Merge Conflicts Report)"
+    echo "=========================================================="
+    echo "خطای بحرانی: امکان ادغام خودکار وجود ندارد زیرا بین شاخه taha و main تعارض وجود دارد."
+    echo ""
+    echo "فهرست فایل‌های دارای تعارض و جزئیات:"
+    echo "$CONFLICT_OUTPUT" | grep -E "(CONFLICT|Auto-merging)" || echo "$CONFLICT_OUTPUT"
+    echo ""
+    echo "دستورالعمل حل تعارض در شاخه taha:"
+    echo "  ۱. سوییچ و اطمینان از قرار داشتن روی شاخه taha:  git checkout taha"
+    echo "  ۲. دریافت آخرین کد و اقدام به ادغام شاخه main:   git merge origin/main"
+    echo "  ۳. فایل‌های معارض بالا را باز نموده و بخش‌های بین <<<<<<< و >>>>>>> را اصلاح نمایید."
+    echo "  ۴. اجرای تست‌های برنامه جهت اطمینان از سلامت کد."
+    echo "  ۵. ثبت کامیت حل تعارض:                         git commit -m 'fix: resolve merge conflicts with main'"
+    echo "  ۶. ارسال تغییرات حل‌شده به شاخه taha:          git push origin taha"
+    echo "  ۷. اجرای مجدد این اسکریپت جهت ادغام و پوش در main."
+    echo "=========================================================="
     exit 1
 fi
-echo "وضعیت تعارضات: هیچ تعارضی وجود ندارد (آماده ادغام امن)."
+
+echo "وضعیت تعارضات: هیچ تعارضی وجود ندارد (آماده ادغام و پوش به main)."
 echo ""
 
 # 6. User confirmation
