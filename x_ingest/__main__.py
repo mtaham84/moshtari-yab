@@ -29,6 +29,15 @@ def _dsn() -> str:
     return make_conninfo(**{k: v for k, v in params.items() if v})
 
 
+def x_max_age_days() -> float:
+    """X_MAX_AGE_DAYS (default 10); 0/off/false/none/empty disables the age filter (conftest sets 0 for fixtures)."""
+    raw = os.getenv("X_MAX_AGE_DAYS")
+    if raw is None:
+        return 10.0
+    raw = raw.strip().lower()
+    return 0.0 if raw in ("", "0", "off", "false", "none") else float(raw)
+
+
 def validate_record(record: object) -> dict:
     if not isinstance(record, dict):
         raise ValueError("record must be a JSON object")
@@ -52,13 +61,7 @@ def validate_record(record: object) -> dict:
             parsed_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
             if parsed_dt.tzinfo is None:
                 parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-            max_age_env = os.getenv("X_MAX_AGE_DAYS")
-            if max_age_env is not None:
-                max_age_days = float(max_age_env) if max_age_env not in ("", "0", "off", "false", "none") else 0
-            elif "PYTEST_CURRENT_TEST" in os.environ:
-                max_age_days = 0
-            else:
-                max_age_days = 10
+            max_age_days = x_max_age_days()
             if max_age_days > 0 and parsed_dt < datetime.now(timezone.utc) - timedelta(days=max_age_days):
                 raise ValueError(f"tweet created_at ({created}) is older than {int(max_age_days)} days")
         except ValueError as exc:

@@ -72,16 +72,12 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         handle = str(handle).strip().lstrip("@").split("/")[0]
     tweet_url = f"https://x.com/{handle}/status/{clean_id}" if handle else None
     created_at = _normalize_created_at(_first(raw, mapping.OUTPUT_CREATED_KEYS))
-    if created_at and not os.getenv("PYTEST_CURRENT_TEST"):
+    if created_at:
         try:
             created_dt = datetime.fromisoformat(created_at)
-            max_age_env = os.getenv("X_MAX_AGE_DAYS")
-            if max_age_env is not None:
-                max_age_days = float(max_age_env) if max_age_env not in ("", "0", "off", "false", "none") else 0
-            elif "PYTEST_CURRENT_TEST" in os.environ:
-                max_age_days = 0
-            else:
-                max_age_days = 10
+            from x_ingest.__main__ import x_max_age_days
+
+            max_age_days = x_max_age_days()
             if max_age_days > 0 and created_dt < datetime.now(timezone.utc) - timedelta(days=max_age_days):
                 log.info("Skipping X post %s older than %s days (%s)", clean_id, int(max_age_days), created_at)
                 return None
@@ -109,7 +105,7 @@ def compute_tweet_hash(tweet_id: str | int) -> str:
 
 
 def filter_uncrawled_tweets(records: list[dict[str, Any]], dsn: str | None = None) -> list[dict[str, Any]]:
-    if not records or ("PYTEST_CURRENT_TEST" in os.environ and not dsn):
+    if not records or (not dsn and os.getenv("X_DEDUP_AGAINST_DB", "true").strip().lower() in {"0", "false", "no", "off"}):
         return records
     try:
         from x_ingest.__main__ import _dsn

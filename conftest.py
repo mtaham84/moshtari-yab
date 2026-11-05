@@ -14,6 +14,13 @@ import pytest
 from psycopg.conninfo import make_conninfo
 
 
+# Explicit test switches (production code no longer sniffs sys.argv / PYTEST_CURRENT_TEST).
+os.environ.setdefault("INSTAGRAM_ANTIBAN_ENABLED", "false")   # no working-hours window or human pauses
+os.environ.setdefault("ACCOUNTS_POOL_FILE_SYNC", "false")      # never rewrite the real accounts pool file
+os.environ.setdefault("X_MAX_AGE_DAYS", "0")                    # fixtures contain old tweets
+os.environ.setdefault("X_DEDUP_AGAINST_DB", "false")            # no dedup query unless a test passes a dsn
+
+
 def pytest_configure(config):
     basetemp = config.option.basetemp
     if basetemp:

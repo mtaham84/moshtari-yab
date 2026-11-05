@@ -240,6 +240,10 @@ INSTAGRAM_DEFAULT_PROXY_URL = os.environ.get("INSTAGRAM_DEFAULT_PROXY_URL", "soc
 # How many Instagram accounts may share one system V2Ray config (1 = every account has its own IP).
 INSTAGRAM_ACCOUNTS_PER_CONFIG = max(1, int(os.environ.get("INSTAGRAM_ACCOUNTS_PER_CONFIG", "1")))
 # A login started in the panel runs in a background thread of the web process and waits there for the code.
+# Working-hours window and human-like pauses for Instagram. Only the test runner/conftest turn this off.
+INSTAGRAM_ANTIBAN_ENABLED = os.environ.get("INSTAGRAM_ANTIBAN_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+# Mirror Instagram/X account changes into the accounts pool file (data/accounts_pool.json).
+ACCOUNTS_POOL_FILE_SYNC = os.environ.get("ACCOUNTS_POOL_FILE_SYNC", "true").strip().lower() not in {"0", "false", "no", "off"}
 INSTAGRAM_LOGIN_IN_BACKGROUND = os.environ.get("INSTAGRAM_LOGIN_IN_BACKGROUND", "true").strip().lower() in {"1", "true", "yes", "on"}
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
