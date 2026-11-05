@@ -43,6 +43,8 @@ def pg_dsn() -> str:
     try:
         psycopg.connect(dsn, connect_timeout=3).close()
     except Exception as exc:  # pragma: no cover
+        if os.environ.get("REQUIRE_DB", "").lower() in {"1", "true", "yes", "on"}:
+            pytest.fail(f"PostgreSQL is required (REQUIRE_DB) but not reachable: {exc}")
         pytest.skip(f"PostgreSQL is not reachable ({exc.__class__.__name__}); set TEST_DATABASE_URL")
     return dsn
 
