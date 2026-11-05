@@ -49,3 +49,23 @@ class DashboardRealMetricsTests(TestCase):
         self.assertEqual(row["dms_sent"], 2)
         matrix = next(r for r in res.context["tenant_matrix"] if r["business"].pk == self.business.pk)
         self.assertEqual(matrix["dms_sent"], 2)
+
+    def test_query_count_does_not_grow_with_businesses(self):
+        # ADM-03: the per-business loops used ~10 queries per business.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        def count_queries():
+            with CaptureQueriesContext(connection) as ctx:
+                self.assertEqual(self.client.get(reverse("manage:dashboard")).status_code, 200)
+            return len(ctx.captured_queries)
+
+        for i in range(2):
+            u = User.objects.create_user(username=f"s{i}", password="x")
+            Business.objects.create(name=f"b{i}", user=u)
+        count_queries()  # warm caches (settings rows, etc.)
+        small = count_queries()
+        for i in range(2, 10):
+            u = User.objects.create_user(username=f"s{i}", password="x")
+            Business.objects.create(name=f"b{i}", user=u)
+        self.assertEqual(count_queries(), small)

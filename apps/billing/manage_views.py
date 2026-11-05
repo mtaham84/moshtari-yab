@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import defaultdict
 import socket
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -34,7 +35,7 @@ from apps.core.jalali import format_jalali_date, format_jalali_datetime
 from apps.core.http import wants_json
 from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
-from apps.discovery.ig_accounts import tenant_keys_for_business
+from apps.discovery.ig_accounts import canonical_tenant, tenant_key
 from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
@@ -193,28 +194,51 @@ def manage_dashboard(request):
         "dms_sent": 0,
     }
 
+    # One grouped query per table instead of ~10 queries per business (ADM-03).
+    opp_stats = {
+        row["business_id"]: row
+        for row in Opportunity.objects.order_by().values("business_id").annotate(
+            instagram=Count("id", filter=Q(source_platform="instagram")),
+            telegram=Count("id", filter=Q(source_platform="telegram")),
+            x=Count("id", filter=Q(source_platform="x")),
+            total=Count("id"),
+            high_intent=Count("id", filter=Q(ai_analysis__intent_score__gte=HIGH_INTENT_THRESHOLD)),
+        )
+    }
+    lead_stats: dict[str, dict] = defaultdict(lambda: {"leads": 0, "dms": 0})
+    for row in InstagramEngineLead.objects.order_by().values("tenant_id").annotate(
+            leads=Count("id"), dms=Count("id", filter=Q(status__in=DM_DELIVERED_STATUSES))):
+        bucket = lead_stats[canonical_tenant(row["tenant_id"])]   # legacy aliases count for their business
+        bucket["leads"] += row["leads"]
+        bucket["dms"] += row["dms"]
+    usage_stats = {
+        row["wallet__business_id"]: row
+        for row in WalletTransaction.objects.filter(kind="USAGE").order_by().values("wallet__business_id").annotate(
+            spent=Sum("amount_toman"), cost_usd=Sum("cost_usd"), calls=Sum("calls"))
+    }
+    senders_by_tenant: dict[str, list] = defaultdict(list)
+    for acc in InstagramEngineAccount.objects.filter(role="SENDER").order_by("id"):
+        senders_by_tenant[canonical_tenant(acc.tenant_id)].append(acc)
+    empty_opp = {"instagram": 0, "telegram": 0, "x": 0, "total": 0, "high_intent": 0}
+
     for b in businesses:
-        ig_count = Opportunity.objects.filter(business=b, source_platform="instagram").count()
-        tg_count = Opportunity.objects.filter(business=b, source_platform="telegram").count()
-        x_count = Opportunity.objects.filter(business=b, source_platform="x").count()
-        b_total = Opportunity.objects.filter(business=b).count()
-        b_high_intent = Opportunity.objects.filter(business=b, ai_analysis__intent_score__gte=HIGH_INTENT_THRESHOLD).count()
-        b_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys_for_business(b), status__in=DM_DELIVERED_STATUSES).count()
+        o = opp_stats.get(b.id, empty_opp)
+        b_dms = lead_stats.get(tenant_key(b), {}).get("dms", 0)
 
         tenant_matrix.append({
             "business": b,
-            "instagram": ig_count,
-            "telegram": tg_count,
-            "x": x_count,
-            "total": b_total,
-            "high_intent": b_high_intent,
+            "instagram": o["instagram"],
+            "telegram": o["telegram"],
+            "x": o["x"],
+            "total": o["total"],
+            "high_intent": o["high_intent"],
             "dms_sent": b_dms,
         })
-        matrix_totals["instagram"] += ig_count
-        matrix_totals["telegram"] += tg_count
-        matrix_totals["x"] += x_count
-        matrix_totals["total"] += b_total
-        matrix_totals["high_intent"] += b_high_intent
+        matrix_totals["instagram"] += o["instagram"]
+        matrix_totals["telegram"] += o["telegram"]
+        matrix_totals["x"] += o["x"]
+        matrix_totals["total"] += o["total"]
+        matrix_totals["high_intent"] += o["high_intent"]
         matrix_totals["dms_sent"] += b_dms
 
     # 5. Financial & Credit Consumption per Business / Account
@@ -231,19 +255,10 @@ def manage_dashboard(request):
         total_balance_all += balance
 
         # Aggregated consumption from transactions
-        if wallet:
-            tx_usage = wallet.transactions.filter(kind="USAGE").aggregate(
-                spent=Sum("amount_toman"),
-                cost_usd=Sum("cost_usd"),
-                calls=Sum("calls"),
-            )
-            spent = abs(tx_usage["spent"] or Decimal("0"))
-            cost_usd = tx_usage["cost_usd"] or Decimal("0")
-            calls = tx_usage["calls"] or 0
-        else:
-            spent = Decimal("0")
-            cost_usd = Decimal("0")
-            calls = 0
+        tx_usage = usage_stats.get(b.id) or {}
+        spent = abs(tx_usage.get("spent") or Decimal("0"))
+        cost_usd = tx_usage.get("cost_usd") or Decimal("0")
+        calls = tx_usage.get("calls") or 0
 
         # Raw cost at *today's* rate, for reference only. What the tenant
         # actually paid is ``spent`` (sum of the debited transactions), which
@@ -256,10 +271,10 @@ def manage_dashboard(request):
         total_calls_all += calls
 
         # Business associated Instagram leads & senders
-        b_tenant_keys = tenant_keys_for_business(b)
-        b_leads_count = InstagramEngineLead.objects.filter(tenant_id__in=b_tenant_keys).count()
-        b_dms_sent = InstagramEngineLead.objects.filter(tenant_id__in=b_tenant_keys, status__in=DM_DELIVERED_STATUSES).count()
-        b_senders = InstagramEngineAccount.objects.filter(tenant_id__in=b_tenant_keys, role="SENDER")
+        b_leads = lead_stats.get(tenant_key(b), {"leads": 0, "dms": 0})
+        b_leads_count = b_leads["leads"]
+        b_dms_sent = b_leads["dms"]
+        b_senders = senders_by_tenant.get(tenant_key(b), [])
 
         financial_rows.append({
             "business": b,
@@ -545,7 +560,7 @@ def manage_dashboard(request):
 
     # Business-specific tenant filtering for outreach tab
     business_id_filter = request.GET.get("outreach_biz", "").strip()
-    businesses_for_outreach = Business.objects.all().order_by("id")
+    businesses_for_outreach = Business.objects.select_related("user").order_by("id")
     selected_outreach_biz = None
     if business_id_filter and business_id_filter.isdigit():
         selected_outreach_biz = Business.objects.filter(id=int(business_id_filter)).first()
