@@ -377,6 +377,129 @@
   <button class="tab-btn" onclick="openTab('outreach', this)"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> پیام‌رسانی و دایرکت‌های اینستاگرام ({{ dms_sent_total }})</button>
   <button class="tab-btn" onclick="openTab('senders', this)"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
   <button class="tab-btn" id="tab-btn-proxies" onclick="openTab('proxies', this)"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> پروکسی‌ها ({{ proxy_configs_active }}/{{ proxy_configs_total }})</button>
+  <button class="tab-btn" id="tab-btn-instagram-hub" onclick="openTab('instagram-hub', this)" style="border:1px solid #c084fc; background:rgba(192, 132, 252, 0.08);"><svg class="ico" aria-hidden="true" style="color:#c084fc;"><use href="#i-camera"/></svg> 📷 مرکز اینستاگرام و شبیه‌ساز ({{ ig_accounts_total|default:all_ig_accounts|length }})</button>
+</div>
+
+<!-- TAB: UNIFIED INSTAGRAM HUB & COCKPITS -->
+<div id="tab-instagram-hub" class="tab-pane">
+  <div class="card" style="margin-bottom:20px; border-right: 4px solid #c084fc;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+      <div>
+        <h2 style="font-size:1.2rem; margin:0 0 6px; display:flex; align-items:center; gap:8px; color:#c084fc;">
+          <svg class="ico" aria-hidden="true" style="width:22px; height:22px; fill:currentColor;"><use href="#i-camera"/></svg>
+          <span>مرکز مدیریت یکپارچه اکانت‌های اینستاگرام و شبیه‌ساز موبایل</span>
+        </h2>
+        <p class="muted" style="margin:0; font-size:0.85rem; line-height:1.8;">
+          مشاهده جامع تمام اکانت‌ها، فیلتر بر اساس نقش (فرستنده / اسکرپر)، تست زنده و ورود به کابین اختصاصی چت، فید و سرچ.
+        </p>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <div style="background:rgba(255,255,255,0.05); padding:4px; border-radius:8px; display:flex; gap:4px; border:1px solid var(--border);">
+          <button type="button" class="btn sm" id="btn-ig-filter-all" onclick="filterIgAccounts('ALL', this)" style="background:var(--accent); color:#fff; font-weight:700;">همه اکانت‌ها ({{ ig_accounts_total|default:all_ig_accounts|length }})</button>
+          <button type="button" class="btn sm" id="btn-ig-filter-senders" onclick="filterIgAccounts('SENDER', this)" style="background:transparent; color:var(--muted); font-weight:700;">🔵 فرستنده‌ها ({{ senders_total }})</button>
+          <button type="button" class="btn sm" id="btn-ig-filter-scrapers" onclick="filterIgAccounts('SCRAPER', this)" style="background:transparent; color:var(--muted); font-weight:700;">🟣 اسکرپرها ({{ scrapers_total }})</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table id="table-ig-accounts">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>نام کاربری اکانت</th>
+            <th>نقش عملیاتی</th>
+            <th>کسب‌وکار مقصد</th>
+            <th>دستگاه شبیه‌سازی</th>
+            <th>وضعیت سلامت</th>
+            <th>سهمیه مصرف امروز</th>
+            <th>پروکسی</th>
+            <th>آخرین فعالیت</th>
+            <th style="text-align:center; min-width:210px;">عملیات و کابین اختصاصی</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in all_ig_accounts %}
+          <tr class="ig-account-row" data-role="{{ acc.role }}">
+            <td>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:{% if acc.status == 'ACTIVE' %}#10b981{% elif acc.status == 'COOLDOWN' %}#f59e0b{% else %}#ef4444{% endif %};"></span>
+                <strong dir="ltr" style="font-size:0.92rem;">@{{ acc.username }}</strong>
+              </div>
+            </td>
+            <td>
+              {% if acc.role == 'SENDER' %}
+                <span class="badge" style="background:#eff6ff; color:#1d4ed8; font-weight:700; padding:4px 8px; border-radius:6px; border:1px solid #bfdbfe;">
+                  🔵 فرستنده رسمی (SENDER)
+                </span>
+              {% else %}
+                <span class="badge" style="background:#faf5ff; color:#7e22ce; font-weight:700; padding:4px 8px; border-radius:6px; border:1px solid #e9d5ff;">
+                  🟣 اسکرپر استخراج (SCRAPER)
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              <span style="font-weight:600;">{{ acc.tenant_id }}</span>
+            </td>
+            <td>
+              <small style="color:var(--muted); font-size:0.8rem;">
+                {{ acc.device_settings.device_settings.manufacturer|default:"Sony" }} {{ acc.device_settings.device_settings.model|default:"XQ-DQ72" }}
+              </small>
+            </td>
+            <td>
+              {% if acc.status == 'ACTIVE' %}
+                <span class="badge-status active"><i class="dot dot-ok"></i> فعال و آماده</span>
+              {% elif acc.status == 'COOLDOWN' %}
+                <span class="badge-status cooldown"><i class="dot dot-warn"></i> در حال استراحت</span>
+              {% else %}
+                <span class="badge-status challenged"><i class="dot dot-alert"></i> {{ acc.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <strong style="color:{% if acc.daily_action_count >= acc.daily_limit|default:18 %}#ef4444{% else %}#10b981{% endif %};">
+                {{ acc.daily_action_count|default:0 }}
+              </strong>
+              <span class="muted">/ {{ acc.daily_limit|default:18 }}</span>
+            </td>
+            <td>
+              <small dir="ltr" style="font-family:monospace; color:var(--muted);">
+                {{ acc.proxy_url|default:"پیش‌فرض"|truncatechars:20 }}
+              </small>
+            </td>
+            <td class="jalali-time-cell">
+              {% if acc.last_action_at %}{{ acc.last_action_at|time_ago_fa }}{% else %}—{% endif %}
+            </td>
+            <td style="text-align:center;">
+              <div style="display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap;">
+                <a href="{% url 'manage:instagram_account_cockpit' acc.id %}" target="_blank"
+                   style="background: linear-gradient(135deg, #7c3aed, #9333ea); color:#ffffff; padding:6px 12px; border-radius:6px; font-weight:700; font-size:0.82rem; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(124, 58, 237, 0.35);">
+                  🎮 ورود به کابین اکانت ↗
+                </a>
+                <button type="button" class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-hub-test-{{ acc.id }}"
+                        style="padding:6px 10px; font-size:0.8rem; background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; border-radius:6px; cursor:pointer;" title="تست زنده اتصال به اینستاگرام">
+                  <svg class="ico" aria-hidden="true" style="width:14px; height:14px;"><use href="#i-bolt"/></svg> تست
+                </button>
+                <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn sm danger" style="padding:6px 9px; font-size:0.8rem; border-radius:6px;" title="حذف اکانت">
+                    حذف
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="9" style="text-align:center; padding:30px;" class="muted">
+              هیچ اکانت اینستاگرامی در سیستم ثبت نشده است.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <!-- TAB 1: 3-PLATFORMS X 3-TENANTS MATRIX -->
@@ -2760,6 +2883,24 @@
     const targetPane = document.getElementById('tab-' + tabName);
     if (targetPane) targetPane.classList.add('active');
     if (btn) btn.classList.add('active');
+  }
+
+  function filterIgAccounts(role, btn) {
+    document.querySelectorAll('#btn-ig-filter-all, #btn-ig-filter-senders, #btn-ig-filter-scrapers').forEach(b => {
+      b.style.background = 'transparent';
+      b.style.color = 'var(--muted)';
+    });
+    if (btn) {
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#fff';
+    }
+    document.querySelectorAll('.ig-account-row').forEach(row => {
+      if (role === 'ALL' || row.dataset.role === role) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
   }
 
   function switchTab(tabName) {

@@ -8,6 +8,10 @@ class DiscoveryConfig(AppConfig):
 
     def ready(self):
         import sys
+        # Apply runtime patches for instagrapi
+        from apps.discovery import instagrapi_patch
+        instagrapi_patch.patch_instagrapi_password_keys()
+
         if "test" in sys.argv[1:2] or "pytest" in sys.modules:   # tests must never rewrite the real pool file
             return
         from django.db import transaction
