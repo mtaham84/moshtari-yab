@@ -117,6 +117,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+TEST_RUNNER = "config.test_runner.GcDiscoverRunner"  # closes stray DB sessions before the test DB is dropped
 ASGI_APPLICATION = "config.asgi.application"
 
 # One PostgreSQL database for everything: Django (public schema), crawler (crawler schema) and need_engine

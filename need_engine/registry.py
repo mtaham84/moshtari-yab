@@ -71,9 +71,16 @@ class ModelRegistry:
         self.cfg = cfg
         self.enabled = bool(cfg.model_registry) and cfg.products_source == "db"
         self._db = db
+        self._owns_db = db is None       # a connection handed in by the caller is closed by the caller
         self._snap = Snapshot()
         self._loaded_at = 0.0
         self._lock = threading.Lock()
+
+    def close(self) -> None:
+        """Closes the read-only connection this registry opened lazily (no-op when it never connected)."""
+        db, self._db = self._db, None
+        if db is not None and self._owns_db:
+            db.close()
 
     # ── loading ─────────────────────────────────────────────────────────────
     def _conn(self):

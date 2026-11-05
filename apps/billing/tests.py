@@ -213,6 +213,7 @@ class EngineReadsPanelTests(EngineSchemaMixin, TransactionTestCase):
         cfg = EngineConfig()
         cfg.database_url, cfg.products_source = self.dsn(), "db"
         reg = ModelRegistry(cfg)
+        self.addCleanup(reg.close)   # an open session would block dropping the test database
         self.assertEqual(reg.model_for("reply"), "mx")
         self.assertEqual(reg.endpoint("mx"), ("https://p.example/v1", "PK"))
         self.assertEqual(reg.price("mx"), (1.25, 3.0))

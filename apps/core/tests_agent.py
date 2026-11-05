@@ -227,6 +227,7 @@ class EngineProductSourceTests(TransactionTestCase):
                                                agent_card_override={"what_it_is": "دستکش موتور"})
         self.no_url = Product.objects.create(business=biz, name="کلاه", description="x")
         src = SQLProductSource(EngineConfig(), dsn=EngineSchemaMixin.dsn(self))
+        self.addCleanup(src.close)   # an open session would block dropping the test database
         got = {p.product_id: p for p in src.all()}
         self.assertEqual(got[str(self.with_url.pk)].url, "https://shop.example.ir/gloves")
         self.assertEqual(got[str(self.with_url.pk)].card_override, {"what_it_is": "دستکش موتور"})

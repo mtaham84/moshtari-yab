@@ -128,3 +128,24 @@ def test_llm_client_uses_panel_model_endpoint_and_price(pg_dsn, pg_schema, monke
     row = store._all("SELECT model, business_id, usd FROM {s}.costs")[0]
     assert row["model"] == "smart-2" and row["business_id"] == "7" and row["usd"] == pytest.approx(2.0)
     store.close()
+
+
+def test_close_releases_only_the_connection_the_registry_opened(monkeypatch):
+    """The panel opens a registry per request: its own connection must be closed, a shared one must be left open."""
+    closed = []
+
+    class OwnDB(FakeDB):
+        def close(self):
+            closed.append(self)
+
+    shared = OwnDB()
+    ModelRegistry(cfg(), db=shared).close()
+    assert closed == []
+
+    import need_engine.sources as sources
+    monkeypatch.setattr(sources, "_DB", lambda dsn: OwnDB())
+    reg = ModelRegistry(cfg())
+    reg.model_for("reply")                       # first use opens the lazy connection
+    reg.close()
+    reg.close()                                  # idempotent
+    assert len(closed) == 1

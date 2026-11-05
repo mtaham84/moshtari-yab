@@ -271,6 +271,9 @@ class SQLProductSource:
     def __init__(self, cfg: EngineConfig, dsn: str | None = None):
         self.cfg, self.db = cfg, _DB(dsn or cfg.database_url)
 
+    def close(self) -> None:
+        self.db.close()
+
     def all(self) -> list[Product]:
         # x_outreach_enabled is read, not filtered: it only limits X opportunities (engine._x_allowed), never Telegram
         table = _ident(self.cfg.products_table)
