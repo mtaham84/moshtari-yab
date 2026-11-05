@@ -63,11 +63,22 @@
 
 <div class="p-page-header" style="margin-bottom: 24px;">
   <div class="p-header-titles">
-    <div style="display:flex; align-items:center; gap:10px;">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
       <h1 class="p-page-title" style="margin:0;">پیام‌رسانی و ارسال دایرکت اینستاگرام</h1>
-      <span class="p-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; padding:4px 10px; border-radius:6px;">
-        {{ business.name }}
-      </span>
+      {% if all_businesses and all_businesses|length > 1 %}
+        <form method="GET" style="display:inline-flex; align-items:center; gap:6px; margin:0;">
+          <label style="font-size:0.82rem; font-weight:700; color:var(--panel-text-muted);">کسب‌وکار فعال:</label>
+          <select name="biz" onchange="this.form.submit()" style="padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.84rem; border:1px solid #cbd5e1; background:#f0fdf4; color:#15803d; cursor:pointer;">
+            {% for b in all_businesses %}
+              <option value="{{ b.id }}" {% if b.id == business.id %}selected{% endif %}>🏥 {{ b.name }} (مالک: {{ b.user.username }})</option>
+            {% endfor %}
+          </select>
+        </form>
+      {% else %}
+        <span class="p-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; padding:4px 10px; border-radius:6px;">
+          {{ business.name }}
+        </span>
+      {% endif %}
     </div>
     <p class="p-page-subtitle" style="margin-top:6px;">
       مدیریت اکانت‌های فرستنده اختصاصی، تنظیم متن پیام هوشمند با دستیار AI، پایش دایرکت‌ها و پاسخ‌های دریافتی مشتریان.
@@ -161,7 +172,8 @@
 
   <!-- Right Column: Add Sender Account Form with Dealism Tiers + Tutorial -->
   <div>
-    <!-- Add Account Card -->
+    {% if request.user.is_staff or request.user.is_superuser %}
+    <!-- Add Account Card (Restricted to Staff and Superusers) -->
     <div class="p-card" style="padding:22px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:20px;">
       <h2 style="margin:0 0 8px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#2563eb" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
@@ -232,6 +244,7 @@
         </button>
       </form>
     </div>
+    {% endif %}
 
     <!-- Step-by-Step sessionid Tutorial Box -->
     <div class="p-card" style="padding:20px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
@@ -834,6 +847,7 @@
             ارسال دایرکت
           </button>
         </div>
+      </div>
       </div>
 
     </div>

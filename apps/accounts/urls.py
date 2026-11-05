@@ -30,6 +30,7 @@ urlpatterns = [
     path("outreach/sync-replies/", views.sync_replies_view, name="sync_replies"),
     path("outreach/send-followup/", views.send_followup_view, name="send_followup"),
     path("outreach/lead-chat/<int:lead_id>/", views.lead_chat_history_view, name="lead_chat_history"),
+    path("outreach/update-phone/", views.update_lead_phone_view, name="update_lead_phone"),
     path("outreach/senders/<int:pk>/edit/", views.edit_outreach_account_view, name="edit_outreach_account"),
     path("outreach/senders/<int:pk>/clear-cooldown/", views.clear_outreach_cooldown_view, name="clear_outreach_cooldown"),
     path("settings/style-sample/", views.style_sample_view, name="style_sample"),

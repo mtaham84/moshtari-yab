@@ -160,7 +160,8 @@ def manage_dashboard(request):
     senders_active = senders.filter(status="ACTIVE").count()
 
     from apps.discovery.device_emulator import ensure_account_device_profile
-    for acc in list(scrapers) + list(senders):
+    all_ig_accounts = list(senders) + list(scrapers)
+    for acc in all_ig_accounts:
         if not acc.device_settings or not isinstance(acc.device_settings, dict) or not acc.device_settings.get("device_settings"):
             try:
                 ensure_account_device_profile(acc)
@@ -607,6 +608,8 @@ def manage_dashboard(request):
 
     context = {
         "nav": "manage",
+        "all_ig_accounts": all_ig_accounts,
+        "ig_accounts_total": len(all_ig_accounts),
         "proxy_configs": proxy_configs,
         "proxy_configs_total": proxy_configs_total,
         "proxy_configs_active": proxy_configs_active,
@@ -2157,4 +2160,569 @@ def manage_twitter_account_toggle(request, pk):
     })
 
 
+def _ping_and_evaluate_proxy_config(proxy: ProxyConfig, timeout_sec: float = 3.5) -> dict[str, Any]:
+    """
+    Live ping test for a single ProxyConfig instance.
+    Evaluates reachability and latency via:
+    1. SOCKS5 inbound probe through xray container or localhost (if local_port is set)
+    2. test_outbound_ping via multi_proxy_manager (if Xray binary and raw_url available)
+    3. Direct TCP handshake to proxy.server:proxy.port
+    Updates the proxy's ping_ms, status ('ACTIVE' or 'DEAD'), and last_checked_at.
+    """
+    import time
+    is_ok = False
+    ping_ms = -1.0
+    err_msg = ""
+
+    # Strategy 1: If proxy has a local_port, probe the local socks5 listener
+    if proxy.local_port:
+        for host in ["xray", "127.0.0.1", "localhost"]:
+            try:
+                probe_t0 = time.perf_counter()
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(min(1.5, timeout_sec))
+                res = sock.connect_ex((host, int(proxy.local_port)))
+                sock.close()
+                if res == 0:
+                    latency = (time.perf_counter() - probe_t0) * 1000.0
+                    is_ok = True
+                    ping_ms = round(latency, 1)
+                    break
+            except Exception:
+                continue
+
+    # Strategy 2: Ephemeral Xray probe if multi_proxy_manager is available
+    if not is_ok and proxy.raw_url:
+        try:
+            from xray.multi_proxy_manager import parse_link_to_outbound, test_outbound_ping, XRAY_BIN
+            if XRAY_BIN and XRAY_BIN.exists():
+                ob = parse_link_to_outbound(proxy.raw_url)
+                ok, p_ms, p_err = test_outbound_ping(ob, timeout_sec=min(2.5, timeout_sec))
+                if ok and 0 < p_ms <= 3000:
+                    is_ok = True
+                    ping_ms = round(p_ms, 1)
+                elif p_err:
+                    err_msg = p_err
+        except Exception as exc:
+            logger.debug("Ephemeral Xray probe error: %s", exc)
+
+    # Strategy 3: Direct TCP handshake to remote server & port
+    if not is_ok and proxy.server:
+        try:
+            prt = int(proxy.port or 443)
+            tcp_t0 = time.perf_counter()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout_sec)
+            res = sock.connect_ex((proxy.server, prt))
+            sock.close()
+            tcp_elapsed = (time.perf_counter() - tcp_t0) * 1000.0
+            if res == 0:
+                is_ok = True
+                ping_ms = round(tcp_elapsed, 1)
+            else:
+                err_msg = f"خطای اتصال TCP به {proxy.server}:{prt} (کد {res})"
+        except Exception as exc:
+            err_msg = f"خطای تست سرور {proxy.server}: {exc}"
+
+    # If server was missing from fields, try parsing from raw_url
+    if not is_ok and not proxy.server and proxy.raw_url:
+        try:
+            from xray.multi_proxy_manager import parse_link_to_outbound
+            ob = parse_link_to_outbound(proxy.raw_url)
+            servers = ob.get("settings", {}).get("servers") or ob.get("settings", {}).get("vnext")
+            addr = None
+            prt = None
+            if servers and len(servers) > 0:
+                s0 = servers[0]
+                addr = s0.get("address")
+                prt = s0.get("port")
+            if addr and prt:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout_sec)
+                t_p = time.perf_counter()
+                r = sock.connect_ex((addr, int(prt)))
+                sock.close()
+                if r == 0:
+                    is_ok = True
+                    ping_ms = round((time.perf_counter() - t_p) * 1000.0, 1)
+        except Exception:
+            pass
+
+    # Save evaluated status to database
+    if is_ok and 0 < ping_ms <= 3000:
+        proxy.ping_ms = ping_ms
+        proxy.status = "ACTIVE"
+    else:
+        proxy.ping_ms = -1.0
+        proxy.status = "DEAD"
+
+    proxy.last_checked_at = dj_timezone.now()
+    try:
+        proxy.save(update_fields=["ping_ms", "status", "last_checked_at"])
+    except Exception as exc:
+        logger.warning("Could not save proxy #%s test result: %s", proxy.id, exc)
+
+    return {
+        "id": proxy.id,
+        "tag": proxy.tag or proxy.server or f"پروکسی #{proxy.id}",
+        "protocol": proxy.protocol,
+        "server": f"{proxy.server}:{proxy.port}" if proxy.server else "—",
+        "local_port": proxy.local_port,
+        "ping_ms": proxy.ping_ms,
+        "ping_display": f"{proxy.ping_ms:.0f} ms" if proxy.ping_ms >= 0 else "قطع",
+        "status": proxy.status,
+        "status_label": "فعال" if proxy.status == "ACTIVE" else "قطع",
+        "last_checked_fa": "چند لحظه پیش",
+        "error": err_msg,
+    }
+
+
+@manage_access_required
+@require_POST
+def manage_proxy_test(request, pk=None):
+    """
+    Live real-time test for proxy configs.
+    Supports testing a single proxy (via pk or POST proxy_id) or all proxies concurrently.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    proxy_id = pk or request.POST.get("proxy_id")
+    if proxy_id:
+        try:
+            proxy = ProxyConfig.objects.get(pk=int(proxy_id))
+        except (ProxyConfig.DoesNotExist, ValueError):
+            return JsonResponse({"success": False, "message": "پروکسی مورد نظر یافت نشد."}, status=404)
+
+        res = _ping_and_evaluate_proxy_config(proxy)
+        msg = f"پروکسی {res['tag']} با موفقیت تست شد: {res['status_label']} ({res['ping_display']})"
+        return JsonResponse({"success": True, "proxy": res, "message": msg})
+
+    # Test ALL proxies concurrently
+    proxies = list(ProxyConfig.objects.all().order_by("local_port"))
+    if not proxies:
+        return JsonResponse({
+            "success": True,
+            "total": 0,
+            "active_count": 0,
+            "dead_count": 0,
+            "results": [],
+            "message": "هیچ کانفیگ پروکسی برای تست در پایگاه داده ثبت نشده است."
+        })
+
+    max_workers = min(12, max(2, len(proxies)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(_ping_and_evaluate_proxy_config, proxies))
+
+    active_count = sum(1 for r in results if r["status"] == "ACTIVE")
+    dead_count = len(results) - active_count
+
+    return JsonResponse({
+        "success": True,
+        "total": len(results),
+        "active_count": active_count,
+        "dead_count": dead_count,
+        "results": results,
+        "message": f"تست زنده {len(results)} پروکسی به پایان رسید: {active_count} فعال، {dead_count} قطع."
+    })
+
+
+# ==============================================================================
+# INSTAGRAM UNIFIED COCKPIT & SIMULATOR ENGINE (Web-based Instagram Client)
+# ==============================================================================
+
+from django.core.serializers.json import DjangoJSONEncoder
+
+
+class SafeCockpitJSONEncoder(DjangoJSONEncoder):
+    """Custom JSON encoder converting Pydantic HttpUrl and other rich objects to plain strings."""
+    def default(self, obj):
+        if hasattr(obj, "__str__"):
+            return str(obj)
+        return super().default(obj)
+
+
+_cockpit_client_cache: dict[int, tuple[float, Any]] = {}
+
+
+def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = False):
+    """
+    Returns an authenticated instagrapi.Client with device emulation and proxy applied.
+    Caches client instance in memory for 12 minutes to provide instant UI responsiveness without relogging.
+    """
+    import time
+    from instagrapi import Client
+    from apps.discovery.device_emulator import apply_device_profile_to_client
+
+    now_ts = time.time()
+    if not force_fresh and account.id in _cockpit_client_cache:
+        cached_ts, cached_cl = _cockpit_client_cache[account.id]
+        if now_ts - cached_ts < 720:  # 12 minutes
+            return cached_cl, None
+
+    cookies = (account.session_json or {}).get("cookies", {})
+    sessionid = cookies.get("sessionid")
+    if not sessionid:
+        return None, f"اکانت @{account.username} کوکی سشن معتبر ندارد."
+
+    cl = Client()
+    cl.delay_range = [0.3, 0.8]
+    if account.proxy_url:
+        cl.set_proxy(account.proxy_url)
+
+    try:
+        apply_device_profile_to_client(cl, account)
+        cl.login_by_sessionid(sessionid)
+        _cockpit_client_cache[account.id] = (now_ts, cl)
+        return cl, None
+    except Exception as exc:
+        logger.warning(f"Failed to initialize cockpit client for @{account.username}: {exc}")
+        return None, str(exc)
+
+
+@manage_access_required
+def instagram_account_cockpit(request, pk: int):
+    """
+    Dedicated cockpit page for a single Instagram account.
+    Provides direct chat, timeline browsing, organic search, and simulator controls.
+    """
+    from django.shortcuts import get_object_or_404
+    from apps.discovery.device_emulator import ensure_account_device_profile
+    from apps.businesses.models import Business
+
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    ensure_account_device_profile(account)
+
+    business = None
+    if account.tenant_id and str(account.tenant_id).startswith("tenant_"):
+        b_id = str(account.tenant_id).replace("tenant_", "")
+        business = Business.objects.filter(id=b_id).first()
+
+    device_settings = account.device_settings or {}
+    dev_specs = device_settings.get("device_settings", {})
+
+    return render(request, "ops/instagram_account_cockpit.html", {
+        "account": account,
+        "business": business,
+        "device_settings": device_settings,
+        "dev_specs": dev_specs,
+        "status_display": account.get_status_display(),
+    })
+
+
+@manage_access_required
+def instagram_cockpit_threads(request, pk: int):
+    """AJAX endpoint: Fetch recent Direct Message threads for the account."""
+    from django.shortcuts import get_object_or_404
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    try:
+        threads, _ = cl.direct_threads_chunk(thread_message_limit=5)
+        formatted_threads = []
+        for th in threads[:25]:
+            users = [
+                {
+                    "pk": str(getattr(u, "pk", "") or ""),
+                    "username": str(getattr(u, "username", "") or ""),
+                    "full_name": str(getattr(u, "full_name", "") or ""),
+                    "profile_pic_url": str(getattr(u, "profile_pic_url", "") or ""),
+                }
+                for u in getattr(th, "users", [])
+            ]
+            last_msg = ""
+            last_msg_time = ""
+            is_outgoing = False
+            msgs = getattr(th, "messages", [])
+            if msgs:
+                m = msgs[0]
+                last_msg = getattr(m, "text", "") or ""
+                if hasattr(m, "timestamp") and m.timestamp:
+                    try:
+                        last_msg_time = m.timestamp.strftime("%H:%M")
+                    except Exception:
+                        last_msg_time = str(m.timestamp)[:5]
+                is_outgoing = str(getattr(m, "user_id", "")) == str(cl.user_id)
+
+            thread_title = getattr(th, "thread_title", "") or (users[0]["username"] if users else f"گفتگو {th.id}")
+            formatted_threads.append({
+                "id": str(th.id),
+                "title": str(thread_title),
+                "users": users,
+                "last_message": str(last_msg),
+                "last_message_time": str(last_msg_time),
+                "is_outgoing": is_outgoing,
+                "unread": bool(getattr(th, "read_state", 1) == 1),
+            })
+
+        return JsonResponse({"success": True, "threads": formatted_threads}, encoder=SafeCockpitJSONEncoder)
+    except Exception as exc:
+        logger.exception("Error loading direct threads for cockpit @%s: %s", account.username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+def instagram_cockpit_thread_detail(request, pk: int, thread_id: str):
+    """AJAX endpoint: Fetch detailed messages in a specific Direct thread."""
+    from django.shortcuts import get_object_or_404
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    try:
+        th = cl.direct_thread(thread_id, amount=25)
+        raw_msgs = getattr(th, "messages", []) or []
+        msgs = []
+        current_uid = str(cl.user_id)
+        for m in raw_msgs:
+            m_text = getattr(m, "text", "") or ""
+            t_str = ""
+            if hasattr(m, "timestamp") and m.timestamp:
+                try:
+                    t_str = m.timestamp.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    t_str = str(m.timestamp)
+
+            msgs.append({
+                "id": str(getattr(m, "id", "")),
+                "user_id": str(getattr(m, "user_id", "")),
+                "is_outgoing": str(getattr(m, "user_id", "")) == current_uid,
+                "text": m_text,
+                "timestamp": t_str,
+            })
+
+        # Oldest first so chat flows downward naturally
+        msgs.reverse()
+        return JsonResponse({"success": True, "thread_id": thread_id, "messages": msgs})
+    except Exception as exc:
+        logger.exception("Error loading thread detail %s for cockpit @%s: %s", thread_id, account.username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+@require_POST
+def instagram_cockpit_send_direct(request, pk: int):
+    """AJAX endpoint: Send direct message from cockpit."""
+    from django.shortcuts import get_object_or_404
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    thread_id = request.POST.get("thread_id", "").strip()
+    user_id = request.POST.get("user_id", "").strip()
+    text = request.POST.get("text", "").strip()
+
+    if not text:
+        return JsonResponse({"success": False, "error": "متن پیام نمی‌تواند خالی باشد."}, status=400)
+
+    try:
+        if thread_id:
+            cl.direct_send(text, thread_ids=[thread_id])
+        elif user_id:
+            cl.direct_send(text, user_ids=[int(user_id)])
+        else:
+            return JsonResponse({"success": False, "error": "مخاطب پیام مشخص نیست."}, status=400)
+
+        account.daily_action_count = (account.daily_action_count or 0) + 1
+        account.last_action_at = timezone.now()
+        account.save(update_fields=["daily_action_count", "last_action_at"])
+
+        return JsonResponse({
+            "success": True,
+            "message": "پیام با موفقیت ارسال شد.",
+            "daily_count": account.daily_action_count,
+        })
+    except Exception as exc:
+        logger.exception("Error sending direct from cockpit @%s: %s", account.username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+def instagram_cockpit_feed(request, pk: int):
+    """AJAX endpoint: Fetch recent timeline posts for account."""
+    from django.shortcuts import get_object_or_404
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    try:
+        timeline = cl.get_timeline_feed()
+        feed_items = getattr(timeline, "feed_items", []) or (timeline.get("feed_items", []) if isinstance(timeline, dict) else [])
+
+        items = []
+        for fi in feed_items[:12]:
+            m = fi
+            if isinstance(fi, dict) and "media_or_ad" in fi:
+                m = fi["media_or_ad"]
+            elif hasattr(fi, "media_or_ad") and fi.media_or_ad:
+                m = fi.media_or_ad
+
+            caption = ""
+            user_info = {}
+            img_url = ""
+            like_count = 0
+            m_id = getattr(m, "id", "") or (m.get("id") if isinstance(m, dict) else "")
+
+            # Caption
+            cap_obj = getattr(m, "caption", None) or (m.get("caption") if isinstance(m, dict) else None)
+            if cap_obj:
+                caption = getattr(cap_obj, "text", "") or (cap_obj.get("text") if isinstance(cap_obj, dict) else "")
+
+            # User
+            u_obj = getattr(m, "user", None) or (m.get("user") if isinstance(m, dict) else None)
+            if u_obj:
+                user_info = {
+                    "username": str(getattr(u_obj, "username", "") or (u_obj.get("username") if isinstance(u_obj, dict) else "")),
+                    "full_name": str(getattr(u_obj, "full_name", "") or (u_obj.get("full_name") if isinstance(u_obj, dict) else "")),
+                    "profile_pic_url": str(getattr(u_obj, "profile_pic_url", "") or (u_obj.get("profile_pic_url") if isinstance(u_obj, dict) else "") or ""),
+                }
+
+            # Thumbnail
+            img_url = str(getattr(m, "thumbnail_url", "") or "")
+            if not img_url and hasattr(m, "image_versions2"):
+                cands = getattr(m.image_versions2, "candidates", []) or []
+                if cands:
+                    img_url = str(getattr(cands[0], "url", "") or "")
+            elif isinstance(m, dict) and not img_url:
+                cands = (m.get("image_versions2") or {}).get("candidates") or []
+                if cands:
+                    img_url = str(cands[0].get("url", "") or "")
+
+            like_count = getattr(m, "like_count", 0) or (m.get("like_count") if isinstance(m, dict) else 0)
+
+            items.append({
+                "id": str(m_id),
+                "caption": str(caption[:150] + ("..." if len(caption) > 150 else "")),
+                "user": user_info,
+                "image_url": str(img_url),
+                "like_count": int(like_count),
+            })
+
+        return JsonResponse({"success": True, "feed": items}, encoder=SafeCockpitJSONEncoder)
+    except Exception as exc:
+        logger.exception("Error loading timeline feed for cockpit @%s: %s", account.username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+@require_POST
+def instagram_cockpit_scroll_feed(request, pk: int):
+    """AJAX endpoint: Simulate natural human scroll and warm-up browsing on timeline feed."""
+    import time
+    import random
+    from django.shortcuts import get_object_or_404
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    try:
+        timeline = cl.get_timeline_feed()
+        delay_sec = round(random.uniform(3.5, 6.5), 1)
+        time.sleep(delay_sec)
+
+        was_liked = False
+        feed_items = getattr(timeline, "feed_items", []) or (timeline.get("feed_items", []) if isinstance(timeline, dict) else [])
+        if feed_items and random.random() < 0.25:
+            first_m = feed_items[0]
+            m_id = None
+            if isinstance(first_m, dict):
+                m_id = (first_m.get("media_or_ad") or {}).get("id") or first_m.get("id")
+            elif hasattr(first_m, "id"):
+                m_id = first_m.id
+            if m_id and hasattr(cl, "media_like"):
+                cl.media_like(str(m_id))
+                was_liked = True
+
+        return JsonResponse({
+            "success": True,
+            "message": f"اسکرول فید شبیه‌سازی شد ({delay_sec} ثانیه گشت‌وگذار).",
+            "liked_post": was_liked,
+            "delay_sec": delay_sec,
+        })
+    except Exception as exc:
+        logger.exception("Error during simulated scroll for cockpit @%s: %s", account.username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+def instagram_cockpit_search(request, pk: int):
+    """AJAX endpoint: Search users in Instagram search bar."""
+    from django.shortcuts import get_object_or_404
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+
+    q = request.GET.get("q", "").strip().lstrip("@")
+    if not q:
+        return JsonResponse({"success": True, "results": []})
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    try:
+        results = cl.search_users(q) or []
+        items = []
+        for u in results[:10]:
+            items.append({
+                "pk": str(getattr(u, "pk", "") or ""),
+                "username": str(getattr(u, "username", "") or ""),
+                "full_name": str(getattr(u, "full_name", "") or ""),
+                "is_private": bool(getattr(u, "is_private", False)),
+                "is_verified": bool(getattr(u, "is_verified", False)),
+                "profile_pic_url": str(getattr(u, "profile_pic_url", "") or ""),
+            })
+        return JsonResponse({"success": True, "results": items}, encoder=SafeCockpitJSONEncoder)
+    except Exception as exc:
+        logger.exception("Error searching users in cockpit @%s: %s", account.username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+@manage_access_required
+@require_POST
+def instagram_cockpit_organic_dm(request, pk: int):
+    """AJAX endpoint: Execute full organic journey to target user and dispatch DM."""
+    from django.shortcuts import get_object_or_404
+    from apps.discovery.outreach_service import execute_organic_journey
+
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    target_username = request.POST.get("target_username", "").strip().lstrip("@")
+    message_text = request.POST.get("message_text", "").strip()
+
+    if not target_username or not message_text:
+        return JsonResponse({"success": False, "error": "نام کاربری مقصد و متن پیام الزامی است."}, status=400)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
+
+    try:
+        journey_res = execute_organic_journey(cl, target_username)
+        target_pk = journey_res.get("target_pk")
+        if not target_pk:
+            target_pk = int(cl.user_id_from_username(target_username))
+
+        cl.direct_send(message_text, user_ids=[target_pk])
+
+        account.daily_action_count = (account.daily_action_count or 0) + 1
+        account.last_action_at = timezone.now()
+        account.save(update_fields=["daily_action_count", "last_action_at"])
+
+        return JsonResponse({
+            "success": True,
+            "message": f"پیام ارگانیک با موفقیت به @{target_username} ارسال شد.",
+            "journey": journey_res,
+            "daily_count": account.daily_action_count,
+        })
+    except Exception as exc:
+        logger.exception("Error executing organic DM from cockpit @%s to @%s: %s", account.username, target_username, exc)
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
 

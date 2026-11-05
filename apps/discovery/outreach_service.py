@@ -396,12 +396,125 @@ def generate_ai_outreach_pitches(
     ]
 
 
+def extract_iranian_phone_number(text: Optional[str]) -> Optional[str]:
+    """
+    Extracts an Iranian mobile phone number from text containing Persian/Arabic/English digits.
+    Returns normalized '09XXXXXXXXX' (11 digits) or None.
+    """
+    if not text:
+        return None
+    persian_arabic = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+    cleaned = str(text).translate(persian_arabic)
+
+    # Match common patterns: +98912..., 0098912..., 0912..., 912... with optional spaces/dashes
+    pattern = re.compile(
+        r"(?:(?:\+|00)?98[-\s]?|0)?(9\d{2}[-\s]?\d{3}[-\s]?\d{4})\b"
+    )
+    m = pattern.search(cleaned)
+    if m:
+        digits = re.sub(r"\D", "", m.group(1))
+        if len(digits) == 10 and digits.startswith("9"):
+            return f"0{digits}"
+
+    # Fallback: scan any sequence of 10-14 digits
+    digits_only = re.sub(r"\D", "", cleaned)
+    if len(digits_only) == 11 and digits_only.startswith("09"):
+        return digits_only
+    if len(digits_only) == 10 and digits_only.startswith("9"):
+        return f"0{digits_only}"
+    if len(digits_only) == 12 and digits_only.startswith("989"):
+        return f"0{digits_only[2:]}"
+    if len(digits_only) == 14 and digits_only.startswith("00989"):
+        return f"0{digits_only[4:]}"
+
+    return None
+
+
+def get_lead_conversation_thread(lead: Any) -> List[Dict[str, Any]]:
+    """
+    Returns the complete, chronologically sorted list of direct messages for an Instagram lead.
+    Gracefully reconstructs missing entries from legacy fields (initial_dm_text, reply_text, second_message_text).
+    """
+    history = list(getattr(lead, "conversation_history", []) or [])
+
+    # If history is empty, reconstruct from legacy single-message fields
+    if not history:
+        if getattr(lead, "initial_dm_text", None):
+            history.append({
+                "sender": getattr(lead, "sender_account", "") or "مشاور",
+                "direction": "out",
+                "role": "initial_outreach",
+                "text": lead.initial_dm_text,
+                "time": lead.initial_dm_at.isoformat() if getattr(lead, "initial_dm_at", None) else "",
+            })
+        if getattr(lead, "reply_text", None):
+            history.append({
+                "sender": getattr(lead, "username", "") or "مشتری",
+                "direction": "in",
+                "role": "lead_reply",
+                "text": lead.reply_text,
+                "time": lead.reply_at.isoformat() if getattr(lead, "reply_at", None) else "",
+            })
+        if getattr(lead, "second_message_text", None):
+            history.append({
+                "sender": getattr(lead, "second_sender_username", "") or getattr(lead, "sender_account", "") or "مشاور",
+                "direction": "out",
+                "role": "followup",
+                "text": lead.second_message_text,
+                "time": lead.second_message_at.isoformat() if getattr(lead, "second_message_at", None) else "",
+            })
+    else:
+        # Check if initial_dm_text is missing from the beginning of history
+        first_msg = history[0] if history else {}
+        if getattr(lead, "initial_dm_text", None) and first_msg.get("direction") == "in":
+            history.insert(0, {
+                "sender": getattr(lead, "sender_account", "") or "مشاور",
+                "direction": "out",
+                "role": "initial_outreach",
+                "text": lead.initial_dm_text,
+                "time": lead.initial_dm_at.isoformat() if getattr(lead, "initial_dm_at", None) else "",
+            })
+
+        # Check if second_message_text was sent but not added to history
+        if getattr(lead, "second_message_text", None):
+            has_second = any(
+                m.get("direction") == "out" and m.get("text") == lead.second_message_text
+                for m in history
+            )
+            if not has_second:
+                history.append({
+                    "sender": getattr(lead, "second_sender_username", "") or getattr(lead, "sender_account", "") or "مشاور",
+                    "direction": "out",
+                    "role": "followup",
+                    "text": lead.second_message_text,
+                    "time": lead.second_message_at.isoformat() if getattr(lead, "second_message_at", None) else "",
+                })
+
+    formatted_thread = []
+    for m in history:
+        direction = m.get("direction", "out")
+        sender = m.get("sender", "")
+        time_str = m.get("time", "")
+        formatted_thread.append({
+            "sender": sender,
+            "direction": direction,
+            "role": m.get("role", "message"),
+            "text": m.get("text", ""),
+            "time": time_str,
+            "delivery_status": m.get("delivery_status", "SENT"),
+            "is_incoming": direction == "in",
+            "is_queued": m.get("delivery_status") == "QUEUED",
+        })
+    return formatted_thread
+
+
 def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     """
     Checks direct message inboxes of all SENDER accounts for given tenants.
-    Detects if any lead has replied, saves their response, and marks lead as REPLIED.
+    Detects if any lead has replied, saves their responses to conversation_history,
+    extracts Iranian mobile numbers, and marks lead as REPLIED.
     """
-    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, Customer
     from apps.discovery.device_emulator import apply_device_profile_to_client
 
     if isinstance(tenant_ids, str):
@@ -441,13 +554,13 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
             current_user_id = str(cl.user_id)
 
             # Fast single chunk fetch (max 10 recent threads without paging loop)
-            threads, _ = cl.direct_threads_chunk(thread_message_limit=5)
+            threads, _ = cl.direct_threads_chunk(thread_message_limit=10)
             for th in threads[:10]:
                 messages = getattr(th, "messages", [])
                 if not messages:
                     continue
 
-                # Find any message in this thread from the customer
+                # Find messages in this thread from the customer
                 customer_messages = [m for m in messages if str(m.user_id) != current_user_id and (getattr(m, "text", "") or "").strip()]
                 if not customer_messages:
                     continue
@@ -473,7 +586,6 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                     ).first()
 
                 if not lead and other_username:
-                    # Auto-create lead so any customer who replied is instantly visible
                     tenant_id = sender.tenant_id if sender.tenant_id else tenant_ids[0]
                     lead = InstagramEngineLead.objects.create(
                         tenant_id=tenant_id,
@@ -497,21 +609,43 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                             lead.initial_dm_at = lead.initial_dm_at or m.timestamp
                             break
 
-                    # Update lead if it's a new reply or unreplied state
-                    if not lead.has_replied or lead.reply_text != msg_text:
+                    history = list(lead.conversation_history or [])
+                    new_msgs_added = False
+
+                    # Process customer messages in chronological order (oldest to newest)
+                    for cm in reversed(customer_messages):
+                        cm_text = str(getattr(cm, "text", "") or "").strip()
+                        if not cm_text:
+                            continue
+                        cm_time = getattr(cm, "timestamp", None) or msg_time
+                        cm_time_iso = cm_time.isoformat() if hasattr(cm_time, "isoformat") else str(cm_time)
+
+                        already_in_history = any(
+                            m.get("direction") == "in" and m.get("text") == cm_text
+                            for m in history
+                        )
+                        if not already_in_history:
+                            history.append({
+                                "sender": lead.username,
+                                "direction": "in",
+                                "text": cm_text,
+                                "time": cm_time_iso,
+                            })
+                            new_msgs_added = True
+
+                            # Check for Iranian phone number
+                            phone = extract_iranian_phone_number(cm_text)
+                            if phone and lead.ig_user_pk:
+                                Customer.objects.filter(
+                                    external_user_id=str(lead.ig_user_pk)
+                                ).update(phone_number=phone)
+
+                    if not lead.has_replied or lead.reply_text != msg_text or new_msgs_added:
                         lead.has_replied = True
                         lead.status = "REPLIED"
                         lead.reply_text = msg_text
                         lead.reply_at = msg_time
                         lead.sender_account = lead.sender_account or sender.username
-
-                        history = list(lead.conversation_history or [])
-                        history.append({
-                            "sender": lead.username,
-                            "direction": "in",
-                            "text": msg_text,
-                            "time": msg_time.isoformat() if hasattr(msg_time, "isoformat") else str(msg_time),
-                        })
                         lead.conversation_history = history
                         lead.save()
 
@@ -601,7 +735,7 @@ def send_chat_message(
             "status", "conversation_history", "updated_at"
         ])
 
-        sender.daily_action_count += 1
+        sender.daily_action_count = (sender.daily_action_count or 0) + 1
         sender.last_action_at = now
         sender.save(update_fields=["daily_action_count", "last_action_at"])
 
@@ -618,10 +752,392 @@ def send_chat_message(
         return {"success": False, "error": str(exc)}
 
 
+def execute_organic_journey(
+    cl: Any,
+    target_username: str,
+    target_pk: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Executes an organic, authentic human journey before sending a direct message:
+    1. Scrolls home timeline feed for 3-6s (with 15% probability to like a feed post).
+    2. Searches for the username in Instagram search bar (/users/search/).
+    3. Views target profile grid and inspects recent medias.
+    4. Views active stories (leaving avatar impression) & likes recent post.
+    5. Applies human typing jitter (15-28s).
+    """
+    actions_taken = {
+        "feed_scrolled": False,
+        "feed_post_liked": False,
+        "user_searched": False,
+        "profile_viewed": False,
+        "story_viewed": False,
+        "target_post_liked": False,
+        "typing_delay_sec": 0.0,
+    }
+
+    # Step 1: Open Timeline Feed & simulate casual scrolling
+    try:
+        if hasattr(cl, "get_timeline_feed"):
+            timeline = cl.get_timeline_feed()
+            actions_taken["feed_scrolled"] = True
+            time.sleep(random.uniform(3.0, 6.0))
+
+            feed_items = getattr(timeline, "feed_items", []) or (timeline.get("feed_items", []) if isinstance(timeline, dict) else [])
+            if feed_items and random.random() < 0.15:
+                first_item = feed_items[0]
+                m_id = None
+                if isinstance(first_item, dict):
+                    m_id = (first_item.get("media_or_ad") or {}).get("id") or first_item.get("id")
+                elif hasattr(first_item, "id"):
+                    m_id = first_item.id
+                if m_id and hasattr(cl, "media_like"):
+                    cl.media_like(str(m_id))
+                    actions_taken["feed_post_liked"] = True
+                    logger.info("❤️ Organic feed post like executed during casual scroll (media: %s)", m_id)
+                    time.sleep(random.uniform(1.5, 3.0))
+    except Exception as feed_err:
+        logger.debug("Organic timeline feed scroll skipped: %s", feed_err)
+
+    # Step 2: Search for user in search bar (/users/search/)
+    resolved_pk = target_pk
+    try:
+        time.sleep(random.uniform(2.0, 4.0))
+        if hasattr(cl, "search_users"):
+            search_results = cl.search_users(target_username)
+            actions_taken["user_searched"] = True
+            for u in (search_results or []):
+                u_name = getattr(u, "username", "") or (u.get("username", "") if isinstance(u, dict) else "")
+                u_pk = getattr(u, "pk", None) or (u.get("pk") if isinstance(u, dict) else None)
+                if str(u_name).lower() == str(target_username).lower() and u_pk:
+                    resolved_pk = int(u_pk)
+                    break
+    except Exception as search_err:
+        logger.debug("Organic search bar simulation skipped for @%s: %s", target_username, search_err)
+
+    if not resolved_pk and hasattr(cl, "user_id_from_username"):
+        try:
+            resolved_pk = int(cl.user_id_from_username(target_username))
+        except Exception:
+            pass
+
+    # Step 3: Browse target user profile and recent medias
+    if resolved_pk:
+        try:
+            time.sleep(random.uniform(2.0, 4.0))
+            if hasattr(cl, "user_medias"):
+                cl.user_medias(resolved_pk, amount=3)
+                actions_taken["profile_viewed"] = True
+        except Exception as profile_err:
+            logger.debug("Organic profile inspection skipped for @%s: %s", target_username, profile_err)
+
+        # Step 4: Perform existing story seen + post like interaction
+        warmup_res = perform_organic_warmup(cl, resolved_pk, target_username)
+        actions_taken["story_viewed"] = warmup_res.get("viewed_story", False)
+        actions_taken["target_post_liked"] = warmup_res.get("liked_post", False)
+
+    # Step 5: Realistic typing delay before dispatching
+    typing_sec = random.uniform(15.0, 30.0)
+    actions_taken["typing_delay_sec"] = round(typing_sec, 2)
+    time.sleep(typing_sec)
+
+    return {
+        "target_pk": resolved_pk,
+        "actions": actions_taken,
+    }
+
+
+def enqueue_direct_message(
+    lead_id: int,
+    message_text: str,
+    sender_username: Optional[str] = None,
+    priority: str = "HIGH",
+) -> Dict[str, Any]:
+    """
+    Enqueues an operator or AI direct message into the secure Dispatch Queue.
+    Protects the sender account from burst rate violations and allows worker to
+    smoothly dispatch with human spacing and organic navigation.
+    """
+    from apps.discovery.models import InstagramEngineLead, InstagramEngineAccount
+
+    lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
+    if not lead:
+        return {"success": False, "error": "مشتری مورد نظر یافت نشد."}
+
+    sender = None
+    if sender_username:
+        sender = InstagramEngineAccount.objects.filter(username__iexact=sender_username, role="SENDER").first()
+    if not sender and lead.second_sender_username:
+        sender = InstagramEngineAccount.objects.filter(username__iexact=lead.second_sender_username, role="SENDER").first()
+    if not sender and lead.sender_account:
+        sender = InstagramEngineAccount.objects.filter(username__iexact=lead.sender_account, role="SENDER").first()
+    if not sender:
+        sender = InstagramEngineAccount.objects.filter(tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE").first()
+
+    chosen_sender = sender.username if sender else (sender_username or "مشاور")
+
+    now = timezone.now()
+    history = list(lead.conversation_history or [])
+    history.append({
+        "sender": chosen_sender,
+        "direction": "out",
+        "role": "operator_message",
+        "text": message_text,
+        "time": now.isoformat(),
+        "delivery_status": "QUEUED",
+        "priority": priority,
+    })
+
+    lead.status = "QUEUED"
+    lead.conversation_history = history
+    if sender:
+        lead.second_sender_username = sender.username
+    lead.save(update_fields=["status", "conversation_history", "second_sender_username", "updated_at"])
+
+    logger.info("Message for @%s enqueued with priority %s for sender @%s", lead.username, priority, chosen_sender)
+    return {
+        "success": True,
+        "queued": True,
+        "lead": lead.username,
+        "sender": chosen_sender,
+        "message": f"پیام با موفقیت در صف ارسال امن قرار گرفت و به زودی توسط @{chosen_sender} ارسال می‌شود.",
+    }
+
+
+def process_queued_outbox_message(
+    lead: Any,
+    client_cache: Optional[Dict[str, Any]] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """
+    Safely dispatches the oldest pending QUEUED message for a lead using
+    organic navigation and account session.
+    """
+    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+    from apps.discovery.device_emulator import apply_device_profile_to_client
+    from instagrapi import Client
+
+    history = list(getattr(lead, "conversation_history", []) or [])
+    queued_idx = None
+    queued_item = None
+    for idx, item in enumerate(history):
+        if item.get("direction") == "out" and item.get("delivery_status") == "QUEUED":
+            queued_idx = idx
+            queued_item = item
+            break
+
+    if queued_item is None:
+        return {"success": False, "error": "هیچ پیام در صف برای این لید یافت نشد."}
+
+    sender_username = queued_item.get("sender") or lead.second_sender_username or lead.sender_account
+    sender = InstagramEngineAccount.objects.filter(username__iexact=sender_username, role="SENDER").first()
+    if not sender:
+        sender = InstagramEngineAccount.objects.filter(tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE").first()
+
+    if dry_run:
+        now = timezone.now()
+        chosen_sender = sender.username if sender else (sender_username or "مشاور")
+        queued_item["delivery_status"] = "SENT"
+        queued_item["sent_at"] = now.isoformat()
+        history[queued_idx] = queued_item
+
+        lead.conversation_history = history
+        lead.status = "FOLLOWUP_SENT"
+        if not lead.second_message_text:
+            lead.second_message_text = queued_item["text"]
+            lead.second_sender_username = chosen_sender
+            lead.second_message_at = now
+        lead.save(update_fields=["status", "conversation_history", "second_message_text", "second_sender_username", "second_message_at", "updated_at"])
+
+        if sender:
+            sender.daily_action_count = (sender.daily_action_count or 0) + 1
+            sender.last_action_at = now
+            sender.save(update_fields=["daily_action_count", "last_action_at"])
+
+        return {
+            "success": True,
+            "dry_run": True,
+            "lead": lead.username,
+            "sender": chosen_sender,
+            "text": queued_item["text"],
+            "sent_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    if not sender or not sender.session_json:
+        return {"success": False, "error": f"اکانت فرستنده معتبر برای @{lead.username} در دسترس نیست."}
+
+    cookies = sender.session_json.get("cookies", {})
+    sess_id = cookies.get("sessionid")
+    if not sess_id:
+        return {"success": False, "error": f"کوکی sessionid برای @{sender.username} ثبت نشده است."}
+
+    cl = None
+    if client_cache is not None and sender.username in client_cache:
+        cl = client_cache[sender.username]
+    else:
+        cl = Client()
+        if sender.proxy_url:
+            cl.set_proxy(sender.proxy_url)
+        apply_device_profile_to_client(cl, sender)
+        cl.login_by_sessionid(sess_id)
+        if client_cache is not None:
+            client_cache[sender.username] = cl
+
+    try:
+        # Execute in-app organic journey before dispatching DM
+        target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None
+        journey_res = execute_organic_journey(cl, lead.username, target_pk=target_pk)
+        final_pk = journey_res.get("target_pk") or target_pk or int(cl.user_id_from_username(lead.username))
+
+        # Send DM
+        cl.direct_send(queued_item["text"], user_ids=[final_pk])
+
+        now = timezone.now()
+        queued_item["delivery_status"] = "SENT"
+        queued_item["sent_at"] = now.isoformat()
+        history[queued_idx] = queued_item
+
+        lead.conversation_history = history
+        lead.status = "FOLLOWUP_SENT"
+        if not lead.second_message_text:
+            lead.second_message_text = queued_item["text"]
+            lead.second_sender_username = sender.username
+            lead.second_message_at = now
+        lead.save(update_fields=["status", "conversation_history", "second_message_text", "second_sender_username", "second_message_at", "updated_at"])
+
+        sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.last_action_at = now
+        sender.save(update_fields=["daily_action_count", "last_action_at"])
+
+        return {
+            "success": True,
+            "lead": lead.username,
+            "sender": sender.username,
+            "text": queued_item["text"],
+            "sent_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    except Exception as exc:
+        logger.exception("Error dispatching queued message to @%s: %s", lead.username, exc)
+        return {"success": False, "error": str(exc)}
+
+
+def send_direct_message_to_lead(
+    lead_id: int,
+    message_text: str,
+    sender_username: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Sends a direct message to an Instagram lead in Direct via the chosen or default SENDER account.
+    Appends the message to lead.conversation_history and updates tracking fields.
+    """
+    from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
+    from apps.discovery.device_emulator import apply_device_profile_to_client
+    from instagrapi import Client
+
+    lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
+    if not lead:
+        return {"success": False, "error": "مشتری مورد نظر یافت نشد."}
+
+    sender = None
+    if sender_username:
+        sender = InstagramEngineAccount.objects.filter(
+            username__iexact=sender_username,
+            role="SENDER",
+        ).first()
+        if not sender:
+            return {"success": False, "error": f"اکانت فرستنده @{sender_username} یافت نشد."}
+    else:
+        # Auto-pick last used sender or first active sender for this tenant
+        if lead.second_sender_username:
+            sender = InstagramEngineAccount.objects.filter(
+                username__iexact=lead.second_sender_username, role="SENDER", status="ACTIVE"
+            ).first()
+        if not sender and lead.sender_account:
+            sender = InstagramEngineAccount.objects.filter(
+                username__iexact=lead.sender_account, role="SENDER", status="ACTIVE"
+            ).first()
+        if not sender:
+            sender = InstagramEngineAccount.objects.filter(
+                tenant_id=lead.tenant_id, role="SENDER", status="ACTIVE"
+            ).first()
+
+    if not sender:
+        return {"success": False, "error": "هیچ اکانت فرستنده معتبری برای ارسال پیام یافت نشد."}
+
+    if not sender.session_json:
+        return {"success": False, "error": f"اکانت @{sender.username} فاقد کوکی سشن معتبر است."}
+
+    cookies = sender.session_json.get("cookies", {})
+    sess_id = cookies.get("sessionid")
+    if not sess_id:
+        return {"success": False, "error": f"کوکی sessionid برای @{sender.username} ثبت نشده است."}
+
+    cl = Client()
+    if sender.proxy_url:
+        cl.set_proxy(sender.proxy_url)
+
+    try:
+        apply_device_profile_to_client(cl, sender)
+        cl.login_by_sessionid(sess_id)
+
+        target_pk = int(lead.ig_user_pk) if lead.ig_user_pk and str(lead.ig_user_pk).isdigit() else None
+        if not target_pk:
+            target_pk = cl.user_id_from_username(lead.username)
+
+        # Dispatch direct message to Instagram lead
+        cl.direct_send(message_text, user_ids=[target_pk])
+
+        now = timezone.now()
+
+        # Update backward-compatibility fields if this is the first follow-up
+        if not lead.second_message_text:
+            lead.second_message_text = message_text
+            lead.second_sender_username = sender.username
+            lead.second_message_at = now
+
+        lead.status = "FOLLOWUP_SENT"
+
+        history = list(lead.conversation_history or [])
+        history.append({
+            "sender": sender.username,
+            "direction": "out",
+            "role": "operator_message",
+            "text": message_text,
+            "time": now.isoformat(),
+        })
+        lead.conversation_history = history
+        lead.save(update_fields=[
+            "second_message_text", "second_sender_username", "second_message_at",
+            "status", "conversation_history", "updated_at"
+        ])
+
+        sender.daily_action_count = (sender.daily_action_count or 0) + 1
+        sender.last_action_at = now
+        sender.save(update_fields=["daily_action_count", "last_action_at"])
+
+        return {
+            "success": True,
+            "lead": lead.username,
+            "lead_id": lead.id,
+            "sender": sender.username,
+            "sent_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "conversation_history": lead.conversation_history,
+        }
+    except Exception as exc:
+        logger.exception("Error sending direct message to @%s: %s", lead.username, exc)
+        return {"success": False, "error": str(exc)}
+
+
 def send_second_followup_message(
     lead_id: int,
     sender_username: str,
     message_text: str,
 ) -> Dict[str, Any]:
-    """Backward-compatible wrapper for send_chat_message."""
-    return send_chat_message(lead_id=lead_id, sender_username=sender_username, message_text=message_text)
+    """
+    Sends a follow-up or second message to a lead using the chosen SENDER account.
+    Maintained for full backward compatibility with existing views and tests.
+    """
+    return send_chat_message(
+        lead_id=lead_id,
+        sender_username=sender_username,
+        message_text=message_text,
+    )

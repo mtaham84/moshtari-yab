@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>کابین اختصاصی @{{ account.username }} | پنل عملیات اینستاگرام</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card: #131b2e;
+      --card-hover: #1b2640;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: #23314e;
+      --accent: #8b5cf6;
+      --accent-soft: rgba(139, 92, 246, 0.15);
+      --accent-hover: #7c3aed;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --down: #ef4444;
+      --info: #06b6d4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Top Bar */
+    .topbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .back-btn:hover {
+      background: rgba(255,255,255,0.12);
+      text-decoration: none;
+    }
+
+    .container {
+      max-width: 1440px;
+      margin: 20px auto;
+      padding: 0 20px;
+    }
+
+    /* Account Header Card */
+    .cockpit-header {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .account-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .avatar-box {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6, #3b82f6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #fff;
+      box-shadow: 0 0 16px rgba(236, 72, 153, 0.35);
+      position: relative;
+    }
+    .online-indicator {
+      position: absolute;
+      bottom: 2px;
+      left: 2px;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--ok);
+      border: 2px solid var(--card);
+    }
+    .account-info h1 {
+      margin: 0 0 4px;
+      font-size: 1.35rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .account-tags {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 0.8rem;
+    }
+    .badge {
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.76rem;
+    }
+    .badge-sender { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .badge-scraper { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .badge-active { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-cooldown { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-challenged { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+    .device-info-pill {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .device-info-pill strong { color: var(--text); }
+
+    /* Navigation Tabs */
+    .cockpit-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      padding: 12px 20px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: var(--accent-soft);
+      border-top-left-radius: 8px;
+      border-top-right-radius: 8px;
+    }
+
+    .cockpit-pane { display: none; }
+    .cockpit-pane.active { display: block; }
+
+    /* Direct Messenger Two-Column */
+    .messenger-container {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 16px;
+      height: 640px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    @media (max-width: 900px) {
+      .messenger-container { grid-template-columns: 1fr; height: auto; }
+    }
+
+    .threads-sidebar {
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background: rgba(0,0,0,0.15);
+    }
+    .threads-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .threads-head h3 { margin: 0; font-size: 0.95rem; }
+    .threads-list {
+      flex: 1;
+      overflow-y: auto;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .thread-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: background 0.15s;
+    }
+    .thread-item:hover { background: rgba(255,255,255,0.05); }
+    .thread-item.active { background: var(--accent-soft); border-right: 3px solid var(--accent); }
+    .thread-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #cbd5e1;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .thread-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .thread-content { flex: 1; min-width: 0; }
+    .thread-title { font-weight: 700; font-size: 0.88rem; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .thread-snippet { font-size: 0.78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .thread-time { font-size: 0.72rem; color: var(--muted); flex-shrink: 0; }
+
+    /* Chat Area */
+    .chat-area {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .chat-head {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,255,255,0.02);
+    }
+    .chat-head-user { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1rem; }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .msg-bubble {
+      max-width: 68%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      line-height: 1.5;
+      position: relative;
+      word-break: break-word;
+    }
+    .msg-incoming {
+      align-self: flex-start;
+      background: #1e293b;
+      color: #f1f5f9;
+      border-bottom-left-radius: 2px;
+    }
+    .msg-outgoing {
+      align-self: flex-end;
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: #ffffff;
+      border-bottom-right-radius: 2px;
+      box-shadow: 0 2px 10px rgba(109, 40, 217, 0.3);
+    }
+    .msg-time {
+      font-size: 0.68rem;
+      color: rgba(255,255,255,0.6);
+      margin-top: 4px;
+      text-align: left;
+    }
+
+    .chat-input-bar {
+      padding: 14px 18px;
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,0.2);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .chat-input-bar input {
+      flex: 1;
+      padding: 11px 16px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    .chat-input-bar input:focus { outline: none; border-color: var(--accent); }
+    .btn-send {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 11px 22px;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.2s;
+    }
+    .btn-send:hover { background: var(--accent-hover); }
+
+    /* Feed Grid */
+    .feed-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .feed-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .feed-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .feed-card-img {
+      width: 100%;
+      height: 220px;
+      background: #0f172a;
+      object-fit: cover;
+    }
+    .feed-card-body {
+      padding: 14px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .feed-card-author {
+      font-weight: 700;
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .feed-card-caption {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    /* Search Bar & Organic Journey */
+    .search-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .search-input-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .search-input-group input {
+      flex: 1;
+      padding: 12px 16px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    .btn-action {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 0.88rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+    .btn-action:hover { background: #1d4ed8; }
+    .btn-warmup {
+      background: linear-gradient(135deg, #10b981, #059669);
+    }
+    .btn-warmup:hover { background: #047857; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div>
+      <a href="{% url 'manage:dashboard' %}?tab=instagram-hub" class="back-btn">
+        ⬅ بازگشت به پنل مدیریت (/manage/)
+      </a>
+    </div>
+    <div style="font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+      <span>کابین اختصاصی و شبیه‌ساز موبایل اینستاگرام</span>
+      <span style="color: var(--accent);">• @{{ account.username }}</span>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- Account Overview Card -->
+    <div class="cockpit-header">
+      <div class="account-meta">
+        <div class="avatar-box">
+          {{ account.username|slice:":1"|upper }}
+          {% if account.status == 'ACTIVE' %}<span class="online-indicator" title="سشن فعال"></span>{% endif %}
+        </div>
+        <div class="account-info">
+          <h1>
+            <span>@{{ account.username }}</span>
+            {% if account.role == 'SENDER' %}
+              <span class="badge badge-sender">اکانت فرستنده رسمی (SENDER)</span>
+            {% else %}
+              <span class="badge badge-scraper">اکانت اسکرپر جمع‌آوری (SCRAPER)</span>
+            {% endif %}
+            {% if account.status == 'ACTIVE' %}
+              <span class="badge badge-active">🟢 فعال و آنلاین</span>
+            {% elif account.status == 'COOLDOWN' %}
+              <span class="badge badge-cooldown">🟡 در حال استراحت (Cooldown)</span>
+            {% else %}
+              <span class="badge badge-challenged">🔴 چالش امنیتی / نیازمند بررسی</span>
+            {% endif %}
+          </h1>
+          <div class="account-tags">
+            <span>کسب‌وکار مقصد: <strong style="color:#fff;">{{ business.name|default:account.tenant_id }}</strong></span>
+            <span>•</span>
+            <span>سقف مجاز: <strong style="color:#fff;">{{ account.daily_limit|default:18 }} پیام در روز</strong></span>
+            <span>•</span>
+            <span>مصرف امروز: <strong style="color:{% if account.daily_action_count >= account.daily_limit|default:18 %}#ef4444{% else %}#10b981{% endif %};">{{ account.daily_action_count|default:0 }} پیام</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="device-info-pill">
+        <div>📱 <strong>دستگاه شبیه‌سازی:</strong> {{ dev_specs.manufacturer|default:"Sony" }} {{ dev_specs.model|default:"Xperia XQ-DQ72" }} (Android {{ dev_specs.android_release|default:"14" }})</div>
+        <div>🌐 <strong>پروکسی اختصاصی:</strong> <span dir="ltr">{{ account.proxy_url|default:"پیش‌فرض شبکه داخلی" }}</span></div>
+        <div>⏱️ <strong>آخرین فعالیت:</strong> {% if account.last_action_at %}{{ account.last_action_at|date:"Y-m-d H:i" }}{% else %}بدون فعالیت اخیر{% endif %}</div>
+      </div>
+    </div>
+
+    <!-- Cockpit Navigation Tabs -->
+    <div class="cockpit-tabs">
+      <button class="tab-btn active" onclick="switchCockpitTab('direct', this)">
+        💬 صندوق دایرکت و چت زنده
+      </button>
+      <button class="tab-btn" onclick="switchCockpitTab('feed', this)">
+        📱 فید تایم‌لاین و اسکرول طبیعی
+      </button>
+      <button class="tab-btn" onclick="switchCockpitTab('search', this)">
+        🔍 جستجو و اقدام ارگانیک
+      </button>
+      <button class="tab-btn" onclick="switchCockpitTab('device', this)">
+        ⚙️ تنظیمات و فینگرپرینت دستگاه
+      </button>
+    </div>
+
+    <!-- PANE 1: DIRECT MESSENGER -->
+    <div id="pane-direct" class="cockpit-pane active">
+      <div class="messenger-container">
+        <!-- Sidebar: Threads List -->
+        <div class="threads-sidebar">
+          <div class="threads-head">
+            <h3>گفتگوهای اخیر دایرکت</h3>
+            <button type="button" class="btn-action" style="padding:4px 10px; font-size:0.75rem;" onclick="loadThreads()">
+              🔄 بروزرسانی
+            </button>
+          </div>
+          <ul class="threads-list" id="threads-ul">
+            <li class="empty-state" style="padding:40px 10px;">در حال دریافت چت‌ها از سرور اینستاگرام...</li>
+          </ul>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="chat-area">
+          <div class="chat-head" id="chat-header">
+            <div class="chat-head-user">
+              <span id="active-chat-title">یک گفتگو را از لیست سمت راست انتخاب کنید</span>
+            </div>
+            <div id="active-chat-meta" style="font-size:0.78rem; color:var(--muted);"></div>
+          </div>
+
+          <div class="chat-messages" id="chat-messages-box">
+            <div class="empty-state">
+              💬 برای مشاهده تاریخچه پیام‌ها و ارسال پاسخ، گفتگوی مورد نظر را انتخاب نمایید.
+            </div>
+          </div>
+
+          <form id="chat-send-form" class="chat-input-bar" onsubmit="sendDirectMessage(event)" style="display:none;">
+            <input type="hidden" id="active-thread-id" value="">
+            <input type="hidden" id="active-user-id" value="">
+            <input type="text" id="chat-msg-input" placeholder="پیام خود را تایپ کنید و Enter بزنید..." autocomplete="off">
+            <button type="submit" class="btn-send" id="btn-send-msg">ارسال ✈️</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANE 2: TIMELINE FEED -->
+    <div id="pane-feed" class="cockpit-pane">
+      <div class="feed-controls">
+        <div>
+          <h2 style="margin:0; font-size:1.1rem;">پست‌های اخیر فید تایم‌لاین</h2>
+          <span style="font-size:0.82rem; color:var(--muted);">پست‌هایی که اکانت‌های فالوشده منتشر کرده‌اند</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn-action btn-warmup" onclick="triggerSimulatedScroll(this)">
+            📜 اجرای اسکرول و گرم‌سازی ارگانیک (Warm-up)
+          </button>
+          <button type="button" class="btn-action" onclick="loadTimelineFeed()">
+            🔄 بروزرسانی فید
+          </button>
+        </div>
+      </div>
+
+      <div id="feed-status-alert" style="display:none; padding:10px 16px; border-radius:8px; margin-bottom:16px; font-weight:700;"></div>
+
+      <div class="feed-grid" id="feed-grid-box">
+        <div class="empty-state" style="grid-column: 1 / -1;">در حال فراخوانی پست‌های فید...</div>
+      </div>
+    </div>
+
+    <!-- PANE 3: SEARCH & ORGANIC JOURNEY -->
+    <div id="pane-search" class="cockpit-pane">
+      <div class="search-box">
+        <h2 style="margin:0 0 8px; font-size:1.1rem;">جستجوی کاربر در سرچ‌بار اینستاگرام</h2>
+        <p style="margin:0 0 16px; font-size:0.84rem; color:var(--muted);">
+          شبیه‌سازی دقیق کادر جستجوی اکسپلور. نام کاربری را جستجو کنید، پروفایل را ببینید و پیام ارگانیک ارسال کنید.
+        </p>
+
+        <form onsubmit="searchInstagramUser(event)" class="search-input-group">
+          <input type="text" id="search-username-input" placeholder="نام کاربری مقصد (مثال: sarvdentist یا نام مشتری)..." dir="ltr">
+          <button type="submit" class="btn-action">🔍 جستجو</button>
+        </form>
+
+        <div id="search-results-box" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+
+      <!-- Organic DM Modal / Box -->
+      <div id="organic-dm-box" style="display:none; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-top:20px;">
+        <h3 style="margin:0 0 10px; color:#c084fc;">🚀 اجرای سفر ارگانیک به سمت <span id="target-user-label" dir="ltr"></span></h3>
+        <p style="font-size:0.84rem; color:var(--muted); margin-bottom:14px;">
+          سیستم ابتدا فید را اسکرول می‌کند، کاربر را سرچ می‌کند، پست‌ها را می‌بیند، مکث تایپ می‌گذارد و پیام را می‌فرستد.
+        </p>
+        <div style="margin-bottom:12px;">
+          <textarea id="organic-dm-text" rows="3" style="width:100%; padding:10px; border-radius:8px; background:#0f172a; border:1px solid var(--border); color:#fff; font-family:inherit;" placeholder="متن پیام را وارد کنید..."></textarea>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn-action" style="background:#9333ea;" onclick="executeOrganicDm(this)">ارسال پیام ارگانیک</button>
+          <button type="button" class="btn-action" style="background:#475569;" onclick="document.getElementById('organic-dm-box').style.display='none'">انصراف</button>
+        </div>
+        <div id="organic-log-box" style="display:none; margin-top:14px; background:#000; padding:12px; border-radius:8px; font-family:monospace; font-size:0.8rem; line-height:1.6;"></div>
+      </div>
+    </div>
+
+    <!-- PANE 4: DEVICE SETTINGS & AUDIT -->
+    <div id="pane-device" class="cockpit-pane">
+      <div class="search-box">
+        <h2 style="margin:0 0 8px; font-size:1.1rem;">مشخصات سخت‌افزاری و هویت دستگاه شبیه‌سازی‌شده</h2>
+        <p style="margin:0 0 16px; font-size:0.84rem; color:var(--muted);">
+          این مقادیر در هر نشست با اینستاگرام ارسال می‌شوند تا رفتار اکانت با یک گوشی موبایل فیزیکی یکسان باشد.
+        </p>
+        <pre style="background:#090d16; padding:16px; border-radius:8px; border:1px solid var(--border); overflow-x:auto; font-size:0.84rem; color:#38bdf8;" dir="ltr">{{ device_settings|pprint }}</pre>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const ACCOUNT_ID = {{ account.id }};
+    const CSRF_TOKEN = "{{ csrf_token }}";
+
+    function switchCockpitTab(tabKey, btn) {
+      document.querySelectorAll('.cockpit-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      const p = document.getElementById('pane-' + tabKey);
+      if (p) p.classList.add('active');
+      if (btn) btn.classList.add('active');
+
+      if (tabKey === 'direct' && !window.threadsLoaded) {
+        loadThreads();
+      } else if (tabKey === 'feed' && !window.feedLoaded) {
+        loadTimelineFeed();
+      }
+    }
+
+    // Load Direct Threads
+    function loadThreads() {
+      const ul = document.getElementById('threads-ul');
+      ul.innerHTML = '<li class="empty-state" style="padding:40px 10px;">در حال بروزرسانی چت‌ها...</li>';
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/threads/`)
+        .then(r => r.json())
+        .then(data => {
+          window.threadsLoaded = true;
+          if (!data.success) {
+            ul.innerHTML = `<li class="empty-state" style="color:#ef4444;">خطا: ${data.error || 'ناشناخته'}</li>`;
+            return;
+          }
+          if (!data.threads || data.threads.length === 0) {
+            ul.innerHTML = '<li class="empty-state">هیچ گفتگوی فعالی در دایرکت یافت نشد.</li>';
+            return;
+          }
+          let html = '';
+          data.threads.forEach(t => {
+            const initial = (t.title || 'U')[0].toUpperCase();
+            html += `
+              <li class="thread-item" onclick="openThread('${t.id}', '${escapeHtml(t.title)}')">
+                <div class="thread-avatar">${initial}</div>
+                <div class="thread-content">
+                  <div class="thread-title">${escapeHtml(t.title)}</div>
+                  <div class="thread-snippet">${escapeHtml(t.last_message || '...')}</div>
+                </div>
+                <div class="thread-time">${t.last_message_time || ''}</div>
+              </li>
+            `;
+          });
+          ul.innerHTML = html;
+        })
+        .catch(err => {
+          ul.innerHTML = `<li class="empty-state" style="color:#ef4444;">خطای شبکه: ${err}</li>`;
+        });
+    }
+
+    function openThread(threadId, title) {
+      document.querySelectorAll('.thread-item').forEach(el => el.classList.remove('active'));
+      if (event && event.currentTarget) event.currentTarget.classList.add('active');
+
+      document.getElementById('active-chat-title').innerText = '@' + title;
+      document.getElementById('active-thread-id').value = threadId;
+      document.getElementById('chat-send-form').style.display = 'flex';
+
+      const box = document.getElementById('chat-messages-box');
+      box.innerHTML = '<div class="empty-state">در حال فراخوانی پیام‌های چت...</div>';
+
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/threads/${threadId}/`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) {
+            box.innerHTML = `<div class="empty-state" style="color:#ef4444;">خطا: ${data.error}</div>`;
+            return;
+          }
+          if (!data.messages || data.messages.length === 0) {
+            box.innerHTML = '<div class="empty-state">هیچ پیامی در این گفتگو ثبت نشده است.</div>';
+            return;
+          }
+          let html = '';
+          data.messages.forEach(m => {
+            const cls = m.is_outgoing ? 'msg-outgoing' : 'msg-incoming';
+            html += `
+              <div class="msg-bubble ${cls}">
+                <div>${escapeHtml(m.text)}</div>
+                <div class="msg-time">${m.timestamp || ''}</div>
+              </div>
+            `;
+          });
+          box.innerHTML = html;
+          box.scrollTop = box.scrollHeight;
+        })
+        .catch(err => {
+          box.innerHTML = `<div class="empty-state" style="color:#ef4444;">خطا در دریافت پیام‌ها: ${err}</div>`;
+        });
+    }
+
+    function sendDirectMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById('chat-msg-input');
+      const text = input.value.trim();
+      const threadId = document.getElementById('active-thread-id').value;
+      if (!text || !threadId) return;
+
+      const btn = document.getElementById('btn-send-msg');
+      btn.disabled = true;
+      btn.innerText = '⏳';
+
+      const fd = new FormData();
+      fd.append('thread_id', threadId);
+      fd.append('text', text);
+
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/direct/send/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF_TOKEN },
+        body: fd
+      })
+      .then(r => r.json())
+      .then(data => {
+        btn.disabled = false;
+        btn.innerText = 'ارسال ✈️';
+        if (data.success) {
+          input.value = '';
+          // append bubble
+          const box = document.getElementById('chat-messages-box');
+          box.innerHTML += `
+            <div class="msg-bubble msg-outgoing">
+              <div>${escapeHtml(text)}</div>
+              <div class="msg-time">هم‌اکنون</div>
+            </div>
+          `;
+          box.scrollTop = box.scrollHeight;
+        } else {
+          alert('خطا در ارسال: ' + (data.error || 'ناشناخته'));
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.innerText = 'ارسال ✈️';
+        alert('خطای ارتباط با سرور: ' + err);
+      });
+    }
+
+    // Load Timeline Feed
+    function loadTimelineFeed() {
+      const grid = document.getElementById('feed-grid-box');
+      grid.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">در حال بارگذاری پست‌ها...</div>';
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/feed/`)
+        .then(r => r.json())
+        .then(data => {
+          window.feedLoaded = true;
+          if (!data.success) {
+            grid.innerHTML = `<div class="empty-state" style="grid-column:1 / -1; color:#ef4444;">خطا: ${data.error}</div>`;
+            return;
+          }
+          if (!data.feed || data.feed.length === 0) {
+            grid.innerHTML = '<div class="empty-state" style="grid-column:1 / -1;">هیچ پستی در فید این اکانت یافت نشد.</div>';
+            return;
+          }
+          let html = '';
+          data.feed.forEach(item => {
+            const u = item.user || {};
+            const img = item.image_url ? `<img src="${item.image_url}" class="feed-card-img" alt="Post">` : `<div class="feed-card-img" style="display:flex;align-items:center;justify-content:center;color:#64748b;">بدون تصویر</div>`;
+            html += `
+              <div class="feed-card">
+                ${img}
+                <div class="feed-card-body">
+                  <div>
+                    <div class="feed-card-author">👤 @${escapeHtml(u.username || 'unknown')}</div>
+                    <div class="feed-card-caption">${escapeHtml(item.caption || '')}</div>
+                  </div>
+                  <div style="font-size:0.78rem; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
+                    <span>❤️ ${item.like_count || 0} لایک</span>
+                    <span style="color:#10b981;">مشاهده‌شده</span>
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+          grid.innerHTML = html;
+        })
+        .catch(err => {
+          grid.innerHTML = `<div class="empty-state" style="grid-column:1 / -1; color:#ef4444;">خطای شبکه: ${err}</div>`;
+        });
+    }
+
+    function triggerSimulatedScroll(btn) {
+      btn.disabled = true;
+      btn.innerText = '⏳ در حال شبیه‌سازی اسکرول انسان...';
+      const alertBox = document.getElementById('feed-status-alert');
+
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/scroll-feed/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF_TOKEN }
+      })
+      .then(r => r.json())
+      .then(data => {
+        btn.disabled = false;
+        btn.innerText = '📜 اجرای اسکرول و گرم‌سازی ارگانیک (Warm-up)';
+        alertBox.style.display = 'block';
+        if (data.success) {
+          alertBox.style.background = 'rgba(16, 185, 129, 0.2)';
+          alertBox.style.color = '#34d399';
+          alertBox.innerText = `✅ ${data.message} ${data.liked_post ? '❤️ (یک پست تصادفی در فید لایک شد)' : ''}`;
+        } else {
+          alertBox.style.background = 'rgba(239, 68, 68, 0.2)';
+          alertBox.style.color = '#f87171';
+          alertBox.innerText = `❌ خطا: ${data.error}`;
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.innerText = '📜 اجرای اسکرول و گرم‌سازی ارگانیک (Warm-up)';
+        alertBox.style.display = 'block';
+        alertBox.style.background = 'rgba(239, 68, 68, 0.2)';
+        alertBox.style.color = '#f87171';
+        alertBox.innerText = 'خطای ارتباط: ' + err;
+      });
+    }
+
+    // Search Users
+    function searchInstagramUser(e) {
+      e.preventDefault();
+      const q = document.getElementById('search-username-input').value.trim();
+      if (!q) return;
+
+      const box = document.getElementById('search-results-box');
+      box.innerHTML = '<div style="color:var(--muted); padding:10px;">در حال جستجو در اینستاگرام...</div>';
+
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/search/?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) {
+            box.innerHTML = `<div style="color:#ef4444; padding:10px;">خطا: ${data.error}</div>`;
+            return;
+          }
+          if (!data.results || data.results.length === 0) {
+            box.innerHTML = '<div style="color:var(--muted); padding:10px;">هیچ کاربری با این نام یافت نشد.</div>';
+            return;
+          }
+          let html = '';
+          data.results.forEach(u => {
+            html += `
+              <div style="background:#0f172a; border:1px solid var(--border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <div class="thread-avatar">${(u.username || 'U')[0].toUpperCase()}</div>
+                  <div>
+                    <div style="font-weight:700;">@${escapeHtml(u.username)} ${u.is_verified ? '☑️' : ''}</div>
+                    <div style="font-size:0.8rem; color:var(--muted);">${escapeHtml(u.full_name || '')} ${u.is_private ? '🔒 خصوصی' : '🌍 عمومی'}</div>
+                  </div>
+                </div>
+                <div>
+                  <button type="button" class="btn-action" style="background:#9333ea; font-size:0.8rem;" onclick="openOrganicDmModal('${escapeHtml(u.username)}')">
+                    🚀 ارسال پیام ارگانیک
+                  </button>
+                </div>
+              </div>
+            `;
+          });
+          box.innerHTML = html;
+        })
+        .catch(err => {
+          box.innerHTML = `<div style="color:#ef4444; padding:10px;">خطا: ${err}</div>`;
+        });
+    }
+
+    function openOrganicDmModal(username) {
+      document.getElementById('target-user-label').innerText = '@' + username;
+      document.getElementById('organic-dm-box').style.display = 'block';
+      document.getElementById('organic-dm-box').dataset.targetUsername = username;
+      document.getElementById('organic-log-box').style.display = 'none';
+      document.getElementById('organic-dm-box').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function executeOrganicDm(btn) {
+      const username = document.getElementById('organic-dm-box').dataset.targetUsername;
+      const text = document.getElementById('organic-dm-text').value.trim();
+      if (!username || !text) {
+        alert('لطفاً متن پیام را وارد کنید.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = '⏳ در حال اجرای سفر ارگانیک...';
+      const logBox = document.getElementById('organic-log-box');
+      logBox.style.display = 'block';
+      logBox.innerHTML = '<span style="color:#38bdf8;">[۱/۵] باز کردن فید و شبیه‌سازی اسکرول انسان...</span><br>';
+
+      const fd = new FormData();
+      fd.append('target_username', username);
+      fd.append('message_text', text);
+
+      fetch(`/manage/instagram/accounts/${ACCOUNT_ID}/api/organic-dm/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF_TOKEN },
+        body: fd
+      })
+      .then(r => r.json())
+      .then(data => {
+        btn.disabled = false;
+        btn.innerText = 'ارسال پیام ارگانیک';
+        if (data.success) {
+          const j = data.journey || {};
+          logBox.innerHTML += `
+            <span style="color:#34d399;">[۲/۵] سرچ نام کاربری @${escapeHtml(username)} در سرچ‌بار اینستاگرام انجام شد.</span><br>
+            <span style="color:#34d399;">[۳/۵] پروفایل و پست‌های کاربر بررسی شد.</span><br>
+            <span style="color:#34d399;">[۴/۵] مکث طبیعی تایپ اعمال شد.</span><br>
+            <span style="color:#10b981; font-weight:700;">[۵/۵] 🎉 پیام با موفقیت به دایرکت کاربر ارسال گردید!</span>
+          `;
+        } else {
+          logBox.innerHTML += `<span style="color:#ef4444;">❌ خطا: ${data.error}</span>`;
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.innerText = 'ارسال پیام ارگانیک';
+        logBox.innerHTML += `<span style="color:#ef4444;">❌ خطای ارتباط: ${err}</span>`;
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // Auto load on open
+    window.addEventListener('DOMContentLoaded', () => {
+      loadThreads();
+    });
+  </script>
+</body>
+</html>
