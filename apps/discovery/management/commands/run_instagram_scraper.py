@@ -91,9 +91,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Min Comments Threshold: >= {min_comments} comments")
 
         # 2. Initialize Client Library
-        try:
-            from instagrapi import Client
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("instagrapi") is None:
             self.stderr.write(self.style.ERROR("instagrapi is not installed in the environment!"))
             return
 
@@ -261,7 +261,7 @@ class Command(BaseCommand):
         try:
             from apps.discovery.device_emulator import apply_device_profile_to_client
             apply_device_profile_to_client(cl, account)
-        except Exception as dev_err:
+        except Exception:
             if account.device_settings:
                 try:
                     cl.set_device(account.device_settings, reset=False)
@@ -411,7 +411,7 @@ class Command(BaseCommand):
                 record_login_failure(account, exc, actor="scraper")
                 self.stderr.write(f"    recovery_failed: account {account.id} needs a verification code")
                 return False
-            except BadPassword as exc:
+            except BadPassword:
                 self._set_state(account, "CHALLENGED", "لاگین ناموفق بود: رمز عبور رد شد. رمز را بررسی کنید.")
                 self.stderr.write(f"    recovery_failed: account {account.id} bad credentials")
                 return False
@@ -1458,7 +1458,6 @@ class Command(BaseCommand):
                 break
             error = ""
             medias = []
-            actual_source = source
             try:
                 if source.source_type == "page" and source.label.startswith("search:"):
                     page_searches += 1

@@ -697,7 +697,6 @@ def manage_dashboard(request):
         "x_conversion_rate_24h": x_conversion_rate_24h,
         "ig_searches_total": ig_searches_total,
         "ig_searches_24h": ig_searches_24h,
-        "ig_posts_total": ig_posts_total,
         "ig_posts_24h": ig_posts_24h,
         "ig_leads_total": ig_leads_total,
         "ig_leads_24h": ig_leads_24h,

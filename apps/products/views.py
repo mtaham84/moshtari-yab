@@ -470,7 +470,6 @@ def api_create_category(request):
 
     name = data.get("name", "").strip()
     parent_id = data.get("parent_id")
-    product_type = data.get("product_type", "PHYSICAL").strip()
 
     if not name:
         return JsonResponse({"status": "error", "message": "نام دسته‌بندی الزامی است."}, status=400)

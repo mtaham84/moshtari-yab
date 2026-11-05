@@ -178,7 +178,6 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
     source = SQLProductSource(config)
     try:
         products = source.all()
-        notes_db = source.db
         x_mode = (config.x_mode or "product").strip().lower()
         return _load_intent_queries(config, source, products, x_mode, mode)
     finally:

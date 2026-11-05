@@ -355,7 +355,7 @@ class InstagramCollector:
     def run_manual_post(self, request: ManualPostRequest) -> ManualPostResult:
         """Run one operator-selected post through the bounded shared comment path."""
         try:
-            shortcode = parse_post_ref(request.post_url)
+            parse_post_ref(request.post_url)   # validates the link
         except PageRefError as exc:
             return ManualPostResult(status="invalid_link", reason=exc.reason)
         if (request.business_id < 1 or (request.category_id is None and request.product_id is None)

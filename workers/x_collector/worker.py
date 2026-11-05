@@ -567,7 +567,6 @@ class XCollector:
     def _write_status(self, result: dict[str, Any]) -> None:
         target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)
         target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(target.suffix + ".tmp")
         payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until")}
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         payload["collected_today"] = self.state.count_today() if self.state else 0

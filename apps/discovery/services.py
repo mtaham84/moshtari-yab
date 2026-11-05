@@ -501,8 +501,6 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
         return None
     if is_blocked(opportunity.business):
         return None
-    meta = dict(opportunity.trace_metadata or {})
-    pid = str(match.product_id)
     if opportunity.source_platform == "instagram":
         saved, _ = InstagramReplySuggestion.objects.get_or_create(opportunity=opportunity, product=match.product)
         existing = saved.reply_variants or {}

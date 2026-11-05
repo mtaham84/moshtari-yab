@@ -932,22 +932,6 @@ def outreach_leads_export_csv(request):
         "UNKNOWN": "عمومی",
     }
 
-    status_map = {
-        "NEW": "در صف ارسال",
-        "APPROVED": "تایید شده",
-        "PITCH_GENERATED": "آماده ارسال",
-        "SENT": "ارسال شده",
-        "DM_SENT": "ارسال شده",
-        "FOLLOWUP_1": "پیگیری اول",
-        "FOLLOWUP_2": "پیگیری دوم",
-        "FOLLOWUP_SENT": "پیگیری شده",
-        "REPLIED": "پاسخ داده",
-        "CONVERTED": "موفق",
-        "FAILED": "ناموفق",
-        "REJECTED": "رد شده",
-        "SKIPPED": "رد شده (حفاظت)",
-    }
-
     from apps.discovery.outreach_service import build_bulletproof_message
     from apps.discovery.ig_accounts import tenant_key as business_tenant_key, tenant_pitch
     default_consultant = (tenant_pitch(business_tenant_key(business))["consultant_name"] if business else "") or "مشاور فروشگاه"
