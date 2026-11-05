@@ -227,12 +227,10 @@ class InstagramAntiBanManager:
             ensure_account_device_profile(account)
             changed = True
 
-        if not account.proxy_url:
-            # Fallback to an available xray proxy port if none configured
-            default_proxies = ["socks5h://xray:1081", "socks5h://xray:1085"]
-            assigned_proxy = default_proxies[(account.id or 0) % len(default_proxies)]
-            account.proxy_url = assigned_proxy
-            account.save(update_fields=["proxy_url"])
-            changed = True
+        if not account.proxy_url and not account.proxy_config_id and account.pk:
+            # No proxy of its own: a free system config of its own (it stays with the account), else the shared
+            # pool (account.clean_proxy). It used to get a hard-coded xray port that may not exist at all.
+            from apps.discovery.ig_accounts import _heal_account
+            changed = bool(_heal_account(account, "system")) or changed
 
         return changed

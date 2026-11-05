@@ -761,7 +761,7 @@ def send_chat_message(
         return {"success": False, "error": f"کوکی sessionid برای @{sender_username} ثبت نشده است."}
 
     cl = Client()
-    if sender.proxy_url:
+    if sender.clean_proxy:   # its own proxy / config, else the shared pool (never the server IP)
         cl.set_proxy(sender.clean_proxy)
 
     try:
@@ -1161,7 +1161,7 @@ def send_direct_message_to_lead(
         return {"success": False, "error": f"کوکی sessionid برای @{sender.username} ثبت نشده است."}
 
     cl = Client()
-    if sender.proxy_url:
+    if sender.clean_proxy:   # its own proxy / config, else the shared pool (never the server IP)
         cl.set_proxy(sender.clean_proxy)
 
     try:

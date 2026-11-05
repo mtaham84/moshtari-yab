@@ -19,6 +19,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone as dj_timezone
 from django.views.decorators.http import require_POST, require_GET
 
@@ -32,7 +33,7 @@ from apps.discovery.models import (
     XCrawledPost, Opportunity, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
-from apps.discovery.device_emulator import account_device_settings, apply_device_profile_to_client, connect_saved_session
+from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
 
@@ -565,25 +566,18 @@ def manage_dashboard(request):
             senders_total = senders.count()
             senders_active = senders.filter(status="ACTIVE").count()
 
-    # Load outreach pitch config
-    from pathlib import Path
-    import json
-    config_path = Path("data/sarv_outreach_config.json")
-    sender_pitches = {}
-    if config_path.exists():
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            sender_pitches = cfg.get("sender_pitches", {})
-        except Exception:
-            pass
-
+    # One consultant name / pitch per customer (tenant), as the outreach engine resolves it
+    from apps.discovery.ig_accounts import tenant_pitch
+    pitch_by_tenant = {}
     accounts_with_pitches = []
     for s in senders:
-        p = sender_pitches.get(s.username) or sender_pitches.get(s.username.lower(), {})
+        if s.tenant_id not in pitch_by_tenant:
+            pitch_by_tenant[s.tenant_id] = tenant_pitch(s.tenant_id)
+        p = pitch_by_tenant[s.tenant_id]
         accounts_with_pitches.append({
             "obj": s,
-            "consultant_name": p.get("consultant_name", s.username),
-            "template": p.get("template", ""),
+            "consultant_name": p["consultant_name"] or s.username,
+            "template": p["pitch_template"],
         })
 
     default_pitch = ""
@@ -743,312 +737,74 @@ def _normalize_digits(s: str) -> str:
     return s.translate(trans).strip()
 
 
+# ---------------------------------------------------------------------------
+# Instagram accounts: the old dashboard endpoints, now thin wrappers over apps.discovery.ig_accounts (the same
+# service as /manage/instagram/accounts/), keeping their JSON replies for the dashboard scripts.
+# ---------------------------------------------------------------------------
+def _ig_ajax(request) -> bool:
+    return (request.headers.get("x-requested-with") == "XMLHttpRequest"
+            or request.content_type == "application/json"
+            or "application/json" in request.headers.get("Accept", ""))
+
+
+def _ig_actor(request) -> str:
+    return request.user.get_username()
+
+
+def _ig_proxy_choice(raw):
+    """(mode, url, config) of a proxy typed in the old forms: empty or xray's shared ports = the system's choice,
+    another xray port = that system config, anything else = the account's own proxy."""
+    from apps.discovery import ig_accounts as svc
+
+    url = svc.normalize_proxy_url(raw) if (raw or "").strip() else ""
+    if not url:
+        return "system", "", None
+    port = svc.xray_port(url)
+    if port is None:
+        return "custom", url, None
+    cfg = None if port in svc.RESERVED_PORTS else ProxyConfig.objects.filter(local_port=port).first()
+    return ("config", "", cfg) if cfg is not None else ("system", "", None)
+
+
 @manage_access_required
 @require_POST
 def manage_account_add(request):
+    """Adds an Instagram account (SCRAPER or SENDER) and logs it in.
+
+    When Instagram asks for a code the login keeps waiting for it: the reply says requires_code and the code goes
+    to the same login (account page /manage/instagram/accounts/<id>/settings/ or accounts/<id>/code/).
     """
-    Adds a new Instagram account (either SCRAPER or SENDER) and attempts immediate live authentication.
-    If Instagram triggers an email/SMS verification code or 2FA challenge, captures the challenge state,
-    sets status to CHALLENGED, and returns `requires_code: True` for the modal to prompt for the code.
-    """
-    is_ajax = (
-        request.headers.get("x-requested-with") == "XMLHttpRequest"
-        or request.content_type == "application/json"
-        or "application/json" in request.headers.get("Accept", "")
-    )
+    from apps.discovery import ig_accounts as svc
 
-    username = request.POST.get("username", "").strip().lstrip("@")
-    password = request.POST.get("password", "").strip()
-    sessionid = (request.POST.get("sessionid") or "").strip()
-    role = request.POST.get("role", "SCRAPER").strip().upper()
-    proxy_url = request.POST.get("proxy_url", "").strip() or None
-    tenant_id = request.POST.get("tenant_id", "tenant_default").strip()
-    account_tier = request.POST.get("account_tier", "NEW").strip()
-    custom_daily = request.POST.get("daily_limit", "").strip()
-    consultant_name = request.POST.get("consultant_name", "").strip()
-
-    if not username or (not password and not sessionid):
-        err_msg = "نام کاربری و (کلمه عبور یا کوکی sessionid) اینستاگرام الزامی است."
-        if is_ajax:
-            return JsonResponse({"success": False, "requires_code": False, "message": err_msg})
-        messages.error(request, err_msg)
-        return redirect("manage:dashboard")
-
-    if role not in ("SCRAPER", "SENDER"):
-        role = "SCRAPER"
-
-    from apps.discovery.outreach_service import get_tier_specs
-    tier_specs = get_tier_specs(account_tier)
-    daily_lim = int(custom_daily) if custom_daily.isdigit() else tier_specs["default_daily"]
-    hourly_lim = tier_specs["hourly_speed"]
-
-    # Check if account already exists
-    existing = InstagramEngineAccount.objects.filter(username__iexact=username).first()
-    if existing:
-        if existing.status == "ACTIVE" and existing.session_json:
-            err_msg = f"اکانت @{username} قبلاً در سیستم ثبت شده و فعال است."
-            if is_ajax:
-                return JsonResponse({"success": False, "requires_code": False, "message": err_msg})
-            messages.warning(request, err_msg)
-            return redirect("manage:dashboard")
-        # Update credentials on existing account to allow re-authentication
-        account = existing
-        if password:
-            account.password = password
-        account.role = role
-        account.tenant_id = tenant_id
-        account.account_tier = account_tier
-        account.daily_limit = daily_lim
-        account.hourly_limit = hourly_lim
-        if proxy_url:
-            account.proxy_url = proxy_url
-        account.status = "CHALLENGED"
-        account.save()
-    else:
-        account = InstagramEngineAccount.objects.create(
-            tenant_id=tenant_id,
-            username=username,
-            password=password or "session_only",
-            role=role,
-            account_tier=account_tier,
-            daily_limit=daily_lim,
-            hourly_limit=hourly_lim,
-            proxy_url=proxy_url,
-            status="CHALLENGED",
-        )
-
-    if consultant_name and role == "SENDER":
-        try:
-            import json
-            from pathlib import Path
-            config_path = Path("data/sarv_outreach_config.json")
-            cfg = {}
-            if config_path.exists():
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            if "sender_pitches" not in cfg:
-                cfg["sender_pitches"] = {}
-            if username not in cfg["sender_pitches"]:
-                cfg["sender_pitches"][username] = {}
-            cfg["sender_pitches"][username]["consultant_name"] = consultant_name
-            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        except Exception as p_err:
-            logger.warning(f"Could not save consultant name for {username}: {p_err}")
-
-    # 1. Test Proxy Reachability if specified
-    proxy_ok = True
-    proxy_msg = ""
-    if account.proxy_url:
-        proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url)
-        if not proxy_ok:
-            account.status = "BANNED"
-            account.save(update_fields=["status"])
-            err_msg = f"خطای پروکسی: {proxy_msg}"
-            if is_ajax:
-                return JsonResponse({
-                    "success": False,
-                    "requires_code": False,
-                    "account_id": account.id,
-                    "username": account.username,
-                    "message": err_msg,
-                })
-            messages.error(request, err_msg)
-            return redirect("manage:dashboard")
-
-    # 2. Attempt real-time Instagram authentication
-    try:
-        from instagrapi import Client
-        from instagrapi.exceptions import (
-            ChallengeRequired,
-            TwoFactorRequired,
-            BadPassword,
-            FeedbackRequired,
-            PleaseWaitFewMinutes,
-        )
-
-        cl = Client()
-
-        # Apply unique realistic device profile (Pixel 8 Pro, S24 Ultra, Xiaomi 14, etc.)
-        try:
-            from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
-            ensure_account_device_profile(account)
-            apply_device_profile_to_client(cl, account)
-        except Exception as dev_err:
-            logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
-
-        if account.proxy_url:
-            cl.set_proxy(account.clean_proxy)
-
-        def _challenge_detector(u, choice=None):
-            raise ChallengeRequired(f"کد تایید به روش {choice or 'ایمیل/پیامک'} ارسال شد.")
-        cl.challenge_code_handler = _challenge_detector
-
-        sessionid = (request.POST.get("sessionid") or "").strip()
-        if sessionid:
-            logger.info(f"Attempting direct sessionid login for @{account.username}...")
-            try:
-                cl.login_by_sessionid(sessionid)
-                settings = cl.get_settings()
-                account.session_json = settings
-                account.device_settings = account_device_settings(account, client_settings=settings)
-                account.status = "ACTIVE"
-                account.save(update_fields=["session_json", "device_settings", "status"])
-                role_fa = "اسکرپر" if role == "SCRAPER" else "فرستنده / پاسخگو"
-                succ_msg = f"اکانت @{account.username} با موفقیت توسط کوکی sessionid متصل و فعال شد!"
-                if is_ajax:
-                    return JsonResponse({
-                        "success": True,
-                        "requires_code": False,
-                        "status": "ACTIVE",
-                        "account_id": account.id,
-                        "username": account.username,
-                        "message": succ_msg,
-                    })
-                messages.success(request, succ_msg)
-                return redirect("manage:dashboard")
-            except Exception as se:
-                logger.warning(f"sessionid login failed: {se}")
-
-        logger.info(f"Attempting live Instagram login for newly added account @{account.username}...")
-        try:
-            cl.login(account.username, account.password)
-            # Verified and logged in successfully
-            settings = cl.get_settings()
-            account.session_json = settings
-            account.device_settings = account_device_settings(account, client_settings=settings)
-            account.status = "ACTIVE"
-            account.save(update_fields=["session_json", "device_settings", "status"])
-
-            role_fa = "اسکرپر" if role == "SCRAPER" else "فرستنده / پاسخگو"
-            succ_msg = f"اکانت @{account.username} با نقش «{role_fa}» با موفقیت متصل، احراز هویت و فعال شد!"
-            if is_ajax:
-                return JsonResponse({
-                    "success": True,
-                    "requires_code": False,
-                    "status": "ACTIVE",
-                    "account_id": account.id,
-                    "username": account.username,
-                    "message": succ_msg,
-                })
-            messages.success(request, succ_msg)
-            return redirect("manage:dashboard")
-
-        except (ChallengeRequired, TwoFactorRequired) as ce:
-            account.status = "CHALLENGED"
-            account.device_settings = account_device_settings(
-                account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(ce))
-            account.save(update_fields=["status", "device_settings"])
-            warn_msg = f"اینستاگرام کد تایید امنیتی به ایمیل یا پیامک اکانت ارسال کرد. لطفاً کد را وارد کنید."
-            if is_ajax:
-                return JsonResponse({
-                    "success": False,
-                    "requires_code": True,
-                    "account_id": account.id,
-                    "username": account.username,
-                    "message": "کد تایید امنیتی اینستاگرام به ایمیل یا شماره موبایل اکانت ارسال شد. لطفاً کد ۶ رقمی را وارد نمایید:",
-                })
-            messages.warning(request, warn_msg)
-            return redirect("manage:dashboard")
-
-        except (FeedbackRequired, PleaseWaitFewMinutes) as fe:
-            account.status = "COOLDOWN"
-            account.save(update_fields=["status"])
-            err_msg = f"اینستاگرام محدودیت موقت (Cooldown) اعمال کرده است: {fe}"
-            if is_ajax:
-                return JsonResponse({
-                    "success": False,
-                    "requires_code": False,
-                    "account_id": account.id,
-                    "username": account.username,
-                    "message": err_msg,
-                })
-            messages.error(request, err_msg)
-            return redirect("manage:dashboard")
-
-        except BadPassword as bpe:
-            account.status = "BANNED"
-            account.save(update_fields=["status"])
-            err_msg = f"نام کاربری یا کلمه عبور اینستاگرام اشتباه است: {bpe}"
-            if is_ajax:
-                return JsonResponse({
-                    "success": False,
-                    "requires_code": False,
-                    "account_id": account.id,
-                    "username": account.username,
-                    "message": err_msg,
-                })
-            messages.error(request, err_msg)
-            return redirect("manage:dashboard")
-
-        except Exception as le:
-            le_str = str(le).lower()
-            if any(k in le_str for k in ["challenge", "checkpoint", "two_step", "two_factor", "two-factor", "verification", "sms", "code"]):
-                account.status = "CHALLENGED"
-                account.device_settings = account_device_settings(
-                    account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(le))
-                account.save(update_fields=["status", "device_settings"])
-                if is_ajax:
-                    return JsonResponse({
-                        "success": False,
-                        "requires_code": True,
-                        "account_id": account.id,
-                        "username": account.username,
-                        "message": "اینستاگرام درخواست کد تایید هویت (ایمیل/پیامک) داده است. لطفاً کد را وارد کنید:",
-                    })
-                messages.warning(request, "اینستاگرام درخواست کد تایید هویت داده است.")
-                return redirect("manage:dashboard")
-            else:
-                account.status = "BANNED"
-                account.save(update_fields=["status"])
-                err_msg = f"خطای ورود به اینستاگرام: {le}"
-                if is_ajax:
-                    return JsonResponse({
-                        "success": False,
-                        "requires_code": False,
-                        "account_id": account.id,
-                        "username": account.username,
-                        "message": err_msg,
-                    })
-                messages.error(request, err_msg)
-                return redirect("manage:dashboard")
-
-    except ImportError:
-        account.status = "ACTIVE"
-        account.save(update_fields=["status"])
-        role_fa = "اسکرپر" if role == "SCRAPER" else "فرستنده / پاسخگو"
-        succ_msg = f"اکانت @{username} با نقش «{role_fa}» ثبت شد (محیط بدون instagrapi)."
-        if is_ajax:
-            return JsonResponse({
-                "success": True,
-                "requires_code": False,
-                "status": "ACTIVE",
-                "account_id": account.id,
-                "username": account.username,
-                "message": succ_msg,
-            })
-        messages.success(request, succ_msg)
-        return redirect("manage:dashboard")
-
-    except Exception as exc:
-        err_msg = f"خطای غیرمنتظره در ثبت اکانت: {exc}"
-        if is_ajax:
-            return JsonResponse({
-                "success": False,
-                "requires_code": False,
-                "account_id": account.id,
-                "username": account.username,
-                "message": err_msg,
-            })
-        messages.error(request, err_msg)
-        return redirect("manage:dashboard")
+    p = request.POST
+    mode, url, cfg = _ig_proxy_choice(p.get("proxy_url"))
+    acc, res = svc.add_account(
+        username=p.get("username", ""), password=p.get("password", ""), sessionid=p.get("sessionid", ""),
+        role=(p.get("role") or "SCRAPER"), tenant_id=(p.get("tenant_id") or "tenant_default").strip(),
+        account_tier=p.get("account_tier") or "NEW", daily_limit=p.get("daily_limit"), proxy=mode, proxy_url=url,
+        config=cfg, actor=_ig_actor(request), login=True, login_wait=25)
+    if acc is not None and acc.role == "SENDER" and (p.get("consultant_name") or "").strip():
+        svc.save_tenant_profile(acc.tenant_id, consultant_name=p["consultant_name"], only_empty=True)
+    out = res.as_dict()
+    out.update(account_id=acc.pk if acc else None,
+               username=acc.username if acc else svc.normalize_username(p.get("username")))
+    if _ig_ajax(request):
+        return JsonResponse(out)
+    if acc is not None and res.state in svc.LIVE_STATES:
+        messages.warning(request, res.message)
+        return redirect(reverse("manage:ig_account_detail", args=[acc.pk]) + "#login")
+    (messages.success if res.ok else messages.error)(request, res.message)
+    return redirect("manage:dashboard")
 
 
 @manage_access_required
 @require_POST
 def manage_account_delete(request, pk):
-    """Deletes an Instagram account."""
+    """Deletes an Instagram account (its system config becomes free for another account)."""
+    from apps.discovery import ig_accounts as svc
+
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    username = account.username
-    account.delete()
+    username = svc.delete_account(account, actor=_ig_actor(request))
     messages.success(request, f"اکانت @{username} با موفقیت از سیستم حذف گردید.")
     return redirect("manage:dashboard")
 
@@ -1056,483 +812,142 @@ def manage_account_delete(request, pk):
 @manage_access_required
 @require_POST
 def manage_account_set_session(request, pk):
-    """
-    Directly updates or injects a valid Instagram sessionid cookie from a web browser.
-    This bypasses username/password authentication hurdles and security challenges.
-    """
+    """Connects the account with a sessionid copied from a browser that is logged in (no password, no code)."""
+    from apps.discovery import ig_accounts as svc
+
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    raw_sessionid = (request.POST.get("sessionid") or "").strip()
-    if not raw_sessionid:
+    if not (request.POST.get("sessionid") or "").strip():
         return JsonResponse({"success": False, "message": "لطفاً مقدار کوکی sessionid را وارد نمایید."})
+    out = svc.login_with_sessionid(account, request.POST["sessionid"], actor=_ig_actor(request)).as_dict()
+    out.setdefault("deleted", False)
+    return JsonResponse(out)
 
-    # Clean sessionid in case full cookie header or key=value was pasted
-    sessionid = raw_sessionid
-    if "sessionid=" in sessionid:
-        import re
-        m = re.search(r"sessionid=([^;\s]+)", sessionid)
-        if m:
-            sessionid = m.group(1).strip()
-    sessionid = sessionid.strip('"').strip("'").strip(";").strip()
 
-    from instagrapi import Client
-    cl = Client()
-    if account.proxy_url:
-        cl.set_proxy(account.clean_proxy)
+def ig_edit_sender(account, data, actor: str = "") -> dict:
+    """The old sender editor's fields (username, customer, password, sessionid, consultant name, tier, daily limit,
+    proxy, status, clear_cooldown) applied through apps.discovery.ig_accounts; the dashboard's JSON reply."""
+    from apps.discovery import ig_accounts as svc
 
-    from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
-    ensure_account_device_profile(account)
-    try:
-        apply_device_profile_to_client(cl, account)
-    except Exception as dev_err:
-        logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
+    ok, notes, session_updated = True, [], False
+    res = svc.update_settings(account, actor=actor, **{k: data.get(k, "") for k in (
+        "username", "tenant_id", "account_tier", "daily_limit", "password")})
+    if not res.ok:
+        ok = False
+        notes.append(res.message)
+    elif res.extra.get("changed"):
+        notes.append(res.message)
 
-    # Note: Do NOT call cl.set_settings(account.session_json) here!
-    # Because old session_json contains expired Bearer authorization tokens and mismatched ds_user_id cookies
-    # which cause Instagram to reject the new sessionid with 401 Unauthorized or login_required!
+    consultant = (data.get("consultant_name") or "").strip()
+    if consultant and consultant != svc.tenant_pitch(account.tenant_id).get("consultant_name"):
+        svc.save_tenant_profile(account.tenant_id, consultant_name=consultant)
+        notes.append(f"نام مشاور مشتری «{svc.tenant_label(account.tenant_id)}»: {consultant}")
 
-    try:
-        cl.login_by_sessionid(sessionid)
-        settings = cl.get_settings()
-        account.session_json = settings
-        account.device_settings = account_device_settings(account, client_settings=settings)
-        account.status = "ACTIVE"
-        account.status_message = ""
-        account.cooldown_until = None
-        account.save(update_fields=["session_json", "device_settings", "status", "status_message", "cooldown_until"])
-        return JsonResponse({
-            "success": True,
-            "status": "ACTIVE",
-            "message": f"سشن اکانت @{account.username} با موفقیت ثبت شد و اکانت فعال گردید (بدون چالش پسورد).",
-        })
-    except Exception as exc:
-        from apps.discovery.ig_session import redact
-        uname = account.username
-        account.status = "CHALLENGED"
-        account.status_message = f"سشن نامعتبر یا منقضی است: {redact(exc, 160)}"
-        account.save(update_fields=["status", "status_message"])
-        return JsonResponse({
-            "success": False,
-            "deleted": False,
-            "status": "CHALLENGED",
-            "message": f"سشن واردشده برای @{uname} معتبر نبود ({redact(exc, 160)}). لطفاً مطمئن شوید کوکی sessionid را از مرورگری که در همان لحظه در اکانت لاگین است کپی کرده‌اید و در صورت داشتن پروکسی، اتصال پروکسی برقرار است.",
-        })
+    if "proxy_url" in data and (data.get("proxy_url") or "").strip() != (account.proxy_url or "").strip():
+        mode, url, cfg = _ig_proxy_choice(data.get("proxy_url"))
+        res = svc.set_proxy(account, mode, url=url, config=cfg, actor=actor)
+        ok = ok and res.ok
+        if not res.ok or res.extra.get("changed"):
+            notes.append(res.message)
+
+    sessionid = (data.get("sessionid") or "").strip()
+    if sessionid:
+        res = svc.login_with_sessionid(account, sessionid, actor=actor)
+        session_updated = res.ok
+        ok = ok and res.ok
+        notes.append(res.message)
+
+    status = (data.get("status") or "").strip().upper()
+    if status and status != account.status and status in dict(InstagramEngineAccount.STATUS_CHOICES) and not sessionid:
+        if status == "DISABLED":
+            res = svc.pause(account, actor=actor)
+        elif status == "ACTIVE":
+            res = svc.resume(account, actor=actor)
+        else:
+            svc.set_state(account, status, "", "وضعیت به‌صورت دستی تغییر کرد", force=True)
+            svc.log_event(account, "status_changed", f"وضعیت دستی: {account.get_status_display()}", {"status": status},
+                          actor)
+            res = svc.Result(True, f"وضعیت: {account.get_status_display()}")
+        notes.append(res.message)
+    if data.get("clear_cooldown") in ("1", "true", "True", "on"):
+        notes.append(svc.clear_cooldown(account, actor=actor).message)
+
+    account.refresh_from_db()
+    return {"success": ok, "message": "؛ ".join(n for n in notes if n) or f"اکانت @{account.username} تغییری نکرد.",
+            "status": account.status, "session_updated": session_updated}
 
 
 @manage_access_required
 @require_POST
 def manage_sender_account_edit(request, pk):
-    """
-    Comprehensive editor for an outreach sender account:
-    Updates session cookie (sessionid), password, tenant_id, consultant_name, tier, daily_limit, proxy, status.
-    """
-    account = get_object_or_404(InstagramEngineAccount, pk=pk)
-
-    username = request.POST.get("username", "").strip().lstrip("@")
-    tenant_id = request.POST.get("tenant_id", "").strip()
-    password = request.POST.get("password", "").strip()
-    sessionid = request.POST.get("sessionid", "").strip()
-    consultant_name = request.POST.get("consultant_name", "").strip()
-    account_tier = request.POST.get("account_tier", "").strip()
-    daily_limit = request.POST.get("daily_limit", "").strip()
-    proxy_url = request.POST.get("proxy_url", "").strip()
-    status = request.POST.get("status", "").strip()
-    clear_cooldown = request.POST.get("clear_cooldown") in ("1", "true", "True", "on")
-
-    updated_fields = []
-
-    if username and username != account.username:
-        account.username = username
-        updated_fields.append("username")
-
-    if tenant_id and tenant_id != account.tenant_id:
-        account.tenant_id = tenant_id
-        updated_fields.append("tenant_id")
-
-    if password:
-        account.password = password
-        updated_fields.append("password")
-
-    if proxy_url != account.proxy_url:
-        account.proxy_url = proxy_url
-        updated_fields.append("proxy_url")
-
-    from apps.discovery.outreach_service import get_tier_specs
-    if account_tier in ("NEW", "MEDIUM", "AGED"):
-        account.account_tier = account_tier
-        tier_specs = get_tier_specs(account_tier)
-        account.hourly_limit = tier_specs["hourly_speed"]
-        updated_fields.extend(["account_tier", "hourly_limit"])
-
-    if daily_limit and daily_limit.isdigit():
-        account.daily_limit = int(daily_limit)
-        updated_fields.append("daily_limit")
-
-    if status in ("ACTIVE", "CHALLENGED", "COOLDOWN", "DISABLED", "BANNED"):
-        account.status = status
-        updated_fields.append("status")
-
-    if clear_cooldown:
-        account.cooldown_until = None
-        account.status_message = "استراحت دستی بازنشانی شد"
-        if account.status == "COOLDOWN":
-            account.status = "ACTIVE"
-            updated_fields.append("status")
-        updated_fields.extend(["cooldown_until", "status_message"])
-
-    # Update session cookie if provided
-    session_updated = False
-    if sessionid:
-        if "sessionid=" in sessionid:
-            import re
-            m = re.search(r"sessionid=([^;\s]+)", sessionid)
-            if m:
-                sessionid = m.group(1).strip()
-        sessionid = sessionid.strip('"').strip("'").strip(";").strip()
-
-        from instagrapi import Client
-        cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.clean_proxy)
-
-        from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
-        ensure_account_device_profile(account)
-        try:
-            apply_device_profile_to_client(cl, account)
-            cl.login_by_sessionid(sessionid)
-            settings = cl.get_settings()
-            account.session_json = settings
-            account.device_settings = account_device_settings(account, client_settings=settings)
-            account.status = "ACTIVE"
-            account.status_message = "سشن جدید با موفقیت فعال شد"
-            account.cooldown_until = None
-            updated_fields.extend(["session_json", "device_settings", "status", "status_message", "cooldown_until"])
-            session_updated = True
-        except Exception as exc:
-            from apps.discovery.ig_session import redact
-            account.status = "CHALLENGED"
-            account.status_message = f"سشن نامعتبر: {redact(exc, 140)}"
-            updated_fields.extend(["status", "status_message"])
-
-    # Update pitch consultant name if provided
-    if consultant_name:
-        from pathlib import Path
-        import json
-        config_path = Path("data/sarv_outreach_config.json")
-        try:
-            cfg = {}
-            if config_path.exists():
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            if "sender_pitches" not in cfg:
-                cfg["sender_pitches"] = {}
-            curr = cfg["sender_pitches"].get(account.username, {})
-            curr["consultant_name"] = consultant_name
-            cfg["sender_pitches"][account.username] = curr
-            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        except Exception as p_err:
-            logger.warning(f"Could not update pitch consultant name for @{account.username}: {p_err}")
-
-    if updated_fields:
-        account.save(update_fields=list(set(updated_fields)))
-
-    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
-    if is_ajax:
-        return JsonResponse({
-            "success": True,
-            "message": f"اطلاعات اکانت @{account.username} با موفقیت به‌روزرسانی شد.",
-            "status": account.status,
-            "session_updated": session_updated,
-        })
-    messages.success(request, f"اکانت @{account.username} با موفقیت ویرایش شد.")
+    """The old sender editor of the dashboard (see ig_edit_sender)."""
+    account = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
+    out = ig_edit_sender(account, request.POST, _ig_actor(request))
+    if _ig_ajax(request):
+        return JsonResponse(out)
+    (messages.success if out["success"] else messages.error)(request, out["message"])
     return redirect("/manage/?tab=outreach")
 
 
 @manage_access_required
 @require_POST
 def manage_sender_clear_cooldown(request, pk):
-    """Resets protective cooldown and sets account back to ACTIVE."""
-    account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    account.cooldown_until = None
-    account.status_message = "آماده به کار (استراحت دستی لغو شد)"
-    if account.status in ("COOLDOWN", "CHALLENGED"):
-        account.status = "ACTIVE"
-    account.save(update_fields=["cooldown_until", "status_message", "status"])
+    """Ends a protective rest early (an account that needs a code or a login stays as it is)."""
+    from apps.discovery import ig_accounts as svc
 
-    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
-    if is_ajax:
-        return JsonResponse({
-            "success": True,
-            "message": f"استراحت اکانت @{account.username} لغو شد و اکانت مجدداً فعال گردید.",
-            "status": account.status,
-        })
-    messages.success(request, f"استراحت اکانت @{account.username} لغو شد.")
+    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    res = svc.clear_cooldown(account, actor=_ig_actor(request))
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"success": True, "message": res.message, "status": account.status})
+    messages.success(request, res.message)
     return redirect("/manage/?tab=outreach")
 
 
 @manage_access_required
 @require_POST
 def manage_account_test(request, pk):
-    """
-    Performs a real-time connectivity and status health check on an account.
-    Returns JSON response for instant asynchronous UI update.
-    """
-    account = get_object_or_404(InstagramEngineAccount, pk=pk)
+    """Connection test on the account's own phone, session and connection (what the workers use). An expired session
+    with a saved password starts a login; if Instagram asks for a code, it is typed on the account page."""
+    from apps.discovery import ig_accounts as svc
 
-    # 1. Test Proxy Reachability
-    proxy_ok = True
-    proxy_msg = ""
-    if account.proxy_url:
-        proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url)
-        if not proxy_ok:
-            return JsonResponse({
-                "success": False,
-                "status": account.status,
-                "message": f"خطای پروکسی: {proxy_msg}",
-            })
-
-    # 2. Check Cooldown
-    now = dj_timezone.now()
-    if account.cooldown_until and account.cooldown_until > now:
-        rem_seconds = int((account.cooldown_until - now).total_seconds())
-        rem_min = rem_seconds // 60
-        return JsonResponse({
-            "success": True,
-            "status": "COOLDOWN",
-            "message": f"اکانت در دوره استراحت است (حدود {rem_min} دقیقه باقی‌مانده)",
-        })
-
-    # 3. Live Instagram Login / Session Test, on the account's own phone and saved session (what the workers use);
-    #    a test must never show Instagram a different device or replace a working session.
-    live_status = account.status
-    msg = "اتصال و وضعیت اکانت با موفقیت تایید شد."
-    challenge_hint = ""
-    try:
-        from instagrapi import Client
-        from instagrapi.exceptions import (ChallengeRequired, FeedbackRequired, TwoFactorRequired,
-                                           PleaseWaitFewMinutes)
-        cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.clean_proxy)
-
-        def _non_interactive_challenge(username, choice=None):
-            raise ChallengeRequired(f"کد تایید امنیتی به روش {choice} ارسال شد.")
-        cl.challenge_code_handler = _non_interactive_challenge
-
-        if account.session_json:
-            try:
-                connect_saved_session(cl, account)
-                cl.get_timeline_feed()  # what the app itself requests when it is opened
-                live_status = "ACTIVE"
-                account.status = "ACTIVE"
-                fresh = cl.get_settings()
-                account.session_json = fresh
-                account.device_settings = account_device_settings(account, client_settings=fresh)
-                account.save(update_fields=["status", "session_json", "device_settings"])
-                msg = f"سشن اینستاگرام کاملاً معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
-            except Exception as se:
-                se_str = str(se).lower()
-                if "pleasewait" in se_str or "429" in se_str or "feedback" in se_str or \
-                        any(k in se_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl"]):
-                    live_status = "COOLDOWN"
-                    account.status = "COOLDOWN"
-                    account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                    account.save(update_fields=["status", "cooldown_until"])
-                    msg = f"محدودیت موقت اینستاگرام یا خطای موقت شبکه/پروکسی؛ اکانت ۱۵ دقیقه استراحت می‌کند: {se}"
-                else:
-                    live_status = "CHALLENGED"
-                    account.status = "CHALLENGED"
-                    account.save(update_fields=["status"])
-                    msg = f"سشن اینستاگرام منقضی یا نامعتبر شده است. لطفاً sessionid جدید را ثبت نمایید: {se}"
-        else:
-            # First-time login test, already on the account's own device profile
-            apply_device_profile_to_client(cl, account)
-            try:
-                cl.login(account.username, account.password)
-                new_settings = cl.get_settings()
-                account.session_json = new_settings
-                account.device_settings = account_device_settings(account, client_settings=new_settings)
-                account.status = "ACTIVE"
-                account.save(update_fields=["session_json", "device_settings", "status"])
-                msg = f"ورود اولیه با موفقیت انجام و سشن ذخیره گردید. {proxy_msg}"
-            except (ChallengeRequired, TwoFactorRequired) as ce:
-                live_status = "CHALLENGED"
-                account.status = "CHALLENGED"
-                account.device_settings = account_device_settings(
-                    account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(ce))
-                account.save(update_fields=["status", "device_settings"])
-                challenge_hint = str(ce)
-                msg = f"اینستاگرام کد تایید امنیتی (ایمیل/پیامک) درخواست کرده است."
-            except (FeedbackRequired, PleaseWaitFewMinutes) as fe:
-                live_status = "COOLDOWN"
-                account.status = "COOLDOWN"
-                account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                account.save(update_fields=["status", "cooldown_until"])
-                msg = f"اینستاگرام محدودیت موقت چند دقیقه‌ای اعمال کرده است (Cooldown): {fe}"
-            except Exception as le:
-                le_str = str(le).lower()
-                if "pleasewaitfewminutes" in le_str or "429" in le_str or "feedback" in le_str:
-                    live_status = "COOLDOWN"
-                    account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                    msg = "اینستاگرام محدودیت موقت اعمال کرده است (PleaseWaitFewMinutes)."
-                elif "suspended" in le_str:
-                    live_status = "CHALLENGED"
-                    msg = "اکانت توسط اینستاگرام به صفحه تعلیق (Suspended) منتقل شده است."
-                elif "challenge" in le_str or "checkpoint" in le_str or "two_step" in le_str:
-                    live_status = "CHALLENGED"
-                    account.device_settings = account_device_settings(
-                        account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(le))
-                    msg = "اینستاگرام چالش امنیتی (کد تایید) درخواست کرده است."
-                elif "bad_password" in le_str or "password" in le_str:
-                    live_status = "BANNED"
-                    msg = f"کلمه عبور اشتباه است: {le}"
-                else:
-                    live_status = "COOLDOWN"
-                    msg = f"خطای ورود اولیه (استراحت موقت): {le}"
-                account.status = live_status
-                account.save(update_fields=["status", "device_settings", "cooldown_until"] if account.cooldown_until else ["status", "device_settings"])
-
-    except ImportError:
-        if proxy_ok:
-            live_status = account.status
-            msg = f"پروکسی و مشخصات ذخیره‌شده بررسی شد (پروکسی متصل است). {proxy_msg}"
-        else:
-            live_status = "BANNED"
-            msg = f"پروکسی قطع می‌باشد: {proxy_msg}"
-
-    except Exception as exc:
-        msg = f"خطای غیرمنتظره در بررسی وضعیت: {exc}"
-
-    return JsonResponse({
-        "success": live_status == "ACTIVE",
-        "status": account.status,
-        "challenge_required": account.status == "CHALLENGED",
-        "challenge_hint": challenge_hint,
-        "message": msg,
-    })
+    account = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
+    actor = _ig_actor(request)
+    res = svc.check(account, actor=actor)
+    account.refresh_from_db()
+    if (not res.ok and account.status == "CHALLENGED" and account.status_reason == "session_expired"
+            and account.password and account.password != "session_only"):
+        res = svc.start_login(account, actor=actor, wait=25)
+    elif res.state in svc.LIVE_STATES:
+        res = svc.wait_for_login(account, timeout=25)
+    account.refresh_from_db()
+    out = res.as_dict()
+    out.update(success=res.ok and account.status != "CHALLENGED", status=account.status,
+               challenge_required=account.status == "CHALLENGED", challenge_hint=res.hint)
+    return JsonResponse(out)
 
 
 @manage_access_required
 @require_POST
 def manage_account_submit_code(request, pk):
-    """
-    Submits a 2FA or email/SMS verification code for an account in CHALLENGED status.
-    Resolves the challenge, verifies session with timeline feed, saves valid session_json,
-    and updates status to ACTIVE.
-    """
+    """Hands Instagram's code to the login that is waiting for it (the same login that asked for it)."""
+    from apps.discovery import ig_accounts as svc
+
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    
-    # Accept JSON or form POST
     raw_code = ""
     if request.content_type == "application/json":
         try:
-            body = json.loads(request.body.decode("utf-8"))
-            raw_code = str(body.get("code", "")).strip()
-        except Exception:
+            body = json.loads(request.body.decode("utf-8") or "{}")
+            raw_code = str(body.get("code", "")).strip() if isinstance(body, dict) else ""
+        except ValueError:
             pass
     if not raw_code:
-        raw_code = request.POST.get("code", "").strip()
-
-    code = _normalize_digits(raw_code).replace(" ", "").replace("-", "")
-
-    if not code:
+        raw_code = (request.POST.get("code") or "").strip()
+    if not raw_code:
         return JsonResponse({"success": False, "message": "لطفاً کد تایید را وارد کنید."})
-
-    try:
-        from instagrapi import Client
-        cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.clean_proxy)
-
-        saved_data = account.device_settings or {}
-        saved_settings = (
-            saved_data.get("settings")
-            if isinstance(saved_data, dict) and "settings" in saved_data
-            else saved_data
-        )
-        last_json = saved_data.get("last_json") if isinstance(saved_data, dict) else None
-
-        if saved_settings and isinstance(saved_settings, dict):
-            try:
-                cl.set_settings(saved_settings)
-            except Exception as se:
-                logger.warning(f"Could not restore settings for @{account.username}: {se}")
-
-        # Set handler to return user-entered code
-        cl.challenge_code_handler = lambda u, c=None: code
-
-        success = False
-        last_error = None
-
-        # 1. First attempt: If last_json was saved with a pending contact challenge
-        if last_json and isinstance(last_json, dict) and "challenge" in last_json:
-            try:
-                logger.info(f"Attempting challenge_resolve from saved last_json for @{account.username} with code {code}...")
-                cl.last_json = last_json
-                if cl.challenge_resolve(last_json):
-                    success = True
-                    logger.info(f"challenge_resolve succeeded for @{account.username}")
-            except Exception as ce1:
-                last_error = ce1
-                logger.warning(f"challenge_resolve using saved last_json failed: {ce1}")
-
-        # 2. Second attempt: Direct login with verification_code (handles Bloks 2FA / TOTP / SMS 2FA)
-        if not success:
-            try:
-                logger.info(f"Attempting cl.login(verification_code='{code}') for @{account.username}...")
-                cl.login(account.username, account.password, verification_code=code)
-                success = True
-                logger.info(f"cl.login with verification_code succeeded for @{account.username}")
-            except Exception as le:
-                last_error = le
-                logger.warning(f"cl.login with verification_code failed: {le}")
-
-                # 3. Third attempt: If login triggered challenge_required and cl.last_json has challenge
-                cl_last = getattr(cl, "last_json", None)
-                if isinstance(cl_last, dict) and "challenge" in cl_last:
-                    try:
-                        logger.info(f"Attempting challenge_resolve with newly received challenge for @{account.username}...")
-                        if cl.challenge_resolve(cl_last):
-                            success = True
-                            logger.info(f"challenge_resolve with new challenge succeeded for @{account.username}")
-                    except Exception as ce2:
-                        last_error = ce2
-                        logger.warning(f"challenge_resolve retry failed: {ce2}")
-
-        if not success:
-            err_str = str(last_error or "کد تایید وارد شده نامعتبر یا منقضی است.")
-            account.status_message = f"کد رد شد: {err_str}"[:250]
-            account.save(update_fields=["status_message"])
-            return JsonResponse({
-                "success": False,
-                "status": account.status,
-                "message": f"خطا در تایید کد امنیتی: {err_str}",
-            })
-
-        # Successful verification -> verify feed and save session
-        try:
-            cl.get_timeline_feed()
-        except Exception as fe:
-            logger.debug(f"Feed test after verification: {fe}")
-
-        new_settings = cl.get_settings()
-        account.session_json = new_settings
-        account.device_settings = account_device_settings(account, client_settings=new_settings)
-        account.status = "ACTIVE"
-        account.status_message = ""
-        account.cooldown_until = None
-        account.save(update_fields=["session_json", "device_settings", "status", "status_message", "cooldown_until"])
-
-        return JsonResponse({
-            "success": True,
-            "status": "ACTIVE",
-            "message": f"اکانت @{account.username} با موفقیت تایید و سشن دائمی آن فعال شد!",
-        })
-    except Exception as exc:
-        logger.warning(f"Failed verification for @{account.username}: {exc}")
-        return JsonResponse({
-            "success": False,
-            "status": account.status,
-            "message": f"خطا در ثبت کد تایید: {exc}",
-        })
+    res = svc.submit_code(account, raw_code, actor=_ig_actor(request), wait=25)
+    account.refresh_from_db()
+    out = res.as_dict()
+    out["status"] = account.status
+    return JsonResponse(out)
 
 
 @manage_access_required
@@ -2330,7 +1745,7 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
 
     cl = Client()
     cl.delay_range = [0.3, 0.8]
-    if account.proxy_url:
+    if account.clean_proxy:   # its own proxy / system config, else the shared pool (never the server's IP)
         cl.set_proxy(account.clean_proxy)
 
     try:

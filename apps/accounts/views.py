@@ -318,8 +318,6 @@ def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, 
 @login_required
 def outreach_view(request):
     """Business owner's dedicated Instagram Outreach & Sender Management page."""
-    import json
-    from pathlib import Path
     from apps.businesses.models import Business
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 
@@ -388,42 +386,25 @@ def outreach_view(request):
         lead.thread = get_lead_conversation_thread(lead)
         lead.captured_phone = _captured_phone_for_lead(lead, lead.thread, customer_phones)
 
-    # Load pitch configuration
-    config_path = Path("data/sarv_outreach_config.json")
-    sender_pitches = {}
-    if config_path.exists():
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            sender_pitches = cfg.get("sender_pitches", {})
-        except Exception:
-            pass
+    # One consultant name + pitch per customer (tenant), used by all of its senders (ig_accounts.tenant_pitch:
+    # its profile, else the legacy per-username pitch of data/sarv_outreach_config.json)
+    from apps.discovery.ig_accounts import tenant_pitch
 
-    # Attach pitch info to account objects for display
-    account_list = []
-    for acc in accounts:
-        pitch = sender_pitches.get(acc.username) or sender_pitches.get(acc.username.lower(), {})
-        account_list.append({
-            "obj": acc,
-            "consultant_name": pitch.get("consultant_name", acc.username),
-            "template": pitch.get("template", ""),
-        })
-
-    # Pick default active pitch template
-    default_pitch = ""
-    default_consultant = ""
-    default_username = ""
-    if account_list:
-        default_pitch = account_list[0]["template"]
-        default_consultant = account_list[0]["consultant_name"]
-        default_username = account_list[0]["obj"].username
-    elif business.id == 4:
+    accounts = list(accounts)
+    pitch = tenant_pitch(tenant_key, [acc.username for acc in accounts])
+    account_list = [{"obj": acc, "consultant_name": pitch["consultant_name"] or acc.username,
+                     "template": pitch["pitch_template"]} for acc in accounts]
+    default_pitch = pitch["pitch_template"]
+    default_consultant = pitch["consultant_name"] or (accounts[0].username if accounts else "")
+    default_username = accounts[0].username if accounts else ""
+    if not default_pitch and business.id == 4:
         default_pitch = (
             "درود بر شما \n"
             "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
             "میتونید هر سوالی دارید از بنده بپرسید. \n"
             "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
         )
-        default_consultant = "مشاور دندان‌پزشکی"
+        default_consultant = pitch["consultant_name"] or "مشاور دندان‌پزشکی"
 
     # Top-Scoring Prioritized Leads (Ranked by 35-point scoring: Public + Intent + Freshness)
     from django.db.models import Q
@@ -481,186 +462,86 @@ def outreach_view(request):
     })
 
 
+def _staff(user) -> bool:
+    return bool(user.is_staff or user.is_superuser)
+
+
+def _outreach_redirect(request, business_id=None):
+    url = reverse("accounts:outreach")
+    return redirect(url + (f"?biz={business_id}" if business_id and _staff(request.user) else ""))
+
+
 @login_required
 @require_POST
 def save_pitch_view(request):
-    """Save custom consultant DM pitch template for a sender account."""
-    import json
-    from pathlib import Path
+    """Saves the customer's consultant name and cold-DM pitch: one per customer, used by all of its senders.
+    A customer edits only its own; staff pick the customer (biz, or the tenant of a sender username)."""
+    from apps.businesses.models import Business
+    from apps.discovery import ig_accounts as svc
+    from apps.discovery.models import InstagramEngineAccount
 
     business = getattr(request.user, "business", None)
+    if _staff(request.user):
+        biz = (request.POST.get("biz") or "").strip()
+        username = (request.POST.get("username") or "").strip().lstrip("@")
+        if biz.isdigit():
+            business = Business.objects.filter(pk=int(biz)).first() or business
+        elif username:
+            acc = InstagramEngineAccount.objects.filter(username__iexact=username).first()
+            tid = svc.canonical_tenant(acc.tenant_id) if acc else ""
+            if tid.startswith("tenant_") and tid[7:].isdigit():
+                business = Business.objects.filter(pk=int(tid[7:])).first() or business
     if not business:
         messages.error(request, "دسترسی غیرمجاز.")
         return redirect("accounts:dashboard")
 
-    username = request.POST.get("username", "").strip()
-    consultant_name = request.POST.get("consultant_name", "").strip() or username
-    template = request.POST.get("template", "").strip()
-
+    template = (request.POST.get("template") or "").strip()
     if not template:
         messages.error(request, "متن پیام نمی‌تواند خالی باشد.")
-        return redirect("accounts:outreach")
-
-    config_path = Path("data/sarv_outreach_config.json")
-    cfg = {}
-    if config_path.exists():
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception:
-            cfg = {}
-
-    if "sender_pitches" not in cfg:
-        cfg["sender_pitches"] = {}
-
-    cfg["sender_pitches"][username] = {
-        "consultant_name": consultant_name,
-        "consultant_role": f"مشاور و پشتیبانی {business.name}",
-        "template": template,
-        "guardrails_validated": True,
-    }
-
-    config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    messages.success(request, f"الگوی پیام دایرکت برای اکانت @{username} (مشاور: {consultant_name}) با موفقیت ذخیره شد.")
-    return redirect("accounts:outreach")
+        return _outreach_redirect(request, business.id)
+    consultant_name = (request.POST.get("consultant_name") or "").strip()
+    svc.save_tenant_profile(f"tenant_{business.id}", consultant_name=consultant_name,
+                            consultant_role=f"مشاور و پشتیبانی {business.name}", pitch_template=template)
+    who = f" (مشاور: {consultant_name})" if consultant_name else ""
+    messages.success(request, f"پیام دایرکت «{business.name}»{who} ذخیره شد؛ همه‌ی اکانت‌های فرستنده‌ی این کسب‌وکار "
+                              "از همین پیام استفاده می‌کنند.")
+    return _outreach_redirect(request, business.id)
 
 
 @login_required
 @require_POST
 def add_outreach_account_view(request):
-    """Connect a new Instagram sender account for the business (restricted to staff/superusers)."""
-    if not (request.user.is_staff or request.user.is_superuser):
+    """Staff only: adds a sender for the business shown on the outreach page and logs it in; the login continues on
+    the account page (/manage/instagram/accounts/<id>/settings/), where Instagram's code is typed if it asks."""
+    if not _staff(request.user):
         messages.error(request, "افزودن و اتصال اکانت اینستاگرام فقط توسط مدیران و پرسنل سیستم مجاز است.")
         return redirect("accounts:outreach")
-
-    import re
-    import json
-    from pathlib import Path
-    from apps.discovery.models import InstagramEngineAccount
+    from apps.businesses.models import Business
+    from apps.discovery import ig_accounts as svc
 
     business = getattr(request.user, "business", None)
-    if not business:
-        messages.error(request, "دسترسی غیرمجاز.")
-        return redirect("accounts:dashboard")
-
-    target_tenant = request.POST.get("tenant_id", "").strip()
-    if request.user.is_superuser and target_tenant:
-        tenant_key = target_tenant
-    else:
-        tenant_key = f"tenant_{business.id}"
-
-    username = request.POST.get("username", "").strip().lstrip("@")
-    password = request.POST.get("password", "").strip()
-    sessionid = request.POST.get("sessionid", "").strip()
-    consultant_name = request.POST.get("consultant_name", "").strip() or username
-    pitch_template = request.POST.get("pitch_template", "").strip()
-    account_tier = request.POST.get("account_tier", "NEW").strip()
-    custom_daily = request.POST.get("daily_limit", "").strip()
-
-    if not username:
-        messages.error(request, "نام کاربری اینستاگرام الزامی است.")
+    biz = (request.POST.get("biz") or "").strip()
+    if biz.isdigit():
+        business = Business.objects.filter(pk=int(biz)).first() or business
+    tenant_key = (request.POST.get("tenant_id") or "").strip() if request.user.is_superuser else ""
+    tenant_key = tenant_key or (f"tenant_{business.id}" if business else "")
+    if not tenant_key:
+        messages.error(request, "کسب‌وکار این اکانت مشخص نیست.")
         return redirect("accounts:outreach")
 
-    from apps.discovery.outreach_service import get_tier_specs
-    tier_specs = get_tier_specs(account_tier)
-    daily_lim = int(custom_daily) if custom_daily.isdigit() else tier_specs["default_daily"]
-    hourly_lim = tier_specs["hourly_speed"]
-
-    # Clean sessionid cookie if user pasted full cookie string
-    if "sessionid=" in sessionid:
-        m = re.search(r"sessionid=([^;\s]+)", sessionid)
-        if m:
-            sessionid = m.group(1).strip()
-    sessionid = sessionid.strip('"').strip("'").strip(";").strip()
-
-    account = InstagramEngineAccount.objects.filter(username__iexact=username).first()
-    if not account:
-        account = InstagramEngineAccount.objects.create(
-            username=username,
-            password=password or "stored_session",
-            role="SENDER",
-            tenant_id=tenant_key,
-            account_tier=account_tier,
-            daily_limit=daily_lim,
-            hourly_limit=hourly_lim,
-            status="ACTIVE",
-            status_message=f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})",
-        )
-    else:
-        account.role = "SENDER"
-        account.tenant_id = tenant_key
-        account.account_tier = account_tier
-        account.daily_limit = daily_lim
-        account.hourly_limit = hourly_lim
-        account.status = "ACTIVE"
-        if password:
-            account.password = password
-        account.save()
-
-    # Attempt connection with instagrapi
-    try:
-        from instagrapi import Client
-        from apps.discovery.device_emulator import (account_device_settings, apply_device_profile_to_client,
-                                                   ensure_account_device_profile)
-
-        cl = Client()
-        # Keep a proxy the account already has; the shared default is only for accounts without one
-        proxy_url = account.proxy_url or "socks5h://xray:1080"
-        account.proxy_url = proxy_url
-        cl.set_proxy(account.clean_proxy)
-
-        ensure_account_device_profile(account)
-        apply_device_profile_to_client(cl, account)
-
-        if sessionid:
-            cl.login_by_sessionid(sessionid)
-            settings_data = cl.get_settings()
-            account.session_json = settings_data
-        elif password:
-            cl.login(username, password)
-            account.session_json = cl.get_settings()
-        else:
-            messages.error(request, "لطفاً کوکی sessionid یا کلمه عبور را وارد فرمایید.")
-            return redirect("accounts:outreach")
-
-        account.device_settings = account_device_settings(account, client_settings=account.session_json)
-        account.status = "ACTIVE"
-        account.status_message = f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})"
-        account.save()
-
-        # Save pitch in config
-        config_path = Path("data/sarv_outreach_config.json")
-        cfg = {}
-        if config_path.exists():
-            try:
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        if "sender_pitches" not in cfg:
-            cfg["sender_pitches"] = {}
-        if pitch_template:
-            cfg["sender_pitches"][username] = {
-                "consultant_name": consultant_name,
-                "consultant_role": f"مشاور و پشتیبانی {business.name}",
-                "template": pitch_template,
-                "guardrails_validated": True,
-            }
-            config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-        messages.success(request, f"اکانت فرستنده @{username} با موفقیت به مجموعه {business.name} متصل و فعال شد! (رده: {tier_specs['title']} | سقف روزانه: {daily_lim} پیام)")
-    except Exception as exc:
-        logger.exception("Error adding outreach sender account: %s", exc)
-        # Even if instant online verification fails due to network, save account so credentials persist
-        if sessionid:
-            m_uid = re.search(r"^\d+", sessionid)
-            uid = m_uid.group() if m_uid else ""
-            account.session_json = {"cookies": {"sessionid": sessionid, "ds_user_id": uid}}
-            account.proxy_url = "socks5h://xray:1080"
-            account.save()
-            messages.warning(request, f"اکانت @{username} با کوکی سشن ذخیره شد. پیام اتصال: {exc}")
-        else:
-            messages.error(request, f"خطا در احراز هویت اینستاگرام: {exc}")
-
-    return redirect("accounts:outreach")
+    acc, res = svc.add_account(
+        username=request.POST.get("username", ""), password=request.POST.get("password", ""),
+        sessionid=request.POST.get("sessionid", ""), role="SENDER", tenant_id=tenant_key,
+        account_tier=request.POST.get("account_tier") or "NEW", daily_limit=request.POST.get("daily_limit"),
+        proxy="system", actor=request.user.get_username(), login=True)
+    if acc is None:
+        messages.error(request, res.message)
+        return _outreach_redirect(request, business.id if business else None)
+    svc.save_tenant_profile(tenant_key, consultant_name=request.POST.get("consultant_name", ""),
+                            consultant_role=f"مشاور و پشتیبانی {business.name}" if business else "",
+                            pitch_template=request.POST.get("pitch_template", ""), only_empty=True)
+    (messages.success if res.ok else messages.warning)(request, res.message)
+    return redirect(reverse("manage:ig_account_detail", args=[acc.pk]) + "#login")
 
 
 @login_required
@@ -893,145 +774,28 @@ def update_lead_phone_view(request):
 @login_required
 @require_POST
 def edit_outreach_account_view(request, pk):
-    """
-    Business owner or staff edits session cookie, consultant name, tier, daily limit, password.
-    """
-    import re
-    import json
-    from pathlib import Path
+    """Staff only (customers do not edit Instagram accounts; they edit their pitch): same as the dashboard editor."""
+    from apps.billing.manage_views import ig_edit_sender
     from apps.discovery.models import InstagramEngineAccount
-    from apps.discovery.outreach_service import get_tier_specs
-    from instagrapi import Client
-    from apps.discovery.device_emulator import (account_device_settings, apply_device_profile_to_client,
-                                                   ensure_account_device_profile)
 
-    business = getattr(request.user, "business", None)
-    if not business and not request.user.is_superuser:
-        return JsonResponse({"success": False, "message": "دسترسی غیرمجاز."}, status=403)
-
-    account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    if not request.user.is_superuser:
-        b_tenants = [f"tenant_{business.id}"]
-        if business.id == 4:
-            b_tenants.append("sarv")
-        if account.tenant_id not in b_tenants:
-            return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
-
-    sessionid = (request.POST.get("sessionid") or "").strip()
-    password = (request.POST.get("password") or "").strip()
-    consultant_name = (request.POST.get("consultant_name") or "").strip()
-    account_tier = (request.POST.get("account_tier") or "").strip()
-    daily_limit = (request.POST.get("daily_limit") or "").strip()
-    clear_cooldown = request.POST.get("clear_cooldown") in ("1", "true", "True", "on")
-
-    updated_fields = []
-
-    if password:
-        account.password = password
-        updated_fields.append("password")
-
-    if account_tier in ("NEW", "MEDIUM", "AGED"):
-        account.account_tier = account_tier
-        tier_specs = get_tier_specs(account_tier)
-        account.hourly_limit = tier_specs["hourly_speed"]
-        updated_fields.extend(["account_tier", "hourly_limit"])
-
-    if daily_limit and daily_limit.isdigit():
-        account.daily_limit = int(daily_limit)
-        updated_fields.append("daily_limit")
-
-    if clear_cooldown:
-        account.cooldown_until = None
-        account.status = "ACTIVE"
-        account.status_message = "رفع محدودیت دستی انجام شد"
-        updated_fields.extend(["cooldown_until", "status", "status_message"])
-
-    # Update session cookie if provided
-    session_success = False
-    if sessionid:
-        if "sessionid=" in sessionid:
-            m = re.search(r"sessionid=([^;\s]+)", sessionid)
-            if m:
-                sessionid = m.group(1).strip()
-        sessionid = sessionid.strip('"').strip("'").strip(";").strip()
-
-        cl = Client()
-        if not account.proxy_url:  # log in through the proxy the workers will use afterwards
-            account.proxy_url = "socks5h://xray:1080"
-            updated_fields.append("proxy_url")
-        cl.set_proxy(account.clean_proxy)
-
-        ensure_account_device_profile(account)
-        try:
-            apply_device_profile_to_client(cl, account)
-            cl.login_by_sessionid(sessionid)
-            settings = cl.get_settings()
-            account.session_json = settings
-            account.device_settings = account_device_settings(account, client_settings=settings)
-            account.status = "ACTIVE"
-            account.cooldown_until = None
-            account.status_message = "سشن جدید با موفقیت فعال شد"
-            updated_fields.extend(["session_json", "device_settings", "status", "status_message", "cooldown_until"])
-            session_success = True
-        except Exception as exc:
-            m_uid = re.search(r"^\d+", sessionid)
-            uid = m_uid.group() if m_uid else ""
-            account.session_json = {"cookies": {"sessionid": sessionid, "ds_user_id": uid}}
-            account.status = "ACTIVE"
-            account.cooldown_until = None
-            account.status_message = "کوکی ذخیره شد"
-            updated_fields.extend(["session_json", "status", "status_message", "cooldown_until"])
-
-    if updated_fields:
-        account.save(update_fields=list(set(updated_fields)))
-
-    if consultant_name:
-        config_path = Path("data/sarv_outreach_config.json")
-        cfg = {}
-        if config_path.exists():
-            try:
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        if "sender_pitches" not in cfg:
-            cfg["sender_pitches"] = {}
-        if account.username not in cfg["sender_pitches"]:
-            cfg["sender_pitches"][account.username] = {}
-        cfg["sender_pitches"][account.username]["consultant_name"] = consultant_name
-        config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-    return JsonResponse({
-        "success": True,
-        "message": f"اطلاعات و سشن اکانت @{account.username} با موفقیت به‌روزرسانی شد.",
-        "status": account.status,
-    })
+    if not _staff(request.user):
+        return JsonResponse({"success": False, "message": "ویرایش اکانت‌های اینستاگرام فقط توسط پشتیبانی انجام می‌شود."},
+                            status=403)
+    account = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
+    return JsonResponse(ig_edit_sender(account, request.POST, request.user.get_username()))
 
 
 @login_required
 @require_POST
 def clear_outreach_cooldown_view(request, pk):
-    """Clears cooldown and activates sender account for business owner."""
-    business = getattr(request.user, "business", None)
-    if not business and not request.user.is_superuser:
-        return JsonResponse({"success": False, "message": "دسترسی غیرمجاز."}, status=403)
+    """Staff only: ends a protective rest early (an account that needs a login/code stays as it is)."""
+    from apps.discovery import ig_accounts as svc
 
+    if not _staff(request.user):
+        return JsonResponse({"success": False, "message": "این کار فقط توسط پشتیبانی انجام می‌شود."}, status=403)
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-    if not request.user.is_superuser:
-        b_tenants = [f"tenant_{business.id}"]
-        if business.id == 4:
-            b_tenants.append("sarv")
-        if account.tenant_id not in b_tenants:
-            return JsonResponse({"success": False, "message": "این اکانت متعلق به کسب‌وکار شما نیست."}, status=403)
-
-    account.cooldown_until = None
-    account.status = "ACTIVE"
-    account.status_message = "آماده به کار (استراحت دستی لغو شد)"
-    account.save(update_fields=["cooldown_until", "status", "status_message"])
-
-    return JsonResponse({
-        "success": True,
-        "message": f"محدودیت و استراحت اکانت @{account.username} برداشته شد و فعال گردید.",
-    })
+    res = svc.clear_cooldown(account, actor=request.user.get_username())
+    return JsonResponse({"success": True, "message": res.message, "status": account.status})
 
 
 def request_activation_view(request):

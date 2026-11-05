@@ -173,112 +173,29 @@
   <!-- Right Column: Add Sender Account Form with Dealism Tiers + Tutorial -->
   <div>
     {% if request.user.is_staff or request.user.is_superuser %}
-    <!-- Add Account Card (Restricted to Staff and Superusers) -->
+    <!-- Staff: Instagram accounts are managed in one place (/manage/instagram/accounts/) -->
     <div class="p-card" style="padding:22px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:20px;">
       <h2 style="margin:0 0 8px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#2563eb" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-        افزودن اکانت فرستنده اینستاگرام
+        اکانت‌های فرستنده‌ی {{ business.name }}
       </h2>
-      <p style="font-size:0.84rem; color:var(--panel-text-muted); margin:0 0 16px;">
-        مشخصات اکانت را وارد کرده و سن/رده آن را طبق الگوریتم نرخ ایمن مشخص کنید.
+      <p style="font-size:0.84rem; color:var(--panel-text-muted); margin:0 0 16px; line-height:1.7;">
+        افزودن اکانت، ورود و ثبت کد تأیید، اتصال و کانفیگ/QR، توقف و تاریخچه‌ی هر اکانت یک‌جا در پنل مدیریت انجام می‌شود.
       </p>
-
-      <form method="POST" action="{% url 'accounts:add_outreach_account' %}">
-        {% csrf_token %}
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام کاربری اینستاگرام (Username)*</label>
-          <input type="text" name="username" required dir="ltr" placeholder="مثال: dental.clinic.sarv"
-                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-family:monospace; direction:ltr;">
-        </div>
-
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام و عنوان مشاور (نمایش در پیام)*</label>
-          <input type="text" name="consultant_name" required placeholder="مثال: رها، پنیا، دکتر سرو، مشاور درمان"
-                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px;">
-        </div>
-
-        <!-- Dealism Account Tier Selector -->
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">
-            سن و رده اکانت اینستاگرام (تعیین سرعت و سقف مجاز Dealism)*
-          </label>
-          <select name="account_tier" id="tier-select" onchange="onTierChange(this.value)"
-                  style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-weight:600;">
-            <option value="NEW" selected>اکانت جدید (زیر ۳ ماه) — ۱۰ تا ۲۰ پیام در روز | ۲ تا ۳ پیام در ساعت</option>
-            <option value="MEDIUM">اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰ تا ۵۰ پیام در روز | ۵ تا ۱۰ پیام در ساعت</option>
-            <option value="AGED">اکانت قدیمی و فعال (بالای ۱ سال) — ۵۰ تا ۱۰۰ پیام در روز | ۱۰ تا ۱۵ پیام در ساعت</option>
-          </select>
-          <small style="color:var(--panel-text-muted); font-size:0.74rem; display:block; margin-top:4px;">
-            الگوریتم بر اساس سن اکانت، وقفه بین پیام‌ها (از ۴ دقیقه تا ۳۰ دقیقه) را به طور خودکار تنظیم می‌کند.
-          </small>
-        </div>
-
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">
-            سقف ارسال روزانه پیام (Daily Limit)
-          </label>
-          <input type="number" name="daily_limit" id="daily-limit-input" value="15" min="5" max="100"
-                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px;">
-          <small style="color:var(--panel-text-muted); font-size:0.74rem; display:block; margin-top:2px;">
-            پیش‌فرض برای اکانت جدید: ۱۵ پیام | متوسط: ۴۰ پیام | قدیمی: ۷۵ پیام
-          </small>
-        </div>
-
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">
-            کوکی سشن (sessionid)
-            <span style="font-weight:400; color:#10b981; font-size:0.75rem;">(روش پیشنهادی و امن بدون نیاز به کد پیامک)</span>
-          </label>
-          <input type="text" name="sessionid" dir="ltr" placeholder="مقدار کوکی sessionid از اینستاگرام وب"
-                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-family:monospace; direction:ltr; font-size:0.82rem;">
-        </div>
-
-        <div style="margin-bottom:16px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">کلمه عبور اکانت (اختیاری جهت پشتیبان)</label>
-          <input type="password" name="password" dir="ltr" placeholder="رمز عبور حساب اینستاگرام"
-                 style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; direction:ltr;">
-        </div>
-
-        <button type="submit" class="p-btn p-btn-primary" style="width:100%; padding:10px; font-weight:700; border-radius:8px;">
-          اتصال و فعال‌سازی اکانت فرستنده
-        </button>
-      </form>
-    </div>
-    {% endif %}
-
-    <!-- Step-by-Step sessionid Tutorial Box -->
-    <div class="p-card" style="padding:20px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0;">
-      <h3 style="margin:0 0 10px; font-size:0.98rem; display:flex; align-items:center; gap:8px; color:#1e293b;">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-        آموزش ساده استخراج کوکی sessionid از مرورگر
-      </h3>
-      <p style="font-size:0.8rem; color:#64748b; margin:0 0 14px; line-height:1.6;">
-        جهت اتصال پایدار ربات بدون چالش رمز یا کد تایید، مقدار sessionid مرورگر را کپی کنید:
-      </p>
-
-      <div style="display:flex; flex-direction:column; gap:10px; font-size:0.82rem;">
-        <div style="display:flex; align-items:flex-start; gap:10px;">
-          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۱</span>
-          <div>در مرورگر وارد <a href="https://instagram.com" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb;">instagram.com</a> شده و لاگین کنید.</div>
-        </div>
-        <div style="display:flex; align-items:flex-start; gap:10px;">
-          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۲</span>
-          <div>کلید <kbd style="background:#e2e8f0; border:1px solid #cbd5e1; border-radius:4px; padding:2px 6px; font-family:monospace; font-weight:700;">F12</kbd> کیبورد را بزنید.</div>
-        </div>
-        <div style="display:flex; align-items:flex-start; gap:10px;">
-          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۳</span>
-          <div>به تب <strong>Application</strong> (یا <strong>Storage</strong>) بروید.</div>
-        </div>
-        <div style="display:flex; align-items:flex-start; gap:10px;">
-          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۴</span>
-          <div>از منوی سمت چپ، بخش <strong>Cookies</strong> و سپس دامنه <strong>https://www.instagram.com</strong> را انتخاب کنید.</div>
-        </div>
-        <div style="display:flex; align-items:flex-start; gap:10px;">
-          <span style="background:#2563eb; color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">۵</span>
-          <div>سطر <code style="background:#fef08a; padding:1px 6px; border-radius:3px; font-weight:700;">sessionid</code> را پیدا کرده و مقدار Value آن را کپی کنید.</div>
-        </div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <a class="p-btn p-btn-primary" style="text-align:center; padding:10px; font-weight:700; border-radius:8px;" href="{% url 'manage:ig_accounts' %}?tenant=tenant_{{ business.id }}#add">افزودن اکانت فرستنده برای این کسب‌وکار</a>
+        <a class="p-btn" style="text-align:center; padding:9px; border-radius:8px;" href="{% url 'manage:ig_accounts' %}?tenant=tenant_{{ business.id }}">مدیریت اکانت‌های این کسب‌وکار</a>
       </div>
     </div>
+    {% else %}
+    <div class="p-card" style="padding:20px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:20px;">
+      <h2 style="margin:0 0 8px; font-size:1.02rem;">اکانت‌های فرستنده</h2>
+      <p style="font-size:0.84rem; color:var(--panel-text-muted); margin:0; line-height:1.8;">
+        اکانت‌های اینستاگرامی که از طرف شما پیام می‌فرستند را پشتیبانی وصل و نگهداری می‌کند (ورود، کد تأیید، پروکسی و استراحت‌ها).
+        برای افزودن یا تغییر اکانت با پشتیبانی هماهنگ کنید. نام مشاور و متن پیام را خودتان از همین صفحه تنظیم می‌کنید.
+      </p>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Left Column: AI Smart Pitch Task Box + Human Review/Edit + Chat Preview -->
@@ -334,22 +251,13 @@
       <!-- Human Edit & Save Pitch Form -->
       <form method="POST" action="{% url 'accounts:save_pitch' %}">
         {% csrf_token %}
-        <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">انتخاب اکانت فرستنده</label>
-          <select name="username" id="sender-select" onchange="updatePitchEditor(this.value)"
-                  style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px; font-weight:600;">
-            {% for a in accounts %}
-            <option value="{{ a.obj.username }}" data-consultant="{{ a.consultant_name }}" data-template="{{ a.template|escapejs }}">
-              @{{ a.obj.username }} (مشاور: {{ a.consultant_name }})
-            </option>
-            {% empty %}
-            <option value="default">اکانت پیش‌فرض</option>
-            {% endfor %}
-          </select>
+        {% if request.user.is_staff or request.user.is_superuser %}<input type="hidden" name="biz" value="{{ business.id }}">{% endif %}
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:9px 12px; margin-bottom:12px; font-size:0.8rem; color:#475569; line-height:1.7;">
+          این نام مشاور و پیام برای <strong>همه‌ی اکانت‌های فرستنده‌ی {{ business.name }}</strong> استفاده می‌شود{% if accounts %} ({{ accounts|length }} اکانت){% endif %}.
         </div>
 
         <div style="margin-bottom:12px;">
-          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام مشاور در این پیام</label>
+          <label style="font-weight:600; font-size:0.84rem; display:block; margin-bottom:4px;">نام مشاور (در پیام همه‌ی فرستنده‌ها)</label>
           <input type="text" name="consultant_name" id="consultant-input" value="{{ default_consultant }}"
                  style="width:100%; padding:9px 12px; border:1px solid var(--panel-border); border-radius:8px;">
         </div>
@@ -964,24 +872,18 @@
             </td>
             <td style="padding:12px; text-align:center; white-space:nowrap;">
               <div style="display:flex; gap:6px; justify-content:center; flex-wrap:wrap;">
-                <button type="button" class="p-btn sm" onclick="openOutreachEditModal({{ a.obj.id }}, '{{ a.obj.username }}', '{{ a.obj.account_tier|default:'NEW' }}', {{ a.obj.daily_limit|default:18 }}, '{{ a.consultant_name|escapejs }}', '{{ a.obj.status }}')"
-                        style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
-                        title="ویرایش کوکی سشن و تنظیمات">
-                  ویرایش سشن ⚙️
-                </button>
-                {% if a.obj.cooldown_until or a.obj.status == 'COOLDOWN' or a.obj.status == 'CHALLENGED' %}
-                <button type="button" class="p-btn sm" onclick="clearOutreachCooldown({{ a.obj.id }}, '{{ a.obj.username }}')"
-                        id="outreach-clear-btn-{{ a.obj.id }}"
-                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
-                        title="رفع محدودیت و استراحت فوری">
-                  رفع محدودیت ⚡
-                </button>
+                {% if request.user.is_staff or request.user.is_superuser %}
+                <a class="p-btn sm" href="{% url 'manage:ig_account_detail' a.obj.id %}"
+                   style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:5px 10px; font-size:0.78rem; font-weight:700; border-radius:6px;"
+                   title="ورود و کد، اتصال و کانفیگ، توقف و تاریخچه‌ی این اکانت">مدیریت اکانت ⚙️</a>
+                {% else %}
+                <span style="font-size:0.76rem; color:var(--panel-text-muted);">با پشتیبانی</span>
                 {% endif %}
               </div>
             </td>
           </tr>
           {% empty %}
-          <tr><td colspan="9" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است. از فرم بالا اضافه کنید.</td></tr>
+          <tr><td colspan="9" class="text-center muted" style="padding:24px; text-align:center;">هنوز اکانت فرستنده‌ای برای این کسب‌وکار ثبت نشده است.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -1079,6 +981,7 @@
 <script>
   function onTierChange(val) {
     const dailyInput = document.getElementById('daily-limit-input');
+    if (!dailyInput) return;
     if (val === 'NEW') {
       dailyInput.value = '15';
     } else if (val === 'MEDIUM') {
@@ -1090,6 +993,7 @@
 
   function updatePitchEditor(username) {
     const select = document.getElementById('sender-select');
+    if (!select || select.selectedIndex < 0) return;   // one pitch per customer: no per-sender picker any more
     const selectedOption = select.options[select.selectedIndex];
     const consultant = selectedOption.getAttribute('data-consultant') || '';
     const template = selectedOption.getAttribute('data-template') || '';

@@ -96,16 +96,20 @@ def _error_matches(exc_str: str, markers: Tuple[str, ...]) -> bool:
 
 
 def load_outreach_config() -> dict:
+    """data/sarv_outreach_config.json merged over the built-in pitches (legacy per-username pitches; the customer's
+    OutreachTenantProfile comes first, see _pitch_for)."""
     pitches = dict(DEFAULT_SENDER_PITCHES)
+    cfg: dict = {}
     if CONFIG_FILE.exists():
         try:
             cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            for u, p in cfg.get("sender_pitches", {}).items():
-                pitches[u.lower()] = p
-            return cfg
+            for u, p in (cfg.get("sender_pitches") or {}).items():
+                if isinstance(p, dict):
+                    pitches[str(u).lower()] = p
         except Exception as exc:
             logger.warning(f"Could not load {CONFIG_FILE}: {exc}")
-    return {"sender_pitches": pitches}
+            cfg = {}
+    return {**cfg, "sender_pitches": pitches}
 
 
 # ---------------------------------------------------------------------------
@@ -203,9 +207,10 @@ def refresh_sender_states(tenant_ids: List[str], log: Callable[[str], None] = lo
     )
     for acc in expired:
         acc.status = "ACTIVE"
+        acc.status_reason = ""
         acc.cooldown_until = None
         acc.status_message = "پایان دوره استراحت موقت - بازگشت خودکار به مدار ارسال دایرکت"
-        acc.save(update_fields=["status", "cooldown_until", "status_message"])
+        acc.save(update_fields=["status", "status_reason", "cooldown_until", "status_message"])
         log(f"🟢 [بازیابی خودکار اکانت]: دوره استراحت @{acc.username} به پایان رسید و به مدار ارسال بازگشت.")
 
 
@@ -279,13 +284,18 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
     """Take a failing sender out of rotation for the right amount of time; the other senders keep working."""
     now = timezone.now()
     short = (error_text or "")[:50]
+    from apps.discovery.ig_accounts import log_event
+
     if kind in ("challenge", "session"):
         sender.status = "CHALLENGED"
+        sender.status_reason = "needs_code" if kind == "challenge" else "session_expired"
         sender.status_message = (
             "نیازمند حل چالش امنیتی اینستاگرام" if kind == "challenge"
             else "سشن اینستاگرام منقضی شده است (نیاز به لاگین مجدد یا ثبت کوکی sessionid جدید)"
         )
-        sender.save(update_fields=["status", "status_message"])
+        sender.save(update_fields=["status", "status_reason", "status_message"])
+        log_event(sender, "challenge" if kind == "challenge" else "session_expired", sender.status_message,
+                  {"error": short}, "outreach")
         log(f"   ⚠️ اکانت @{sender.username} ({kind}) از مدار ارسال خارج شد.")
     elif kind == "proxy":
         if getattr(sender, "proxy_rotation_url", None):
@@ -297,17 +307,21 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
                 log(f"   ⚠️ چرخش IP ناموفق بود: {rot_err}")
         sender.cooldown_until = now + timedelta(minutes=15)
         sender.status = "COOLDOWN"
+        sender.status_reason = "proxy_down"
         sender.status_message = f"خطای اتصال پروکسی ({short}) - استراحت ۱۵ دقیقه‌ای"
-        sender.save(update_fields=["cooldown_until", "status", "status_message"])
+        sender.save(update_fields=["cooldown_until", "status", "status_reason", "status_message"])
+        log_event(sender, "proxy_down", sender.status_message, {"error": short}, "outreach")
         log(f"   ⚠️ خطای پروکسی یا اتصال برای @{sender.username}. ۱۵ دقیقه استراحت.")
     elif kind in ("dm_block", "rate_limit"):
         sender.cooldown_until = now + timedelta(hours=3)
         sender.status = "COOLDOWN"
+        sender.status_reason = "rate_limited"
         sender.status_message = (
             "محدودیت موقت دایرکت (1404006) - استراحت ۳ ساعته" if kind == "dm_block"
             else "محدودیت موقت اینستاگرام (استراحت ۳ ساعته)"
         )
-        sender.save(update_fields=["cooldown_until", "status", "status_message"])
+        sender.save(update_fields=["cooldown_until", "status", "status_reason", "status_message"])
+        log_event(sender, "rate_limited", sender.status_message, {"error": short}, "outreach")
         log(f"   ⚠️ اکانت @{sender.username} به خاطر محدودیت اینستاگرام ({kind}) ۳ ساعت استراحت می‌کند.")
     elif kind == "unknown":
         pause_until = now + timedelta(minutes=UNKNOWN_ERROR_PAUSE_MINUTES)
@@ -437,14 +451,27 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _pitch_for(cfg: dict, sender_user: str) -> Tuple[str, str]:
+def _pitch_for(cfg: dict, sender) -> Tuple[str, str]:
+    """(consultant name, pitch template) a cold DM of `sender` speaks with.
+
+    The sender's customer (tenant) profile first (one consultant + pitch per customer, edited by the customer on
+    the outreach page); then the legacy per-username pitch of data/sarv_outreach_config.json; then the defaults.
+    `sender` is the account (or, as before, its username).
+    """
+    sender_user = sender if isinstance(sender, str) else sender.username
+    profile = {}
+    tenant = None if isinstance(sender, str) else getattr(sender, "tenant_id", None)
+    if tenant:
+        from apps.discovery.ig_accounts import tenant_profile
+        profile = tenant_profile(tenant)
     pitches = cfg.get("sender_pitches", {})
     info = (
         pitches.get(sender_user)
         or pitches.get(sender_user.lower())
         or DEFAULT_SENDER_PITCHES.get(sender_user.lower(), {})
     )
-    return info.get("consultant_name", sender_user), info.get("template", "")
+    return (profile.get("consultant_name") or info.get("consultant_name", sender_user),
+            profile.get("pitch_template") or info.get("template", ""))
 
 
 def _mark_cold_sent(lead, sender, text: str, *, pace: bool) -> Tuple[float, bool]:
@@ -483,7 +510,7 @@ def _mark_cold_sent(lead, sender, text: str, *, pace: bool) -> Tuple[float, bool
 
 
 def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
-    consultant_name, template = _pitch_for(ctx.cfg, sender.username)
+    consultant_name, template = _pitch_for(ctx.cfg, sender)
     pitch_text = build_bulletproof_message(
         pitch_template=template, lead=lead, consultant_name=consultant_name, business_name=ctx.business_name,
     )

@@ -1,4 +1,5 @@
 from django.urls import path
+from . import ig_accounts_views as igv
 from . import manage_views
 
 app_name = "manage"
@@ -28,6 +29,17 @@ urlpatterns = [
     path("proxies/channels/<int:pk>/toggle/", manage_views.manage_proxy_channel_toggle, name="proxy_channel_toggle"),
     path("proxies/channels/<int:pk>/sync/", manage_views.manage_proxy_channel_sync, name="proxy_channel_sync_single"),
     path("proxies/channels/sync-all/", manage_views.manage_proxy_channels_sync_all, name="proxy_channels_sync_all"),
+    # Instagram accounts: the one place to add / log in / connect / export / pause them
+    path("instagram/accounts/", igv.ig_accounts_list, name="ig_accounts"),
+    path("instagram/accounts/add/", igv.ig_account_add, name="ig_account_add"),
+    path("instagram/accounts/heal/", igv.ig_accounts_heal, name="ig_accounts_heal"),
+    path("instagram/accounts/configs.txt", igv.ig_accounts_configs_txt, name="ig_accounts_configs_txt"),
+    path("instagram/accounts/<int:pk>/settings/", igv.ig_account_detail, name="ig_account_detail"),
+    path("instagram/accounts/<int:pk>/login-state/", igv.ig_account_login_state, name="ig_account_login_state"),
+    path("instagram/accounts/<int:pk>/config/", igv.ig_account_config, name="ig_account_config"),
+    path("instagram/accounts/<int:pk>/config.txt", igv.ig_account_config_txt, name="ig_account_config_txt"),
+    path("instagram/accounts/<int:pk>/do/<slug:action>/", igv.ig_account_action, name="ig_account_action"),
+    path("instagram/tenants/", igv.ig_tenants, name="ig_tenants"),
     # Instagram Cockpit & Web-Client Simulator
     path("instagram/accounts/<int:pk>/", manage_views.instagram_account_cockpit, name="instagram_account_cockpit"),
     path("instagram/accounts/<int:pk>/api/threads/", manage_views.instagram_cockpit_threads, name="instagram_cockpit_threads"),

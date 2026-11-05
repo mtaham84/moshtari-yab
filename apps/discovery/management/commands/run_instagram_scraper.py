@@ -13,7 +13,6 @@ from apps.discovery.models import (
     InstagramCrawledPost,
     InstagramCrawlExecution,
 )
-from apps.discovery.device_emulator import account_device_settings
 from apps.discovery.ig_session import (
     ErrorKind, Policy, account_lock, classify, load_file, redact, save_atomic, session_path,
 )
@@ -299,14 +298,15 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
-        if account.proxy_url:
-            from apps.billing.manage_views import _test_proxy_connection
-            proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url, timeout=2.5)
+        proxy = account.clean_proxy   # its own proxy / system config, else the shared pool (never the server IP)
+        if proxy:
+            from apps.discovery.ig_accounts import proxy_reachable
+            proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
             if not proxy_ok:
                 # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
                 # (and the same IP for every account) is a far bigger risk than skipping one cycle.
                 raise ProxyUnavailable(f"proxy unreachable for @{account.username}: {proxy_msg}")
-            cl.set_proxy(account.clean_proxy)
+            cl.set_proxy(proxy)
 
         return cl
 
@@ -411,16 +411,10 @@ class Command(BaseCommand):
                 time.sleep(random.uniform(8.0, 20.0))
                 cl.login(account.username, account.password)
             except (ChallengeRequired, TwoFactorRequired) as exc:
-                # Instagram wants a code (2FA / email / SMS): hand over to the dashboard, keep the pending challenge state.
-                try:
-                    account.device_settings = account_device_settings(
-                        account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None),
-                        challenge_hint=redact(exc))
-                except Exception:
-                    pass
-                self._set_state(account, "CHALLENGED",
-                                "اینستاگرام کد تایید خواست (ایمیل/پیامک/۲FA). کد را در داشبورد /manage/ وارد کنید.",
-                                extra=["device_settings"])
+                # Instagram wants a code (2FA / email / SMS): nobody is here to type it. The operator presses
+                # «ورود» on the account page (/manage/instagram/accounts/) and types the code into that login.
+                from apps.discovery.ig_accounts import record_login_failure
+                record_login_failure(account, exc, actor="scraper")
                 self.stderr.write(f"    recovery_failed: account {account.id} needs a verification code")
                 return False
             except BadPassword as exc:

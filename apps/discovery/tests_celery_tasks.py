@@ -3,7 +3,7 @@ Unit tests for Celery distributed tasks, Redis task routing,
 and automated proxy self-healing.
 """
 from unittest.mock import MagicMock, patch
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from config.celery import app as celery_app
 from apps.discovery.tasks import (
@@ -74,37 +74,40 @@ class CeleryTaskQueueTestCase(SimpleTestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["total_added"], 4)
 
-    @patch("socket.socket")
-    @patch("apps.discovery.models.proxy.ProxyConfig.objects")
-    @patch("apps.discovery.models.instagram.InstagramEngineAccount.objects")
-    def test_task_healthcheck_heals_dead_proxy(self, mock_acc_qs, mock_proxy_qs, mock_socket_cls):
-        """
-        Verify that when a sender account's proxy is dead (socket connection fails),
-        the task automatically finds a healthy spare from ProxyConfig and swaps it!
-        """
-        # Mock socket connect failure (dead proxy)
-        mock_sock_instance = MagicMock()
-        mock_sock_instance.connect_ex.return_value = 111  # Connection refused
-        mock_socket_cls.return_value = mock_sock_instance
 
-        # Mock sender account with dead proxy
-        sender_acc = MagicMock()
-        sender_acc.username = "raha.rostamim"
-        sender_acc.proxy_url = "socks5h://xray:1095"
-        mock_acc_qs.filter.return_value = [sender_acc]
+class ProxyHealTaskTestCase(TestCase):
+    """The heal task keeps working configs with their accounts and replaces only dead ones (ig_accounts)."""
 
-        # Mock active spare proxy
-        spare_proxy = MagicMock()
-        spare_proxy.local_port = 1088
-        spare_proxy.ping_ms = 95.0
+    def test_task_healthcheck_heals_dead_proxy(self):
+        from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, ProxyConfig
 
-        mock_filter_chain = MagicMock()
-        mock_filter_chain.exclude.return_value.order_by.return_value.first.return_value = spare_proxy
-        mock_proxy_qs.filter.return_value = mock_filter_chain
+        dead = ProxyConfig.objects.create(raw_url="vless://dead@1.1.1.1:443", protocol="vless", local_port=1095,
+                                          status="ACTIVE", ping_ms=80)
+        spare = ProxyConfig.objects.create(raw_url="vless://spare@2.2.2.2:443", protocol="vless", local_port=1088,
+                                           status="ACTIVE", ping_ms=95)
+        kept = ProxyConfig.objects.create(raw_url="vless://kept@3.3.3.3:443", protocol="vless", local_port=1090,
+                                          status="ACTIVE", ping_ms=60)
+        sender = InstagramEngineAccount.objects.create(username="raha.rostamim", password="x", role="SENDER",
+                                                       proxy_url="socks5h://xray:1095", proxy_config=dead)
+        steady = InstagramEngineAccount.objects.create(username="steady.one", password="x", role="SENDER",
+                                                       proxy_url="socks5h://xray:1090", proxy_config=kept)
+        own = InstagramEngineAccount.objects.create(username="own.proxy", password="x", role="SENDER",
+                                                    proxy_url="http://u:p@5.5.5.5:8000")
+        live_ports = {1080, 1088, 1090}   # 1095 does not answer any more
+        with patch("apps.discovery.ig_accounts.port_open", side_effect=lambda host, port, timeout=1.5: port in live_ports):
+            res = task_healthcheck_and_heal_proxies()
 
-        res = task_healthcheck_and_heal_proxies()
         self.assertTrue(res["success"])
         self.assertEqual(res["healed_count"], 1)
         self.assertEqual(res["details"][0]["new_port"], 1088)
-        self.assertEqual(sender_acc.proxy_url, "socks5h://xray:1088")
-        sender_acc.save.assert_called_once()
+        sender.refresh_from_db(); steady.refresh_from_db(); own.refresh_from_db()
+        self.assertEqual((sender.proxy_config_id, sender.proxy_url), (spare.pk, "socks5h://xray:1088"))
+        self.assertEqual((steady.proxy_config_id, steady.proxy_url), (kept.pk, "socks5h://xray:1090"))
+        self.assertEqual(own.proxy_url, "http://u:p@5.5.5.5:8000")
+        self.assertTrue(InstagramAccountEvent.objects.filter(account=sender, kind="proxy_changed").exists())
+        self.assertFalse(InstagramAccountEvent.objects.filter(account=steady).exists())
+
+    def test_task_does_nothing_while_xray_is_down(self):
+        with patch("apps.discovery.ig_accounts.port_open", return_value=False):
+            res = task_healthcheck_and_heal_proxies()
+        self.assertEqual((res["success"], res.get("skipped")), (False, "xray_down"))

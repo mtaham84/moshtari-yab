@@ -255,7 +255,8 @@ def prepare_sender_proxy_before_dm(account, stdout=None, rotate: Optional[bool] 
 
     # Only inspect external egress IP if we haven't already captured it via rotation
     if not info:
-        clean_url = clean_proxy_url(account.proxy_url)
+        # Instagram accounts: the connection their clients really use (own proxy / config / shared pool)
+        clean_url = account.clean_proxy if hasattr(account, "clean_proxy") else clean_proxy_url(account.proxy_url)
         info = inspect_proxy_egress(clean_url)
 
     ip_str = info.get("ip", "نامشخص")
