@@ -128,53 +128,15 @@ def task_sync_telegram_channel_configs(max_posts: int = 15, max_add: int = 10) -
 )
 def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
     """
-    Automatic proxy healthcheck & auto-healing:
-    Probes all sender accounts' assigned proxies. If an account's proxy is dead,
-    automatically swaps it with a healthy active proxy from the pool!
+    Proxy healthcheck & healing for every Instagram account without its own proxy (ig_accounts.ensure_system_configs):
+    a config that is still ACTIVE and listening stays with its account (same IP); a dead one is replaced by a free
+    config (else the shared pool) and the move is logged on the account's timeline. Accounts with their own
+    (custom) proxy are never touched; nothing moves while xray itself is down.
     """
-    from apps.discovery.proxy_service import clean_proxy_url
-    import socket
+    from apps.discovery.ig_accounts import ensure_system_configs
 
-    senders = InstagramEngineAccount.objects.filter(role="SENDER")
-    healed = []
-
-    for s in senders:
-        proxy_str = clean_proxy_url(s.proxy_url)
-        is_healthy = False
-
-        if proxy_str and ("socks5://" in proxy_str or "socks5h://" in proxy_str):
-            try:
-                # Extract host and port
-                parts = proxy_str.split("://")[-1].split(":")
-                host = parts[0]
-                port = int(parts[1].split("/")[0])
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(4.0)
-                if sock.connect_ex((host, port)) == 0:
-                    is_healthy = True
-                sock.close()
-            except Exception:
-                is_healthy = False
-
-        # If dead or disconnected, auto-heal with an active spare proxy
-        if not is_healthy:
-            spare = ProxyConfig.objects.filter(
-                status="ACTIVE",
-                local_port__isnull=False,
-            ).exclude(
-                local_port__in=[acc.proxy_url for acc in senders if acc.proxy_url]
-            ).order_by("ping_ms").first()
-
-            if spare:
-                new_proxy_url = f"socks5h://xray:{spare.local_port}"
-                old_proxy = s.proxy_url
-                s.proxy_url = new_proxy_url
-                s.status_message = f"پروکسی به صورت خودکار ترمیم شد (پورت {spare.local_port})"
-                s.save(update_fields=["proxy_url", "status_message"])
-                logger.info(
-                    "🔧 [Auto-Heal] Replaced dead proxy (%s) for @%s with healthy port %d (%s ms)",
-                    old_proxy, s.username, spare.local_port, spare.ping_ms
-                )
-                healed.append({"username": s.username, "new_port": spare.local_port, "ping": spare.ping_ms})
-
-    return {"success": True, "healed_count": len(healed), "details": healed}
+    result = ensure_system_configs(actor="system")
+    for d in result.get("details", []):
+        logger.info("🔧 [Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
+                    d.get("new_port"))
+    return result

@@ -1,0 +1,212 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}@{{ a.username }} · اکانت اینستاگرام{% endblock %}
+{% block content %}
+<div class="ops-head">
+  <h1>@{{ a.username }} <span class="st {{ st }}" style="font-size:.9rem;font-weight:500">{{ a.get_status_display }}</span></h1>
+  <div class="toolbar">
+    <a class="btn sm" href="{% url 'manage:ig_accounts' %}">→ همه‌ی اکانت‌ها</a>
+    <a class="btn sm" href="{% url 'manage:ig_account_config' a.pk %}">کانفیگ / QR برای گوشی</a>
+    <a class="btn sm" href="{% url 'manage:instagram_account_cockpit' a.pk %}">کاکپیت</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="toolbar" style="justify-content:space-between">
+    <div>
+      <b>{{ a.get_role_display }}</b> · {{ tenant }}
+      {% if a.status_reason %} · <span class="{% if a.status != 'ACTIVE' %}neg{% endif %}">{{ a.get_status_reason_display }}</span>{% endif %}
+      {% if a.status_message %}<div class="muted" style="font-size:.85rem;margin-top:4px">{{ a.status_message }}</div>{% endif %}
+      {% if resting %}<div class="muted" style="font-size:.85rem">در استراحت تا {{ resting|jalali_dt }}</div>{% endif %}
+      {% if settling %}<div class="muted" style="font-size:.85rem">IP تازه: تا {{ settling|jalali_dt }} پیام سرد نمی‌فرستد.</div>{% endif %}
+    </div>
+    <div class="toolbar">
+      <form class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'check' %}">{% csrf_token %}<button class="btn sm primary">تست اتصال</button></form>
+      {% if a.status == "DISABLED" %}
+        <form class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'resume' %}">{% csrf_token %}<button class="btn sm">فعال‌سازی دوباره</button></form>
+      {% else %}
+        <form class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'pause' %}" onsubmit="return confirm('اکانت متوقف شود؟ تا فعال‌سازی دوباره هیچ سرویسی از آن استفاده نمی‌کند.')">{% csrf_token %}<button class="btn sm">توقف</button></form>
+      {% endif %}
+      {% if resting or a.status == "COOLDOWN" %}
+        <form class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'clear_cooldown' %}">{% csrf_token %}<button class="btn sm">لغو استراحت</button></form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="muted" style="font-size:.8rem;margin-top:8px">
+    امروز {{ a.daily_action_count|num }} از {{ a.daily_limit|num }} · این ساعت {{ a.hourly_action_count|num }} از {{ a.hourly_limit|num }} ·
+    آخرین فعالیت {{ a.last_action_at|time_ago_fa }} · سشن: {% if has_session %}<span class="pos">دارد</span>{% else %}<span class="neg">ندارد</span>{% endif %}
+  </div>
+</div>
+
+<div class="grid g2" style="margin-bottom:14px">
+  <div class="card" id="login"><h2>ورود به اینستاگرام</h2>
+    <div id="login-box" data-state="{{ login.state }}" data-live="{% if login.live %}1{% endif %}"
+         data-state-url="{% url 'manage:ig_account_login_state' a.pk %}" data-code-url="{% url 'manage:ig_account_action' a.pk 'code' %}">
+      <div id="login-status" class="msg" {% if not login.state %}hidden{% endif %}>
+        {% if login.state == "needs_code" %}{{ login.message }}
+        {% elif login.state == "running" %}در حال ورود به اینستاگرام…
+        {% elif login.state == "verifying" %}در حال تأیید کد با اینستاگرام…
+        {% elif login.state == "ok" %}آخرین ورود موفق بود{% if login.finished_at %} ({{ login.finished_at|jalali_dt }}){% endif %}.
+        {% elif login.state == "stale" %}ورود قبلی نیمه‌کاره ماند؛ دوباره «ورود» بزنید.
+        {% elif login.state %}{{ login.message|default:"ورود انجام نشد." }}{% endif %}
+      </div>
+      <form id="code-form" method="post" action="{% url 'manage:ig_account_action' a.pk 'code' %}" {% if login.state != "needs_code" or not login.live %}hidden{% endif %} style="margin-bottom:12px">{% csrf_token %}
+        <div class="field"><label for="code-input">کد تأیید <span id="code-hint" class="muted">{% if login.hint %}({{ login.hint }}){% endif %}</span></label>
+          <div class="toolbar"><input id="code-input" name="code" class="ops-input" dir="ltr" inputmode="numeric" autocomplete="one-time-code" maxlength="8" style="max-width:160px;font-size:1.2rem;letter-spacing:3px" placeholder="123456">
+            <button class="btn primary">ثبت کد</button></div>
+          <div id="code-error" class="err" {% if not login.error %}hidden{% endif %}>{{ login.error }}</div>
+          <div class="help">کد همان ورودی را تأیید می‌کند که الان منتظر است؛ دوباره «ورود» نزنید، وگرنه اینستاگرام کد تازه می‌فرستد.</div></div>
+      </form>
+      <div class="toolbar">
+        <form class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'login' %}">{% csrf_token %}
+          <button id="btn-login" class="btn sm {% if not has_session %}primary{% endif %}" data-no-password="{% if not has_password %}1{% endif %}" {% if login.live or not has_password %}disabled{% endif %}>ورود با پسورد</button></form>
+        <form id="cancel-form" class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'cancel' %}" {% if not login.live %}hidden{% endif %}>{% csrf_token %}
+          <button class="btn sm danger">لغو ورود</button></form>
+      </div>
+      {% if not has_password %}<p class="muted" style="font-size:.8rem">پسورد ثبت نشده؛ در «تنظیمات» پسورد بدهید یا sessionid وارد کنید.</p>{% endif %}
+    </div>
+    <hr style="border:0;border-top:1px solid var(--border);margin:14px 0">
+    <form method="post" action="{% url 'manage:ig_account_action' a.pk 'session' %}" autocomplete="off">{% csrf_token %}
+      <div class="field"><label for="sessionid">ورود با sessionid</label>
+        <div class="toolbar"><input id="sessionid" name="sessionid" class="ops-input" dir="ltr" style="max-width:320px" placeholder="sessionid">
+          <button class="btn sm">ثبت سشن</button></div>
+        <div class="help">از مرورگری که همین حالا در این اکانت لاگین است (ترجیحاً با همین کانفیگ) کوکی sessionid را کپی کنید.</div></div>
+    </form>
+  </div>
+
+  <div class="card" id="connection"><h2>اتصال (پروکسی / کانفیگ)</h2>
+    <div><b>{{ label }}</b></div>
+    {% if a.proxy_config %}<div class="muted" style="font-size:.8rem">{{ a.proxy_config.protocol }} · {{ a.proxy_config.server }}:{{ a.proxy_config.port }} · وضعیت {{ a.proxy_config.get_status_display }}{% if a.proxy_config.ping_ms > 0 %} · {{ a.proxy_config.ping_ms|floatformat:0 }}ms{% endif %}</div>{% endif %}
+    <div class="muted" style="font-size:.8rem;margin-top:4px">
+      {% if meta.last_ip %}IP خروجی: <code>{{ meta.last_ip }}</code> {{ meta.country }} {{ meta.isp }}{% if meta.checked_at %} · {{ meta.checked_at|jalali_dt }}{% endif %}{% else %}IP خروجی هنوز بررسی نشده.{% endif %}
+    </div>
+    <div class="toolbar" style="margin:10px 0">
+      <form class="inline" method="post" action="{% url 'manage:ig_account_action' a.pk 'check_ip' %}">{% csrf_token %}<button class="btn sm">بررسی IP</button></form>
+      <a class="btn sm primary" href="{% url 'manage:ig_account_config' a.pk %}">خروجی کانفیگ (لینک + QR)</a>
+    </div>
+    <form method="post" action="{% url 'manage:ig_account_action' a.pk 'proxy' %}">{% csrf_token %}
+      <div class="field"><label>تغییر اتصال</label>
+        <div class="field check"><input type="radio" name="mode" value="system" id="px-system" checked><label for="px-system">کانفیگ سیستم ({% if mode == "config" %}اگر کانفیگ فعلی سالم است همان می‌ماند{% else %}یک کانفیگ آزاد، ثابت برای همین اکانت{% endif %})</label></div>
+        <div class="field check"><input type="radio" name="mode" value="new_config" id="px-new"><label for="px-new">یک کانفیگ آزاد دیگر (IP عوض می‌شود)</label></div>
+        <div class="field check"><input type="radio" name="mode" value="config" id="px-config"><label for="px-config">این کانفیگ:</label>
+          <select name="config_id" class="ops-input" style="max-width:340px" onchange="document.getElementById('px-config').checked=true"><option value="">—</option>
+            {% for c in configs %}<option value="{{ c.pk }}" {% if c.pk == a.proxy_config_id %}selected{% endif %}>#{{ c.pk }} {{ c.tag|default:c.server|truncatechars:40 }} · پورت {{ c.local_port }}{% if c.ping_ms > 0 %} · {{ c.ping_ms|floatformat:0 }}ms{% endif %} · {{ c.n_ig }} اکانت</option>{% endfor %}</select></div>
+        <div class="field check"><input type="radio" name="mode" value="custom" id="px-custom" {% if mode == "custom" %}checked{% endif %}><label for="px-custom">پروکسی اختصاصی:</label>
+          <input name="proxy_url" class="ops-input" dir="ltr" value="{{ custom_url }}" placeholder="socks5://user:pass@host:port" style="max-width:340px" oninput="document.getElementById('px-custom').checked=true"></div>
+        <div class="field check"><input type="radio" name="mode" value="pool" id="px-pool"><label for="px-pool">استخر مشترک (IP ثابت ندارد)</label></div>
+        <div class="help">با هر تغییر IP، اکانت {{ settle_minutes|fa_digits }} دقیقه پیام سرد نمی‌فرستد تا IP تازه جا بیفتد. کانفیگ اکانت دیگر خودکار عوض نمی‌شود مگر قطع شود.</div>
+      </div>
+      <button class="btn sm primary">ذخیره‌ی اتصال</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-bottom:14px">
+  <div class="card" id="settings"><h2>تنظیمات</h2>
+    <form method="post" action="{% url 'manage:ig_account_action' a.pk 'settings' %}" autocomplete="off">{% csrf_token %}
+      <div class="grid g2" style="gap:0 14px">
+        <div class="field"><label for="s-username">یوزرنیم</label><input id="s-username" name="username" class="ops-input" dir="ltr" value="{{ a.username }}">
+          <div class="help">فقط اگر یوزرنیم در اینستاگرام عوض شده.</div></div>
+        <div class="field"><label for="s-password">پسورد تازه</label><input id="s-password" name="password" type="password" class="ops-input" dir="ltr" autocomplete="new-password" placeholder="{% if has_password %}(ثبت شده؛ برای تغییر وارد کنید){% endif %}"></div>
+        <div class="field"><label for="s-role">نقش</label><select id="s-role" name="role" class="ops-input">{% for k, l in roles %}<option value="{{ k }}" {% if a.role == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="s-tenant">مشتری</label><select id="s-tenant" name="tenant_id" class="ops-input">
+          {% for k, l in tenants %}<option value="{{ k }}" {% if a.tenant_id == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="s-tier">رده</label><select id="s-tier" name="account_tier" class="ops-input">{% for k, l in tiers %}<option value="{{ k }}" {% if a.account_tier == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="s-daily">سقف پیام روزانه</label><input id="s-daily" name="daily_limit" class="ops-input" dir="ltr" inputmode="numeric" value="{{ a.daily_limit }}"></div>
+      </div>
+      <button class="btn sm primary">ذخیره</button>
+    </form>
+    <div class="muted" style="font-size:.8rem;margin-top:12px">گوشی ثابت این اکانت: {{ device.manufacturer }} {{ device.model }}{% if device.android %} · اندروید {{ device.android }}{% endif %}{% if device.app %} · اینستاگرام {{ device.app }}{% endif %}{% if not device.model %}هنوز ساخته نشده (اولین ورود می‌سازد){% endif %}</div>
+  </div>
+
+  {% if pitch is not None %}
+  <div class="card"><h2>نام مشاور و پیام (مشتری {{ tenant }})</h2>
+    <p style="margin:0 0 6px"><b>{{ pitch.consultant_name|default:"—" }}</b>{% if pitch.consultant_role %} · {{ pitch.consultant_role }}{% endif %}</p>
+    <div class="muted" style="white-space:pre-wrap;font-size:.85rem;max-height:180px;overflow:auto">{{ pitch.pitch_template|default:"پیامی تعریف نشده؛ پیام پیش‌فرض سیستم استفاده می‌شود." }}</div>
+    <p class="muted" style="font-size:.78rem">همه‌ی فرستنده‌های این مشتری با همین نام و پیام می‌نویسند.{% if pitch.source == "legacy" %} (از تنظیمات قدیمی خوانده شد){% endif %}</p>
+    <a class="btn sm" href="{% url 'manage:ig_tenants' %}#t-{{ a.tenant_id }}">ویرایش پیام این مشتری</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card" id="timeline" style="margin-bottom:14px"><h2>تاریخچه‌ی اکانت</h2>
+<div class="table-responsive"><table>
+  <thead><tr><th>زمان</th><th>رویداد</th><th>شرح</th><th>توسط</th></tr></thead>
+  <tbody>
+  {% for e in events %}<tr>
+    <td data-label="زمان" style="white-space:nowrap">{{ e.created_at|jalali_dt }}</td>
+    <td data-label="رویداد">{{ e.get_kind_display }}</td>
+    <td data-label="شرح">{{ e.message }}</td>
+    <td data-label="توسط" class="muted">{{ e.actor|default:"سیستم" }}</td>
+  </tr>{% empty %}<tr><td class="muted" colspan="4">هنوز رویدادی ثبت نشده.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+</div>
+
+<div class="card"><h2 class="neg">حذف اکانت</h2>
+  <form method="post" action="{% url 'manage:ig_account_action' a.pk 'delete' %}" onsubmit="return confirm('اکانت @{{ a.username|escapejs }} و سشن و تاریخچه‌اش حذف شود؟')">{% csrf_token %}
+    <button class="btn sm danger">حذف اکانت</button> <span class="muted" style="font-size:.8rem">کانفیگ اختصاصی‌اش آزاد می‌شود.</span></form>
+</div>
+
+<script>
+(function () {
+  var box = document.getElementById('login-box');
+  if (!box) return;
+  var LIVE = ['running', 'needs_code', 'verifying'];
+  var statusEl = document.getElementById('login-status'), form = document.getElementById('code-form'),
+      input = document.getElementById('code-input'), hintEl = document.getElementById('code-hint'),
+      errEl = document.getElementById('code-error'), cancelForm = document.getElementById('cancel-form'),
+      loginBtn = document.getElementById('btn-login');
+  var csrf = (form.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
+  var timer = null, wasLive = box.dataset.live === '1';
+
+  function show(el, on) { if (el) el.hidden = !on; }
+  function say(text) { statusEl.textContent = text || ''; show(statusEl, !!text); }
+
+  function render(st) {
+    var live = st.live && LIVE.indexOf(st.state) >= 0;
+    if (st.state === 'needs_code' && live) {
+      say(st.message || 'کد تأیید را وارد کنید.');
+      hintEl.textContent = st.hint ? '(' + st.hint + ')' : '';
+      errEl.textContent = st.error || ''; show(errEl, !!st.error);
+      if (form.hidden) { show(form, true); input.focus(); }
+    } else {
+      show(form, false);
+      if (st.state === 'running') say('در حال ورود به اینستاگرام…');
+      else if (st.state === 'verifying') say('در حال تأیید کد با اینستاگرام…');
+    }
+    show(cancelForm, live);
+    if (loginBtn) loginBtn.disabled = live || loginBtn.dataset.noPassword === '1';
+    return live;
+  }
+
+  function poll() {
+    fetch(box.dataset.stateUrl, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (st) {
+        var live = render(st);
+        if (live) { wasLive = true; timer = setTimeout(poll, 2500); }
+        else if (wasLive) { location.reload(); }   // finished: show the outcome, status and timeline
+      })
+      .catch(function () { timer = setTimeout(poll, 5000); });
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var code = (input.value || '').trim();
+    if (!code) { input.focus(); return; }
+    var btn = form.querySelector('button'); btn.disabled = true;
+    fetch(box.dataset.codeUrl, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      body: JSON.stringify({code: code})
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      btn.disabled = false;
+      if (res.success) { input.value = ''; show(form, false); say(res.message); wasLive = true; clearTimeout(timer); timer = setTimeout(poll, 1500); }
+      else { errEl.textContent = res.message || 'کد ثبت نشد.'; show(errEl, true); }
+    }).catch(function () { btn.disabled = false; errEl.textContent = 'ارتباط با سرور برقرار نشد؛ دوباره بزنید.'; show(errEl, true); });
+  });
+
+  if (wasLive) poll();
+})();
+</script>
+{% endblock %}

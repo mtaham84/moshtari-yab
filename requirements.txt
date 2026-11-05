@@ -19,6 +19,7 @@ twitter-cli==0.8.5
 
 # Instagram scraper & Proxy TLS emulation
 instagrapi>=2.1.2
+segno>=1.6,<2   # QR code of an account's config (open the account on a phone from the same IP)
 pydantic-settings>=2.1.0
 curl_cffi>=0.7.0
 

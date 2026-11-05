@@ -1,0 +1,41 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}کانفیگ @{{ a.username }}{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>کانفیگ اتصال @{{ a.username }}</h1>
+  <div class="toolbar">
+    <a class="btn sm" href="{% url 'manage:ig_account_detail' a.pk %}">→ صفحه‌ی اکانت</a>
+    <a class="btn sm" href="{% url 'manage:ig_account_config_txt' a.pk %}">دانلود فایل متنی</a>
+  </div>
+</div>
+<div class="grid g2">
+  <div class="card"><h2>{{ exp.label }}</h2>
+    {% if exp.link %}
+      <div class="field"><label for="cfg-link">{% if exp.kind == "v2ray" %}لینک V2Ray{% else %}آدرس پروکسی{% endif %}</label>
+        <textarea id="cfg-link" class="ops-input" dir="ltr" rows="4" readonly style="font-family:monospace;font-size:.8rem">{{ exp.link }}</textarea>
+        <div class="toolbar" style="margin-top:6px"><button type="button" class="btn sm primary" id="copy-link">کپی لینک</button><span id="copied" class="pos" hidden>کپی شد</span></div></div>
+      {% if exp.kind == "v2ray" %}<div class="muted" style="font-size:.82rem">{{ exp.protocol }} · <code>{{ exp.server }}</code>{% if exp.title %} · {{ exp.title }}{% endif %}{% if exp.config_id %} · کانفیگ #{{ exp.config_id }}{% endif %}</div>{% endif %}
+      {% if exp.kind == "proxy" %}<div class="muted" style="font-size:.82rem">نوع {{ exp.scheme }} · سرور <code>{{ exp.host }}</code> · پورت <code>{{ exp.port }}</code>{% if exp.username %} · کاربر <code>{{ exp.username }}</code>{% endif %}</div>{% endif %}
+    {% endif %}
+    {% if exp.note %}<p class="muted" style="font-size:.85rem">{{ exp.note }}</p>{% endif %}
+    {% if exp.shared_with %}<p class="neg" style="font-size:.85rem">این کانفیگ با {{ exp.shared_with|length|fa_digits }} اکانت دیگر مشترک است: {% for u in exp.shared_with %}@{{ u }}{% if not forloop.last %}، {% endif %}{% endfor %}</p>{% endif %}
+    {% if exp.shared %}<p class="neg" style="font-size:.85rem">این اکانت روی استخر مشترک است؛ کانفیگ بالا فقط یکی از کانفیگ‌های استخر است و IP آن تضمینی نیست.</p>{% endif %}
+  </div>
+  <div class="card" style="text-align:center"><h2>QR برای گوشی</h2>
+    {% if qr %}<div style="background:#fff;display:inline-block;padding:10px;border-radius:12px;max-width:320px">{{ qr|safe }}</div>
+      <p class="muted" style="font-size:.8rem">در v2rayNG / Hiddify / Streisand «اسکن QR» را بزنید.</p>
+    {% elif exp.link %}<p class="muted">QR ساخته نشد (لینک خیلی طولانی است یا کتابخانه‌ی segno نصب نیست)؛ لینک را کپی کنید.</p>
+    {% else %}<p class="muted">لینکی برای خروجی نیست.</p>{% endif %}
+  </div>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('copy-link'); if (!btn) return;
+  btn.addEventListener('click', function () {
+    var t = document.getElementById('cfg-link'); t.select();
+    var done = function () { document.getElementById('copied').hidden = false; };
+    if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(done, function () { document.execCommand('copy'); done(); });
+    else { document.execCommand('copy'); done(); }
+  });
+})();
+</script>
+{% endblock %}

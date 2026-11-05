@@ -1,0 +1,24 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}نام مشاور و پیام مشتری‌ها{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>نام مشاور و پیام هر مشتری</h1>
+  <div class="toolbar"><a class="btn sm" href="{% url 'manage:ig_accounts' %}">→ اکانت‌های اینستاگرام</a></div>
+</div>
+<p class="muted" style="margin-top:-8px">همه‌ی اکانت‌های ارسال‌کننده‌ی یک مشتری با همین نام مشاور و پیام معرفی می‌نویسند. خود مشتری هم از صفحه‌ی «پیام‌رسانی» پنلش می‌تواند پیامش را ویرایش کند.
+  در متن پیام می‌شود از <code>{consultant_name}</code> (نام مشاور)، <code>{business_name}</code> (نام کسب‌وکار)، <code>{topic}</code> (موضوع کامنت) و <code>{clean_name}</code> (نام مخاطب) و حالت‌های <code>{سلام|درود}</code> استفاده کرد.</p>
+{% for r in rows %}
+<div class="card" id="t-{{ r.tenant_id }}" style="margin-bottom:14px">
+  <h2>{{ r.label }} <span class="muted" style="font-weight:400;font-size:.8rem">· {{ r.senders|fa_digits }} فرستنده{% if r.pitch.source == "legacy" %} · از تنظیمات قدیمی{% elif not r.pitch.source %} · هنوز تنظیم نشده{% endif %}</span></h2>
+  <form method="post">{% csrf_token %}<input type="hidden" name="tenant_id" value="{{ r.tenant_id }}">
+    <div class="grid g2" style="gap:0 14px">
+      <div class="field"><label>نام مشاور</label><input name="consultant_name" class="ops-input" value="{{ r.pitch.consultant_name }}" maxlength="100"></div>
+      <div class="field"><label>سمت مشاور</label><input name="consultant_role" class="ops-input" value="{{ r.pitch.consultant_role }}" maxlength="150"></div>
+    </div>
+    <div class="field"><label>پیام معرفی (دایرکت اول)</label>
+      <textarea name="pitch_template" class="ops-input" rows="5">{{ r.pitch.pitch_template }}</textarea>
+      <div class="help">خالی بماند = پیام پیش‌فرض سیستم.</div></div>
+    <button class="btn sm primary">ذخیره</button>
+  </form>
+</div>
+{% empty %}<div class="card muted">مشتری‌ای نیست.</div>{% endfor %}
+{% endblock %}

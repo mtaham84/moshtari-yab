@@ -75,6 +75,7 @@ services:
       - ./shared:/app/shared
       - ./x_ingest:/app/x_ingest
       - ./static:/app/static
+      - ./xray:/app/xray   # configs added from the panel must reach the xray service's config.json
     ports:
       - "${WEB_PORT:-8000}:8000"
     depends_on:
@@ -263,11 +264,17 @@ services:
   xray:
     image: ${XRAY_IMAGE:-teddysun/xray}
     profiles: ["proxy"]
+    # The app rewrites xray/config.json whenever V2Ray configs are added or die; watch.sh restarts xray when the
+    # file changes (at most every XRAY_RELOAD_MIN_SECONDS), so new dedicated ports go live without a manual restart.
+    # The whole folder is mounted: the file is replaced atomically, which a single-file mount would never see.
+    entrypoint: ["/bin/sh", "/etc/xray/watch.sh"]
+    environment:
+      XRAY_RELOAD_MIN_SECONDS: ${XRAY_RELOAD_MIN_SECONDS:-300}
     ports:
       - "127.0.0.1:1080:1080"
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./xray/config.json:/etc/xray/config.json:ro
+      - ./xray:/etc/xray:ro
     restart: unless-stopped
 
 volumes:

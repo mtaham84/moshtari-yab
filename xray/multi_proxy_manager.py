@@ -567,7 +567,11 @@ def rebuild_xray_config_file() -> bool:
 
 
 def reload_xray_service() -> bool:
-    """Restarts or reloads the Xray Docker container."""
+    """Restarts the Xray container when the docker CLI is available (host scripts).
+
+    Inside the app containers there is no docker CLI: the xray service (docker-compose, xray/watch.sh) restarts
+    itself when config.json changes, so new dedicated ports go live without a manual restart.
+    """
     try:
         res = subprocess.run(
             ["docker", "restart", "moshtari-yab-xray-1"],
@@ -576,6 +580,9 @@ def reload_xray_service() -> bool:
             timeout=15
         )
         return res.returncode == 0
+    except FileNotFoundError:   # app container: the xray service reloads itself (xray/watch.sh)
+        log.debug("no docker CLI here; the xray service picks up config.json changes by itself")
+        return False
     except Exception as exc:
         log.warning("Could not restart Xray container: %s", exc)
         return False
@@ -687,42 +694,38 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
 
 def prune_dead_configs() -> list[dict[str, Any]]:
     """
-    Tests all ProxyConfigs in DB.
-    Deletes any config where ping == -1 (dead).
-    Rebuilds config.json and returns summary.
+    Tests all ProxyConfigs in DB and deletes the dead ones (ping -1 / > 2000ms), then rebuilds config.json.
+
+    Two phases: every dead config is first marked DEAD, then deleted, so an Instagram account leaving a dead config
+    (pre_delete -> ig_accounts.release_config) only moves to a config that just passed the test.
     """
     _ensure_django()
     from apps.discovery.models import ProxyConfig
     from django.utils import timezone
 
     removed: list[dict[str, Any]] = []
-    configs = list(ProxyConfig.objects.all())
-
-    for p in configs:
+    dead = []
+    for p in list(ProxyConfig.objects.all()):
         try:
             ob = parse_link_to_outbound(p.raw_url)
             ok, ping_ms, _ = test_outbound_ping(ob, timeout_sec=2.0)
-            if ok and 0 < ping_ms <= 2000:
-                p.ping_ms = ping_ms
-                p.status = "ACTIVE"
-                p.last_checked_at = timezone.now()
-                p.save(update_fields=["ping_ms", "status", "last_checked_at"])
-            else:
-                log.info("Pruning dead proxy #%s (%s, ping -1 or > 2000ms)", p.id, p.tag)
-                removed.append({
-                    "id": p.id,
-                    "tag": p.tag or p.server,
-                    "protocol": p.protocol,
-                    "assigned_to": p.assigned_to
-                })
-                # If assigned to an account, detach
-                _detach_proxy_from_account(p)
-                p.delete()
         except Exception as exc:
             log.warning("Error probing config #%s: %s", p.id, exc)
+            ok, ping_ms = False, -1.0
+        if ok and 0 < ping_ms <= 2000:
+            p.ping_ms = ping_ms
+            p.status = "ACTIVE"
+            p.last_checked_at = timezone.now()
+            p.save(update_fields=["ping_ms", "status", "last_checked_at"])
+            continue
+        log.info("Pruning dead proxy #%s (%s, ping -1 or > 2000ms)", p.id, p.tag)
+        removed.append({"id": p.id, "tag": p.tag or p.server, "protocol": p.protocol, "assigned_to": p.assigned_to})
+        dead.append(p)
+    if dead:
+        ProxyConfig.objects.filter(pk__in=[p.pk for p in dead]).update(status="DEAD", last_checked_at=timezone.now())
+        for p in dead:
             _detach_proxy_from_account(p)
-            p.delete()
-            removed.append({"id": p.id, "tag": p.tag, "protocol": p.protocol, "assigned_to": p.assigned_to})
+            p.delete()   # its Instagram accounts move to a live config (pre_delete signal)
 
     if removed:
         rebuild_xray_config_file()
@@ -733,55 +736,68 @@ def prune_dead_configs() -> list[dict[str, Any]]:
 
 
 def _detach_proxy_from_account(proxy_obj) -> None:
-    """Clears the proxy_url on the account if this proxy was deleted."""
-    from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
+    """X/Twitter accounts on a config that is being deleted go back to the shared pool port.
 
-    if proxy_obj.assigned_platform == "INSTAGRAM" and proxy_obj.assigned_to:
-        InstagramEngineAccount.objects.filter(username=proxy_obj.assigned_to).update(proxy_url="socks5h://xray:1080")
-    elif proxy_obj.assigned_platform == "TWITTER" and proxy_obj.assigned_to:
-        TwitterEngineAccount.objects.filter(username=proxy_obj.assigned_to).update(proxy_url="socks5h://xray:1080")
+    Instagram accounts are moved by the ProxyConfig pre_delete signal (apps.discovery.ig_accounts.release_config),
+    which also logs it on the account's timeline.
+    """
+    from apps.discovery.models import TwitterEngineAccount
+
+    if proxy_obj.local_port:
+        TwitterEngineAccount.objects.filter(proxy_url=f"socks5h://xray:{proxy_obj.local_port}").update(
+            proxy_url="socks5h://xray:1080")
 
 
 def assign_proxies_to_accounts() -> dict[str, Any]:
     """
-    Distributes active healthy proxies so every Instagram and Twitter account has a unique proxy!
+    Sticky proxy assignment. (It used to re-deal every config to every account on each call - every 3 minutes - so
+    every account's IP kept changing and even accounts with their own proxy were overwritten.)
+
+    * Instagram: apps.discovery.ig_accounts.ensure_system_configs - an account keeps its config until the config
+      dies; accounts with their own proxy are never touched; each move is logged on the account's timeline.
+    * X/Twitter: an account keeps its xray port while that config is ACTIVE and no Instagram account uses it;
+      otherwise it gets a config nobody uses, else the shared pool (1080). Its own (non-xray) proxy is never touched.
     """
     _ensure_django()
-    from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount, ProxyConfig
+    from apps.discovery.ig_accounts import RESERVED_PORTS, ensure_system_configs, xray_port
+    from apps.discovery.models import InstagramEngineAccount, ProxyConfig, TwitterEngineAccount
 
-    active_proxies = list(ProxyConfig.objects.filter(status="ACTIVE").order_by("id"))
-    ig_accounts = list(InstagramEngineAccount.objects.order_by("id"))
-    x_accounts = list(TwitterEngineAccount.objects.filter(is_active=True).order_by("id"))
+    ig = ensure_system_configs()
+    assignments: list[dict[str, Any]] = [
+        {"account": f"@{d['username']}", "platform": "INSTAGRAM", "proxy": f"socks5h://xray:{d['new_port']}",
+         "config_id": d.get("to")} for d in ig.get("details", [])]
 
-    assignments = []
-    used_proxy_ids = set()
-
-    all_accounts = [("INSTAGRAM", a) for a in ig_accounts] + [("TWITTER", a) for a in x_accounts]
-
-    proxy_idx = 0
-    for platform, acc in all_accounts:
-        if active_proxies:
-            assigned_proxy = active_proxies[proxy_idx % len(active_proxies)]
-            proxy_idx += 1
-            dedicated_url = f"socks5h://xray:{assigned_proxy.local_port}"
-            if acc.proxy_url != dedicated_url:
-                acc.proxy_url = dedicated_url
-                acc.save(update_fields=["proxy_url"])
-
-            assigned_proxy.assigned_platform = platform
-            assigned_proxy.assigned_to = acc.username
-            assigned_proxy.save(update_fields=["assigned_platform", "assigned_to"])
-
-            assignments.append({
-                "account": f"@{acc.username}",
-                "platform": platform,
-                "proxy": dedicated_url,
-                "tag": assigned_proxy.tag,
-                "ping": assigned_proxy.ping_ms
-            })
-        else:
-            # Fallback to default
-            acc.proxy_url = "socks5h://xray:1080"
+    active = {p.local_port: p for p in ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False)
+              .exclude(local_port__in=RESERVED_PORTS)}
+    taken = set(ProxyConfig.objects.filter(instagram_accounts__isnull=False).values_list("local_port", flat=True))
+    need = []
+    for acc in TwitterEngineAccount.objects.filter(is_active=True).order_by("id"):
+        url = (acc.proxy_url or "").strip()
+        port = xray_port(url)
+        if url and port is None:
+            continue   # its own proxy
+        if port in active and port not in taken:
+            taken.add(port)
+            cfg = active[port]
+            if cfg.assigned_platform != "TWITTER" or cfg.assigned_to != acc.username:
+                ProxyConfig.objects.filter(pk=cfg.pk).update(assigned_platform="TWITTER", assigned_to=acc.username)
+            continue
+        need.append(acc)
+    free = sorted((p for port, p in active.items() if port not in taken),
+                  key=lambda p: (p.ping_ms if p.ping_ms and p.ping_ms > 0 else 99999.0, p.pk))
+    for acc in need:
+        cfg = free.pop(0) if free else None
+        new_url = f"socks5h://xray:{cfg.local_port}" if cfg else "socks5h://xray:1080"
+        if acc.proxy_url != new_url:
+            acc.proxy_url = new_url
             acc.save(update_fields=["proxy_url"])
+            assignments.append({"account": f"@{acc.username}", "platform": "TWITTER", "proxy": new_url,
+                                "config_id": cfg.pk if cfg else None})
+        if cfg is not None:
+            ProxyConfig.objects.filter(pk=cfg.pk).update(assigned_platform="TWITTER", assigned_to=acc.username)
 
-    return {"total_assigned": len(assignments), "assignments": assignments}
+    on_configs = (InstagramEngineAccount.objects.filter(proxy_config__status="ACTIVE").count()
+                  + sum(1 for u in TwitterEngineAccount.objects.filter(is_active=True).values_list("proxy_url", flat=True)
+                        if xray_port(u or "") in active))
+    return {"total_assigned": on_configs, "moved": len(assignments), "assignments": assignments,
+            "instagram": {k: v for k, v in ig.items() if k != "details"}}

@@ -137,6 +137,21 @@ class InstagramEngineAccount(models.Model):
         ("COOLDOWN", "استراحت موقت (Cooldown)"),
         ("CHALLENGED", "نیازمند تایید / کد امنیتی (Challenge)"),
         ("BANNED", "مسدود شده (Banned)"),
+        ("DISABLED", "متوقف (دستی)"),
+    ]
+    # Why the account is not ACTIVE (status stays coarse because the workers filter on it)
+    REASON_CHOICES = [
+        ("", "—"),
+        ("needs_code", "منتظر کد تأیید"),
+        ("needs_app_approval", "باید در اپ اینستاگرام تأیید شود"),
+        ("session_expired", "سشن منقضی؛ ورود دوباره لازم است"),
+        ("bad_password", "پسورد اشتباه است"),
+        ("proxy_down", "پروکسی/کانفیگ قطع است"),
+        ("rate_limited", "محدودیت موقت اینستاگرام"),
+        ("suspended", "تعلیق یا مسدود شده"),
+        ("paused", "توسط مدیر متوقف شده"),
+        ("network", "خطای شبکه"),
+        ("error", "خطای نامشخص"),
     ]
     TIER_CHOICES = [
         ("NEW", "جدید (زیر ۳ ماه) - ۱۰ تا ۲۰ پیام در روز | ۲ تا ۳ در ساعت"),
@@ -154,9 +169,17 @@ class InstagramEngineAccount(models.Model):
     hourly_action_count = models.PositiveIntegerField(default=0, verbose_name="تعداد عملیات در این ساعت")
     last_hour_reset = models.DateTimeField(null=True, blank=True, verbose_name="زمان ریست شمارنده ساعتی")
     proxy_url = models.CharField(max_length=255, null=True, blank=True, verbose_name="پروکسی (SOCKS5/HTTP)")
+    # The system (xray) config this account talks through; it stays with the account until the config dies.
+    # proxy_url mirrors it as socks5h://xray:<local_port>. Null for accounts with their own proxy.
+    proxy_config = models.ForeignKey("discovery.ProxyConfig", null=True, blank=True, on_delete=models.SET_NULL,
+                                     related_name="instagram_accounts", verbose_name="کانفیگ اختصاصی سیستم")
     session_json = models.JSONField(null=True, blank=True, verbose_name="دیتای سشن")
     device_settings = models.JSONField(null=True, blank=True, verbose_name="تنظیمات سخت‌افزار")
+    # The login in progress (ig_accounts.start_login): state, token, heartbeat, contact hint, the code typed in the panel
+    pending_login = models.JSONField(null=True, blank=True, verbose_name="ورود در جریان (منتظر کد)")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ACTIVE", db_index=True, verbose_name="وضعیت")
+    status_reason = models.CharField(max_length=32, choices=REASON_CHOICES, blank=True, default="",
+                                     verbose_name="دلیل وضعیت")
     daily_action_count = models.IntegerField(default=0, verbose_name="تعداد عملیات امروز")
     last_action_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان فعالیت")
     cooldown_until = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="پایان دوره استراحت")
@@ -183,9 +206,13 @@ class InstagramEngineAccount(models.Model):
 
     @property
     def clean_proxy(self) -> str:
-        """Returns proxy URI stripped of any #rotate=... fragments for clean client binding."""
-        from apps.discovery.proxy_service import clean_proxy_url
-        return clean_proxy_url(self.proxy_url)
+        """The proxy every Instagram client of this account must use, without #rotate=... fragments.
+
+        Its own proxy or system config; an account without one goes through the shared system pool
+        (INSTAGRAM_DEFAULT_PROXY_URL), never silently from the server's own IP.
+        """
+        from apps.discovery.ig_accounts import effective_proxy_url
+        return effective_proxy_url(self)
 
     @property
     def proxy_meta(self) -> dict:
@@ -303,6 +330,68 @@ class InstagramEngineAccount(models.Model):
 
     def __str__(self):
         return f"@{self.username} ({self.get_role_display()} - {self.get_status_display()})"
+
+
+class InstagramAccountEvent(models.Model):
+    """What happened to an Instagram account: logins, codes, challenges, proxy/IP changes, rests, edits."""
+    KIND_CHOICES = [
+        ("created", "اکانت اضافه شد"),
+        ("edited", "تنظیمات ویرایش شد"),
+        ("login_ok", "ورود موفق"),
+        ("login_failed", "ورود ناموفق"),
+        ("code_requested", "اینستاگرام کد تأیید خواست"),
+        ("code_ok", "کد تأیید پذیرفته شد"),
+        ("code_failed", "کد تأیید رد شد"),
+        ("session_set", "سشن دستی ثبت شد"),
+        ("session_expired", "سشن منقضی شد"),
+        ("check_ok", "تست اتصال موفق"),
+        ("check_failed", "تست اتصال ناموفق"),
+        ("proxy_changed", "پروکسی/کانفیگ عوض شد"),
+        ("proxy_down", "پروکسی/کانفیگ قطع شد"),
+        ("ip_checked", "IP خروجی بررسی شد"),
+        ("challenge", "چالش امنیتی"),
+        ("rate_limited", "محدودیت موقت"),
+        ("status_changed", "وضعیت عوض شد"),
+        ("config_exported", "کانفیگ خروجی گرفته شد"),
+    ]
+
+    account = models.ForeignKey(InstagramEngineAccount, on_delete=models.CASCADE, related_name="events")
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES, db_index=True)
+    message = models.CharField(max_length=255, blank=True, default="")
+    data = models.JSONField(null=True, blank=True)
+    actor = models.CharField(max_length=150, blank=True, default="", help_text="staff username, or empty for the system")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "ig_account_events"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["account", "-created_at"], name="ix_ig_events_account_time")]
+        verbose_name = "رویداد اکانت اینستاگرام"
+        verbose_name_plural = "رویدادهای اکانت‌های اینستاگرام"
+
+    def __str__(self):
+        return f"@{self.account_id} {self.kind} {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class OutreachTenantProfile(models.Model):
+    """Per-customer (tenant) outreach identity: the consultant name/role the DMs speak as, and the pitch template.
+
+    Replaces the per-username ``sender_pitches`` block of data/sarv_outreach_config.json, which is still read
+    as a fallback for tenants that have no row yet.
+    """
+    tenant_id = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="شناسه مستأجر / فروشگاه")
+    consultant_name = models.CharField(max_length=100, blank=True, default="", verbose_name="نام مشاور")
+    consultant_role = models.CharField(max_length=150, blank=True, default="", verbose_name="سمت مشاور")
+    pitch_template = models.TextField(blank=True, default="", verbose_name="الگوی پیام معرفی")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "outreach_tenant_profiles"
+        verbose_name = "پروفایل پیام‌رسانی مشتری"
+        verbose_name_plural = "پروفایل‌های پیام‌رسانی مشتری‌ها"
+
+    def __str__(self):
+        return f"{self.tenant_id}: {self.consultant_name or '-'}"
 
 
 class InstagramEngineLead(models.Model):

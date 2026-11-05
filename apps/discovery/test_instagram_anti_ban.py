@@ -138,7 +138,8 @@ class SavedSessionClientTests(TestCase):
         acc = _account("dev_t", status="ACTIVE")
         saved = _saved_session(self.cl, acc)
         with patch.object(type(self.cl), "login_by_sessionid", side_effect=AssertionError("no new login")), \
-                patch.object(type(self.cl), "get_timeline_feed", return_value={}) as feed:
+                patch.object(type(self.cl), "get_timeline_feed", return_value={}) as feed, \
+                patch("apps.discovery.ig_accounts.port_open", return_value=True):   # xray's pool port, as in docker
             res = self.client.post(f"/manage/accounts/{acc.pk}/test/").json()
         self.assertTrue(res["success"], res)
         feed.assert_called_once()
@@ -250,7 +251,7 @@ class ScraperProxyTests(TestCase):
 
         acc = _account("scr", role="SCRAPER", proxy_url="socks5h://xray:1081")
         cmd = Command(stdout=StringIO(), stderr=StringIO())
-        with patch("apps.billing.manage_views._test_proxy_connection", return_value=(False, "refused")), \
+        with patch("apps.discovery.ig_accounts.proxy_reachable", return_value=(False, "refused")), \
                 patch("instagrapi.Client") as client_cls:
             self.assertIsNone(cmd._client_or_rest(acc))
         client_cls.return_value.set_proxy.assert_not_called()

@@ -382,6 +382,7 @@
 
 <!-- TAB: UNIFIED INSTAGRAM HUB & COCKPITS -->
 <div id="tab-instagram-hub" class="tab-pane">
+  <div class="msg" style="margin-bottom:14px">افزودن، ورود و ثبت کد، اتصال و کانفیگ/QR، توقف و تاریخچه‌ی اکانت‌های اینستاگرام حالا یک‌جا در صفحه‌ی <a href="{% url 'manage:ig_accounts' %}"><b>اکانت‌های اینستاگرام</b></a> است (نام مشاور و پیام هر مشتری: <a href="{% url 'manage:ig_tenants' %}">پیام مشتری‌ها</a>).</div>
   <div class="card" style="margin-bottom:20px; border-right: 4px solid #c084fc;">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
       <div>
@@ -657,6 +658,7 @@
 
 <!-- TAB 3: SCRAPERS MANAGEMENT -->
 <div id="tab-scrapers" class="tab-pane">
+  <div class="msg" style="margin-bottom:14px">افزودن، ورود و ثبت کد، اتصال و کانفیگ/QR، توقف و تاریخچه‌ی اکانت‌های اینستاگرام حالا یک‌جا در صفحه‌ی <a href="{% url 'manage:ig_accounts' %}"><b>اکانت‌های اینستاگرام</b></a> است (نام مشاور و پیام هر مشتری: <a href="{% url 'manage:ig_tenants' %}">پیام مشتری‌ها</a>).</div>
   <div class="account-form">
     <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> افزودن اکانت اسکرپر جدید به مخزن (Instagram Scraper Account)</h2>
     <form id="form-add-scraper" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
@@ -779,14 +781,16 @@
             </td>
             <td>
               <div style="display:flex; flex-direction:column; gap:3px;">
-                {% if acc.proxy_url and 'xray' in acc.proxy_url or acc.proxy_url and '8080' in acc.proxy_url %}
+                {% if acc.proxy_config_id %}
                   <div style="font-weight:700; color:#7c3aed; display:flex; align-items:center; gap:5px;">
-                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>تونل اختصاصی Xray</span>
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>کانفیگ اختصاصی سیستم #{{ acc.proxy_config_id }}</span>
                   </div>
-                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
-                    <code>http://xray:8080</code> (IP: 155.117.120.230)
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr"><code>{{ acc.proxy_url }}</code></div>
+                {% elif acc.proxy_url and 'xray' in acc.proxy_url %}
+                  <div style="font-weight:700; color:#7c3aed; display:flex; align-items:center; gap:5px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>xray (استخر / پورت قدیمی)</span>
                   </div>
-                  <span class="pill" style="font-size:0.68rem; background:#f3e8ff; color:#6b21a8; width:fit-content;">پروکسی آلمان / Shadowsocks</span>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr"><code>{{ acc.proxy_url }}</code></div>
                 {% elif acc.proxy_url %}
                   <div style="font-weight:700; color:#0369a1; display:flex; align-items:center; gap:5px;">
                     <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>پروکسی سفارشی</span>
@@ -796,12 +800,11 @@
                   </div>
                 {% else %}
                   <div style="font-weight:700; color:#64748b; display:flex; align-items:center; gap:5px;">
-                    <span><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg></span> <span>اتصال مستقیم سرور</span>
-                  </div>
-                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
-                    <code>Direct (IP: 155.117.120.230)</code>
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>استخر مشترک سیستم</span>
                   </div>
                 {% endif %}
+                {% if acc.proxy_meta.last_ip %}<div class="muted" style="font-size:0.72rem;" dir="ltr">IP: <code>{{ acc.proxy_meta.last_ip }}</code> {{ acc.proxy_meta.country_code }}</div>{% endif %}
+                <a href="{% url 'manage:ig_account_config' acc.id %}" style="font-size:0.74rem;">کانفیگ / QR گوشی</a>
               </div>
             </td>
             <td>
@@ -852,9 +855,10 @@
                 <button class="btn sm" onclick="openSessionModal({{ acc.id }}, '{{ acc.username }}')" title="تنظیم یا به‌روزرسانی کوکی sessionid بدون پسورد">
                   <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت sessionid
                 </button>
-                <button class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ acc.id }}, '{{ acc.username }}')" id="btn-challenge-{{ acc.id }}" {% if acc.status == 'CHALLENGED' and acc.device_settings.challenge_hint %}data-autoopen="1"{% endif %} title="ثبت کد تایید ارسال شده">
-                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت کد تایید
-                </button>
+                <a class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" href="{% url 'manage:ig_account_detail' acc.id %}#login" id="btn-challenge-{{ acc.id }}" title="ورود و ثبت کد تأیید در صفحه‌ی اکانت">
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ورود / ثبت کد
+                </a>
+                <a class="btn sm" href="{% url 'manage:ig_account_detail' acc.id %}" title="مدیریت کامل اکانت">مدیریت</a>
                 <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
                   {% csrf_token %}
                   <button type="submit" class="btn sm danger">حذف</button>
@@ -2033,6 +2037,7 @@
 </div>
 
 <div id="tab-senders" class="tab-pane">
+  <div class="msg" style="margin-bottom:14px">افزودن، ورود و ثبت کد، اتصال و کانفیگ/QR، توقف و تاریخچه‌ی اکانت‌های اینستاگرام حالا یک‌جا در صفحه‌ی <a href="{% url 'manage:ig_accounts' %}"><b>اکانت‌های اینستاگرام</b></a> است (نام مشاور و پیام هر مشتری: <a href="{% url 'manage:ig_tenants' %}">پیام مشتری‌ها</a>).</div>
   <div class="account-form" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:24px;">
     <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
       <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>
@@ -2173,7 +2178,8 @@
                   </button>
                   {% endif %}
                   <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)" id="btn-test-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست</button>
-                  <button class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" onclick="openChallengeModal({{ s.id }}, '{{ s.username }}')" id="btn-challenge-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت کد</button>
+                  <a class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" href="{% url 'manage:ig_account_detail' s.id %}#login" id="btn-challenge-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ورود / ثبت کد</a>
+                  <a class="btn sm" href="{% url 'manage:ig_account_detail' s.id %}" title="مدیریت کامل اکانت">مدیریت</a>
                   <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline;">
                     {% csrf_token %}
                     <button type="submit" class="btn sm danger">حذف</button>
@@ -3052,14 +3058,12 @@
     .then(data => {
       submitBtn.innerText = origText;
       submitBtn.disabled = false;
-      if (data.success) {
+      if (data.account_id && ['running', 'needs_code', 'verifying'].includes(data.state)) {
+        // the login continues on the account page: Instagram's code is typed there, into the same login
+        window.location.href = '/manage/instagram/accounts/' + data.account_id + '/settings/#login';
+      } else if (data.success) {
         alert(' ' + data.message);
         window.location.reload();
-      } else if (data.requires_code) {
-        openChallengeModal(data.account_id, data.username);
-        if (data.message) {
-          document.getElementById('modalAccountHint').innerText = data.message;
-        }
       } else {
         alert(' ' + (data.message || 'خطا در ثبت اکانت'));
       }
@@ -3465,9 +3469,6 @@
       if (tabBtn) openTab(tabParam, tabBtn);
     }
 
-    // Instagram asked for a code: jump to the accounts tab and open the code field for the first such account.
-    const pending = document.querySelector('button[data-autoopen="1"]');
-    if (pending) { openTab('scrapers', document.querySelector('.tab-btn[onclick*="scrapers"]')); setTimeout(() => pending.click(), 300); }
     document.querySelectorAll('.table-responsive table').forEach(table => {
       const heads = Array.from(table.querySelectorAll('thead th')).map(th => th.innerText.trim());
       table.querySelectorAll('tbody tr').forEach(tr => Array.from(tr.children).forEach((td, i) => {

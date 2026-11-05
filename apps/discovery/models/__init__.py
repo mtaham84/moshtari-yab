@@ -16,6 +16,7 @@ from .core import (
 )
 from .community import MonitoredCommunity
 from .instagram import (
+    InstagramAccountEvent,
     InstagramCategoryTarget,
     InstagramCrawledPost,
     InstagramCrawlExecution,
@@ -25,6 +26,7 @@ from .instagram import (
     InstagramPage,
     InstagramReplySuggestion,
     InstagramSourceStat,
+    OutreachTenantProfile,
 )
 from .x_twitter import (
     TwitterEngineAccount,
@@ -63,6 +65,8 @@ __all__ = [
     "InstagramReplySuggestion",
     "InstagramCategoryTarget",
     "InstagramEngineAccount",
+    "InstagramAccountEvent",
+    "OutreachTenantProfile",
     "InstagramEngineLead",
     "InstagramCrawledPost",
     "InstagramCrawlExecution",

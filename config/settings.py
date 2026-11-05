@@ -234,6 +234,13 @@ INSTAGRAM_REPLY_SYNC_MAX_SECONDS = max(INSTAGRAM_REPLY_SYNC_MIN_SECONDS,
                                        int(os.environ.get("INSTAGRAM_REPLY_SYNC_MAX_SECONDS", "600")))
 # Rotate a sender's 4G IP before every DM (old behaviour). Off: the IP is rotated only after a proxy error.
 INSTAGRAM_PROXY_ROTATE_EACH_DM = os.environ.get("INSTAGRAM_PROXY_ROTATE_EACH_DM", "false").strip().lower() in {"1", "true", "yes", "on"}
+# Instagram accounts (apps/discovery/ig_accounts.py). An account without its own proxy or system config talks
+# through this proxy (the shared xray pool), never from the server's IP; "direct" = server IP (not recommended).
+INSTAGRAM_DEFAULT_PROXY_URL = os.environ.get("INSTAGRAM_DEFAULT_PROXY_URL", "socks5h://xray:1080").strip()
+# How many Instagram accounts may share one system V2Ray config (1 = every account has its own IP).
+INSTAGRAM_ACCOUNTS_PER_CONFIG = max(1, int(os.environ.get("INSTAGRAM_ACCOUNTS_PER_CONFIG", "1")))
+# A login started in the panel runs in a background thread of the web process and waits there for the code.
+INSTAGRAM_LOGIN_IN_BACKGROUND = os.environ.get("INSTAGRAM_LOGIN_IN_BACKGROUND", "true").strip().lower() in {"1", "true", "yes", "on"}
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task

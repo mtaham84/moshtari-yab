@@ -1,0 +1,105 @@
+{% extends "ops/base.html" %}{% load ops %}
+{% block title %}اکانت‌های اینستاگرام{% endblock %}
+{% block content %}
+<div class="ops-head"><h1>اکانت‌های اینستاگرام</h1>
+  <div class="toolbar">
+    <a class="btn sm primary" href="#add">+ افزودن اکانت</a>
+    <a class="btn sm" href="{% url 'manage:ig_tenants' %}">نام مشاور و پیام هر مشتری</a>
+    <a class="btn sm" href="{% url 'manage:ig_accounts_configs_txt' %}{% if f.tenant %}?tenant={{ f.tenant|urlencode }}{% endif %}">دانلود کانفیگ همه‌ی اکانت‌ها</a>
+    <form class="inline" method="post" action="{% url 'manage:ig_accounts_heal' %}">{% csrf_token %}
+      <button class="btn sm" title="اکانت‌هایی که کانفیگشان مرده یا بیش از حد مشترک است کانفیگ آزاد می‌گیرند؛ بقیه دست نمی‌خورند">بررسی و ترمیم اتصال‌ها</button></form>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:14px">
+  <div class="card stat"><div class="label">اکانت‌ها</div><div class="value">{{ stats.total|num }}</div>
+    <div class="sub">{{ stats.active|num }} فعال · {{ stats.paused|num }} متوقف · {{ stats.banned|num }} مسدود</div></div>
+  <div class="card stat"><div class="label">نیازمند رسیدگی</div><div class="value {% if stats.challenged %}neg{% endif %}">{{ stats.challenged|num }}</div>
+    <div class="sub">منتظر ورود/کد · {{ stats.cooldown|num }} در استراحت</div></div>
+  <div class="card stat"><div class="label">اتصال اختصاصی</div><div class="value">{{ stats.on_config|num }}</div>
+    <div class="sub">{{ stats.configs|num }} کانفیگ سالم · {{ stats.free_configs|num }} آزاد · هر کانفیگ حداکثر {{ per_config|num }} اکانت</div></div>
+  <div class="card stat"><div class="label">xray (تونل کانفیگ‌ها)</div>
+    <div class="value">{% if stats.xray_up %}<span class="st ok">در دسترس</span>{% else %}<span class="st down neg">قطع</span>{% endif %}</div>
+    <div class="sub">استخر مشترک: <code>{{ stats.pool_url|default:"—" }}</code></div></div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <form method="get" class="toolbar">
+    <select name="status" class="ops-input"><option value="">همه‌ی وضعیت‌ها</option>
+      {% for k, label in statuses %}<option value="{{ k }}" {% if f.status == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <select name="role" class="ops-input"><option value="">همه‌ی نقش‌ها</option>
+      {% for k, label in roles %}<option value="{{ k }}" {% if f.role == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <select name="tenant" class="ops-input"><option value="">همه‌ی مشتری‌ها</option>
+      {% for k, label in tenants %}<option value="{{ k }}" {% if f.tenant == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <select name="mode" class="ops-input"><option value="">همه‌ی اتصال‌ها</option>
+      {% for k, label in modes %}<option value="{{ k }}" {% if f.mode == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <input name="q" value="{{ f.q }}" class="ops-input" placeholder="جستجوی یوزرنیم" style="max-width:180px">
+    <button class="btn sm primary">فیلتر</button>{% if f.status or f.role or f.tenant or f.mode or f.q %}<a class="btn sm" href="?">حذف فیلتر</a>{% endif %}
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+<div class="table-responsive"><table>
+  <thead><tr><th>اکانت</th><th>نقش</th><th>وضعیت</th><th>اتصال (پروکسی/کانفیگ)</th><th>سشن</th><th class="n">امروز</th><th>آخرین فعالیت</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr>
+    <td data-label="اکانت"><a href="{% url 'manage:ig_account_detail' r.a.pk %}"><b>@{{ r.a.username }}</b></a>
+      <div class="muted" style="font-size:.78rem">{{ r.tenant }}</div></td>
+    <td data-label="نقش">{{ r.a.get_role_display }}</td>
+    <td data-label="وضعیت"><span class="st {{ r.st }}">{{ r.a.get_status_display }}</span>
+      {% if r.a.status_reason %}<div class="muted" style="font-size:.78rem">{{ r.a.get_status_reason_display }}</div>{% endif %}
+      {% if r.login %}<div><span class="pill">{% if r.login == "needs_code" %}منتظر کد{% elif r.login == "verifying" %}در حال تأیید کد{% else %}در حال ورود{% endif %}</span></div>{% endif %}</td>
+    <td data-label="اتصال">{{ r.label }}
+      {% if r.ip %}<div class="muted" style="font-size:.78rem"><code>{{ r.ip }}</code> {{ r.country }}</div>{% endif %}</td>
+    <td data-label="سشن">{% if r.has_session %}<span class="st ok">دارد</span>{% else %}<span class="st down">ندارد</span>{% endif %}</td>
+    <td data-label="امروز" class="n">{{ r.a.daily_action_count|num }} / {{ r.a.daily_limit|num }}</td>
+    <td data-label="آخرین فعالیت">{{ r.a.last_action_at|time_ago_fa }}</td>
+    <td data-label="">
+      <a class="btn sm primary" href="{% url 'manage:ig_account_detail' r.a.pk %}">مدیریت</a>
+      <a class="btn sm" href="{% url 'manage:ig_account_config' r.a.pk %}">کانفیگ / QR</a>
+      <a class="btn sm" href="{% url 'manage:instagram_account_cockpit' r.a.pk %}">کاکپیت</a>
+    </td>
+  </tr>{% empty %}<tr><td class="muted" colspan="8">اکانتی نیست.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+</div>
+
+<div class="card" id="add"><h2>افزودن اکانت اینستاگرام</h2>
+  <form method="post" action="{% url 'manage:ig_account_add' %}" autocomplete="off">{% csrf_token %}
+    <div class="grid g2">
+      <div>
+        <div class="field"><label for="add-username">یوزرنیم</label>
+          <input id="add-username" name="username" class="ops-input" dir="ltr" required placeholder="username"></div>
+        <div class="field"><label for="add-password">پسورد</label>
+          <input id="add-password" name="password" type="password" class="ops-input" dir="ltr" autocomplete="new-password">
+          <div class="help">ورود همین‌جا انجام می‌شود؛ اگر اینستاگرام کد بخواهد، صفحه‌ی اکانت باز می‌شود و همان کد را وارد می‌کنید.</div></div>
+        <div class="field"><label for="add-sessionid">sessionid (اختیاری)</label>
+          <input id="add-sessionid" name="sessionid" class="ops-input" dir="ltr">
+          <div class="help">اگر اکانت در مرورگری لاگین است، کوکی sessionid آن را بدهید تا بدون کد وصل شود.</div></div>
+      </div>
+      <div>
+        <div class="field"><label for="add-role">نقش</label>
+          <select id="add-role" name="role" class="ops-input">{% for k, label in roles %}<option value="{{ k }}" {% if k == "SENDER" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="add-tenant">مشتری (برای ارسال‌کننده‌ها)</label>
+          <select id="add-tenant" name="tenant_id" class="ops-input"><option value="tenant_default">بدون مشتری (tenant_default)</option>
+            {% for k, label in tenants %}{% if k != "tenant_default" %}<option value="{{ k }}" {% if f.tenant == k %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}</select>
+          <div class="help">نام مشاور و پیام از <a href="{% url 'manage:ig_tenants' %}">پروفایل همین مشتری</a> خوانده می‌شود.</div></div>
+        <div class="field"><label for="add-tier">رده‌ی اکانت</label>
+          <select id="add-tier" name="account_tier" class="ops-input">{% for k, label in tiers %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="add-daily">سقف پیام روزانه (اختیاری)</label>
+          <input id="add-daily" name="daily_limit" class="ops-input" inputmode="numeric" dir="ltr" style="max-width:120px"></div>
+      </div>
+    </div>
+    <div class="field"><label>اتصال</label>
+      <div class="field check"><input type="radio" name="proxy" value="system" id="add-px-system" checked><label for="add-px-system">کانفیگ سیستم (یک کانفیگ آزاد، ثابت برای همین اکانت؛ اگر نبود، استخر مشترک)</label></div>
+      <div class="field check"><input type="radio" name="proxy" value="config" id="add-px-config"><label for="add-px-config">این کانفیگ:</label>
+        <select name="config_id" class="ops-input" style="max-width:360px"><option value="">—</option>
+          {% for c in configs %}<option value="{{ c.pk }}">#{{ c.pk }} {{ c.tag|default:c.server|truncatechars:40 }} · پورت {{ c.local_port }}{% if c.ping_ms > 0 %} · {{ c.ping_ms|floatformat:0 }}ms{% endif %} · {{ c.n_ig }} اکانت</option>{% endfor %}</select></div>
+      <div class="field check"><input type="radio" name="proxy" value="custom" id="add-px-custom"><label for="add-px-custom">پروکسی اختصاصی:</label>
+        <input name="proxy_url" class="ops-input" dir="ltr" placeholder="socks5://user:pass@host:port یا host:port:user:pass" style="max-width:360px"></div>
+      <div class="field check"><input type="radio" name="proxy" value="pool" id="add-px-pool"><label for="add-px-pool">استخر مشترک (IP ثابت ندارد)</label></div>
+    </div>
+    <button class="btn primary">افزودن و ورود</button>
+  </form>
+</div>
+{% endblock %}

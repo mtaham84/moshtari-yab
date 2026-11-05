@@ -12,6 +12,17 @@ class DiscoveryConfig(AppConfig):
         from apps.discovery import instagrapi_patch
         instagrapi_patch.patch_instagrapi_password_keys()
 
+        from django.db.models.signals import pre_delete
+
+        from apps.discovery.models import ProxyConfig
+
+        def _release_config(sender, instance, **kwargs):
+            # its Instagram accounts go to the shared pool (logged) until ensure_system_configs gives them a new one
+            from apps.discovery.ig_accounts import release_config
+            release_config(instance, note=f"کانفیگ #{instance.pk} ({instance.tag or instance.server}) حذف شد")
+
+        pre_delete.connect(_release_config, sender=ProxyConfig, weak=False, dispatch_uid="ig_release_proxy_config")
+
         if "test" in sys.argv[1:2] or "pytest" in sys.modules:   # tests must never rewrite the real pool file
             return
         from django.db import transaction
