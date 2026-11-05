@@ -3,7 +3,8 @@ ig-outreach runner for the single Instagram DM dispatcher (apps.discovery.outrea
 
 The sending logic (queued messages first, then the best 45-point lead, organic journey, guardrails,
 per-account pacing, tier caps and per-sender error handling) lives in the engine and is shared with the
-Celery task. This command only ticks it about once a minute and polls replies on its own interval.
+Celery task. This command only ticks it about once a minute and checks replies every random 5-10 minutes
+during shift hours.
 
 Use it when INSTAGRAM_OUTREACH_DISPATCHER=command (default); with "celery" use celery-beat instead.
 """
@@ -27,6 +28,8 @@ from apps.discovery.outreach_engine import (  # noqa: F401  (re-exported for old
     TEHRAN_TZ,
     _error_matches,
     load_outreach_config,
+    next_reply_sync_delay,
+    reply_sync_allowed,
     run_outreach_batch,
 )
 from apps.discovery.outreach_service import check_and_sync_lead_replies
@@ -56,8 +59,9 @@ class Command(BaseCommand):
                             help="Min minutes between two cold DMs across all senders "
                                  "(default: INSTAGRAM_OUTREACH_MIN_GAP_MINUTES).")
         parser.add_argument("--tick-seconds", type=int, default=60, help="Seconds between ticks in loop mode.")
-        parser.add_argument("--reply-sync-seconds", type=int, default=120,
-                            help="Seconds between inbox reply checks in loop mode (default: 120).")
+        parser.add_argument("--reply-sync-seconds", type=int, default=None,
+                            help="Fixed seconds between inbox reply checks in loop mode (min 60). Default: random "
+                                 "INSTAGRAM_REPLY_SYNC_MIN_SECONDS..MAX_SECONDS (5-10 min). Only during shift hours.")
         parser.add_argument("--max-daily-dms", type=int, default=9,
                             help="Daily DM cap for senders without their own limit (never above the tier cap).")
         parser.add_argument("--min-intent", type=float, default=None,
@@ -113,14 +117,14 @@ class Command(BaseCommand):
         if options["once"] or not options["loop"]:
             batch = run_outreach_batch(tenant_ids, max_sends=batch_size, cfg=load_outreach_config(), **step_kwargs)
             self._report(batch["last"])
-            if not dry_run:
+            if not dry_run and reply_sync_allowed(options["ignore_circadian"])[0]:
                 self._sync_replies(tenant_ids)
             self.stdout.write(self.style.SUCCESS(f"\n🏁 عملیات تک‌بچ به پایان رسید. مجموع پیام‌های ارسالی: {batch['sent']}"))
             return
 
         tick = max(15, options["tick_seconds"])
-        reply_every = max(30, options["reply_sync_seconds"])
-        last_reply_sync = 0.0
+        fixed_reply_every = max(60, options["reply_sync_seconds"]) if options["reply_sync_seconds"] else None
+        next_reply_sync = 0.0
         self.stdout.write(self.style.SUCCESS(f"🔄 حالت پیوسته فعال شد (هر {tick} ثانیه یک بررسی؛ فاصله‌ها در دیتابیس)."))
         while True:
             pause = tick
@@ -131,9 +135,10 @@ class Command(BaseCommand):
                 self._report(last)
                 if last.get("action") == "paused":
                     pause = max(tick, min(int(last.get("wait_seconds") or tick), 300))
-                if not dry_run and time.monotonic() - last_reply_sync >= reply_every:
-                    self._sync_replies(tenant_ids)
-                    last_reply_sync = time.monotonic()
+                if not dry_run and time.monotonic() >= next_reply_sync:
+                    if reply_sync_allowed(options["ignore_circadian"])[0]:  # no inbox checks outside the shift
+                        self._sync_replies(tenant_ids)
+                    next_reply_sync = time.monotonic() + (fixed_reply_every or next_reply_sync_delay())
             except Exception as exc:
                 self.stderr.write(self.style.ERROR(f"خطای کلی در حلقه ارسال: {exc}"))
                 logger.exception("ig-outreach tick failed")

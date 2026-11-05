@@ -222,18 +222,23 @@ def rotate_account_proxy_ip(account, post_delay: float = 5.0) -> Dict[str, Any]:
     }
 
 
-def prepare_sender_proxy_before_dm(account, stdout=None) -> Dict[str, Any]:
+def prepare_sender_proxy_before_dm(account, stdout=None, rotate: Optional[bool] = None) -> Dict[str, Any]:
     """
     Pre-Flight guardrail executed before dispatching Instagram DMs:
-    1. If account has 4G rotation URL, automatically rotates to a fresh cellular IP.
-    2. Inspects current IP and verifies ISP risk level.
-    3. Prints human-readable status to stdout.
+    1. Inspects current IP and verifies ISP risk level, printing a human-readable status to stdout.
+    2. Rotates the 4G IP only when asked (rotate=True or INSTAGRAM_PROXY_ROTATE_EACH_DM). A real phone keeps its
+       IP for hours; a logged-in session that shows up from a new IP before every DM looks automated. After a
+       proxy error outreach_engine.apply_sender_error rotates the IP and rests the sender instead.
     """
+    from django.conf import settings
+
     rotation_url = extract_rotation_url(account)
     rotated = False
     info: Dict[str, Any] = {}
+    if rotate is None:
+        rotate = bool(getattr(settings, "INSTAGRAM_PROXY_ROTATE_EACH_DM", False))
 
-    if rotation_url:
+    if rotation_url and rotate:
         if stdout:
             stdout.write("   🔄 [پروکسی موبایل 4G]: چرخش خودکار IP جهت دریافت آی‌پی تازه سلولار...")
         res = rotate_account_proxy_ip(account, post_delay=4.5)

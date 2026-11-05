@@ -599,15 +599,16 @@ def add_outreach_account_view(request):
     # Attempt connection with instagrapi
     try:
         from instagrapi import Client
-        from apps.discovery.device_emulator import ensure_account_device_profile, apply_device_profile_to_client
+        from apps.discovery.device_emulator import (account_device_settings, apply_device_profile_to_client,
+                                                   ensure_account_device_profile)
 
         cl = Client()
-        # Default fallback proxy for senders if none configured
-        proxy_url = "socks5h://xray:1080"
-        cl.set_proxy(proxy_url)
+        # Keep a proxy the account already has; the shared default is only for accounts without one
+        proxy_url = account.proxy_url or "socks5h://xray:1080"
         account.proxy_url = proxy_url
+        cl.set_proxy(account.clean_proxy)
 
-        dev_profile = ensure_account_device_profile(account)
+        ensure_account_device_profile(account)
         apply_device_profile_to_client(cl, account)
 
         if sessionid:
@@ -621,7 +622,7 @@ def add_outreach_account_view(request):
             messages.error(request, "لطفاً کوکی sessionid یا کلمه عبور را وارد فرمایید.")
             return redirect("accounts:outreach")
 
-        account.device_settings = dev_profile or {"settings": account.session_json}
+        account.device_settings = account_device_settings(account, client_settings=account.session_json)
         account.status = "ACTIVE"
         account.status_message = f"متصل و فعال - مشاور {consultant_name} ({tier_specs['title']})"
         account.save()
@@ -901,7 +902,8 @@ def edit_outreach_account_view(request, pk):
     from apps.discovery.models import InstagramEngineAccount
     from apps.discovery.outreach_service import get_tier_specs
     from instagrapi import Client
-    from apps.discovery.device_emulator import ensure_account_device_profile, apply_device_profile_to_client
+    from apps.discovery.device_emulator import (account_device_settings, apply_device_profile_to_client,
+                                                   ensure_account_device_profile)
 
     business = getattr(request.user, "business", None)
     if not business and not request.user.is_superuser:
@@ -954,18 +956,18 @@ def edit_outreach_account_view(request, pk):
         sessionid = sessionid.strip('"').strip("'").strip(";").strip()
 
         cl = Client()
-        if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
-        else:
-            cl.set_proxy("socks5h://xray:1080")
+        if not account.proxy_url:  # log in through the proxy the workers will use afterwards
+            account.proxy_url = "socks5h://xray:1080"
+            updated_fields.append("proxy_url")
+        cl.set_proxy(account.clean_proxy)
 
-        dev_profile = ensure_account_device_profile(account)
+        ensure_account_device_profile(account)
         try:
             apply_device_profile_to_client(cl, account)
             cl.login_by_sessionid(sessionid)
             settings = cl.get_settings()
             account.session_json = settings
-            account.device_settings = dev_profile or {"settings": settings}
+            account.device_settings = account_device_settings(account, client_settings=settings)
             account.status = "ACTIVE"
             account.cooldown_until = None
             account.status_message = "سشن جدید با موفقیت فعال شد"

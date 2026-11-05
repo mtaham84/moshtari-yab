@@ -13,11 +13,16 @@ from apps.discovery.models import (
     InstagramCrawledPost,
     InstagramCrawlExecution,
 )
+from apps.discovery.device_emulator import account_device_settings
 from apps.discovery.ig_session import (
     ErrorKind, Policy, account_lock, classify, load_file, redact, save_atomic, session_path,
 )
 from instagram_engine.analyzer import get_effective_caption_cta, is_buyer_comment, evaluate_comment_smart
 from instagram_engine.config import settings
+
+
+class ProxyUnavailable(RuntimeError):
+    """The account's proxy is down; the account is rested instead of scraping from the server's own IP."""
 
 
 class Command(BaseCommand):
@@ -202,12 +207,15 @@ class Command(BaseCommand):
                     self.stderr.write(self.style.WARNING(
                         f"No healthy scraper account left this cycle; skipping target {target['name']}."
                     ))
+                    continue
                 cycle_offset = getattr(self, "_cycle_account_offset", 0)
                 account = usable_accounts[(cycle_offset + target_idx) % len(usable_accounts)]
                 self._cycle_account_offset = (cycle_offset + 1) % len(usable_accounts)
 
                 self.stdout.write(self.style.SUCCESS(f"\n[Assigning Scraper]: @{account.username} (ID: {account.id}) for target: {target['name']}"))
-                cl = self._get_persistent_client(account)
+                cl = self._client_or_rest(account)
+                if cl is None:
+                    continue
                 try:
                     if target.get("family"):
                         leads_found = self._scrape_family_target(cl, account, target, min_comments, max_posts)
@@ -294,12 +302,23 @@ class Command(BaseCommand):
         if account.proxy_url:
             from apps.billing.manage_views import _test_proxy_connection
             proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url, timeout=2.5)
-            if proxy_ok:
-                cl.set_proxy(account.proxy_url)
-            else:
-                self.stdout.write(self.style.WARNING(f"Proxy '{account.proxy_url}' unreachable ({proxy_msg}). Falling back to direct connection."))
+            if not proxy_ok:
+                # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
+                # (and the same IP for every account) is a far bigger risk than skipping one cycle.
+                raise ProxyUnavailable(f"proxy unreachable for @{account.username}: {proxy_msg}")
+            cl.set_proxy(account.clean_proxy)
 
         return cl
+
+    def _client_or_rest(self, account):
+        """Client for `account`, or None after resting it for a while when its proxy is down."""
+        try:
+            return self._get_persistent_client(account)
+        except ProxyUnavailable as exc:
+            self._set_state(account, "COOLDOWN", f"پروکسی در دسترس نیست؛ بدون پروکسی وصل نمی‌شویم: {redact(exc, 150)}",
+                            hours=self.PROXY_DOWN_REST_HOURS)
+            self.stderr.write(f"    proxy_unavailable: account {account.id} rests {self.PROXY_DOWN_REST_HOURS}h (no direct fallback)")
+            return None
 
     # Error kind -> (account status, rest hours). LOGIN_REQUIRED/NETWORK/OTHER are handled separately.
     _KIND_POLICY = {
@@ -308,6 +327,7 @@ class Command(BaseCommand):
         ErrorKind.RATE_LIMIT: ("COOLDOWN", 2.0),
     }
     RENEW_COOLDOWN_HOURS = 6.0  # after a failed automatic re-login, wait this long before the next attempt
+    PROXY_DOWN_REST_HOURS = 0.5  # account rest when its proxy cannot be reached (never scrape without it)
 
     @property
     def _policy(self):
@@ -393,8 +413,9 @@ class Command(BaseCommand):
             except (ChallengeRequired, TwoFactorRequired) as exc:
                 # Instagram wants a code (2FA / email / SMS): hand over to the dashboard, keep the pending challenge state.
                 try:
-                    account.device_settings = {"settings": cl.get_settings(), "last_json": getattr(cl, "last_json", None),
-                                               "challenge_hint": redact(exc)}
+                    account.device_settings = account_device_settings(
+                        account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None),
+                        challenge_hint=redact(exc))
                 except Exception:
                     pass
                 self._set_state(account, "CHALLENGED",
@@ -1435,9 +1456,13 @@ class Command(BaseCommand):
                 break
             if account.status != "ACTIVE":
                 fallback_accounts = [a for a in self._available_scraper_accounts() if a.id != account.id and self._is_usable(a)]
-                if fallback_accounts:
-                    account = fallback_accounts[0]
-                    cl = self._get_persistent_client(account)
+                cl = None
+                for fallback in fallback_accounts:
+                    cl = self._client_or_rest(fallback)
+                    if cl is not None:
+                        account = fallback
+                        break
+                if cl is not None:
                     self.stdout.write(self.style.NOTICE(f"🔄 تعویض خودکار اکانت اسکرپر به @{account.username} (اکانت قبلی غیرفعال شد)"))
                 else:
                     self.stdout.write(self.style.WARNING(f"Stopping sources: اکانت جایگزینی برای @{account.username} در دسترس نیست."))

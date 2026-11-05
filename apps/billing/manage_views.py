@@ -32,6 +32,7 @@ from apps.discovery.models import (
     XCrawledPost, Opportunity, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
+from apps.discovery.device_emulator import account_device_settings, apply_device_profile_to_client, connect_saved_session
 
 logger = logging.getLogger("management")
 
@@ -869,14 +870,13 @@ def manage_account_add(request):
         # Apply unique realistic device profile (Pixel 8 Pro, S24 Ultra, Xiaomi 14, etc.)
         try:
             from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
-            dev_profile = ensure_account_device_profile(account)
+            ensure_account_device_profile(account)
             apply_device_profile_to_client(cl, account)
         except Exception as dev_err:
-            dev_profile = {}
             logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
 
         if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+            cl.set_proxy(account.clean_proxy)
 
         def _challenge_detector(u, choice=None):
             raise ChallengeRequired(f"کد تایید به روش {choice or 'ایمیل/پیامک'} ارسال شد.")
@@ -889,7 +889,7 @@ def manage_account_add(request):
                 cl.login_by_sessionid(sessionid)
                 settings = cl.get_settings()
                 account.session_json = settings
-                account.device_settings = dev_profile or {"settings": settings}
+                account.device_settings = account_device_settings(account, client_settings=settings)
                 account.status = "ACTIVE"
                 account.save(update_fields=["session_json", "device_settings", "status"])
                 role_fa = "اسکرپر" if role == "SCRAPER" else "فرستنده / پاسخگو"
@@ -914,7 +914,7 @@ def manage_account_add(request):
             # Verified and logged in successfully
             settings = cl.get_settings()
             account.session_json = settings
-            account.device_settings = dev_profile or {"settings": settings}
+            account.device_settings = account_device_settings(account, client_settings=settings)
             account.status = "ACTIVE"
             account.save(update_fields=["session_json", "device_settings", "status"])
 
@@ -934,11 +934,8 @@ def manage_account_add(request):
 
         except (ChallengeRequired, TwoFactorRequired) as ce:
             account.status = "CHALLENGED"
-            account.device_settings = {
-                "settings": cl.get_settings(),
-                "last_json": getattr(cl, "last_json", None),
-                "challenge_hint": str(ce),
-            }
+            account.device_settings = account_device_settings(
+                account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(ce))
             account.save(update_fields=["status", "device_settings"])
             warn_msg = f"اینستاگرام کد تایید امنیتی به ایمیل یا پیامک اکانت ارسال کرد. لطفاً کد را وارد کنید."
             if is_ajax:
@@ -986,11 +983,8 @@ def manage_account_add(request):
             le_str = str(le).lower()
             if any(k in le_str for k in ["challenge", "checkpoint", "two_step", "two_factor", "two-factor", "verification", "sms", "code"]):
                 account.status = "CHALLENGED"
-                account.device_settings = {
-                    "settings": cl.get_settings(),
-                    "last_json": getattr(cl, "last_json", None),
-                    "challenge_hint": str(le),
-                }
+                account.device_settings = account_device_settings(
+                    account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(le))
                 account.save(update_fields=["status", "device_settings"])
                 if is_ajax:
                     return JsonResponse({
@@ -1083,10 +1077,10 @@ def manage_account_set_session(request, pk):
     from instagrapi import Client
     cl = Client()
     if account.proxy_url:
-        cl.set_proxy(account.proxy_url)
+        cl.set_proxy(account.clean_proxy)
 
     from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
-    dev_profile = ensure_account_device_profile(account)
+    ensure_account_device_profile(account)
     try:
         apply_device_profile_to_client(cl, account)
     except Exception as dev_err:
@@ -1100,7 +1094,7 @@ def manage_account_set_session(request, pk):
         cl.login_by_sessionid(sessionid)
         settings = cl.get_settings()
         account.session_json = settings
-        account.device_settings = dev_profile or {"settings": settings}
+        account.device_settings = account_device_settings(account, client_settings=settings)
         account.status = "ACTIVE"
         account.status_message = ""
         account.cooldown_until = None
@@ -1198,16 +1192,16 @@ def manage_sender_account_edit(request, pk):
         from instagrapi import Client
         cl = Client()
         if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+            cl.set_proxy(account.clean_proxy)
 
         from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
-        dev_profile = ensure_account_device_profile(account)
+        ensure_account_device_profile(account)
         try:
             apply_device_profile_to_client(cl, account)
             cl.login_by_sessionid(sessionid)
             settings = cl.get_settings()
             account.session_json = settings
-            account.device_settings = dev_profile or {"settings": settings}
+            account.device_settings = account_device_settings(account, client_settings=settings)
             account.status = "ACTIVE"
             account.status_message = "سشن جدید با موفقیت فعال شد"
             account.cooldown_until = None
@@ -1306,91 +1300,64 @@ def manage_account_test(request, pk):
             "message": f"اکانت در دوره استراحت است (حدود {rem_min} دقیقه باقی‌مانده)",
         })
 
-    # 3. Live Instagram Login / Session Test
+    # 3. Live Instagram Login / Session Test, on the account's own phone and saved session (what the workers use);
+    #    a test must never show Instagram a different device or replace a working session.
     live_status = account.status
     msg = "اتصال و وضعیت اکانت با موفقیت تایید شد."
     challenge_hint = ""
     try:
         from instagrapi import Client
-        from instagrapi.exceptions import (ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired,
+        from instagrapi.exceptions import (ChallengeRequired, FeedbackRequired, TwoFactorRequired,
                                            PleaseWaitFewMinutes)
         cl = Client()
         if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+            cl.set_proxy(account.clean_proxy)
 
         def _non_interactive_challenge(username, choice=None):
             raise ChallengeRequired(f"کد تایید امنیتی به روش {choice} ارسال شد.")
         cl.challenge_code_handler = _non_interactive_challenge
 
-        if account.device_settings and isinstance(account.device_settings, dict) and "model" in account.device_settings:
-            try:
-                cl.set_device(account.device_settings, reset=False)
-            except Exception:
-                pass
-
         if account.session_json:
-            cookies = account.session_json.get("cookies", {})
-            sess_id = cookies.get("sessionid")
-            if sess_id:
-                try:
-                    cl.login_by_sessionid(sess_id)
-                    live_status = "ACTIVE"
-                    account.status = "ACTIVE"
-                    account.session_json = cl.get_settings()
-                    account.save(update_fields=["status", "session_json"])
-                    msg = f"سشن اینستاگرام کاملاً معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
-                except Exception as se:
-                    se_str = str(se).lower()
-                    if "pleasewait" in se_str or "429" in se_str:
-                        live_status = "COOLDOWN"
-                        account.status = "COOLDOWN"
-                        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                        account.save(update_fields=["status", "cooldown_until"])
-                        msg = f"محدودیت موقت اینستاگرام (PleaseWaitFewMinutes). اکانت برای ۱۵ دقیقه در حالت استراحت قرار گرفت."
-                    else:
-                        live_status = "CHALLENGED"
-                        account.status = "CHALLENGED"
-                        account.save(update_fields=["status"])
-                        msg = f"سشن اینستاگرام منقضی یا نامعتبر شده است. لطفاً sessionid جدید را ثبت نمایید: {se}"
-            else:
-                cl.set_settings(account.session_json)
-                try:
-                    cl.get_timeline_feed()
-                    live_status = "ACTIVE"
-                    account.status = "ACTIVE"
+            try:
+                connect_saved_session(cl, account)
+                cl.get_timeline_feed()  # what the app itself requests when it is opened
+                live_status = "ACTIVE"
+                account.status = "ACTIVE"
+                fresh = cl.get_settings()
+                account.session_json = fresh
+                account.device_settings = account_device_settings(account, client_settings=fresh)
+                account.save(update_fields=["status", "session_json", "device_settings"])
+                msg = f"سشن اینستاگرام کاملاً معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
+            except Exception as se:
+                se_str = str(se).lower()
+                if "pleasewait" in se_str or "429" in se_str or "feedback" in se_str or \
+                        any(k in se_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl"]):
+                    live_status = "COOLDOWN"
+                    account.status = "COOLDOWN"
+                    account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                    account.save(update_fields=["status", "cooldown_until"])
+                    msg = f"محدودیت موقت اینستاگرام یا خطای موقت شبکه/پروکسی؛ اکانت ۱۵ دقیقه استراحت می‌کند: {se}"
+                else:
+                    live_status = "CHALLENGED"
+                    account.status = "CHALLENGED"
                     account.save(update_fields=["status"])
-                    msg = f"سشن اینستاگرام معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
-                except Exception as se:
-                    se_str = str(se).lower()
-                    if any(k in se_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl", "56"]):
-                        live_status = "COOLDOWN"
-                        account.status = "COOLDOWN"
-                        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
-                        account.save(update_fields=["status", "cooldown_until"])
-                        msg = f"خطای موقت اتصال شبکه یا پروکسی: {se}"
-                    else:
-                        live_status = "CHALLENGED"
-                        account.status = "CHALLENGED"
-                        account.save(update_fields=["status"])
-                        msg = f"سشن منقضی شده است: {se}"
+                    msg = f"سشن اینستاگرام منقضی یا نامعتبر شده است. لطفاً sessionid جدید را ثبت نمایید: {se}"
         else:
-            # First-time login test
+            # First-time login test, already on the account's own device profile
+            apply_device_profile_to_client(cl, account)
             try:
                 cl.login(account.username, account.password)
                 new_settings = cl.get_settings()
                 account.session_json = new_settings
-                account.device_settings = {"settings": new_settings}
+                account.device_settings = account_device_settings(account, client_settings=new_settings)
                 account.status = "ACTIVE"
                 account.save(update_fields=["session_json", "device_settings", "status"])
                 msg = f"ورود اولیه با موفقیت انجام و سشن ذخیره گردید. {proxy_msg}"
             except (ChallengeRequired, TwoFactorRequired) as ce:
                 live_status = "CHALLENGED"
                 account.status = "CHALLENGED"
-                account.device_settings = {
-                    "settings": cl.get_settings(),
-                    "last_json": getattr(cl, "last_json", None),
-                    "challenge_hint": str(ce),
-                }
+                account.device_settings = account_device_settings(
+                    account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(ce))
                 account.save(update_fields=["status", "device_settings"])
                 challenge_hint = str(ce)
                 msg = f"اینستاگرام کد تایید امنیتی (ایمیل/پیامک) درخواست کرده است."
@@ -1411,11 +1378,8 @@ def manage_account_test(request, pk):
                     msg = "اکانت توسط اینستاگرام به صفحه تعلیق (Suspended) منتقل شده است."
                 elif "challenge" in le_str or "checkpoint" in le_str or "two_step" in le_str:
                     live_status = "CHALLENGED"
-                    account.device_settings = {
-                        "settings": cl.get_settings(),
-                        "last_json": getattr(cl, "last_json", None),
-                        "challenge_hint": str(le),
-                    }
+                    account.device_settings = account_device_settings(
+                        account, settings=cl.get_settings(), last_json=getattr(cl, "last_json", None), challenge_hint=str(le))
                     msg = "اینستاگرام چالش امنیتی (کد تایید) درخواست کرده است."
                 elif "bad_password" in le_str or "password" in le_str:
                     live_status = "BANNED"
@@ -1476,7 +1440,7 @@ def manage_account_submit_code(request, pk):
         from instagrapi import Client
         cl = Client()
         if account.proxy_url:
-            cl.set_proxy(account.proxy_url)
+            cl.set_proxy(account.clean_proxy)
 
         saved_data = account.device_settings or {}
         saved_settings = (
@@ -1551,7 +1515,7 @@ def manage_account_submit_code(request, pk):
 
         new_settings = cl.get_settings()
         account.session_json = new_settings
-        account.device_settings = {"settings": new_settings}
+        account.device_settings = account_device_settings(account, client_settings=new_settings)
         account.status = "ACTIVE"
         account.status_message = ""
         account.cooldown_until = None
@@ -2352,7 +2316,6 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
     """
     import time
     from instagrapi import Client
-    from apps.discovery.device_emulator import apply_device_profile_to_client
 
     now_ts = time.time()
     if not force_fresh and account.id in _cockpit_client_cache:
@@ -2368,11 +2331,10 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
     cl = Client()
     cl.delay_range = [0.3, 0.8]
     if account.proxy_url:
-        cl.set_proxy(account.proxy_url)
+        cl.set_proxy(account.clean_proxy)
 
     try:
-        apply_device_profile_to_client(cl, account)
-        cl.login_by_sessionid(sessionid)
+        connect_saved_session(cl, account)  # same phone + session as the workers, no fresh login per page view
         _cockpit_client_cache[account.id] = (now_ts, cl)
         return cl, None
     except Exception as exc:

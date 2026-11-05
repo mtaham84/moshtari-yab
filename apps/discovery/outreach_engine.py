@@ -33,7 +33,7 @@ from django.db import connection, models, transaction
 from django.utils import timezone
 
 from apps.discovery.anti_ban import InstagramAntiBanManager
-from apps.discovery.device_emulator import apply_device_profile_to_client
+from apps.discovery.device_emulator import connect_saved_session, has_device_profile
 from apps.discovery.human_routine import HumanShiftPlanner
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.outreach_service import (
@@ -140,27 +140,40 @@ def get_sender_client(account):
                 kwargs["timeout"] = (10, 35 if request.method == "POST" else 15)
             return super().send(request, **kwargs)
 
-    cl = Client()
-    cl.delay_range = [1.5, 3.5]
-    cl.public_request_retries_count = 0
-    cl.public_request_retries_timeout = 0
-    if account.clean_proxy:
-        cl.set_proxy(account.clean_proxy)
-    # Device fingerprint BEFORE authenticating, so the login request already carries the account's own device.
-    try:
-        apply_device_profile_to_client(cl, account)
-    except Exception as dev_err:
-        logger.warning("Device profile for @%s failed: %s", account.username, dev_err)
-    adapter = TimeoutHTTPAdapter()
-    cl.private.mount("https://", adapter)
-    cl.private.mount("http://", adapter)
-
     if not key[0]:
         raise RuntimeError("login_required: no sessionid saved for this sender")
-    cl.login_by_sessionid(key[0])
+    cl = Client()
+    cl.delay_range = [1.5, 3.5]
+    if account.clean_proxy:
+        cl.set_proxy(account.clean_proxy)
+    # The saved session on the phone that created it (set_settings, no extra login request); only rows holding a
+    # bare sessionid get the account's device profile and one login_by_sessionid().
+    connect_saved_session(cl, account)
+    cl.public_request_retries_count = 0
+    cl.public_request_retries_timeout = 0
+    adapter = TimeoutHTTPAdapter()  # mounted last: instagrapi re-mounts its own adapters while loading settings
+    cl.private.mount("https://", adapter)
+    cl.private.mount("http://", adapter)
     _CLIENTS[account.username] = cl
     _CLIENT_KEYS[account.username] = key
     return cl
+
+
+def persist_sender_session(sender) -> None:
+    """Keeps the cookies/tokens Instagram rotated during this session, as the app keeps them on the phone, so a
+    restart does not replay stale ones. Same device and UUIDs; only full instagrapi settings are stored."""
+    cl = _CLIENTS.get(sender.username)
+    if cl is None:
+        return
+    try:
+        fresh = cl.get_settings()
+    except Exception:
+        return
+    if not has_device_profile(fresh) or fresh == sender.session_json:
+        return
+    sender.session_json = fresh
+    sender.save(update_fields=["session_json"])
+    _CLIENT_KEYS[sender.username] = (_session_id(sender), sender.clean_proxy)  # the same client stays cached
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +421,8 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
             res = {"success": False, "error": str(exc)}
 
         if res.get("success"):
+            if not ctx.dry_run:
+                persist_sender_session(sender)
             ctx.log(f"   ✅ پیام صف با موفقیت برای @{lead.username} توسط @{sender.username} ارسال شد.")
             return {"action": "queued_sent", "sent": True, "lead": lead.username, "sender": sender.username}
 
@@ -534,6 +549,7 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         return {"action": "cold_failed", "sent": False, "lead": lead.username, "sender": sender.username, "kind": kind}
 
     delay, is_break = _mark_cold_sent(lead, sender, pitch_text, pace=True)
+    persist_sender_session(sender)
     pause = "☕ استراحت طبیعی" if is_break else "⏳ وقفه ایمنی"
     ctx.log(f"   ✅ دایرکت به @{lead.username} ارسال شد. {pause}: دایرکت بعدی @{sender.username} "
             f"حداقل {delay / 60.0:.0f} دقیقه دیگر.")
@@ -597,6 +613,20 @@ def run_outreach_step(
         if queued:
             return queued
         return _send_next_cold(ctx, now)
+
+
+def reply_sync_allowed(ignore_shift: bool = False) -> Tuple[bool, str]:
+    """Inbox checks follow the same shift hours as sending: a person does not refresh DMs all night."""
+    if ignore_shift:
+        return True, ""
+    active, reason, _ = HumanShiftPlanner.is_shift_active()
+    return active, reason
+
+
+def next_reply_sync_delay() -> float:
+    """Seconds until the next inbox check: random within INSTAGRAM_REPLY_SYNC_MIN/MAX_SECONDS (5-10 min)."""
+    lo = settings.INSTAGRAM_REPLY_SYNC_MIN_SECONDS
+    return random.uniform(lo, max(lo, settings.INSTAGRAM_REPLY_SYNC_MAX_SECONDS))
 
 
 def run_outreach_batch(tenant_ids: List[str], *, max_sends: int = 2, **step_kwargs) -> Dict[str, Any]:

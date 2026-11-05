@@ -175,7 +175,7 @@ class SenderClientCacheTests(TestCase):
         acc = InstagramEngineAccount.objects.create(
             username="cached", password="x", role="SENDER", tenant_id=TENANT, proxy_url="socks5h://xray:1095#rotate=http://r",
             session_json={"cookies": {"sessionid": "one"}})
-        with patch("instagrapi.Client") as client_cls, patch.object(engine, "apply_device_profile_to_client"):
+        with patch("instagrapi.Client") as client_cls, patch.object(engine, "connect_saved_session"):
             first = engine.get_sender_client(acc)
             self.assertIs(engine.get_sender_client(acc), first)
             first.set_proxy.assert_called_once_with("socks5h://xray:1095")  # rotation fragment stripped

@@ -227,6 +227,13 @@ if INSTAGRAM_OUTREACH_DISPATCHER not in {"command", "celery"}:
 # Global pacing for cold DMs (both dispatchers): at most one cold DM per this many minutes across all
 # senders (+0-50% jitter). Per-account tier delays and daily/hourly caps apply on top of it.
 INSTAGRAM_OUTREACH_MIN_GAP_MINUTES = max(0, int(os.environ.get("INSTAGRAM_OUTREACH_MIN_GAP_MINUTES", "20")))
+# Inbox reply checks: only during the senders' shift hours, every random 5-10 minutes (not a fixed 2-minute poll
+# around the clock, which no person does).
+INSTAGRAM_REPLY_SYNC_MIN_SECONDS = max(60, int(os.environ.get("INSTAGRAM_REPLY_SYNC_MIN_SECONDS", "300")))
+INSTAGRAM_REPLY_SYNC_MAX_SECONDS = max(INSTAGRAM_REPLY_SYNC_MIN_SECONDS,
+                                       int(os.environ.get("INSTAGRAM_REPLY_SYNC_MAX_SECONDS", "600")))
+# Rotate a sender's 4G IP before every DM (old behaviour). Off: the IP is rotated only after a proxy error.
+INSTAGRAM_PROXY_ROTATE_EACH_DM = os.environ.get("INSTAGRAM_PROXY_ROTATE_EACH_DM", "false").strip().lower() in {"1", "true", "yes", "on"}
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
@@ -251,11 +258,13 @@ CELERY_BEAT_SCHEDULE = {
         "kwargs": {"batch_size": 2},
         "options": {"expires": 55},
     },
-    # 2. Fast Lead Reply Sync (runs every 2 minutes to detect customer responses rapidly)
+    # 2. Lead Reply Sync: ticks every 5 minutes; the task itself skips outside shift hours and skips some ticks at
+    #    random, so inbox checks land 5-15 minutes apart instead of on a fixed robotic beat.
     "sync-lead-replies-fast": {
         "task": "apps.discovery.tasks.task_sync_lead_replies",
-        "schedule": 120.0,  # 2 minutes
+        "schedule": 300.0,
         "args": (["tenant_4", "sarv"],),
+        "options": {"expires": 280},
     },
     # 3. Telegram Proxy Channel Configs Sync (runs every 180 seconds)
     "sync-telegram-channel-configs": {

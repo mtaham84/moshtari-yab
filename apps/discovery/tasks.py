@@ -6,6 +6,7 @@ fast reply synchronization, and automated proxy self-healing.
 from __future__ import annotations
 
 import logging
+import random
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -16,11 +17,12 @@ from django.utils import timezone as django_tz
 from apps.discovery.models.instagram import InstagramEngineAccount
 from apps.discovery.models.proxy import ProxyConfig
 from apps.discovery.human_routine import HumanShiftPlanner  # noqa: F401  (tests patch tasks.HumanShiftPlanner)
-from apps.discovery.outreach_engine import get_available_senders, run_outreach_batch
+from apps.discovery.outreach_engine import get_available_senders, reply_sync_allowed, run_outreach_batch
 from apps.discovery.outreach_service import check_and_sync_lead_replies
 
 logger = logging.getLogger("discovery.tasks")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+REPLY_SYNC_SKIP_CHANCE = 0.3  # share of 5-minute beat ticks that do not check the inbox (irregular 5-15 min gaps)
 
 
 def get_available_senders_atomic(tenant_ids: List[str]) -> List[InstagramEngineAccount]:
@@ -81,11 +83,17 @@ def task_dispatch_instagram_outreach(
 )
 def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     """
-    Asynchronous fast polling task for incoming Instagram lead replies.
-    Runs every 2 minutes via Celery Beat.
+    Polling task for incoming Instagram lead replies (Celery dispatcher only).
+    Beat ticks every 5 minutes; outside shift hours nothing is checked, and REPLY_SYNC_SKIP_CHANCE of the ticks are
+    skipped so the checks are not evenly spaced.
     """
     if not tenant_ids:
         tenant_ids = ["tenant_4", "sarv"]
+    allowed, reason = reply_sync_allowed()
+    if not allowed:
+        return {"success": True, "skipped": True, "reason": reason, "replies_found": 0}
+    if random.random() < REPLY_SYNC_SKIP_CHANCE:
+        return {"success": True, "skipped": True, "reason": "random_skip", "replies_found": 0}
     try:
         res = check_and_sync_lead_replies(tenant_ids)
         replies_count = res.get("replies_found", 0)
