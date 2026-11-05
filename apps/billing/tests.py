@@ -220,3 +220,47 @@ class EngineReadsPanelTests(EngineSchemaMixin, TransactionTestCase):
         self.assertIn(str(biz.pk), reg.blocked())            # zero balance + enforcement on
         services.apply_transaction(biz, 1000, WalletTransaction.TOPUP)
         self.assertNotIn(str(biz.pk), reg.refresh(force=True) and reg.blocked())
+
+
+class BalanceBlockedRuleTests(TestCase):
+    """BIL-03: one blocked-wallet rule for is_blocked, the header, the ops count and the engine mirror."""
+
+    CASES = [
+        # (balance, enforce, min_balance)
+        (Decimal("-1"), False, Decimal("0")), (Decimal("0"), False, Decimal("0")), (Decimal("1"), False, Decimal("0")),
+        (Decimal("500"), False, Decimal("1000")), (Decimal("1000"), True, Decimal("1000")),
+        (Decimal("1001"), True, Decimal("1000")), (Decimal("0"), True, Decimal("-50")),
+        (Decimal("10"), True, Decimal("-50")), (None, True, Decimal("100")),
+    ]
+
+    def test_engine_mirror_and_queryset_agree_with_reference(self):
+        from need_engine.registry import balance_blocked
+
+        _, biz = seller("rule@x.com", "قاعده")
+        s = BillingSettings.get()
+        for balance, enforce, min_balance in self.CASES:
+            with self.subTest(balance=balance, enforce=enforce, min_balance=min_balance):
+                s.enforce_balance, s.min_balance_toman = enforce, min_balance
+                expected = services.balance_is_blocked(balance, s)
+                self.assertEqual(balance_blocked(balance, enforce, min_balance), expected)
+                if balance is None:
+                    continue
+                Wallet.objects.filter(business=biz).update(balance_toman=balance)
+                qs = Wallet.objects.filter(business=biz).filter(services.blocked_wallets_q(s))
+                self.assertEqual(qs.exists(), expected)
+
+    def test_context_processor_uses_same_rule(self):
+        from django.test import RequestFactory
+
+        from .context_processors import wallet
+
+        user, biz = seller("cp@x.com", "سی‌پی")
+        s = BillingSettings.get()
+        s.enforce_balance, s.min_balance_toman = True, Decimal("1000")
+        s.save()
+        Wallet.objects.filter(business=biz).update(balance_toman=Decimal("1000"))
+        request = RequestFactory().get("/")
+        request.user = user
+        self.assertTrue(wallet(request)["wallet_blocked"])
+        Wallet.objects.filter(business=biz).update(balance_toman=Decimal("1001"))
+        self.assertFalse(wallet(request)["wallet_blocked"])

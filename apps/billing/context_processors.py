@@ -10,8 +10,10 @@ def wallet(request):
 
     w = Wallet.objects.filter(business=business).only("balance_toman").first()
     s = BillingSettings.get()
+    from .services import balance_is_blocked
+
     balance = w.balance_toman if w else 0
-    blocked = balance <= 0 or (s.enforce_balance and balance <= s.min_balance_toman)
+    blocked = balance_is_blocked(balance, s)
     out = {"wallet_balance": balance, "is_ops": user.is_staff, "wallet_blocked": blocked}
     if blocked:   # collected but not processed until the top-up
         from .services import waiting_payment

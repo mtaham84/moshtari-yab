@@ -23,6 +23,13 @@ from need_engine.crypto import decrypt_secret
 
 log = logging.getLogger("need_engine.registry")
 
+
+def balance_blocked(balance, enforce_balance: bool, min_balance) -> bool:
+    """Must stay identical to apps.billing.services.balance_is_blocked (the engine runs without Django);
+    apps.billing.tests.BalanceBlockedRuleTests compares both on the same inputs."""
+    balance = balance or 0
+    return balance <= 0 or bool(enforce_balance and balance <= min_balance)
+
 ROLES = ("extract", "verify", "reply")
 
 
@@ -224,7 +231,7 @@ class ModelRegistry:
         if self.cfg.products_source == "db" and not snap.wallets_loaded:
             raise RuntimeError("wallet balances unavailable; refusing paid discovery work")
         return frozenset(b for b, bal in snap.balances.items()
-                         if bal <= 0 or (snap.enforce_balance and bal <= snap.min_balance))
+                         if balance_blocked(bal, snap.enforce_balance, snap.min_balance))
 
     def is_blocked(self, business_id: str | None) -> bool:
         return business_id is not None and str(business_id) in self.blocked()

@@ -9,12 +9,11 @@ import time
 from datetime import datetime, timedelta
 import urllib.error
 import urllib.request
-from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from apps.businesses.models import Business
@@ -84,10 +83,25 @@ def charge_usage(business: Business, amount, description: str = "", *, cost_usd=
                              cost_usd=cost_usd, calls=calls)
 
 
+def balance_is_blocked(balance, cfg: BillingSettings) -> bool:
+    """Single source of truth for "this wallet is out of credit".
+
+    need_engine.registry.balance_blocked mirrors this rule for the engine process (no Django there);
+    apps.billing.tests.BalanceBlockedRuleTests keeps the two in sync."""
+    balance = balance or 0
+    return balance <= 0 or bool(cfg.enforce_balance and balance <= cfg.min_balance_toman)
+
+
+def blocked_wallets_q(cfg: BillingSettings) -> Q:
+    """`balance_is_blocked` as a queryset filter on Wallet (for counting/listing blocked sellers)."""
+    q = Q(balance_toman__lte=0)
+    if cfg.enforce_balance:
+        q |= Q(balance_toman__lte=cfg.min_balance_toman)
+    return q
+
+
 def is_blocked(business: Business) -> bool:
-    s = BillingSettings.get()
-    balance = ensure_wallet(business).balance_toman
-    return balance <= 0 or (s.enforce_balance and balance <= s.min_balance_toman)
+    return balance_is_blocked(ensure_wallet(business).balance_toman, BillingSettings.get())
 
 
 # ── engine tables (read-only from here) ───────────────────────────────────────
