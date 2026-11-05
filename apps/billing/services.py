@@ -26,6 +26,18 @@ CENT = Decimal("0.01")
 BILLING_CURSOR = "billing_costs"
 
 
+# ── pricing ───────────────────────────────────────────────────────────────────
+def toman_per_usd(cfg: BillingSettings | None = None) -> Decimal:
+    """What one USD of provider cost costs the seller in toman (exchange rate × markup multiplier)."""
+    cfg = cfg or BillingSettings.get()
+    return cfg.usd_to_toman * cfg.multiplier
+
+
+def billed_toman(cost_usd, cfg: BillingSettings | None = None) -> Decimal:
+    """The single place that converts a provider cost (USD) to what the seller pays (toman, incl. markup)."""
+    return (Decimal(str(cost_usd or 0)) * toman_per_usd(cfg)).quantize(CENT, ROUND_HALF_UP)
+
+
 # ── wallets ───────────────────────────────────────────────────────────────────
 def ensure_wallet(business: Business, with_gift: bool = False) -> Wallet:
     wallet, created = Wallet.objects.get_or_create(business=business)

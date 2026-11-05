@@ -123,7 +123,8 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     from apps.businesses.models import Business
     from apps.products.models import Product
     from apps.billing.models import BillingSettings, WalletTransaction
-    from apps.billing.services import apply_transaction
+    from decimal import ROUND_HALF_UP
+    from apps.billing.services import apply_transaction, billed_toman
     from .models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch
 
     if business is None:
@@ -137,15 +138,13 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     post_code = post_match.group(1) if post_match else "post"
     source_message_id = f"ig:{post_code}:c{lead.ig_user_pk}"
 
-    # Calculate token cost and 150% marked-up tenant fee
+    # Provider cost → seller price; a 0% markup is a valid setting (no `or default` here).
     s = BillingSettings.get()
-    usd_rate = s.usd_to_toman or Decimal("268000")
-    markup_pct = s.markup_percent or Decimal("150.0")
-    tokens_used = int((ai_meta.get("tokens_used", 0) if ai_meta else 0) or 0)
+    usd_rate = s.usd_to_toman
+    markup_pct = s.markup_percent
     cost_usd_dec = Decimal(str(ai_meta.get("cost_usd", 0.0) if ai_meta else 0.0))
     raw_toman_dec = cost_usd_dec * usd_rate
-    # Final price charged to customer = Raw Toman + 150% markup
-    final_toman = int(round(raw_toman_dec * (1 + markup_pct / 100)))
+    final_toman = int(billed_toman(cost_usd_dec, s).quantize(Decimal("1"), ROUND_HALF_UP))
     tokens_used = int((ai_meta.get("tokens_used") or (ai_meta.get("tokens_in", 0) + ai_meta.get("tokens_out", 0))) if ai_meta else 0)
 
     with transaction.atomic():
@@ -322,8 +321,9 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                     cost_usd=cost_usd_dec,
                     calls=1
                 )
-            except Exception as w_exc:
-                pass
+            except Exception:
+                logger.exception("Wallet debit failed for business=%s opportunity=%s amount=%s",
+                                 business.pk, opp.pk, final_toman)
 
         if match:
             from django.db import transaction

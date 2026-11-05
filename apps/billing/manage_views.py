@@ -179,8 +179,8 @@ def manage_dashboard(request):
 
     # 3. Settings & Exchange Rate
     billing_settings = BillingSettings.get()
-    usd_rate = billing_settings.usd_to_toman or Decimal("268000")
-    markup_percent = billing_settings.markup_percent or Decimal("150.0")
+    usd_rate = billing_settings.usd_to_toman
+    markup_percent = billing_settings.markup_percent
 
     # Scraper latest activity tracking
     latest_scraper = InstagramEngineAccount.objects.filter(role="SCRAPER", last_action_at__isnull=False).order_by("-last_action_at").first()

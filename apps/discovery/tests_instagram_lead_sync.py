@@ -11,13 +11,9 @@ from apps.discovery.models import InstagramEngineLead, Opportunity
 from apps.discovery.services import business_for_tenant, sync_instagram_lead_to_opportunity
 
 
-def _business(username, pk=None, **extra):
+def _business(username):
     user = get_user_model().objects.create_user(username=username, password="x")
-    kwargs = {"user": user, "name": f"biz {username}"}
-    if pk is not None:
-        kwargs["pk"] = pk
-    kwargs.update(extra)
-    return Business.objects.create(**kwargs)
+    return Business.objects.create(user=user, name=f"biz {username}")
 
 
 def _lead(tenant_id, **extra):
@@ -52,8 +48,56 @@ class TenantResolutionTests(TestCase):
         self.assertIsNotNone(opp)
         self.assertEqual(opp.business, self.other)
 
-    def test_legacy_alias_maps_to_business_4(self):
-        biz4 = _business("legacy@example.com", pk=4)
-        self.assertEqual(business_for_tenant("sarv"), biz4)
+    def test_legacy_alias_maps_to_its_business(self):
+        from unittest.mock import patch
+
+        from apps.discovery.ig_accounts import canonical_tenant
+
+        self.assertEqual(canonical_tenant("sarv"), "tenant_4")
+        with patch.dict("apps.discovery.ig_accounts.TENANT_ALIASES", {"legacy": f"tenant_{self.other.pk}"}):
+            self.assertEqual(business_for_tenant("legacy"), self.other)
         self.assertIsNone(business_for_tenant(""))
         self.assertIsNone(business_for_tenant("tenant_abc"))
+
+
+class LeadBillingTests(TestCase):
+    def setUp(self):
+        self.biz = _business("billing@example.com")
+        apply_transaction(self.biz, Decimal("10000000"), WalletTransaction.TOPUP)
+
+    def _usage(self):
+        return WalletTransaction.objects.get(wallet__business=self.biz, kind=WalletTransaction.USAGE)
+
+    def test_zero_markup_is_respected(self):
+        cfg = BillingSettings.get()
+        cfg.markup_percent = Decimal("0")
+        cfg.save()
+        sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}"), ai_meta={"cost_usd": 1})
+        self.assertEqual(self._usage().amount_toman, -cfg.usd_to_toman)
+
+    def test_default_markup_matches_billing_service(self):
+        from apps.billing.services import billed_toman
+
+        cfg = BillingSettings.get()
+        sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}"), ai_meta={"cost_usd": 1})
+        self.assertEqual(self._usage().amount_toman, -billed_toman(1, cfg).quantize(Decimal("1")))
+
+    def test_wallet_failure_is_logged(self):
+        from unittest.mock import patch
+
+        with patch("apps.billing.services.apply_transaction", side_effect=RuntimeError("boom")), \
+                self.assertLogs("apps.discovery.services", level="ERROR"):
+            sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}"), ai_meta={"cost_usd": 1})
+
+
+class BilledTomanTests(TestCase):
+    def test_formula(self):
+        from apps.billing.services import billed_toman
+
+        cfg = BillingSettings.get()
+        cfg.usd_to_toman = Decimal("100000")
+        cfg.markup_percent = Decimal("0")
+        self.assertEqual(billed_toman(1, cfg), Decimal("100000.00"))
+        cfg.markup_percent = Decimal("150")
+        self.assertEqual(billed_toman(1, cfg), Decimal("250000.00"))
+        self.assertEqual(billed_toman(None, cfg), Decimal("0.00"))
