@@ -283,3 +283,19 @@ class SenderSessionPersistTests(TestCase):
         engine.persist_sender_session(acc)
         acc.refresh_from_db()
         self.assertIn("uuids", acc.session_json)
+
+
+class OperatingWindowTests(SimpleTestCase):
+    """BUG-10: the dashboard and the anti-ban manager use the same configurable window."""
+
+    def test_window_follows_configured_start_hour(self):
+        from datetime import datetime
+
+        from apps.discovery import anti_ban
+
+        with patch.object(anti_ban, "INSTAGRAM_WINDOW_START_HOUR", 7), patch.object(anti_ban, "INSTAGRAM_WINDOW_END_HOUR", 23):
+            self.assertTrue(anti_ban.in_operating_window(8))
+            self.assertFalse(anti_ban.in_operating_window(6))
+            self.assertFalse(anti_ban.in_operating_window(23))
+            self.assertEqual(anti_ban.next_window_start(datetime(2026, 1, 1, 5, 30)), datetime(2026, 1, 1, 7, 0))
+            self.assertEqual(anti_ban.next_window_start(datetime(2026, 1, 1, 23, 30)), datetime(2026, 1, 2, 7, 0))

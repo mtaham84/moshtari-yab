@@ -84,18 +84,20 @@ def manage_dashboard(request):
     one_day_ago = now_utc - timedelta(hours=24)
     thirty_days_ago = now_utc - timedelta(days=30)
 
-    # Operating window for Instagram is 09:00 to 23:00 Tehran time
-    current_tehran_hour = now_tehran.hour
-    is_ig_night_sleep = (current_tehran_hour < 9 or current_tehran_hour >= 23)
+    # Same operating window as the anti-ban manager (INSTAGRAM_WINDOW_START_HOUR / _END_HOUR, Tehran time)
+    from apps.discovery.anti_ban import (INSTAGRAM_WINDOW_END_HOUR, INSTAGRAM_WINDOW_START_HOUR, in_operating_window,
+                                         next_window_start)
+    from apps.core.jalali import to_persian_digits
+
+    is_ig_night_sleep = not in_operating_window(now_tehran.hour)
+    ig_window_label = to_persian_digits(f"{INSTAGRAM_WINDOW_START_HOUR:02d}:00 تا {INSTAGRAM_WINDOW_END_HOUR:02d}:00")
     if is_ig_night_sleep:
-        if current_tehran_hour >= 23:
-            wake_time = (now_tehran + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-        else:
-            wake_time = now_tehran.replace(hour=9, minute=0, second=0, microsecond=0)
-        minutes_to_wake = max(1, int((wake_time - now_tehran).total_seconds() / 60))
+        minutes_to_wake = max(1, int((next_window_start(now_tehran) - now_tehran).total_seconds() / 60))
         hours_to_wake = minutes_to_wake // 60
         rem_mins = minutes_to_wake % 60
-        ig_sleep_desc = f"{hours_to_wake} ساعت و {rem_mins} دقیقه تا ۰۹:۰۰ صبح" if hours_to_wake > 0 else f"{rem_mins} دقیقه تا ۰۹:۰۰ صبح"
+        wake_label = to_persian_digits(f"{INSTAGRAM_WINDOW_START_HOUR:02d}:00")
+        ig_sleep_desc = (f"{hours_to_wake} ساعت و {rem_mins} دقیقه تا {wake_label}" if hours_to_wake > 0
+                         else f"{rem_mins} دقیقه تا {wake_label}")
     else:
         ig_sleep_desc = ""
 
@@ -126,7 +128,7 @@ def manage_dashboard(request):
 
         if is_ig_night_sleep:
             acc.live_status_key = "NIGHT_SLEEP"
-            acc.live_status_label = "خواب شبانه (تا ۰۹:۰۰ صبح)"
+            acc.live_status_label = f"خواب شبانه (تا {wake_label})"
             acc.live_status_badge = "night_sleep"
             acc.live_status_desc = ig_sleep_desc
         elif acc.cooldown_until and acc.cooldown_until > now_utc:
@@ -670,6 +672,7 @@ def manage_dashboard(request):
         "x_active_queries_count": x_active_queries_count,
         "ig_active_queries_count": ig_active_queries_count,
         "is_ig_night_sleep": is_ig_night_sleep,
+        "ig_window_label": ig_window_label,
         "ig_sleep_desc": ig_sleep_desc,
         "funnel_total_searches": funnel_total_searches,
         "funnel_24h_searches": funnel_24h_searches,

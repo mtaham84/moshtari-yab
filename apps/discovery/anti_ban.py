@@ -51,6 +51,17 @@ def _antiban_disabled() -> bool:
     return not getattr(settings, "INSTAGRAM_ANTIBAN_ENABLED", True)
 
 
+def in_operating_window(hour: int) -> bool:
+    """True when a local (Tehran) hour is inside INSTAGRAM_WINDOW_START_HOUR..INSTAGRAM_WINDOW_END_HOUR."""
+    return INSTAGRAM_WINDOW_START_HOUR <= hour < INSTAGRAM_WINDOW_END_HOUR
+
+
+def next_window_start(local_now: datetime) -> datetime:
+    """The next moment the operating window opens, in local_now's timezone."""
+    start = local_now.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
+    return start if local_now.hour < INSTAGRAM_WINDOW_START_HOUR else start + timedelta(days=1)
+
+
 class InstagramAntiBanManager:
     """Centralized manager for Instagram anti-ban rules and human behavior simulation."""
 
@@ -62,19 +73,13 @@ class InstagramAntiBanManager:
         """Returns True if current local time (Asia/Tehran) is between 09:00 and 23:00."""
         if force or _antiban_disabled():
             return True
-        local_now = dj_timezone.localtime()
-        return INSTAGRAM_WINDOW_START_HOUR <= local_now.hour < INSTAGRAM_WINDOW_END_HOUR
+        return in_operating_window(dj_timezone.localtime().hour)
 
     @classmethod
     def seconds_until_next_window(cls) -> float:
         """Calculates seconds until the next 09:00 AM window begins in local time."""
         local_now = dj_timezone.localtime()
-        if local_now.hour < INSTAGRAM_WINDOW_START_HOUR:
-            next_window = local_now.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
-        else:
-            tomorrow = local_now + timedelta(days=1)
-            next_window = tomorrow.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
-        diff = (next_window - local_now).total_seconds()
+        diff = (next_window_start(local_now) - local_now).total_seconds()
         return max(60.0, diff)
 
     @classmethod
