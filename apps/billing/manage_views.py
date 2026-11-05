@@ -4,7 +4,6 @@ import socket
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from functools import wraps
 from typing import Any
 from urllib.parse import urlparse
 
@@ -15,8 +14,6 @@ except ImportError:
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -34,6 +31,7 @@ from apps.discovery.models import (
     XCrawledPost, XSearchQuery, Opportunity, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
+from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
 from apps.discovery.ig_accounts import tenant_keys_for_business
 from apps.discovery.device_emulator import connect_saved_session
@@ -41,16 +39,8 @@ from apps.discovery.device_emulator import connect_saved_session
 logger = logging.getLogger("management")
 
 
-def manage_access_required(view_func):
-    """Decorator ensuring user is authenticated and is staff or superuser."""
-    @wraps(view_func)
-    def _wrapped(request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-        if not (request.user.is_staff or request.user.is_superuser):
-            raise PermissionDenied("دسترسی به بخش مدیریت برای حساب کاربری شما مجاز نمی‌باشد.")
-        return view_func(request, *args, **kwargs)
-    return _wrapped
+# Kept as a name because ig_accounts_views and many decorators use it.
+manage_access_required = operator_required
 
 
 def _test_proxy_connection(proxy_url: str, timeout: float = 4.0) -> tuple[bool, str]:

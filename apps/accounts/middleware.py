@@ -1,5 +1,7 @@
 from django.shortcuts import redirect
 
+from apps.core.permissions import is_operator
+
 # URL prefixes a seller may open before the guided setup is finished
 _ALLOWED = ("/accounts/onboarding/", "/accounts/categories/", "/accounts/logout/", "/accounts/login/", "/static/", "/media/",
             "/admin/", "/manage/", "/ops/", "/shop/", "/p/", "/r/")
@@ -15,7 +17,7 @@ class OnboardingRequiredMiddleware:
     def __call__(self, request):
         user = getattr(request, "user", None)
         path = request.path
-        if (user is not None and user.is_authenticated and not (user.is_staff or user.is_superuser)
+        if (user is not None and user.is_authenticated and not is_operator(user)
                 and path.startswith(_GUARDED) and not path.startswith(_ALLOWED)):
             business = getattr(user, "business", None)
             if business is not None and not business.onboarding_done:

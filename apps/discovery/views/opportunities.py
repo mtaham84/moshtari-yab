@@ -17,6 +17,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from apps.core.permissions import is_operator
 from apps.businesses.models import Business
 from apps.businesses.services import ensure_business
 from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
@@ -221,7 +222,7 @@ def _admin_scope(request, own_business):
 def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
     all_businesses = None
-    is_admin = request.user.is_staff or request.user.is_superuser
+    is_admin = is_operator(request.user)
     view_all_tenants = False
 
     if is_admin:
@@ -393,7 +394,7 @@ def opportunity_export_view(request):
     6. پیام ساجست شده برای مشتری
     """
     business = getattr(request.user, "business", None)
-    is_admin = request.user.is_staff or request.user.is_superuser
+    is_admin = is_operator(request.user)
     view_all_tenants = False
     if is_admin:
         business, view_all_tenants = _admin_scope(request, business)
@@ -627,7 +628,7 @@ def opportunity_detail_view(request, pk):
         "product_matches__product",
         "evidence_items"
     )
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(qs, pk=pk)
         business = opportunity.business
     else:
@@ -738,7 +739,7 @@ def opportunity_rewrite_view(request, pk):
 def opportunity_reply_suggestions_view(request, pk):
     """Generate/regenerate, edit or mark a human-reviewed X/Instagram draft as sent. Never sends it."""
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(Opportunity.objects.select_related("business", "customer", "ai_analysis"), pk=pk)
         business = opportunity.business
     else:
@@ -803,7 +804,7 @@ def opportunity_new_count_view(request):
     """Polled every 20 s by the opportunities list: how many opportunities arrived after ``after`` (an id)."""
     business = getattr(request.user, "business", None)
     view_all_tenants = False
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         business, view_all_tenants = _admin_scope(request, business)
 
     raw = (request.GET.get("after") or "0").strip()
@@ -821,7 +822,7 @@ def opportunity_status_update_view(request, pk):
         return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
 
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(Opportunity, pk=pk)
     else:
         opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
@@ -856,7 +857,7 @@ def opportunity_feedback_view(request, pk):
         return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
 
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(Opportunity, pk=pk)
     else:
         opportunity = get_object_or_404(Opportunity, pk=pk, business=business)

@@ -2,11 +2,8 @@
 import os
 from decimal import Decimal
 from datetime import date, datetime, time, timedelta
-from functools import wraps
 
 from django.contrib import messages
-from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from django.http import Http404
@@ -14,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
+from apps.core.permissions import operator_required
 from apps.businesses.models import Business
 from apps.discovery.models import MonitoredCommunity
 from apps.discovery.sources import GLOBAL, normalize_link
@@ -25,15 +23,8 @@ from .models import AIModel, BillingSettings, Provider, Wallet, WalletTransactio
 PERIODS = {"1": "امروز (۲۴ ساعت)", "7": "۷ روز", "30": "۳۰ روز", "365": "یک سال"}
 
 
-def staff_required(view):
-    @wraps(view)
-    def wrapper(request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-        if not request.user.is_staff:
-            raise PermissionDenied
-        return view(request, *args, **kwargs)
-    return wrapper
+# /ops/ and /manage/ share one rule (staff or superuser).
+staff_required = operator_required
 
 
 def _next(request, default: str):

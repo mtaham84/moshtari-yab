@@ -156,3 +156,35 @@ class PromptSourceOfTruthTests(TestCase):
         self.assertEqual(prompts.get_system_prompt("ig_cta_extraction", "code default text"), "code default text")
         prompts._PROMPTS_CACHE = {"ig_cta_extraction": "admin override text"}
         self.assertEqual(prompts.get_system_prompt("ig_cta_extraction", "code default text"), "admin override text")
+
+
+class OperatorPermissionTests(TestCase):
+    """ADM-06: /manage/ and /ops/ use the same rule (staff or superuser)."""
+
+    def _get(self, user, url):
+        client = Client()
+        client.force_login(user)
+        return client.get(url)
+
+    def test_superuser_without_staff_flag_can_open_both_panels(self):
+        from django.contrib.auth.models import User
+
+        boss = User.objects.create_user(username="boss", password="x", is_superuser=True, is_staff=False)
+        self.assertEqual(self._get(boss, reverse("manage:dashboard")).status_code, 200)
+        self.assertNotEqual(self._get(boss, "/ops/").status_code, 403)
+
+    def test_regular_user_gets_403_on_both_panels(self):
+        from django.contrib.auth.models import User
+
+        seller = User.objects.create_user(username="seller", password="x")
+        self.assertEqual(self._get(seller, reverse("manage:dashboard")).status_code, 403)
+        self.assertEqual(self._get(seller, "/ops/").status_code, 403)
+
+    def test_is_operator(self):
+        from django.contrib.auth.models import AnonymousUser, User
+
+        from apps.core.permissions import is_operator
+
+        self.assertFalse(is_operator(AnonymousUser()))
+        self.assertFalse(is_operator(None))
+        self.assertTrue(is_operator(User(username="s", is_staff=True)))

@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
+from apps.core.permissions import is_operator
 from apps.businesses.models import Business, MessageStyle
 from apps.businesses.services import ensure_business
 from apps.discovery.constants import DM_DELIVERED_STATUSES
@@ -140,7 +141,7 @@ def login_view(request):
             login(request, user)
             name = user.get_full_name() or user.first_name or user.username
             messages.success(request, f"خوش آمدید، {name} عزیز!")
-            if not next_url and (user.is_staff or user.is_superuser):
+            if not next_url and is_operator(user):
                 fallback_url = reverse("manage:dashboard")
             return redirect(next_url or fallback_url)
         else:
@@ -314,7 +315,7 @@ def outreach_view(request):
 
     # For staff / superuser, support ?biz=<id> or default to tenant_4 (Sarv Dental) if current business is empty
     all_businesses = []
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         all_businesses = list(Business.objects.all().order_by("id"))
         biz_param = request.GET.get("biz")
         if biz_param and biz_param.isdigit():
@@ -452,7 +453,7 @@ def outreach_view(request):
 
 
 def _staff(user) -> bool:
-    return bool(user.is_staff or user.is_superuser)
+    return is_operator(user)
 
 
 def _outreach_redirect(request, business_id=None):
@@ -595,7 +596,7 @@ def send_followup_view(request):
     from apps.discovery.outreach_service import enqueue_direct_message
 
     business = getattr(request.user, "business", None)
-    is_staff = request.user.is_staff or request.user.is_superuser
+    is_staff = is_operator(request.user)
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
 
     def _fail(error, status=400):
@@ -734,7 +735,7 @@ def update_lead_phone_view(request):
         return JsonResponse({"success": False, "error": "شناسه مشتری یا شماره تماس نامعتبر است."}, status=400)
 
     lead_qs = InstagramEngineLead.objects.filter(pk=lead_id)
-    if not (request.user.is_staff or request.user.is_superuser):
+    if not is_operator(request.user):
         lead_qs = lead_qs.filter(tenant_id__in=_outreach_tenant_keys(business))
     lead = lead_qs.first()
     if not lead:
@@ -865,7 +866,7 @@ def outreach_leads_export_csv(request):
     if not business:
         return HttpResponse("حساب کسب‌وکار مرتبط یافت نشد.", status=404)
 
-    is_admin = request.user.is_staff or request.user.is_superuser
+    is_admin = is_operator(request.user)
     if is_admin and request.GET.get("business_id", "").strip().lower() == "all":
         qs = InstagramEngineLead.objects.all()
     else:
