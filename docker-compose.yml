@@ -171,7 +171,7 @@ services:
     <<: *app
     environment:
       <<: *app-env
-    command: ["python", "-u", "manage.py", "run_channel_config_automation", "--channel", "AR14N24B", "--loop", "--interval", "180", "--max-add", "10"]
+    command: ["python", "-u", "manage.py", "run_channel_config_automation", "--all", "--loop", "--interval", "180", "--max-add", "10"]
     depends_on:
       web:
         condition: service_healthy

@@ -42,3 +42,28 @@ class ProxyConfig(models.Model):
 
     def __str__(self):
         return f"{self.tag or self.server}:{self.port} ({self.protocol}) - {self.ping_ms}ms"
+
+
+class ConfigChannelSource(models.Model):
+    channel_username = models.CharField(max_length=150, unique=True, db_index=True, verbose_name="شناسه کانال تلگرام")
+    title = models.CharField(max_length=200, blank=True, default="", verbose_name="عنوان یا برچسب کانال")
+    is_active = models.BooleanField(default=True, db_index=True, verbose_name="فعال برای پایش")
+    last_synced_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان بررسی")
+    total_configs_found = models.PositiveIntegerField(default=0, verbose_name="مجموع کانفیگ‌های ثبت‌شده")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ثبت")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    class Meta:
+        db_table = "config_channel_sources"
+        verbose_name = "کانال تلگرام تأمین کانفیگ"
+        verbose_name_plural = "کانال‌های تلگرام تأمین کانفیگ"
+        ordering = ["-is_active", "-created_at"]
+
+    @property
+    def telegram_link(self) -> str:
+        clean = self.channel_username.lstrip("@").strip()
+        return f"https://t.me/{clean}"
+
+    def __str__(self):
+        return f"@{self.channel_username} ({'فعال' if self.is_active else 'غیرفعال'})"
+

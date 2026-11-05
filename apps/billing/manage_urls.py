@@ -23,6 +23,11 @@ urlpatterns = [
     path("proxies/test/", manage_views.manage_proxy_test, name="proxy_test"),
     path("proxies/<int:pk>/test/", manage_views.manage_proxy_test, name="proxy_single_test"),
     path("proxies/channel-sync/", manage_views.manage_channel_proxy_sync, name="proxy_channel_sync"),
+    path("proxies/channels/add/", manage_views.manage_proxy_channel_add, name="proxy_channel_add"),
+    path("proxies/channels/<int:pk>/delete/", manage_views.manage_proxy_channel_delete, name="proxy_channel_delete"),
+    path("proxies/channels/<int:pk>/toggle/", manage_views.manage_proxy_channel_toggle, name="proxy_channel_toggle"),
+    path("proxies/channels/<int:pk>/sync/", manage_views.manage_proxy_channel_sync, name="proxy_channel_sync_single"),
+    path("proxies/channels/sync-all/", manage_views.manage_proxy_channels_sync_all, name="proxy_channels_sync_all"),
     # Instagram Cockpit & Web-Client Simulator
     path("instagram/accounts/<int:pk>/", manage_views.instagram_account_cockpit, name="instagram_account_cockpit"),
     path("instagram/accounts/<int:pk>/api/threads/", manage_views.instagram_cockpit_threads, name="instagram_cockpit_threads"),

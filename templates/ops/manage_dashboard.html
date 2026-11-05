@@ -1402,6 +1402,104 @@
 <!-- TAB 5: SENDERS MANAGEMENT -->
 <!-- ============ Tab: proxy pool (managed by the Telegram config bot / multi_proxy_manager) ============ -->
 <div id="tab-proxies" class="tab-pane">
+  <!-- ============ SUB-SECTION: TELEGRAM CONFIG CHANNELS MANAGER ============ -->
+  <div class="card" style="margin-bottom: 22px; border: 1px solid #bfdbfe; background: #f8fafc; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.03);">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
+      <div>
+        <h3 style="margin:0 0 4px; font-size:1.05rem; display:flex; align-items:center; gap:8px;">
+          <svg class="ico" aria-hidden="true" style="color:#0284c7; width:20px; height:20px;"><use href="#i-globe"/></svg>
+          <span>کانال‌های تلگرام تأمین خودکار کانفیگ (Telegram Sources)</span>
+          <span class="pill" style="font-size:0.75rem; background:#e0f2fe; color:#0369a1; font-weight:700;" id="channel-count-badge">{{ proxy_channels|length }} کانال</span>
+        </h3>
+        <p class="muted" style="margin:0; font-size:0.83rem; line-height:1.7;">
+          آدرس کانال‌های تلگرام را اضافه کنید. ربات به طور خودکار فقط کانفیگ‌های تازه را استخراج، پینگ‌سنجی و به استخر اضافه می‌کند (کانفیگ‌های تکراری رد می‌شوند).
+        </p>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" id="btn-sync-all-channels" class="btn" onclick="syncAllChannels(this)"
+                style="background: #0284c7; color: #ffffff; border: none; padding: 9px 18px; font-weight: 700; font-size: 0.88rem; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+          <svg class="ico" aria-hidden="true" style="width: 15px; height: 15px; fill: currentColor;"><use href="#i-download"/></svg>
+          <span id="btn-sync-all-channels-text">📥 بررسی کانفیگ‌های جدید همه کانال‌ها</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Form: Add New Telegram Channel -->
+    <form id="form-add-channel" onsubmit="addProxyChannel(event)" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; background:#ffffff; padding:14px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:14px;">
+      <div style="flex:2; min-width:220px;">
+        <label style="display:block; font-size:0.8rem; font-weight:700; margin-bottom:4px; color:#334155;">آدرس یا یوزرنیم کانال تلگرام:</label>
+        <input type="text" id="input-channel-address" class="ops-input" placeholder="مثال: https://t.me/AR14N24B یا @channel" dir="ltr" required style="width:100%; height:38px;">
+      </div>
+      <div style="flex:2; min-width:180px;">
+        <label style="display:block; font-size:0.8rem; font-weight:700; margin-bottom:4px; color:#334155;">عنوان یا برچسب (اختیاری):</label>
+        <input type="text" id="input-channel-title" class="ops-input" placeholder="مثال: کانال اصلی VIP" style="width:100%; height:38px;">
+      </div>
+      <div>
+        <button type="submit" id="btn-submit-channel" class="btn primary" style="height:38px; padding:0 20px; font-weight:700; font-size:0.88rem; display:inline-flex; align-items:center; gap:6px;">
+          <span>+ افزودن کانال</span>
+        </button>
+      </div>
+    </form>
+
+    <!-- Channels Table / List -->
+    <div class="table-responsive" style="background:#ffffff; border-radius:8px; border:1px solid #e2e8f0;">
+      <table style="margin:0;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>نام کاربری کانال</th>
+            <th>عنوان / برچسب</th>
+            <th>وضعیت پایش</th>
+            <th>کانفیگ‌های ثبت‌شده</th>
+            <th>آخرین بررسی</th>
+            <th style="width:180px; text-align:center;">عملیات</th>
+          </tr>
+        </thead>
+        <tbody id="channels-table-body">
+          {% for ch in proxy_channels %}
+          <tr id="channel-row-{{ ch.id }}">
+            <td dir="ltr" style="font-weight:700;">
+              <a href="{{ ch.telegram_link }}" target="_blank" style="color:#0284c7; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                <span>@{{ ch.channel_username }}</span> ↗
+              </a>
+            </td>
+            <td>{{ ch.title|default:"—" }}</td>
+            <td id="channel-status-{{ ch.id }}">
+              {% if ch.is_active %}
+                <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> فعال برای پایش</span>
+              {% else %}
+                <span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> متوقف</span>
+              {% endif %}
+            </td>
+            <td style="font-weight:700; color:#1e293b;">{{ ch.total_configs_found|default:0 }}</td>
+            <td class="jalali-time-cell" id="channel-last-sync-{{ ch.id }}">{% if ch.last_synced_at %}{{ ch.last_synced_at|truncatechars:19 }}{% else %}<span class="muted">هنوز بررسی نشده</span>{% endif %}</td>
+            <td style="text-align:center;">
+              <div style="display:inline-flex; gap:6px; align-items:center;">
+                <button type="button" class="btn sm" onclick="syncSingleChannel({{ ch.id }}, this)" title="بررسی کانفیگ‌های تازه این کانال"
+                        style="background:#eff6ff; color:#0284c7; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 9px; border-radius:6px; cursor:pointer; font-weight:600;">
+                  🔄 بررسی جدید
+                </button>
+                <button type="button" class="btn sm" onclick="toggleChannelActive({{ ch.id }}, this)" title="فعال/متوقف کردن پایش"
+                        style="background:#f8fafc; color:#475569; border:1px solid #cbd5e1; font-size:0.75rem; padding:4px 8px; border-radius:6px; cursor:pointer;">
+                  {% if ch.is_active %}توقف{% else %}فعال{% endif %}
+                </button>
+                <button type="button" class="btn sm" onclick="deleteProxyChannel({{ ch.id }}, '{{ ch.channel_username }}')" title="حذف این کانال"
+                        style="background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-size:0.75rem; padding:4px 8px; border-radius:6px; cursor:pointer;">
+                  🗑️
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr id="channels-empty-row">
+            <td colspan="6" style="text-align:center; padding:22px; color:#64748b;">هنوز کانالی ثبت نشده است. آدرس کانال تلگرام را در کادر بالا وارد کرده و دکمه «+ افزودن کانال» را بزنید.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="card" style="margin-bottom: 20px;">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
       <div>
@@ -1410,18 +1508,10 @@
           <span>استخر پروکسی و کانفیگ‌های اختصاصی هر اکانت</span>
         </h2>
         <p class="muted" style="margin:0; font-size:0.84rem; line-height:1.9;">
-          لینک کانفیگ (vless، vmess، trojan، ss) را برای ربات تلگرام <span dir="ltr" style="font-weight:600;">@config_peyda_bot</span> بفرستید؛
-          ربات آن را اعتبارسنجی کرده، پورت اختصاصی Xray تخصیص می‌دهد و سلامت اتصال آن را پایش می‌کند.
+          کانفیگ‌های سالم استخراج‌شده با پورت‌های محلی Xray برای اکانت‌های اینستاگرام و توییتر آماده تخصیص هستند.
         </p>
       </div>
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <!-- Telegram Channel Auto-Sync Button -->
-        <button type="button" id="btn-sync-ar14n24b" class="btn" onclick="syncChannelConfigs(this)"
-                style="background: #0284c7; color: #ffffff; border: none; padding: 10px 18px; font-weight: 700; font-size: 0.9rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); transition: all 0.2s ease;">
-          <svg class="ico" aria-hidden="true" style="width: 16px; height: 16px; fill: currentColor;"><use href="#i-download"/></svg>
-          <span id="btn-sync-ar14n24b-text">📥 دریافت کانفیگ از کانال @AR14N24B</span>
-        </button>
-
         <!-- Main Blue Button for Live Proxy Testing -->
         <button type="button" id="btn-live-test-all-proxies" class="btn" onclick="testAllProxiesLive(this)" title="تست زنده پینگ تمام کانفیگ‌ها"
                 style="background: #1d4ed8; color: #ffffff; border: none; padding: 11px 26px; font-weight: 700; font-size: 0.95rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(29, 78, 216, 0.4); transition: all 0.2s ease;">
@@ -3599,6 +3689,232 @@
         alertBox.style.border = '1px solid #fecaca';
         alertBox.innerHTML = '❌ خطای شبکه در ارتباط با سرور: ' + err;
       }
+    });
+  };
+
+  // ==========================================
+  // TELEGRAM PROXY CHANNELS DYNAMIC CRUD & SYNC
+  // ==========================================
+  window.addProxyChannel = function(e) {
+    e.preventDefault();
+    const inputAddr = document.getElementById('input-channel-address');
+    const inputTitle = document.getElementById('input-channel-title');
+    const btnSubmit = document.getElementById('btn-submit-channel');
+    const alertBox = document.getElementById('proxy-live-alert');
+
+    const address = inputAddr ? inputAddr.value.trim() : '';
+    const title = inputTitle ? inputTitle.value.trim() : '';
+    if (!address) return;
+
+    btnSubmit.disabled = true;
+    const origHtml = btnSubmit.innerHTML;
+    btnSubmit.innerHTML = '⏳ در حال ثبت...';
+
+    const fd = new FormData();
+    fd.append('channel_username', address);
+    fd.append('title', title);
+
+    fetch('/manage/proxies/channels/add/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: fd
+    })
+    .then(r => r.json())
+    .then(data => {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = origHtml;
+
+      if (!data.success) {
+        alert('خطا در افزودن کانال: ' + (data.message || 'خطای سرور'));
+        return;
+      }
+
+      inputAddr.value = '';
+      if (inputTitle) inputTitle.value = '';
+
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#ecfdf5';
+        alertBox.style.color = '#065f46';
+        alertBox.style.border = '1px solid #a7f3d0';
+        alertBox.innerHTML = `✓ ${data.message}`;
+      }
+
+      // Reload to refresh table cleanly
+      setTimeout(() => window.location.reload(), 1200);
+    })
+    .catch(err => {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = origHtml;
+      alert('خطای ارتباط با سرور: ' + err);
+    });
+  };
+
+  window.deleteProxyChannel = function(id, username) {
+    if (!confirm(`آیا از حذف کانال @${username} از لیست پایش کانفیگ اطمینان دارید؟`)) {
+      return;
+    }
+    const alertBox = document.getElementById('proxy-live-alert');
+
+    fetch(`/manage/proxies/channels/${id}/delete/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const row = document.getElementById(`channel-row-${id}`);
+        if (row) {
+          row.style.transition = 'all 0.3s';
+          row.style.opacity = '0';
+          setTimeout(() => row.remove(), 300);
+        }
+        if (alertBox) {
+          alertBox.style.display = 'block';
+          alertBox.style.background = '#ecfdf5';
+          alertBox.style.color = '#065f46';
+          alertBox.style.border = '1px solid #a7f3d0';
+          alertBox.innerHTML = `✓ ${data.message}`;
+        }
+      } else {
+        alert(data.message || 'خطا در حذف کانال');
+      }
+    })
+    .catch(err => alert('خطای شبکه: ' + err));
+  };
+
+  window.toggleChannelActive = function(id, btn) {
+    fetch(`/manage/proxies/channels/${id}/toggle/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const statusEl = document.getElementById(`channel-status-${id}`);
+        if (statusEl) {
+          if (data.is_active) {
+            statusEl.innerHTML = '<span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> فعال برای پایش</span>';
+            btn.innerText = 'توقف';
+          } else {
+            statusEl.innerHTML = '<span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> متوقف</span>';
+            btn.innerText = 'فعال';
+          }
+        }
+      } else {
+        alert(data.message || 'خطا در تغییر وضعیت کانال');
+      }
+    })
+    .catch(err => alert('خطای شبکه: ' + err));
+  };
+
+  window.syncSingleChannel = function(id, btn) {
+    const alertBox = document.getElementById('proxy-live-alert');
+    const origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ بررسی...';
+
+    if (alertBox) {
+      alertBox.style.display = 'block';
+      alertBox.style.background = '#f0f9ff';
+      alertBox.style.color = '#0369a1';
+      alertBox.style.border = '1px solid #bae6fd';
+      alertBox.innerHTML = '📥 در حال دریافت پیام‌های تازه کانال، استخراج کانفیگ‌های جدید و سنجش پینگ...';
+    }
+
+    fetch(`/manage/proxies/channels/${id}/sync/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+
+      if (!data.success) {
+        if (alertBox) {
+          alertBox.style.background = '#fef2f2';
+          alertBox.style.color = '#991b1b';
+          alertBox.style.border = '1px solid #fecaca';
+          alertBox.innerHTML = '❌ ' + (data.error || data.message || 'خطا در بررسی کانال');
+        }
+        return;
+      }
+
+      if (alertBox) {
+        alertBox.style.background = '#ecfdf5';
+        alertBox.style.color = '#065f46';
+        alertBox.style.border = '1px solid #a7f3d0';
+        alertBox.innerHTML = `✓ ${data.message}`;
+      }
+
+      if (data.added_count > 0) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+      alert('خطای ارتباط با سرور: ' + err);
+    });
+  };
+
+  window.syncAllChannels = function(btn) {
+    const alertBox = document.getElementById('proxy-live-alert');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = '0.75';
+    btn.innerHTML = '⏳ در حال بررسی تمام کانال‌ها...';
+
+    if (alertBox) {
+      alertBox.style.display = 'block';
+      alertBox.style.background = '#f0f9ff';
+      alertBox.style.color = '#0369a1';
+      alertBox.style.border = '1px solid #bae6fd';
+      alertBox.innerHTML = '📥 در حال استخراج و پینگ‌سنجی کانفیگ‌های جدید از تمام کانال‌های فعال...';
+    }
+
+    fetch('/manage/proxies/channels/sync-all/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = origHtml;
+
+      if (alertBox) {
+        alertBox.style.background = '#ecfdf5';
+        alertBox.style.color = '#065f46';
+        alertBox.style.border = '1px solid #a7f3d0';
+        alertBox.innerHTML = `✓ ${data.message}`;
+      }
+
+      if (data.total_added > 0) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = origHtml;
+      alert('خطای ارتباط با سرور: ' + err);
     });
   };
 

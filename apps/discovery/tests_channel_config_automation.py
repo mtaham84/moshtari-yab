@@ -4,26 +4,37 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from apps.discovery.channel_config_automation import (
-    AUTHORIZED_CHANNELS,
+    normalize_channel_username,
+    get_monitored_channels,
+    add_monitored_channel,
+    delete_monitored_channel,
+    toggle_monitored_channel,
     extract_configs_from_text,
     fetch_channel_messages,
     load_channel_state,
     save_channel_state,
     sync_channel_configs,
+    sync_all_active_channels,
 )
 
 
 class ChannelConfigAutomationUnitTests(SimpleTestCase):
-    def test_strict_channel_authorization(self):
-        """Security Guardrail: Only authorized channels (AR14N24B) are allowed."""
-        self.assertIn("AR14N24B", AUTHORIZED_CHANNELS)
+    def test_normalize_channel_username_formats(self):
+        """Verifies channel URL cleaning and extraction."""
+        test_cases = [
+            ("@AR14N24B", "AR14N24B"),
+            ("https://t.me/AR14N24B", "AR14N24B"),
+            ("https://t.me/s/AR14N24B/", "AR14N24B"),
+            ("t.me/my_proxy_channel", "my_proxy_channel"),
+            ("custom_channel_123", "custom_channel_123"),
+        ]
+        for raw, expected in test_cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_channel_username(raw), expected)
 
-        with self.assertRaises(PermissionError):
-            fetch_channel_messages("unauthorized_random_channel")
-
-        res = sync_channel_configs("fake_channel")
-        self.assertFalse(res["success"])
-        self.assertIn("مجاز نمی‌باشد", res["error"])
+        # Invalid username should raise ValueError
+        with self.assertRaises(ValueError):
+            normalize_channel_username("ab")  # Too short
 
     def test_extract_configs_from_text(self):
         sample_html = """
@@ -45,6 +56,29 @@ class ChannelConfigAutomationUnitTests(SimpleTestCase):
         self.assertTrue(any(c.startswith("vmess://") for c in extracted))
         self.assertTrue(any(c.startswith("ss://") for c in extracted))
         self.assertTrue(any(c.startswith("trojan://") for c in extracted))
+
+    def test_channel_crud_operations(self):
+        """Tests adding, toggling, and deleting monitored channels in fallback JSON mode."""
+        from unittest.mock import mock_open
+        fake_store = []
+
+        with patch("apps.discovery.channel_config_automation._load_channels_json", return_value=fake_store), \
+             patch("apps.discovery.channel_config_automation._save_channels_json") as mock_save:
+
+            # Add channel
+            added = add_monitored_channel("https://t.me/test_configs_chan", title="تست کانفیگ")
+            self.assertEqual(added["channel_username"], "test_configs_chan")
+            self.assertEqual(added["title"], "تست کانفیگ")
+            self.assertTrue(added["is_active"])
+
+            # Toggle channel
+            fake_store.append(added)
+            toggled = toggle_monitored_channel(added["id"])
+            self.assertFalse(toggled["is_active"])
+
+            # Delete channel
+            deleted = delete_monitored_channel(added["id"])
+            self.assertTrue(deleted)
 
     def test_state_persistence(self):
         from unittest.mock import mock_open
