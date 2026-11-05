@@ -286,6 +286,35 @@ def style_sample_view(request):
     return JsonResponse({"status": "success", "product": product.name, "reply": text})
 
 
+def _outreach_tenant_keys(business) -> list[str]:
+    """Lead/sender tenant ids that belong to a business (tenant_4 also owns legacy 'sarv' rows)."""
+    tenant_key = f"tenant_{business.id}"
+    return [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+
+
+def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, business=None):
+    """Phone saved on the lead's Customer, else the first Iranian phone number the lead sent us in DM."""
+    from apps.discovery.models import Customer
+    from apps.discovery.outreach_service import extract_iranian_phone_number
+
+    if lead.ig_user_pk:
+        if customer_phones is not None:
+            phone = customer_phones.get(str(lead.ig_user_pk))
+        else:
+            cust_qs = Customer.objects.filter(external_user_id=str(lead.ig_user_pk)).exclude(phone_number__isnull=True)
+            if business is not None:
+                cust_qs = cust_qs.filter(business=business)
+            phone = cust_qs.exclude(phone_number="").values_list("phone_number", flat=True).first()
+        if phone:
+            return phone
+    for m in thread or []:
+        if m.get("is_incoming") or m.get("direction") == "in":
+            extracted = extract_iranian_phone_number(m.get("text"))
+            if extracted:
+                return extracted
+    return None
+
+
 @login_required
 def outreach_view(request):
     """Business owner's dedicated Instagram Outreach & Sender Management page."""
@@ -320,7 +349,6 @@ def outreach_view(request):
     from apps.discovery.outreach_service import (
         TIER_LIMITS,
         get_lead_conversation_thread,
-        extract_iranian_phone_number,
     )
     from apps.discovery.models import Customer
 
@@ -331,11 +359,11 @@ def outreach_view(request):
 
     # Leads who replied to our direct outreach or have active conversation
     from django.db.models import Q
-    conversation_leads = InstagramEngineLead.objects.filter(
+    conversation_leads = list(InstagramEngineLead.objects.filter(
         tenant_id__in=tenant_keys
     ).filter(
-        Q(has_replied=True) | Q(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]) | Q(initial_dm_text__isnull=False)
-    ).order_by("-reply_at", "-updated_at")[:60]
+        Q(has_replied=True) | Q(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT", "QUEUED"]) | Q(initial_dm_text__isnull=False)
+    ).order_by("-reply_at", "-updated_at")[:60])
 
     # Leads who replied to our direct outreach
     replied_leads_qs = InstagramEngineLead.objects.filter(
@@ -348,22 +376,17 @@ def outreach_view(request):
         has_replied=True
     ).count()
 
-    # Decorate leads with full direct conversation thread and extracted phone number
-    for lead in replied_leads:
+    # Decorate leads with full direct conversation thread and captured phone number (one Customer query)
+    decorated_leads = conversation_leads + [lead for lead in replied_leads if lead.pk not in {c.pk for c in conversation_leads}]
+    lead_pks = {str(lead.ig_user_pk) for lead in decorated_leads if lead.ig_user_pk}
+    customer_phones = dict(
+        Customer.objects.filter(business=business, external_user_id__in=lead_pks)
+        .exclude(phone_number__isnull=True).exclude(phone_number="")
+        .values_list("external_user_id", "phone_number")
+    ) if lead_pks else {}
+    for lead in decorated_leads:
         lead.thread = get_lead_conversation_thread(lead)
-        phone = None
-        if lead.ig_user_pk:
-            cust = Customer.objects.filter(external_user_id=str(lead.ig_user_pk)).first()
-            if cust and cust.phone_number:
-                phone = cust.phone_number
-        if not phone:
-            for m in lead.thread:
-                if m.get("is_incoming") or m.get("direction") == "in":
-                    extracted = extract_iranian_phone_number(m.get("text"))
-                    if extracted:
-                        phone = extracted
-                        break
-        lead.captured_phone = phone
+        lead.captured_phone = _captured_phone_for_lead(lead, lead.thread, customer_phones)
 
     # Load pitch configuration
     config_path = Path("data/sarv_outreach_config.json")
@@ -692,33 +715,52 @@ def sync_replies_view(request):
 @login_required
 @require_POST
 def send_followup_view(request):
-    """Send a direct / follow-up message to a lead from any selected sender account."""
+    """Enqueue an operator direct message / follow-up in the safe dispatch queue.
+
+    The DM is delivered by the outreach dispatcher (shift hours, sender limits, warm-up and
+    human pacing) instead of logging in from the web process and sending immediately.
+    """
     from django.http import JsonResponse
-    from apps.discovery.outreach_service import send_chat_message
+    from apps.discovery.models import InstagramEngineLead
+    from apps.discovery.outreach_service import enqueue_direct_message
 
     business = getattr(request.user, "business", None)
-    if not business:
+    is_staff = request.user.is_staff or request.user.is_superuser
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    def _fail(error, status=400):
+        if is_ajax:
+            return JsonResponse({"success": False, "error": error}, status=status)
+        messages.error(request, error)
+        return redirect("accounts:outreach")
+
+    if not business and not is_staff:
         return redirect("accounts:dashboard")
 
-    lead_id = request.POST.get("lead_id")
+    lead_id = request.POST.get("lead_id", "").strip()
     sender_username = request.POST.get("sender_username", "").strip().lstrip("@")
     message_text = request.POST.get("message_text", "").strip()
 
-    if not lead_id or not message_text:
-        if request.headers.get("x-requested-with") == "XMLHttpRequest":
-            return JsonResponse({"success": False, "error": "اطلاعات ارسالی ناقص است."}, status=400)
-        messages.error(request, "لطفاً متن پیام را وارد فرمایید.")
-        return redirect("accounts:outreach")
+    if not lead_id.isdigit() or not message_text:
+        return _fail("لطفاً متن پیام را وارد فرمایید.")
 
-    res = send_chat_message(int(lead_id), sender_username, message_text)
-    if request.headers.get("x-requested-with") == "XMLHttpRequest":
-        return JsonResponse(res)
+    if not is_staff:
+        tenant_keys = _outreach_tenant_keys(business)
+        if not InstagramEngineLead.objects.filter(pk=int(lead_id), tenant_id__in=tenant_keys).exists():
+            return _fail("مشتری یافت نشد.", status=404)
+        if sender_username and not InstagramEngineAccount.objects.filter(
+            username__iexact=sender_username, role="SENDER", tenant_id__in=tenant_keys
+        ).exists():
+            return _fail("اکانت فرستنده متعلق به این کسب‌وکار نیست.", status=403)
+
+    res = enqueue_direct_message(int(lead_id), message_text, sender_username or None)
+    if is_ajax:
+        return JsonResponse(res, status=200 if res.get("success") else 400)
 
     if res.get("success"):
-        sender_label = res.get("sender") or sender_username or "اکانت فعال"
-        messages.success(request, f"پیام با موفقیت توسط @{sender_label} برای خریدار ارسال شد.")
+        messages.success(request, res.get("message") or "پیام در صف ارسال امن قرار گرفت.")
     else:
-        messages.error(request, f"خطا در ارسال پیام: {res.get('error')}")
+        messages.error(request, f"خطا در ثبت پیام در صف: {res.get('error')}")
     return redirect("accounts:outreach")
 
 
@@ -734,13 +776,9 @@ def lead_chat_history_view(request, lead_id):
     if not business and not request.user.is_superuser:
         return JsonResponse({"success": False, "error": "دسترسی غیرمجاز."}, status=403)
 
-    tenant_keys = [f"tenant_{business.id}"]
-    if business and business.id == 4:
-        tenant_keys.append("sarv")
-
     lead_qs = InstagramEngineLead.objects.filter(pk=lead_id)
     if not request.user.is_superuser:
-        lead_qs = lead_qs.filter(tenant_id__in=tenant_keys)
+        lead_qs = lead_qs.filter(tenant_id__in=_outreach_tenant_keys(business))
 
     lead = lead_qs.first()
     if not lead:
@@ -758,7 +796,7 @@ def lead_chat_history_view(request, lead_id):
         try:
             from apps.discovery.models import Opportunity
             opp = Opportunity.objects.filter(
-                business_id=business.id,
+                business_id=business.id if business else None,
                 source_platform="instagram"
             ).filter(
                 Q(customer__handle__iexact=lead.username) | Q(source_raw_message__icontains=lead.username)
@@ -775,6 +813,8 @@ def lead_chat_history_view(request, lead_id):
 
     sender_account = lead.sender_account or lead.second_sender_username or ""
     second_sender = lead.second_sender_username or ""
+    from apps.discovery.outreach_service import get_lead_conversation_thread
+    captured_phone = _captured_phone_for_lead(lead, get_lead_conversation_thread(lead), business=business)
 
     return JsonResponse({
         "success": True,
@@ -800,6 +840,7 @@ def lead_chat_history_view(request, lead_id):
             "second_message_text": lead.second_message_text or "",
             "second_message_at": format_jalali_datetime(lead.second_message_at) if lead.second_message_at else None,
             "conversation_history": lead.conversation_history or [],
+            "captured_phone": captured_phone or "",
         }
     })
 
@@ -822,7 +863,10 @@ def update_lead_phone_view(request):
     if not lead_id or not raw_phone:
         return JsonResponse({"success": False, "error": "شناسه مشتری یا شماره تماس نامعتبر است."}, status=400)
 
-    lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
+    lead_qs = InstagramEngineLead.objects.filter(pk=lead_id)
+    if not (request.user.is_staff or request.user.is_superuser):
+        lead_qs = lead_qs.filter(tenant_id__in=_outreach_tenant_keys(business))
+    lead = lead_qs.first()
     if not lead:
         return JsonResponse({"success": False, "error": "لید یافت نشد."}, status=404)
 
