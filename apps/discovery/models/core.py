@@ -501,6 +501,167 @@ class Opportunity(models.Model):
         s = BillingSettings.get()
         return int(round(self.raw_cost_usd * float(s.usd_to_toman)))
 
+    @property
+    def instagram_lead(self):
+        if hasattr(self, "_cached_ig_lead"):
+            return self._cached_ig_lead
+        lead = None
+        if isinstance(self.trace_metadata, dict):
+            lead_id = self.trace_metadata.get("instagram", {}).get("lead_id")
+            if lead_id:
+                from apps.discovery.models import InstagramEngineLead
+                lead = InstagramEngineLead.objects.filter(id=lead_id).first()
+        self._cached_ig_lead = lead
+        return lead
+
+    @property
+    def instagram_comment_created_at(self):
+        from django.utils.dateparse import parse_datetime
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            c_at = ig.get("comment_created_at")
+            if c_at:
+                if isinstance(c_at, str):
+                    parsed = parse_datetime(c_at)
+                    if parsed:
+                        return parsed
+                return c_at
+        lead = self.instagram_lead
+        if lead and lead.comment_created_at:
+            return lead.comment_created_at
+        if self.source_message_timestamp:
+            return self.source_message_timestamp
+        return None
+
+    @property
+    def instagram_comment_created_at_jalali(self) -> str:
+        dt = self.instagram_comment_created_at
+        if not dt:
+            return ""
+        from apps.core.jalali import format_jalali_datetime
+        try:
+            return format_jalali_datetime(dt)
+        except Exception:
+            return str(dt)[:19]
+
+    @property
+    def instagram_source_page_username(self) -> str:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            u = ig.get("source_page_username")
+            if u:
+                return u
+        lead = self.instagram_lead
+        if lead and lead.source_page_username:
+            return lead.source_page_username
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            return ig.get("source_label", "")
+        return ""
+
+    @property
+    def instagram_source_page_title(self) -> str:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            t = ig.get("source_page_title")
+            if t:
+                return t
+        lead = self.instagram_lead
+        if lead and lead.source_page_title:
+            return lead.source_page_title
+        return ""
+
+    @property
+    def instagram_source_page_url(self) -> str:
+        u = self.instagram_source_page_username
+        return f"https://www.instagram.com/{u.lstrip('@')}/" if u else ""
+
+    @property
+    def instagram_post_created_at(self):
+        from django.utils.dateparse import parse_datetime
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            p_at = ig.get("post_created_at")
+            if p_at:
+                if isinstance(p_at, str):
+                    parsed = parse_datetime(p_at)
+                    if parsed:
+                        return parsed
+                return p_at
+        lead = self.instagram_lead
+        if lead and lead.post_created_at:
+            return lead.post_created_at
+        return None
+
+    @property
+    def instagram_post_created_at_jalali(self) -> str:
+        dt = self.instagram_post_created_at
+        if not dt:
+            return ""
+        from apps.core.jalali import format_jalali_datetime
+        try:
+            return format_jalali_datetime(dt)
+        except Exception:
+            return str(dt)[:19]
+
+    @property
+    def is_private_account(self) -> bool:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            if "is_private" in ig and ig["is_private"] is not None:
+                return bool(ig["is_private"])
+        lead = self.instagram_lead
+        if lead and lead.is_private is not None:
+            return bool(lead.is_private)
+        if self.customer and isinstance(self.customer.metadata, dict):
+            return bool(self.customer.metadata.get("is_private", False))
+        return False
+
+    @property
+    def display_page_type(self) -> str:
+        return "خصوصی (Private)" if self.is_private_account else "عمومی (Public)"
+
+    @property
+    def outreach_score_val(self) -> int:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            if "outreach_score" in ig and ig["outreach_score"]:
+                return int(ig["outreach_score"])
+        lead = self.instagram_lead
+        if lead and lead.outreach_score:
+            return int(lead.outreach_score)
+        if hasattr(self, "ai_analysis") and self.ai_analysis and self.ai_analysis.intent_score:
+            return int(round(float(self.ai_analysis.intent_score) * 45.0))
+        return int(round((self.intent_score_percentage / 100.0) * 45))
+
+    @property
+    def success_probability_pct(self) -> int:
+        if isinstance(self.trace_metadata, dict):
+            ig = self.trace_metadata.get("instagram", {})
+            if "success_probability" in ig and ig["success_probability"]:
+                return int(ig["success_probability"])
+        lead = self.instagram_lead
+        if lead and lead.success_probability:
+            return int(lead.success_probability)
+        score = self.outreach_score_val
+        is_priv = self.is_private_account
+        from apps.discovery.instagram_scoring import calculate_success_probability
+        age_days = 0.0
+        c_at = self.instagram_comment_created_at
+        if c_at and hasattr(c_at, "timestamp"):
+            import django.utils.timezone as dj_tz
+            try:
+                age_days = max(0.0, (dj_tz.now() - c_at).total_seconds() / 86400.0)
+            except Exception:
+                age_days = 0.0
+        return calculate_success_probability(
+            outreach_score=score,
+            is_private=is_priv,
+            intent_type=self.intent_type or "OTHER",
+            age_days=age_days,
+            comment_text=self.source_raw_message or "",
+        )
+
 
 class AIAnalysis(models.Model):
     """

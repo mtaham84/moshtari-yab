@@ -191,8 +191,13 @@ class SessionManager:
             update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Challenge required: {exc}")
             raise
         except Exception as exc:
-            logger.critical("Login failed for @%s: %s", self.account.username, exc)
-            update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Initial login failed: {exc}")
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl", "56"]):
+                logger.warning("Network/proxy glitch during login for @%s: %s", self.account.username, exc)
+                update_account_status(self.account.id, AccountStatus.COOLDOWN, cooldown_hours=0.5, log_message=f"Proxy/network glitch: {exc}")
+            else:
+                logger.critical("Login failed for @%s: %s", self.account.username, exc)
+                update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Initial login failed: {exc}")
             raise
 
     def _reauthenticate(self, cl: Client, old_session: Dict[str, Any]) -> Client:
@@ -222,6 +227,11 @@ class SessionManager:
             update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Challenge required: {exc}")
             raise
         except Exception as exc:
-            logger.critical("Re-authentication failed for @%s: %s", self.account.username, exc)
-            update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Re-authentication failed: {exc}")
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl", "56"]):
+                logger.warning("Network/proxy glitch during re-auth for @%s: %s", self.account.username, exc)
+                update_account_status(self.account.id, AccountStatus.COOLDOWN, cooldown_hours=0.5, log_message=f"Proxy/network glitch: {exc}")
+            else:
+                logger.critical("Re-authentication failed for @%s: %s", self.account.username, exc)
+                update_account_status(self.account.id, AccountStatus.CHALLENGED, log_message=f"Re-authentication failed: {exc}")
             raise

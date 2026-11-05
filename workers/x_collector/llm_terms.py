@@ -13,6 +13,11 @@ import re
 from typing import Any
 
 from workers.x_collector.intent_queries import _FA, clean_term, short_terms
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 log = logging.getLogger("x_collector.llm_terms")
 PROMPT_VERSION = "15"
@@ -202,7 +207,7 @@ def llm_terms(products: list[Any], cards: dict[str, Any], store: Any, llm: Any, 
         user = json.dumps({"products": [_user(p, cards.get(p.product_id), contexts.get(str(p.product_id)))
                                          for p, _ in chunk]}, ensure_ascii=False)
         try:
-            data, _ = llm.complete_json("x_query_extract", model, X_QUERY_TERMS_SYSTEM, user, max_tokens=4096,
+            data, _ = llm.complete_json("x_query_extract", model, get_system_prompt("x_query_terms", X_QUERY_TERMS_SYSTEM), user, max_tokens=4096,
                                         ref="x_query_terms")
         except Exception as exc:   # quota/network: keep deterministic queries, retry next cycle
             log.warning("X query terms: LLM failed for %d products: %s", len(chunk), exc)

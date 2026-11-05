@@ -18,15 +18,53 @@ FAMILY_VERSION = "3"
 SEARCH_DEPTH = 3
 _CLOTHING_ROOTS = {norm(x) for x in ("پوشاک", "لباس")}
 _DENTAL_ROOTS = {norm(x) for x in ("دندان", "دندانپزشک", "دندانپزشکی", "دندان پزشکی", "دندان‌پزشکی",
-                                   "دندونپزشک", "دندونپزشکی", "دندون پزشکی")}
+                                   "دندونپزشک", "دندونپزشکی", "دندون پزشکی", "دندون", "ایمپلنت",
+                                   "کامپوزیت", "لمینت", "ارتودنسی", "عصب کشی", "لبخند", "طرح لبخند", "کاخ لبخند",
+                                   "جراحی دندان", "کشیدن دندان", "پر کردن دندان", "ترمیم دندان", "روکش دندان",
+                                   "زیبایی دندان", "زیبایی دندون", "دندان درد", "دندون درد", "بلیچینگ", "روکش",
+                                   "اوردنچر", "دست دندان", "پروتز دندان",
+                                   "کلینیک دندانپزشکی", "مطب دندانپزشکی", "کلینیک دندان", "دندونم", "دندونام", "دندانم")}
 _CATEGORY_SYNONYMS = {norm("پوشاک"): ("لباس",), norm("لباس"): ("پوشاک",),
-                      norm("دندان"): ("دندون",), norm("دندانپزشکی"): ("دندونپزشکی", "دندون"),
-                      norm("دندان پزشکی"): ("دندون پزشکی", "دندون"), norm("دندان‌پزشکی"): ("دندون پزشکی", "دندون")}
+                      norm("دندان"): ("دندون", "دندانپزشک", "دندونپزشک", "دندانپزشکی", "دندونپزشکی"),
+                      norm("دندانپزشکی"): ("دندونپزشکی", "دندون", "دندان", "دندانپزشک", "دندونپزشک", "کلینیک"),
+                      norm("دندان پزشکی"): ("دندون پزشکی", "دندون", "دندان", "دندانپزشک", "دندونپزشک", "کلینیک"),
+                      norm("دندان‌پزشکی"): ("دندون پزشکی", "دندون", "دندان", "دندانپزشک", "دندونپزشک", "کلینیک")}
 _APPAREL_DISCOVERY_TERMS = (
     "لباس زمستونی", "لباس بهاره", "لباس خنک", "لباس تابستونی", "لباس راحت", "لباس گشاد", "لباس تنگ",
     "لباس مجلسی", "لباس کژوال", "لباس اسپرت",
 )
-_DENTAL_DISCOVERY_TERMS = ("دندون درد", "دندون خراب", "دندون لق")
+_DENTAL_DISCOVERY_TERMS = (
+    # واژه‌های روال، عمومی و مراکز دندانپزشکی (Routine & General Dentistry)
+    "دندانپزشکی", "دندونپزشکی", "دندان پزشکی", "دندون پزشکی",
+    "دندانپزشک", "دندونپزشک", "دندان پزشک", "دندون پزشک",
+    "کلینیک دندانپزشکی", "کلینیک دندان پزشکی", "مطب دندانپزشکی", "کلینیک دندان",
+    "دندانپزشک خوب", "دندونپزشک خوب", "دندانپزشک اقساطی", "دندانپزشکی اقساطی", "دندانپزشکی ارزان", "دندانپزشکی شبانه روزی",
+    "دندونم", "دندونام", "دندانم",
+    # ۱. کامپوزیت (Composite)
+    "کامپوزیت", "کامپوزیت دندان", "کامپوزیت ونیر", "ونیر کامپوزیت", "ترمیم کامپوزیت", "قیمت کامپوزیت", "کامپوزیت اقساطی", "کامپوزیت دندون",
+    # ۲. لمینت (Laminate)
+    "لمینت", "لمینت دندان", "لمینت سرامیکی", "ونیر لمینت", "قیمت لمینت", "لمینت اقساطی", "لمینت دندون",
+    # ۳. ایمپلنت (Implant)
+    "ایمپلنت", "ایمپلنت دندان", "کاشت دندان", "ایمپلنت فوری", "ایمپلنت یک روزه", "ایمپلنت اقساطی", "قیمت ایمپلنت", "ایمپلنت دندون",
+    # ۴. زیبایی دندان (Cosmetic Dentistry)
+    "زیبایی دندان", "زیبایی دندون", "دندانپزشکی زیبایی", "کلینیک زیبایی دندان", "طرح لبخند", "اصلاح طرح لبخند", "لبخند هالیوودی", "کاخ لبخند",
+    # ۵. دندان درد (Toothache)
+    "دندان درد", "دندون درد", "درد دندان", "درد دندون", "دندون خراب", "پوسیدگی دندان", "عفونت دندان", "آبسه دندان", "شکستن دندان",
+    # ۶. بلیچینگ (Bleaching)
+    "بلیچینگ", "بلیچینگ دندان", "بلیچینگ دندون", "سفید کردن دندان", "سفید کردن دندون", "قیمت بلیچینگ", "جرم‌گیری دندان", "جرم گیری دندون", "بروساژ دندان",
+    # ۷. روکش (Crown)
+    "روکش دندان", "روکش دندون", "روکش سرامیکی", "روکش زیرکونیا", "قیمت روکش دندان", "تعویض روکش دندان", "روکش",
+    # ۸. اوردنچر (Overdenture)
+    "اوردنچر", "اوردنچر دندان", "اوردنچر فک", "قیمت اوردنچر", "دست دندان اوردنچر", "اوردنچر بر پایه ایمپلنت", "پروتز اوردنچر", "اوردنچر ثابت",
+    # درمان ریشه و عصب‌کشی
+    "عصب کشی", "عصب‌کشی", "عصب کشی دندان", "درمان ریشه دندان", "درد عصب کشی",
+    # جراحی و کشیدن دندان
+    "دندان عقل", "دندون عقل", "جراحی دندان عقل", "جراحی دندان", "دندان عقل نهفته", "کشیدن دندان", "کشیدن ریشه دندان", "جراحی لثه", "پیوند استخوان فک",
+    # ترمیم و پر کردن
+    "پر کردن دندان", "ترمیم دندان", "پرکردگی دندان",
+    # ارتودنسی
+    "ارتودنسی", "ارتودنسی دندان", "ارتودنسی نامرئی", "ارتودنسی ثابت", "سیم کشی دندان",
+)
 _TOPIC_MODIFIERS = {norm(x) for x in (
     "مردانه", "زنانه", "بچگانه", "دخترانه", "پسرانه", "ورزشی", "مجلسی", "تابستانی", "زمستانی",
     "تابستونی", "زمستونی", "پاییزه", "بهاره", "خنک", "گرم", "راحت", "گشاد", "تنگ", "شیک",
@@ -143,7 +181,8 @@ def family_discovery_terms(family: Any) -> list[tuple[str, str]]:
         out.extend((phrase, "problem" if any(x in phrase for x in ("تنگ", "گشاد", "خنک", "راحت")) else "intent")
                    for phrase in _APPAREL_DISCOVERY_TERMS)
     if any(root in values for root in _DENTAL_ROOTS):
-        out.extend((phrase, "problem") for phrase in _DENTAL_DISCOVERY_TERMS)
+        out.extend((phrase, "problem" if any(x in phrase for x in ("درد", "خراب", "لق", "پوسیدگی", "عفونت")) else "intent")
+                   for phrase in _DENTAL_DISCOVERY_TERMS)
     return out
 
 
@@ -155,6 +194,17 @@ def family_category_synonyms(family: Any) -> set[str]:
             for synonym in synonyms for word in tokens(synonym)}
 
 
+_DENTAL_ALL_TOKENS = {
+    "دندان", "دندون", "پزشک", "پزشکی", "دندانپزشک", "دندونپزشک", "دندانپزشکی", "دندونپزشکی",
+    "کلینیک", "درد", "لبخند", "ایمپلنت", "کامپوزیت", "لمینت", "ارتودنسی", "عصب", "کشی",
+    "عقل", "جرم", "کاخ", "طرح", "خراب", "لق", "پوسیدگی", "عفونت", "ترمیم", "بلیچینگ",
+    "کاشت", "ونیر", "روکش", "زیرکونیا", "ریشه", "اقساطی", "خوب", "جراحی", "کشیدن", "پر",
+    "کردن", "آبسه", "لثه", "پیوند", "استخوان", "نهفته", "سیم", "براکت", "پلاک", "الاینر",
+    "بروساژ", "سینوس", "لیفت", "سفید", "فک", "آمالگام", "اوردنچر", "زیبایی", "پروتز",
+    "مطب", "دندونم", "دندونام", "دندانم",
+}
+
+
 def family_anchor_tokens(family: Any, card: Any = None) -> set[str]:
     """Normalized family anchors from its leaf, product type, aliases, keywords and member-title head nouns."""
     path = str(getattr(family, "category_path", "") or "")
@@ -162,8 +212,11 @@ def family_anchor_tokens(family: Any, card: Any = None) -> set[str]:
     values = [leaf, getattr(family, "product_type", ""), *(getattr(family, "category_keywords", []) or []),
               *(_get(card, "aliases", []) or [])]
     values.extend(topic_head(title) for title in (getattr(family, "titles", []) or []))
-    return ({word for value in values for word in tokens(str(value or "")) if len(word) > 1}
-            | family_category_synonyms(family))
+    res = {word for value in values for word in tokens(str(value or "")) if len(word) > 1}
+    full_text = norm(path + " " + leaf + " " + " ".join(getattr(family, "titles", []) or ""))
+    if any(root in full_text for root in _DENTAL_ROOTS):
+        res.update(_DENTAL_ALL_TOKENS)
+    return res | family_category_synonyms(family)
 
 
 def family_topic_tokens(family: Any, card: Any = None) -> set[str]:
@@ -173,8 +226,12 @@ def family_topic_tokens(family: Any, card: Any = None) -> set[str]:
     values = [leaf, getattr(family, "product_type", ""), *(getattr(family, "category_keywords", []) or []),
               *(_get(card, "aliases", []) or [])]
     values.extend(topic_head(title) for title in (getattr(family, "titles", []) or []))
-    return {word for value in values for word in tokens(str(value or ""))
-            if len(word) > 1 and word not in _TOPIC_MODIFIERS and word not in _TOPIC_FILLER}
+    res = {word for value in values for word in tokens(str(value or ""))
+           if len(word) > 1 and word not in _TOPIC_MODIFIERS and word not in _TOPIC_FILLER}
+    full_text = norm(path + " " + leaf + " " + " ".join(getattr(family, "titles", []) or ""))
+    if any(root in full_text for root in _DENTAL_ROOTS):
+        res.update(_DENTAL_ALL_TOKENS)
+    return res
 
 
 def family_topic_contexts(families: list[Any], cards: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:

@@ -20,14 +20,16 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Callable, Literal
-
-if TYPE_CHECKING:
-    from apps.products.models import Product
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("need_engine.post_qualification")
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 ContentType = Literal[
     "genuine_need",
@@ -372,7 +374,7 @@ def qualify_post_with_luna(
 
     try:
         raw_res = llm_func(
-            LUNA_QUALIFICATION_SYSTEM,
+            get_system_prompt("luna_qualification", LUNA_QUALIFICATION_SYSTEM),
             json.dumps(user_payload, ensure_ascii=False),
             purpose="luna_post_qualification",
             business_id=business_id,

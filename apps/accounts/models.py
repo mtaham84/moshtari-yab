@@ -56,3 +56,61 @@ class EmailVerification(models.Model):
 
     def __str__(self):
         return f"{self.email} - Code: {self.code} - Attempts: {self.attempts}"
+
+
+class ActivationRequest(models.Model):
+    STATUS_PENDING = "PENDING"
+    STATUS_APPROVED = "APPROVED"
+    STATUS_ACTIVATED = "ACTIVATED"
+    STATUS_REJECTED = "REJECTED"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "در انتظار بررسی"),
+        (STATUS_APPROVED, "تایید شده"),
+        (STATUS_ACTIVATED, "فعال‌شده و ایجاد حساب"),
+        (STATUS_REJECTED, "رد شده"),
+    ]
+
+    full_name = models.CharField(max_length=150, verbose_name="نام و نام خانوادگی")
+    company_name = models.CharField(max_length=200, verbose_name="نام کسب‌وکار / شرکت")
+    phone_number = models.CharField(max_length=30, verbose_name="شماره تماس / موبایل")
+    email = models.EmailField(verbose_name="ایمیل کاری")
+    team_size = models.CharField(max_length=50, blank=True, verbose_name="اندازه تیم")
+    problem_statement = models.TextField(blank=True, verbose_name="شرح چالش‌ها و نیازمندی‌ها")
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        verbose_name="وضعیت درخواست"
+    )
+
+    created_user = models.ForeignKey(
+        "auth.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activation_requests",
+        verbose_name="حساب کاربری ایجادشده"
+    )
+    created_business = models.ForeignKey(
+        "businesses.Business",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activation_requests",
+        verbose_name="کسب‌وکار متناظر"
+    )
+    admin_notes = models.TextField(blank=True, verbose_name="یادداشت‌های مدیر")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="تاریخ ثبت")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    class Meta:
+        verbose_name = "درخواست فعال‌سازی و دمو"
+        verbose_name_plural = "درخواست‌های فعال‌سازی و دمو"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.full_name} ({self.company_name}) - {self.get_status_display()}"
+

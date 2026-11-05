@@ -34,6 +34,25 @@
       <span class="p-badge" style="background: rgba(225, 48, 108, 0.12); color: #E1306C; border: 1px solid rgba(225, 48, 108, 0.3); font-weight: 600;">
         اینستاگرام (Instagram)
       </span>
+      {% if opportunity.is_private_account %}
+        <span class="p-badge" style="background: rgba(245, 158, 11, 0.15); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700;">
+          خصوصی (Private)
+        </span>
+      {% else %}
+        <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700;">
+          عمومی (Public - اولویت بالا)
+        </span>
+      {% endif %}
+      {% if opportunity.success_probability_pct %}
+        <span class="p-badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.35); font-weight: 700;">
+          احتمال موفقیت: {{ opportunity.success_probability_pct }}٪
+        </span>
+      {% endif %}
+      {% if opportunity.outreach_score_val %}
+        <span class="p-badge" style="background: rgba(147, 51, 234, 0.15); color: #9333ea; border: 1px solid rgba(147, 51, 234, 0.35); font-weight: 700;">
+          امتیاز اولویت: {{ opportunity.outreach_score_val }} از ۴۵
+        </span>
+      {% endif %}
     {% elif opportunity.source_platform == 'divar' %}
       <span class="p-badge" style="background: rgba(166, 38, 38, 0.12); color: #c02626; border: 1px solid rgba(166, 38, 38, 0.3); font-weight: 600;">
         دیوار (Divar)
@@ -42,7 +61,17 @@
       <span class="p-badge p-badge-gray">سایر شبکه</span>
     {% endif %}
     {% if opportunity.intent_type %}
-      <span class="p-badge" style="background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.3); font-weight: 600;">{{ opportunity.get_intent_type_display }}</span>
+      {% if opportunity.intent_type == 'direct_intent' or opportunity.intent_type == 'buy_signal' %}
+        <span class="p-badge" style="background: rgba(16, 185, 129, 0.16); color: #059669; border: 1px solid rgba(16, 185, 129, 0.45); font-weight: 700;">{{ opportunity.get_intent_type_display }}</span>
+      {% elif opportunity.intent_type == 'comparison' %}
+        <span class="p-badge" style="background: rgba(6, 182, 212, 0.16); color: #0891b2; border: 1px solid rgba(6, 182, 212, 0.45); font-weight: 700;">{{ opportunity.get_intent_type_display }}</span>
+      {% elif opportunity.intent_type == 'advice_seeking' or opportunity.intent_type == 'recommendation_ask' %}
+        <span class="p-badge" style="background: rgba(99, 102, 241, 0.16); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.45); font-weight: 700;">{{ opportunity.get_intent_type_display }}</span>
+      {% elif opportunity.intent_type == 'competitor_churn' or opportunity.intent_type == 'complaint' or opportunity.intent_type == 'switching' %}
+        <span class="p-badge" style="background: rgba(245, 158, 11, 0.16); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.45); font-weight: 700;">{{ opportunity.get_intent_type_display }}</span>
+      {% else %}
+        <span class="p-badge" style="background: rgba(168, 85, 247, 0.16); color: #9333ea; border: 1px solid rgba(168, 85, 247, 0.45); font-weight: 700;">{{ opportunity.get_intent_type_display }}</span>
+      {% endif %}
     {% endif %}
   </div>
 </div>
@@ -111,6 +140,42 @@
           </span>
         </div>
       </div>
+
+      {% if opportunity.source_platform == 'instagram' %}
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--panel-border-subtle);">
+          <div>
+            <span style="font-size: 0.74rem; color: var(--stone-text-muted); display: block;">نوع حساب کاربری اینستاگرام:</span>
+            {% if opportunity.is_private_account %}
+              <span class="p-badge" style="background: rgba(245, 158, 11, 0.15); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700; margin-top: 4px; display: inline-block;">
+                حساب خصوصی (Private)
+              </span>
+            {% else %}
+              <span class="p-badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700; margin-top: 4px; display: inline-block;">
+                حساب عمومی (Public - اولویت بالا)
+              </span>
+            {% endif %}
+          </div>
+          <div>
+            <span style="font-size: 0.74rem; color: var(--stone-text-muted); display: block;">احتمال موفقیت لید:</span>
+            <strong style="font-size: 0.95rem; color: #0284c7; margin-top: 4px; display: inline-block;">
+              {{ opportunity.success_probability_pct|default:"—" }}٪
+            </strong>
+          </div>
+          <div>
+            <span style="font-size: 0.74rem; color: var(--stone-text-muted); display: block;">پیج مبدأ کامنت:</span>
+            {% if opportunity.instagram_source_page_username %}
+              <a href="{{ opportunity.instagram_source_page_url }}" target="_blank" rel="noopener noreferrer nofollow" style="font-size: 0.86rem; color: #E1306C; font-weight: 700; text-decoration: none; margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; direction: ltr;">
+                @{{ opportunity.instagram_source_page_username }}
+                {% if opportunity.instagram_source_page_title and opportunity.instagram_source_page_title != opportunity.instagram_source_page_username %}
+                  <span style="color: var(--stone-text-muted); font-size: 0.75rem; font-weight: 400; direction: rtl;">({{ opportunity.instagram_source_page_title }})</span>
+                {% endif %}
+              </a>
+            {% else %}
+              <span style="font-size: 0.82rem; color: var(--stone-text-muted); margin-top: 4px; display: inline-block;">—</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
     </div>
 
     {% if opportunity.source_platform == 'x' and customer.contact_channels %}
@@ -137,6 +202,42 @@
       </div>
 
       <div style="background: var(--stone-surface-sunken); border-right: 4px solid var(--brand-purple); padding: 16px 20px; border-radius: 0 10px 10px 0;">
+        <div style="font-size: 0.95rem; color: var(--panel-text-main); line-height: 1.8; word-break: break-word; font-weight: 500;">
+          {{ opportunity.source_raw_message }}
+        </div>
+
+        {% if opportunity.source_platform == 'instagram' %}
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--panel-border-subtle); align-items: center;">
+            {% if opportunity.instagram_comment_created_at_jalali %}
+              <span class="p-badge" style="background: rgba(16, 185, 129, 0.14); color: #047857; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.78rem;">
+                ثبت کامنت: {{ opportunity.instagram_comment_created_at_jalali }}
+              </span>
+            {% endif %}
+            {% if opportunity.instagram_post_created_at_jalali %}
+              <span class="p-badge" style="background: rgba(100, 116, 139, 0.12); color: #334155; border: 1px solid rgba(100, 116, 139, 0.25); font-weight: 600; font-size: 0.78rem;">
+                انتشار پست: {{ opportunity.instagram_post_created_at_jalali }}
+              </span>
+            {% endif %}
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.08); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.76rem;">
+              واکشی سیستم: {{ opportunity.created_at|jalali_dt }}
+            </span>
+            {% if opportunity.instagram_source_page_username %}
+              <span class="p-badge" style="background: rgba(225, 48, 108, 0.08); color: #be185d; border: 1px solid rgba(225, 48, 108, 0.2); font-size: 0.76rem; direction: ltr;">
+                پیج مبدأ: @{{ opportunity.instagram_source_page_username }}
+              </span>
+            {% endif %}
+          </div>
+        {% elif opportunity.source_posted_at %}
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--panel-border-subtle); align-items: center;">
+            <span class="p-badge" style="background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600; font-size: 0.76rem;">
+              زمان پیام: {{ opportunity.source_posted_at|jalali_dt }}
+            </span>
+            <span class="p-badge" style="background: rgba(148, 163, 184, 0.08); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.76rem;">
+              کشف سیستم: {{ opportunity.created_at|jalali_dt }}
+            </span>
+          </div>
+        {% endif %}
+
         {% if opportunity.source_platform == 'x' and opportunity.x_post_url %}
           <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--panel-border-subtle); display: flex; flex-direction: column; gap: 8px;">
             <div>
@@ -488,10 +589,43 @@
     <div class="p-card" style="padding: 20px 22px; font-size: 0.78rem; color: var(--stone-text-muted);">
       <h4 style="font-size: 0.85rem; color: var(--panel-text-main); margin: 0 0 10px 0;">اطلاعات سیستمی فرصت</h4>
       <div style="display: flex; flex-direction: column; gap: 8px;">
-        <div style="display: flex; justify-content: space-between;">
-          <span>زمان کشف:</span>
-          <span style="direction: ltr;">{{ opportunity.created_at|jalali_dt }}</span>
-        </div>
+        {% if opportunity.source_platform == 'instagram' %}
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 700; color: #047857;">زمان ثبت کامنت:</span>
+            <span style="direction: ltr; font-weight: 700; color: #047857;">
+              {% if opportunity.instagram_comment_created_at_jalali %}
+                {{ opportunity.instagram_comment_created_at_jalali }}
+              {% else %}
+                ثبت نشده
+              {% endif %}
+            </span>
+          </div>
+          {% if opportunity.instagram_post_created_at_jalali %}
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>زمان انتشار پست:</span>
+              <span style="direction: ltr; color: var(--panel-text-main);">{{ opportunity.instagram_post_created_at_jalali }}</span>
+            </div>
+          {% endif %}
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span>زمان واکشی سیستم:</span>
+            <span style="direction: ltr;">{{ opportunity.created_at|jalali_dt }}</span>
+          </div>
+          {% if opportunity.instagram_source_page_username %}
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>پیج مبدأ کامنت:</span>
+              <a href="{{ opportunity.instagram_source_page_url }}" target="_blank" rel="noopener noreferrer nofollow" style="direction: ltr; color: #E1306C; text-decoration: none; font-weight: 600;">@{{ opportunity.instagram_source_page_username }}</a>
+            </div>
+          {% endif %}
+        {% else %}
+          <div style="display: flex; justify-content: space-between;">
+            <span>زمان پیام:</span>
+            <span style="direction: ltr;">{{ opportunity.source_posted_at|default:opportunity.created_at|jalali_dt }}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span>زمان کشف سیستم:</span>
+            <span style="direction: ltr;">{{ opportunity.created_at|jalali_dt }}</span>
+          </div>
+        {% endif %}
         <div style="display: flex; justify-content: space-between;">
           <span>آخرین تغییر:</span>
           <span style="direction: ltr;">{{ opportunity.updated_at|jalali_dt }}</span>

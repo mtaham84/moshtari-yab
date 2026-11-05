@@ -20,10 +20,34 @@ Rules:
 Return JSON: {"needs":[{"author_id":"..","evidence_message_ids":[..],"label":"explicit_need|implicit_need|on_behalf_need|resolved|joke|seller|curiosity|no_buy_complaint|advice_giver|past_need","is_opportunity":true/false,"situation":"Persian, one sentence","need":"Persian or null","solution_queries":[..],"problem_queries":[..],"requirements":[{"text":"..","must":true/false}],"constraints":{"budget_toman":int|null,"city":str|null,"use":"home|commercial|personal|null","level":"beginner|intermediate|advanced|null","other":str|null},"strength":"strong|medium|weak","emotion":"short Persian or null"}]}
 Return {"needs":[]} if nobody qualifies."""
 
-NEED_SYSTEM_X = """You review a JSON list of independent public X posts. Each post is independent, not a conversation. For each author, report any buying need, purchase intent, or potential customer signal with probability > 30%, or a request on behalf of someone. Use only the author's own post; do not infer intent from search queries. Set author_type organization for brands/shops, individual for a natural person, unknown if unsure. Mark promotional_content true for ads, promotions, calls to action or affiliate links. Never invent identity/contact data. Evidence ids must be post_ids in this list and belong to the same author_id as the need.
-For X posts, set buyer_intent_confirmed=true and is_opportunity=true whenever the author shows any potential buying need, purchase intent, recommendation inquiry, or solvable problem with probability > 30% (even if implicit or weak). Asking which product/model to buy, asking for recommendations, asking where to buy, comparing options, expressing dissatisfaction with a current solution and looking for alternatives, or asking about price/availability IS buyer intent (> 30%). Do NOT ignore potential leads: missing a potential customer is worse than reporting a weak lead. Set author_type to organization for a company/brand/shop, individual for a natural person, unknown if uncertain. Set promotional_content=true for ads, product promotion, discounts, calls to action, affiliate links, or brand campaigns. Set intent_type to buy_signal, recommendation_ask, complaint, comparison, switching, or general. Cite the exact new post by its author; never invent identity/contact data.
-Return JSON: {"needs":[{"author_id":"..","evidence_message_ids":[..],"label":"explicit_need|implicit_need|on_behalf_need|resolved|joke|seller|curiosity|no_buy_complaint|advice_giver|past_need","buyer_intent_confirmed":true/false,"author_type":"individual|organization|unknown","promotional_content":true/false,"intent_type":"buy_signal|recommendation_ask|complaint|comparison|switching|general","is_opportunity":true/false,"situation":"Persian, one sentence","need":"Persian or null","solution_queries":[..],"problem_queries":[..],"requirements":[{"text":"..","must":true/false}],"constraints":{"budget_toman":int|null,"city":str|null,"use":"home|commercial|personal|null","level":"beginner|intermediate|advanced|null","other":str|null},"strength":"strong|medium|weak","emotion":"short Persian or null"}]}
-Return {"needs":[]} if nobody qualifies."""
+NEED_SYSTEM_X = """You evaluate independent Persian public X posts using an exact 7-Tier Purchase Readiness & Lead Qualification Hierarchy (0% to 100%):
+
+1. Tier 1 (0% - REJECT): Post has no relevance to commerce, products, or solvable needs (random chit-chat, memes, sports, unrelated content).
+   -> Do not qualify: is_opportunity=false.
+
+2. Tier 2 (0% - REJECT): Topic may mention a category or product, but the core context is a political rant, complaint against government/regime, sanction grievance, or macro-political protest.
+   -> Do not qualify: is_opportunity=false.
+
+3. Tier 3 (30%-50% - QUALIFIED): Author expresses authentic pain, defect, functional difficulty, symptom, or initial unfulfilled need without mentioning a specific product to buy yet (e.g. «دندونم تیر میکشه», «لپ‌تاپم به شدت داغ میکنه و خاموش میشه», «چشمم از مانیتور میسوزه», «کمرم از صندلی اداری درد گرفته»).
+   -> Qualify as Lead: is_opportunity=true, tier=3, intent_type="pain_need", strength="weak", buyer_intent_confirmed=true. Tag: «بیان درد و نیاز (احتمال کمتر)».
+
+4. Tier 4 (55%-70% - QUALIFIED): Author complains about an existing product they bought or a competitor's brand/service, showing dissatisfaction and readiness to churn or switch (e.g. «این کرم ضدآفتاب X افتضاح بود صورتم پر جوش شد چی بزنم؟», «از خدمات کلینیک Y اصلاً راضی نبودم کارشون بی‌کیفیته»).
+   -> Qualify as Lead: is_opportunity=true, tier=4, intent_type="competitor_churn", strength="medium", buyer_intent_confirmed=true. Tag: «نارضایتی از محصول رقیب».
+
+5. Tier 5 (75%-85% - QUALIFIED): Author is actively seeking advice, suggestions, or recommendations for purchasing (e.g. «چه گوشی تا ۱۵ تومن پیشنهاد میدید؟», «دندانپزشک خوب سمت ونک کی می‌شناسه؟», «کفش مناسب پیاده‌روی چی خوبه؟»).
+   -> Qualify as Lead: is_opportunity=true, tier=5, intent_type="advice_seeking", strength="medium", buyer_intent_confirmed=true. Tag: «مشورت خرید (احتمال بالا)».
+
+6. Tier 6 (85%-92% - QUALIFIED): Author is comparing 2 or more products, models, or brands, requesting help to make a final purchase choice (e.g. «بین آیفون ۱۳ و اس ۲۳ کدوم ارزش خرید بیشتری داره؟», «برای ارتدونسی کلینیک A بهتره یا B؟»).
+   -> Qualify as Lead: is_opportunity=true, tier=6, intent_type="comparison", strength="strong", buyer_intent_confirmed=true. Tag: «مقایسه محصولات (احتمال بالا)».
+
+7. Tier 7 (95%-100% - QUALIFIED): Author explicitly declares intent to buy a specific item or service, asking where/how to purchase, price for order, or ready for immediate transaction (e.g. «قصد خرید مانیتور گیمینگ دارم از کجا تهیه کنم؟», «خریدار فوری لباس مجلسی سایز ۳۸ هستم», «موجود دارید برای سفارش؟», «قیمتش چنده چطور بخرم؟»).
+   -> Qualify as Lead: is_opportunity=true, tier=7, intent_type="direct_intent", strength="strong", buyer_intent_confirmed=true. Tag: «قصد خرید مستقیم (بالاترین احتمال)».
+
+Rules:
+- For Tiers 3, 4, 5, 6, 7 you MUST set is_opportunity=true and buyer_intent_confirmed=true. Missing a potential customer in tiers 3-7 is strictly worse than reporting a weak lead.
+- Disqualify shops/sellers promoting goods (promotional_content=true or author_type="organization").
+- Return JSON: {"needs":[{"author_id":"..","evidence_message_ids":[..],"tier":3|4|5|6|7,"label":"explicit_need|implicit_need|on_behalf_need","buyer_intent_confirmed":true,"author_type":"individual|organization|unknown","promotional_content":false,"intent_type":"direct_intent|comparison|advice_seeking|competitor_churn|pain_need","is_opportunity":true,"situation":"Persian, one sentence","need":"Persian or null","solution_queries":[..],"problem_queries":[..],"requirements":[{"text":"..","must":true/false}],"constraints":{"budget_toman":int|null,"city":str|null,"use":null,"level":null,"other":str|null},"strength":"strong|medium|weak","emotion":"short Persian or null"}]}
+- Return {"needs":[]} if nobody qualifies (Tiers 1 & 2)."""
 
 VERIFY_SYSTEM = """You check candidate products against a specific person's need, from what they said in a chat. Do NOT give scores.
 For each candidate decide:
@@ -44,12 +68,32 @@ JSON: {"reply":"..."}"""
 
 REPLY_SYSTEM_X = """Write three respectful Persian draft variants for a human to review. Never send anything. Never pretend to be a neutral unrelated user; do not fabricate experience, reviews, or price claims. public: no URL, phone, or email, acknowledge the need first, mention the product as one option, end with a light question. dm: first-message draft, may include {{LINK}}. short: shortest useful public response. Avoid pressure and use at most one emoji. Return JSON {"public":"...","dm":"...","short":"..."}."""
 
-NEED_SYSTEM_X_PRODUCT = """You review independent public X posts that a search for ONE seller's product found (the product is in the input).
-For each post decide whether its author is a potential customer or has a buying need related to this product or the seller's domain/category with probability > 30%:
-- They want to buy it (or something similar in this domain), ask where or how to get it, ask for recommendations or advice, inquire about price or availability (e.g. «موجود دارین؟», «قیمتش چنده؟», «از کجا بخرم؟»), express a need, complaint, comparison, or problem that this product or category can solve, or ask on behalf of someone.
-- If there is ANY plausible purchase intent or potential customer interest with probability > 30%, and it has even the slightest resemblance or category connection to the product, you MUST capture it as a lead.
-NOT customers: sellers/shops advertising their own goods, spam, bots, people giving tutorials, news, jokes, and completely irrelevant posts.
-For every potential customer (>30% probability) return one need with: label explicit_need (own purchase), on_behalf_need (for someone else), or implicit_need (inferred buying need/interest), buyer_intent_confirmed true, is_opportunity true, author_type (individual|organization|unknown), promotional_content false, intent_type (buy_signal|recommendation_ask|complaint|comparison|switching|general), strength strong (explicit and current), medium (clear inquiry/question), or weak (potential buyer / loose resemblance > 30%), solution_queries 1-3 short Persian phrases of what they want, situation (Persian, one sentence), need (Persian), and fit: "yes" if THIS product is what they want, "partly" if it is an alternative, covers part of it, or has even slight resemblance to the product/category (>30% match). Do NOT set "no" if there is any potential buyer intent > 30% related to this kind of product. Include fit_reason (short Persian).
-Evidence ids must be post_ids from this list and belong to the same author_id as the need. Use only what the posts say; never invent identity or contact data.
-Return JSON: {"needs":[{"author_id":"..","evidence_message_ids":[..],"label":"explicit_need|on_behalf_need|implicit_need","buyer_intent_confirmed":true,"author_type":"individual|organization|unknown","promotional_content":false,"intent_type":"buy_signal|recommendation_ask|complaint|comparison|switching|general","is_opportunity":true,"situation":"..","need":"..","solution_queries":[..],"problem_queries":[],"requirements":[{"text":"..","must":true/false}],"constraints":{"budget_toman":int|null,"city":str|null,"use":null,"level":null,"other":str|null},"strength":"strong|medium|weak","emotion":null,"fit":"yes|partly|no","fit_reason":".."}]}
-Return {"needs":[]} if nobody qualifies."""
+NEED_SYSTEM_X_PRODUCT = """You review independent public X posts found for ONE seller's product against the exact 7-Tier Lead Qualification Hierarchy (0% to 100%):
+
+1. Tier 1 (0% - REJECT): Post has no connection to this product, domain, or solvable category need.
+   -> is_opportunity=false.
+
+2. Tier 2 (0% - REJECT): Political complaint, government/policy grievance, or economic protest unrelated to customer purchasing.
+   -> is_opportunity=false.
+
+3. Tier 3 (30%-50% - QUALIFIED): Expresses authentic problem, pain, bodily symptom, defect, or need that this product/domain can alleviate (e.g. «دندونم تیر میکشه», «لپ‌تاپم خیلی داغ میکنه», «لباس مناسب مهمونی ندارم چی بپوشم»).
+   -> Qualify as Lead: is_opportunity=true, tier=3, intent_type="pain_need", strength="weak", fit="yes"|"partly". Tag: «بیان درد و نیاز (احتمال کمتر)».
+
+4. Tier 4 (55%-70% - QUALIFIED): Expresses dissatisfaction with a current product, brand, or competitor (e.g. «از محصول قبلی راضی نبودم خراب شد»).
+   -> Qualify as Lead: is_opportunity=true, tier=4, intent_type="competitor_churn", strength="medium", fit="yes"|"partly". Tag: «نارضایتی از محصول رقیب».
+
+5. Tier 5 (75%-85% - QUALIFIED): Asking for advice, recommendations, or suggestions in this product category (e.g. «چه مدلی پیشنهاد میدید؟», «دندانپزشک خوب معرفی کنید»).
+   -> Qualify as Lead: is_opportunity=true, tier=5, intent_type="advice_seeking", strength="medium", fit="yes"|"partly". Tag: «مشورت خرید (احتمال بالا)».
+
+6. Tier 6 (85%-92% - QUALIFIED): Comparing multiple products or brands and seeking help to choose (e.g. «بین این دو مدل کدوم بهتره؟»).
+   -> Qualify as Lead: is_opportunity=true, tier=6, intent_type="comparison", strength="strong", fit="yes"|"partly". Tag: «مقایسه محصولات (احتمال بالا)».
+
+7. Tier 7 (95%-100% - QUALIFIED): Direct and explicit purchase intent for this product or item (e.g. «خریدارم», «از کجا بخرم», «قصد خرید دارم», «موجود دارین؟», «قیمتش چنده سفارش بدم»).
+   -> Qualify as Lead: is_opportunity=true, tier=7, intent_type="direct_intent", strength="strong", fit="yes". Tag: «قصد خرید مستقیم (بالاترین احتمال)».
+
+Rules:
+- For Tiers 3, 4, 5, 6, 7 you MUST set is_opportunity=true and buyer_intent_confirmed=true.
+- Disqualify shops/sellers promoting goods (promotional_content=true or author_type="organization").
+- Set fit="yes" if this product directly matches, "partly" if related alternative or category match.
+- Return JSON: {"needs":[{"author_id":"..","evidence_message_ids":[..],"tier":3|4|5|6|7,"label":"explicit_need|on_behalf_need|implicit_need","buyer_intent_confirmed":true,"author_type":"individual|organization|unknown","promotional_content":false,"intent_type":"direct_intent|comparison|advice_seeking|competitor_churn|pain_need","is_opportunity":true,"situation":"..","need":"..","solution_queries":[..],"problem_queries":[],"requirements":[{"text":"..","must":true/false}],"constraints":{"budget_toman":int|null,"city":str|null,"use":null,"level":null,"other":str|null},"strength":"strong|medium|weak","emotion":null,"fit":"yes|partly","fit_reason":".."}]}
+- Return {"needs":[]} if nobody qualifies (Tiers 1 & 2)."""

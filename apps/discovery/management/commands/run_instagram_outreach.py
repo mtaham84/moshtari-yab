@@ -30,7 +30,7 @@ from typing import Optional, Dict, Any, List
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
-from django.db import models, transaction
+from django.db import transaction
 
 try:
     from zoneinfo import ZoneInfo
@@ -39,7 +39,6 @@ except Exception:
     TEHRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-from apps.discovery.anti_ban import InstagramAntiBanManager
 from apps.discovery.device_emulator import apply_device_profile_to_client
 from apps.discovery.outreach_service import (
     check_and_sync_lead_replies,
@@ -57,23 +56,13 @@ CONFIG_FILE = Path("data/sarv_outreach_config.json")
 DEFAULT_SENDER_PITCHES = {
     "raha.rostamim": {
         "consultant_name": "رها",
-        "consultant_role": "مشاور و پشتیبانی تخصصی",
-        "template": (
-            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام}{ عزیز|}!\n"
-            "بنده رها هستم مشاور {business_name}؛ {متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
-            "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم|پاسخگوی تمام سوالات تخصصی شما در این زمینه هستم|اگر سوالی درباره هزینه‌ها، کیفیت یا شرایط دارید در خدمتم}.\n"
-            "{اگر فکر می‌کنید براتون مفیده، شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی تلفنی و بدون دغدغه خدمتتون تماس بگیرم.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا راهنمایی کامل تلفنی انجام بشه.|می‌تونید همینجا بفرمایید تا کامل راهنماییتون کنم.}"
-        ),
+        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
+        "template": "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید. \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
     },
     "pania.mehrim": {
         "consultant_name": "پنیا",
-        "consultant_role": "مشاور و پشتیبانی تخصصی",
-        "template": (
-            "{سلام روزتون بخیر|درود و عرض ادب|سلام و احترام}{ گرامی|}!\n"
-            "پنیا هستم از تیم مشاوره تخصصی {business_name}. {مشاهده کردم|دیدم} در مورد {topic} سوال داشتید.\n"
-            "{خوشحال می‌شم کمکتون کنم تا بهترین تصمیم رو بگیرید|در خدمتتون هستم برای پاسخ به سوالات یا بررسی شرایط و هزینه‌ها}.\n"
-            "{در صورت تمایل شماره تماستون رو ارسال بفرمایید تا یک تماس کوتاه برای مشاوره اختصاصی باهاتون داشته باشیم.|اگر سوالی هست همینجا بفرمایید با کمال میل پاسخگو هستم.}"
-        ),
+        "consultant_role": "مشاور و پشتیبانی تخصصی دندان‌پزشکی",
+        "template": "درود بر شما \nبنده پنیا هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\nمیتونید هر سوالی دارید از بنده به عنوان متخصص بپرسید \nاگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید من برای 10 دقیقه مشاوره تخصصی و بدون چشم داشت با شما تماس میگیرم",
     },
 }
 
@@ -209,22 +198,13 @@ class Command(BaseCommand):
             cl = Client()
             cl.public_request_retries_count = 0
             cl.public_request_retries_timeout = 0
-            cl.delay_range = [2, 5]
-            clean_proxy = getattr(account, "clean_proxy", None) or account.proxy_url
-            if clean_proxy:
-                cl.set_proxy(clean_proxy)
-
-            # Apply persistent unique device fingerprint BEFORE authentication
-            try:
-                apply_device_profile_to_client(cl, account)
-            except Exception as dev_err:
-                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
+            if account.proxy_url:
+                cl.set_proxy(account.proxy_url)
 
             adapter = TimeoutHTTPAdapter(connect_timeout=10, read_timeout=15, post_read_timeout=35)
             cl.private.mount("https://", adapter)
             cl.private.mount("http://", adapter)
 
-            # Authenticate with pre-configured persistent device settings
             if account.session_json:
                 cookies = account.session_json.get("cookies", {})
                 sess_id = cookies.get("sessionid")
@@ -234,6 +214,13 @@ class Command(BaseCommand):
                     except Exception as login_err:
                         self.stderr.write(f"Error logging in by sessionid for @{account.username}: {login_err}")
                         raise
+
+            try:
+                apply_device_profile_to_client(cl, account)
+                cl.private.mount("https://", adapter)
+                cl.private.mount("http://", adapter)
+            except Exception as dev_err:
+                self.stderr.write(f"Warning setting device profile for @{account.username}: {dev_err}")
 
             clients_cache[account.username] = cl
             return cl
@@ -278,21 +265,19 @@ class Command(BaseCommand):
                 status="ACTIVE",
                 tenant_id__in=tenant_ids,
             ).filter(
-                models.Q(cooldown_until__isnull=True) | models.Q(cooldown_until__lte=now)
+                cooldown_until__isnull=True
+            ) | InstagramEngineAccount.objects.filter(
+                role="SENDER",
+                status="ACTIVE",
+                tenant_id__in=tenant_ids,
+                cooldown_until__lte=now,
             )
 
-            # Check both daily limit and hourly rate strictly enforced by Account Tier specs
+            # Check both daily limit and hourly rate according to Dealism benchmarks
             available = []
             for s in senders:
-                is_valid_role, _ = InstagramAntiBanManager.validate_account_role(s, "SENDER")
-                if not is_valid_role:
-                    continue
-
-                # Anti-Ban Tier Guardrail: Enforces warm-up quotas based on account age
-                tier_spec = get_tier_specs(s.account_tier)
-                limit_daily = min(s.daily_limit or tier_spec["default_daily"], tier_spec["max_daily"])
-                limit_hourly = min(s.hourly_limit or tier_spec["hourly_speed"], tier_spec["hourly_speed"])
-
+                limit_daily = s.daily_limit or max_daily_dms or 18
+                limit_hourly = s.hourly_limit or 3
                 if s.daily_action_count < limit_daily and (s.hourly_action_count or 0) < limit_hourly:
                     available.append(s)
 
@@ -317,22 +302,43 @@ class Command(BaseCommand):
 
             self.stdout.write(f"👥 اکانت‌های فرستنده در دسترس: {[f'@{s.username} (امروز: {s.daily_action_count}/{s.daily_limit or 18} | این ساعت: {s.hourly_action_count or 0}/{s.hourly_limit or 3})' for s in available_senders]}")
 
-            # Fetch top priority NEW leads (candidate pool for filtering)
-            candidate_pool = max(batch_size * 20, 50)
-            leads = list(
+            # Fetch top priority NEW leads within the strict 5-day window
+            cutoff_5_days = django_tz.now() - timedelta(days=5)
+            from django.db.models import Q
+            from apps.discovery.instagram_scoring import update_lead_scoring
+
+            candidate_pool = max(batch_size * 25, 60)
+            candidate_leads = list(
                 InstagramEngineLead.objects.filter(
                     tenant_id__in=tenant_ids,
                     status="NEW",
-                    intent_score__gte=min_intent,
                 )
-                .order_by("-intent_score", "created_at")[:candidate_pool]
+                .filter(
+                    Q(comment_created_at__gte=cutoff_5_days)
+                    | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days)
+                )
+                .order_by("-outreach_score", "-comment_created_at", "-created_at")[:candidate_pool]
             )
 
+            # Ensure each candidate lead has up-to-date score and verify 5-day eligibility
+            leads = []
+            now_dt = django_tz.now()
+            for cand in candidate_leads:
+                calc = update_lead_scoring(cand, commit=True, now=now_dt)
+                if calc.get("is_eligible", True):
+                    leads.append(cand)
+                else:
+                    cand.status = "SKIPPED"
+                    cand.save(update_fields=["status", "updated_at"])
+
+            # Sort strictly by highest outreach_score first (up to 35 points)
+            leads.sort(key=lambda l: (l.outreach_score, l.comment_created_at or l.created_at), reverse=True)
+
             if not leads:
-                self.stdout.write(self.style.NOTICE(f"🏁 هیچ لید جدیدی (NEW) با امتیاز بالای {min_intent} برای ارسال وجود ندارد."))
+                self.stdout.write(self.style.NOTICE(f"هیچ لید جدیدی (NEW) در بازه ۵ روز اخیر برای ارسال وجود ندارد."))
                 return 0
 
-            self.stdout.write(self.style.SUCCESS(f"🎯 تعداد {len(leads)} لید کاندیدا انتخاب شدند (هدف ارسال در این چرخه: {batch_size} دایرکت)."))
+            self.stdout.write(self.style.SUCCESS(f"تعداد {len(leads)} لید با اولویت بالا انتخاب شدند (هدف ارسال در این چرخه: {batch_size} دایرکت)."))
 
             sent_in_batch = 0
 
@@ -367,10 +373,6 @@ class Command(BaseCommand):
                     break
 
                 sender = chosen_sender
-                is_valid_role, role_err = InstagramAntiBanManager.validate_account_role(sender, "SENDER")
-                if not is_valid_role:
-                    self.stderr.write(self.style.ERROR(role_err))
-                    continue
                 sender_user = sender.username
                 pitch_info = (
                     sender_pitches.get(sender_user)
@@ -380,27 +382,22 @@ class Command(BaseCommand):
                 consultant_name = pitch_info.get("consultant_name", sender_user)
                 raw_template = pitch_info.get("template", "")
 
-                biz_name = "مجموعه تخصصی سرو"
-                if hasattr(lead, "business") and lead.business and getattr(lead.business, "name", None):
-                    biz_name = lead.business.name
-
                 # 🛡️ Anti-Spam Shield: generate 100% unique Spintax text with tailored topic
                 pitch_text = build_bulletproof_message(
                     pitch_template=raw_template,
                     lead=lead,
                     consultant_name=consultant_name,
-                    business_name=biz_name,
+                    business_name="مجموعه تخصصی سرو",
                 )
 
-                tier_specs = get_tier_specs(sender.account_tier)
-                limit_display = min(sender.daily_limit or tier_specs["default_daily"], tier_specs["max_daily"])
+                limit_display = sender.daily_limit or max_daily_dms or 18
                 self.stdout.write("-" * 65)
                 self.stdout.write(
                     f"👉 [مشتری {idx + 1}/{len(leads)}]: @{lead.username} (PK: {lead.ig_user_pk}) "
-                    f"| احتمال خرید: {int(lead.intent_score * 100)}% | نیاز: {lead.comment_text[:40]}"
+                    f"| امتیاز اولویت: {lead.outreach_score}/35 ({lead.comment_intent_type}) | نیاز: {lead.comment_text[:40]}"
                 )
                 self.stdout.write(
-                    f"   📌 اکانت فرستنده: @{sender_user} ({tier_specs['title']}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
+                    f"   📌 اکانت فرستنده: @{sender_user} (مشاور: {consultant_name}) | کوتای امروز: {sender.daily_action_count + 1}/{limit_display}"
                 )
 
                 if dry_run:
@@ -422,15 +419,15 @@ class Command(BaseCommand):
 
                 # Live execution with Super Shield
                 try:
-                    # 🛡️ Step 0: Mobile Proxy Verification & Automatic IP Rotation
-                    from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
-                    prepare_sender_proxy_before_dm(sender, stdout=self.stdout)
-
                     cl = get_or_create_client(sender)
 
                     # 🛡️ Step 1: Pre-Flight Safety Qualification
                     self.stdout.write(f"   [۱/۴] 🔍 بررسی ایمنی اکانت مقصد @{lead.username} توسط گاردریل...")
                     qualify = qualify_recipient_profile(cl, lead.username, target_pk=lead.ig_user_pk)
+                    if "is_private" in qualify and qualify["is_private"] != lead.is_private:
+                        lead.is_private = qualify["is_private"]
+                        lead.save(update_fields=["is_private", "updated_at"])
+
                     if not qualify["eligible"]:
                         self.stdout.write(self.style.WARNING(
                             f"   ⏭️ [سپر ضد بلاک]: ارسال به @{lead.username} لغو شد: {qualify['reason']}"
@@ -512,56 +509,12 @@ class Command(BaseCommand):
                     sender_consecutive_errors[sender.username] = consec_err
 
                     # Check for rate limit / challenge / action block
-                    if "challenge" in exc_str or "checkpoint" in exc_str or "suspended" in exc_str:
+                    if "challenge" in exc_str or "checkpoint" in exc_str:
                         sender.status = "CHALLENGED"
                         sender.status_message = "نیازمند حل چالش امنیتی اینستاگرام"
                         sender.save(update_fields=["status", "status_message"])
                         clients_cache.pop(sender.username, None)
-                        if sender in available_senders:
-                            available_senders.remove(sender)
                         self.stderr.write(self.style.ERROR(f"   ⚠️ اکانت @{sender.username} وارد چالش شد. از مدار خارج شد."))
-                        lead.status = "NEW"
-                        lead.save(update_fields=["status", "updated_at"])
-                    elif (
-                        "login_required" in exc_str
-                        or "loginrequired" in exc_str
-                        or "user_has_logged_out" in exc_str
-                        or "unauthorized" in exc_str
-                        or "clientforbiddenerror" in exc_str
-                    ):
-                        sender.status = "CHALLENGED"
-                        sender.status_message = "سشن اینستاگرام منقضی شده است (نیاز به لاگین مجدد یا ثبت کوکی sessionid جدید)"
-                        sender.save(update_fields=["status", "status_message"])
-                        clients_cache.pop(sender.username, None)
-                        if sender in available_senders:
-                            available_senders.remove(sender)
-                        self.stderr.write(self.style.ERROR(f"   ⚠️ سشن اکانت @{sender.username} منقضی شده است (LoginRequired). از مدار خارج شد."))
-                        lead.status = "NEW"
-                        lead.save(update_fields=["status", "updated_at"])
-                    elif (
-                        "connection refused" in exc_str
-                        or "connectionerror" in exc_str
-                        or "proxyconnectionerror" in exc_str
-                        or "errno 111" in exc_str
-                        or "max retries exceeded" in exc_str
-                    ):
-                        cooldown_minutes = 15
-                        # If mobile proxy has rotation URL, attempt immediate IP rotation to recover connection
-                        if getattr(sender, "proxy_rotation_url", None):
-                            from apps.discovery.proxy_service import rotate_account_proxy_ip
-                            self.stdout.write("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
-                            rotate_account_proxy_ip(sender)
-
-                        sender.cooldown_until = django_tz.now() + django_tz.timedelta(minutes=cooldown_minutes)
-                        sender.status = "COOLDOWN"
-                        sender.status_message = f"خطای اتصال پروکسی ({exc_str[:50]}) - استراحت {cooldown_minutes} دقیقه‌ای"
-                        sender.save(update_fields=["cooldown_until", "status", "status_message"])
-                        clients_cache.pop(sender.username, None)
-                        if sender in available_senders:
-                            available_senders.remove(sender)
-                        self.stderr.write(self.style.ERROR(f"   ⚠️ خطای پروکسی یا اتصال برای @{sender.username}. به مدت {cooldown_minutes} دقیقه استراحت داده شد."))
-                        lead.status = "NEW"
-                        lead.save(update_fields=["status", "updated_at"])
                     elif "1404006" in exc_str:
                         # Error 1404006: Meta's temporary action block on this sender sending DMs to non-followers
                         self.stderr.write(self.style.ERROR(
@@ -578,16 +531,12 @@ class Command(BaseCommand):
                         # Lead remains NEW so another active sender can deliver it
                         lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
-                    elif "message controls" in exc_str or "privacy" in exc_str:
+                    elif "message controls" in exc_str:
                         self.stdout.write(self.style.WARNING(
                             f"   🛡️ [حریم خصوصی مشتری]: مخاطب @{lead.username} تنظیمات پیام را مسدود کرده است (رد شد)."
                         ))
                         lead.status = "SKIPPED"
                         lead.comment_text = (lead.comment_text or "") + "\n[محدودیت کاربر]: مسدود بودن دایرکت اکانت‌های ناشناس"
-                        lead.save(update_fields=["status", "comment_text", "updated_at"])
-                    elif "user not found" in exc_str or "usernotfound" in exc_str or "not_found" in exc_str:
-                        lead.status = "SKIPPED"
-                        lead.comment_text = (lead.comment_text or "") + "\n[کاربر یافت نشد]: پیج تغییر نام داده یا حذف شده است"
                         lead.save(update_fields=["status", "comment_text", "updated_at"])
                     elif "feedback" in exc_str or "please wait" in exc_str or "rate limit" in exc_str or "403" in exc_str:
                         cooldown_hours = 3
@@ -602,17 +551,7 @@ class Command(BaseCommand):
                         lead.status = "NEW"
                         lead.save(update_fields=["status", "updated_at"])
                     else:
-                        # For unhandled exceptions, do NOT mark lead as FAILED if sender might be the issue
-                        if consec_err >= 3:
-                            cooldown_hours = 1
-                            sender.cooldown_until = django_tz.now() + django_tz.timedelta(hours=cooldown_hours)
-                            sender.status = "COOLDOWN"
-                            sender.status_message = f"خطاهای متوالی ({exc_str[:50]}) - استراحت {cooldown_hours} ساعته"
-                            sender.save(update_fields=["cooldown_until", "status", "status_message"])
-                            clients_cache.pop(sender.username, None)
-                            if sender in available_senders:
-                                available_senders.remove(sender)
-                        lead.status = "NEW"
+                        lead.status = "FAILED"
                         lead.save(update_fields=["status", "updated_at"])
 
             # 📬 Automatic Reply Checking (Runs after DM sending so it never blocks outbound messages)

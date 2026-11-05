@@ -79,126 +79,120 @@ def build_bulletproof_message(
     pitch_template: str = "",
     lead: Any = None,
     consultant_name: str = "مشاور",
-    business_name: str = "مجموعه تخصصی سرو",
+    business_name: str = "کلینیک تخصصی دندانپزشکی",
 ) -> str:
     """
-    Creates a 100% unique, anti-fingerprint DM using Multi-Structure Spintax + dynamic personalization.
-    Injects random polite variations, Persian half-spaces, and unique cryptographic hashes
-    to defeat Meta/Instagram semantic duplicate spam classifiers.
+    Creates a 100% unique, anti-fingerprint DM using Spintax + dynamic context-aware personalization.
+    Tailors the message directly to:
+    1. The specific comment the user left (e.g. installment question, procedure inquiry, direct CTA).
+    2. The specific post topic / caption context (composite, laminate, implant, ortho, etc.).
+    3. Strictly ZERO EMOJIS, zero forbidden characters/links to prevent Meta spam blocks.
     """
     raw_name = (getattr(lead, "full_name", None) or getattr(lead, "username", "")).strip()
     clean_name = f" {raw_name}" if raw_name and not raw_name.startswith("@") and len(raw_name) < 25 else ""
 
-    topic = "خدمات و محصولات مورد نظر شما"
+    # 1. Determine dental service topic from comment and post caption
+    combined_context = ""
     if hasattr(lead, "comment_text") and lead.comment_text:
-        c_text = lead.comment_text.lower()
-        # Dental / Medical terms
-        if "کامپوزیت" in c_text:
-            topic = "کامپوزیت و اصلاح طرح لبخند"
-        elif "لمینت" in c_text:
-            topic = "لمینت سرامیکی و امور زیبایی دندان"
-        elif "ایمپلنت" in c_text:
-            topic = "کاشت تخصصی ایمپلنت دندان"
-        elif "ارتودنسی" in c_text:
-            topic = "خدمات ارتودنسی تخصصی"
-        elif "عصب" in c_text or "ترمیم" in c_text:
-            topic = "عصب‌کشی و ترمیم تخصصی دندان"
-        elif "جرم" in c_text or "بلیچینگ" in c_text or "سفید" in c_text:
-            topic = "بلیچینگ و سفید کردن دندان"
-        # Beauty / Clinic terms
-        elif "بوتاکس" in c_text or "ژل" in c_text or "فیلر" in c_text:
-            topic = "تزریق ژل، بوتاکس و امور زیبایی"
-        elif "پوست" in c_text or "فیشیال" in c_text or "لیزر" in c_text:
-            topic = "خدمات پوست، فیشیال و لیزر"
-        # Clothing / Apparel terms
-        elif "مانتو" in c_text or "پالتو" in c_text or "بارانی" in c_text:
-            topic = "مانتو و پالتو"
-        elif "شومیز" in c_text or "بلوز" in c_text or "تیشرت" in c_text:
-            topic = "مدل‌های شومیز و پیراهن"
-        elif "شلوار" in c_text or "کت" in c_text:
-            topic = "کت و شلوار"
-        elif "سایز" in c_text or "رنگ" in c_text:
-            topic = "استعلام سایزبندی و رنگ‌بندی"
-        elif "قیمت" in c_text or "هزینه" in c_text or "چند" in c_text:
-            topic = "هزینه‌ها و شرایط اقساطی"
-        elif "ارسال" in c_text or "موجود" in c_text:
-            topic = "موجودی و شرایط ارسال سریع"
+        combined_context += " " + lead.comment_text.lower()
+    if hasattr(lead, "post_caption_snippet") and lead.post_caption_snippet:
+        combined_context += " " + lead.post_caption_snippet.lower()
 
-    # Multi-structure templates: 4 distinct architectures to avoid semantic pattern detection
-    STRUCTURE_PATTERNS = [
-        # Architecture 1: Consultative & friendly (مشاوره‌ای و صمیمی)
-        (
-            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز| گرامی|}!\n"
-            "{بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}|من {consultant_name} هستم از تیم مشاوره {business_name}|{consultant_name} هستم، مشاور همراه شما در {business_name}}.\n"
-            "{متوجه شدم|دیدم|مشاهده کردم} {پیگیر|دنبال|در حال بررسی} {topic} بودید.\n"
-            "{خوشحال می‌شم هر سوال یا ابهامی دارید راهنماییتون کنم.|اگر سوالی درباره روند کار، تعرفه‌ها یا شرایط دارید در خدمتم.|پاسخگوی تمام سوالات تخصصی شما در این زمینه هستم.}\n"
-            "{اگر مایل بودید شماره تماستون رو بگذارید تا برای یک مشاوره اختصاصی ۱۰ دقیقه‌ای باهاتون هماهنگ بشه.|در صورت تمایل می‌تونید شماره تماستون رو ارسال کنید تا راهنمایی کامل تلفنی انجام بشه.|می‌تونید همینجا بفرمایید تا کامل راهنماییتون کنم.}"
-        ),
-        # Architecture 2: Responsive & direct (پاسخگویی سریع و حرفه‌ای)
-        (
-            "{سلام روزتون بخیر|درود و وقت‌بخیر|سلام و عرض ادب}{clean_name}!\n"
-            "{امیدوارم عالی باشید.|روز خیلی خوبی براتون آرزو می‌کنم.}\n"
-            "{بنده {consultant_name} هستم از {business_name}|{consultant_name} هستم کارشناس {business_name}}؛ در خصوص استعلام شما برای {topic} پیامتون رو دیدم.\n"
-            "{برای اینکه در مورد جزئیات، کیفیت و هزینه‌ها دید دقیق‌تری داشته باشید، با کمال میل راهنماییتون می‌کنم.|اگر مایل باشید درباره نمونه‌کارها، قیمت‌ها یا نحوه ارائه خدمات بیشتر بدونید در خدمتم.}\n"
-            "{می‌تونید سوالتون رو همینجا بفرمایید یا در صورت تمایل شماره تماس ارسال کنید تا توضیحات تکمیلی رو تلفنی تقدیم کنیم.}"
-        ),
-        # Architecture 3: Problem solving & value-first (رویکرد حل مساله و پیشنهاد مشاوره)
-        (
-            "{سلام و درود|وقت شما بخیر|سلام و احترام}{ گرامی|}!\n"
-            "{در خصوص پیگیری شما درباره {topic}|با توجه به اینکه جویای {topic} بودید}، بنده {consultant_name} مشاور مجموعه {business_name} پیام می‌دم خدمتتون.\n"
-            "{جهت راهنمایی بهتر و اطلاع از تعرفه‌ها و تخفیف‌های جاری|برای اینکه بتونیم بهترین راهکار متناسب با نیاز شما رو معرفی کنیم}، در خدمتتون هستیم.\n"
-            "{اگر فرصت دارید شماره تماستون رو ارسال بفرمایید تا یک تماس کوتاه و کاربردی داشته باشیم، یا همینجا بفرمایید تا راهنمایی کنم.}"
-        ),
-        # Architecture 4: Short, human and conversational (کوتاه، صمیمی و گفتگومحور)
-        (
-            "{درود بر شما|سلام وقتتون بخیر}{clean_name}!\n"
-            "{consultant_name} هستم از {business_name}.\n"
-            "{دیدم پیگیر موضوع {topic} بودید|متوجه سوال شما درباره {topic} شدم}؛ {اگر سوال یا ابهامی هست خوشحال می‌شم کمکتون کنم.|هر نکته‌ای درباره قیمت‌ها یا شرایط کار مدنظرتونه در خدمتم.}\n"
-            "{همینجا بفرمایید یا اگر مایلید شماره تماس بذارید تا مشاوره تلفنی هماهنگ کنیم.}"
-        ),
-    ]
-
-    if pitch_template and "{" in pitch_template and "}" in pitch_template:
-        # User defined dynamic template with Spintax
-        text = pitch_template
-    elif pitch_template:
-        # User defined static template -> Wrap with dynamic spintax greetings & closers to prevent spam flag
-        greetings = "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز| گرامی|}!\n"
-        closings = "\n{در پناه حق|با آرزوی موفقیت|با احترام|ارادتمند شما}"
-        text = greetings + pitch_template.strip() + closings
+    if "کامپوزیت" in combined_context:
+        topic = "کامپوزیت ونیر و اصلاح طرح لبخند"
+    elif "لمینت" in combined_context:
+        topic = "لمینت سرامیکی و امور زیبایی دندان"
+    elif "ایمپلنت" in combined_context or "کاشت" in combined_context:
+        topic = "کاشت تخصصی ایمپلنت دندان"
+    elif "ارتودنسی" in combined_context or "سیم کشی" in combined_context:
+        topic = "خدمات ارتودنسی ثابت و نامرئی"
+    elif "عصب کشی" in combined_context or "ریشه" in combined_context:
+        topic = "عصب‌کشی و درمان ریشه دندان"
+    elif "جراحی" in combined_context or "عقل" in combined_context:
+        topic = "جراحی دندان عقل و لثه"
+    elif "ترمیم" in combined_context or "پر کردن" in combined_context or "روکش" in combined_context:
+        topic = "ترمیم، پر کردن و روکش دندان"
+    elif "جرم" in combined_context or "بلیچینگ" in combined_context or "سفید" in combined_context:
+        topic = "بلیچینگ و سفید کردن دندان"
     else:
-        # Choose one of the 4 diverse architectures randomly
-        text = random.choice(STRUCTURE_PATTERNS)
+        topic = "خدمات تخصصی دندان‌پزشکی و زیبایی"
+
+    # 2. Determine contextual response based on comment intent
+    c_text = (getattr(lead, "comment_text", "") or "").lower()
+
+    # Case A: User asked about installments or financial terms
+    is_installment_inquiry = any(w in c_text for w in ["اقساط", "قسط", "چک", "تخفیف", "بیمه"])
+    # Case B: User asked about procedure, duration, how it works, or pain
+    is_procedure_inquiry = any(w in c_text for w in ["چطوری", "چطور", "نحوه", "چگونه", "چند جلسه", "درد", "طول", "مراحل"])
+    # Case C: Direct short trigger or price inquiry
+    is_price_inquiry = any(w in c_text for w in ["قیمت", "هزینه", "چند", "چنده", "دایرکت", "کامنت", "ارسال", "شرایط"])
+
+    if pitch_template:
+        text = pitch_template
+    elif is_installment_inquiry:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور تخصصی {business_name}.\n"
+            "{پیرو سوال شما در کامنت درباره شرایط اقساط و هزینه‌ها|درباره سوالتون پیرامون پرداخت اقساطی}: "
+            "بله، تمامی خدمات {topic} با شرایط اقساطی منعطف، بدون کارمزد و با چک صیادی ارائه می‌شود.\n"
+            "{خوشحال می‌شوم هر ابهام یا سوالی درباره طرح درمان دارید بفرمایید تا کامل راهنمایی کنم.|"
+            "برای برآورد دقیق هزینه‌ها متناسب با شرایط دندانتان در خدمت شما هستم.}\n"
+            "{در صورت تمایل می‌توانید شماره تماستان را ارسال بفرمایید تا برای ۱۰ دقیقه مشاوره تخصصی رایگان هماهنگ شود.|"
+            "اگر مایل بودید شماره تماستون رو بگذارید تا برای بررسی دقیق‌تر خدمتتون تماس بگیریم.}"
+        )
+    elif is_procedure_inquiry:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور تخصصی {business_name}.\n"
+            "{پیرو سوال شما زیر پست درباره نحوه و مراحل انجام {topic}|در خصوص سوالتون پیرامون چگونگی این درمان}: "
+            "این خدمات در کمترین تعداد جلسات با متریال معتبر اورجینال و بدون درد با متدهای دیجیتال انجام می‌گیرد و ویزیت اولیه نیز کاملاً رایگان است.\n"
+            "{خوشحال می‌شوم هر سوالی درباره ماندگاری یا انتخاب روش مناسب دارید پاسخگو باشم.|"
+            "پاسخگوی تمامی پرسش‌های تخصصی شما در این زمینه هستم.}\n"
+            "{اگر مایل بودید شماره تماستان را ارسال کنید تا برای مشاوره دقیق تلفنی با شما هماهنگ شود.|"
+            "می‌توانید همینجا بفرمایید یا شماره تماس بگذارید تا کامل راهنماییتان کنیم.}"
+        )
+    elif is_price_inquiry:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
+            "{پیرو پیام شما زیر پست {topic}|در پاسخ به استعلام شما درباره {topic}}: "
+            "تعرفه‌ها، پکیج‌های جشنواره و شرایط ویژه برای شما آماده شده است.\n"
+            "{با توجه به اینکه وضعیت دندان‌های هر فرد متفاوت است، خوشحال می‌شوم راهنماییتان کنم.|"
+            "برای انتخاب بهترین روش و برآورد متناسب با دندان‌های شما در خدمتم.}\n"
+            "{در صورت تمایل می‌توانید شماره تماستان را بگذارید تا برای ۱۰ دقیقه مشاوره اختصاصی رایگان خدمتتان تماس بگیریم.|"
+            "اگر مایل بودید شماره تماس ارسال بفرمایید تا برای هماهنگی با شما تماس حاصل شود.}"
+        )
+    else:
+        text = (
+            "{درود بر شما|سلام وقتتون بخیر|سلام و احترام|درود}{ عزیز|}!\n"
+            "بنده {consultant_name} هستم، مشاور و پشتیبانی تخصصی {business_name}.\n"
+            "{متوجه شدم|دیدم} پیگیر {topic} بودید.\n"
+            "{خوشحال می‌شوم هر سوال یا ابهامی درباره هزینه‌ها یا نحوه انجام دارید راهنماییتان کنم.|"
+            "پاسخگوی تمام سوالات تخصصی شما در این حوزه هستم.}\n"
+            "{اگر مایل بودید شماره تماستان را ارسال بفرمایید تا برای یک مشاوره اختصاصی تلفنی خدمتتان تماس بگیریم.|"
+            "می‌توانید همینجا بفرمایید یا شماره تماس بگذارید تا راهنمایی کامل دریافت کنید.}"
+        )
 
     text = text.replace("{consultant_name}", consultant_name)
     text = text.replace("{business_name}", business_name)
     text = text.replace("{topic}", topic)
     text = text.replace("{clean_name}", clean_name)
 
-    # Resolve recursive Spintax
+    # Resolve Spintax
     text = parse_spintax(text)
 
-    # Micro-variations: Anti-Fingerprint Watermarking
-    # Adds subtle variation in invisible zero-width non-joiners (\u200c) and random polite sign-offs
+    # Anti-Fingerprint Watermarking: textual polite closer (STRICTLY NO EMOJIS)
     closers = [
         "",
-        " 🌸",
-        " 🙏",
-        " ✨",
-        " 🌷",
-        " 🌿",
-        " 💫",
-        " 🤍",
-        " ✨🙏",
-        " 🌸✨",
+        "\nبا احترام",
+        "\nبا آرزوی تندرستی",
+        "\nارادتمند شما",
+        "\nموفق و سلامت باشید",
+        "\nدر پناه حق",
     ]
     selected_closer = random.choice(closers)
-    if selected_closer and not any(text.endswith(c.strip()) for c in ["🌸", "🙏", "✨", "🌷", "🌿", "💫", "🤍"]):
+    if selected_closer and not any(text.endswith(c.strip()) for c in ["با احترام", "ارادتمند شما", "سلامت باشید", "در پناه حق"]):
         text = text.rstrip() + selected_closer
-
-    # Safe zero-width non-joiner injection to make message hash 100% unique
-    if random.random() < 0.5:
-        text = text.replace("می‌شم", "می\u200cشم").replace("راهنماییتون", "راهنمایی\u200cتون")
 
     return text
 
@@ -210,7 +204,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
     1. Detects Private Accounts: Sending cold DMs to private accounts triggers Instagram error 1404006.
     2. Detects Ghost/Fake Accounts: Accounts with 0 posts & 0 followers risk spam flagging.
     Returns:
-        {"eligible": True/False, "reason": str, "user_info": Any, "target_pk": int}
+        {"eligible": True/False, "reason": str, "user_info": Any, "target_pk": int, "is_private": bool}
     """
     user_data = None
     numeric_pk = int(target_pk) if target_pk and str(target_pk).isdigit() else None
@@ -242,6 +236,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
         if is_private:
             return {
                 "eligible": False,
+                "is_private": True,
                 "reason": "پروفایل خصوصی (Private) است و امکان ارسال ریکوئست دایرکت با اکانت سرد وجود ندارد (جهت جلوگیری از بلاک رد شد).",
                 "user_info": user_data,
                 "target_pk": resolved_pk,
@@ -250,6 +245,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
         if media_count == 0 and follower_count == 0:
             return {
                 "eligible": False,
+                "is_private": False,
                 "reason": "پروفایل غیرفعال یا مشکوک (۰ پست و ۰ فالوور) جهت ایمنی رد شد.",
                 "user_info": user_data,
                 "target_pk": resolved_pk,
@@ -257,6 +253,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
 
         return {
             "eligible": True,
+            "is_private": False,
             "reason": "واجد شرایط دریافت دایرکت",
             "user_info": user_data,
             "target_pk": resolved_pk,
@@ -282,38 +279,21 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
 def perform_organic_warmup(cl: Any, target_pk: int, username: str) -> Dict[str, Any]:
     """
     Executes organic human warm-up actions before sending DM:
-    1. Checks and views active stories (leaves account avatar in user's story viewers list).
-    2. Likes the user's latest post (triggers official push notification on recipient's phone).
+    Likes the user's latest post (triggers official push notification on recipient's phone).
     Instagram algorithm classifies the subsequent DM as a natural follow-up interaction!
     """
     actions = {"liked_post": False, "viewed_story": False}
 
-    # 1. View active stories (if any)
-    try:
-        if hasattr(cl, "user_stories"):
-            stories = cl.user_stories(str(target_pk))
-            if stories:
-                # View up to 2 active stories with realistic human delay
-                story_pks = [int(s.pk) for s in stories[:2]]
-                if hasattr(cl, "story_seen"):
-                    cl.story_seen(story_pks)
-                    actions["viewed_story"] = True
-                    logger.info("Organic story view executed for @%s (pks: %s)", username, story_pks)
-                    time.sleep(random.uniform(2.0, 4.5))
-    except Exception as story_err:
-        logger.debug("Organic story view skipped for @%s: %s", username, story_err)
-
-    # 2. Like recent post (if any)
+    # Like recent post
     try:
         medias = cl.user_medias(target_pk, amount=1)
         if medias:
             latest_media = medias[0]
             cl.media_like(latest_media.id)
             actions["liked_post"] = True
-            logger.info("Organic post like executed for @%s (media: %s)", username, latest_media.id)
-            time.sleep(random.uniform(1.5, 3.5))
+            time.sleep(random.uniform(1.5, 3.0))
     except Exception as like_err:
-        logger.debug("Organic like warmup skipped for @%s: %s", username, like_err)
+        logger.debug(f"Organic like warmup skipped for @{username}: {like_err}")
 
     return actions
 
@@ -361,8 +341,10 @@ def generate_ai_outreach_pitches(
 
     try:
         from apps.core.llm import chat_json
+        from apps.core.prompts import get_system_prompt
+        active_system = get_system_prompt("ig_outreach_pitches", system_prompt)
         res = chat_json(
-            system=system_prompt,
+            system=active_system,
             user=user_prompt,
             purpose="instagram_outreach_pitch",
             max_tokens=1500,
@@ -551,14 +533,15 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
     }
 
 
-def send_second_followup_message(
+def send_chat_message(
     lead_id: int,
     sender_username: str,
     message_text: str,
 ) -> Dict[str, Any]:
     """
-    Sends a follow-up or second message to a lead using the chosen SENDER account.
-    Allows seamlessly switching accounts (e.g. from consultant Raha to specialist Pania).
+    Sends a direct message to a lead using the chosen SENDER account.
+    Supports initial, follow-up, or ongoing conversational messages.
+    Records the interaction into lead.conversation_history.
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
     from apps.discovery.device_emulator import apply_device_profile_to_client
@@ -595,7 +578,7 @@ def send_second_followup_message(
         if not target_pk:
             target_pk = cl.user_id_from_username(lead.username)
 
-        # Dispatch follow-up direct
+        # Dispatch direct message
         cl.direct_send(message_text, user_ids=[target_pk])
 
         now = timezone.now()
@@ -625,9 +608,20 @@ def send_second_followup_message(
         return {
             "success": True,
             "lead": lead.username,
+            "lead_id": lead.id,
             "sender": sender.username,
             "sent_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "conversation_history": lead.conversation_history,
         }
     except Exception as exc:
-        logger.exception("Error sending follow-up message: %s", exc)
+        logger.exception("Error sending chat message: %s", exc)
         return {"success": False, "error": str(exc)}
+
+
+def send_second_followup_message(
+    lead_id: int,
+    sender_username: str,
+    message_text: str,
+) -> Dict[str, Any]:
+    """Backward-compatible wrapper for send_chat_message."""
+    return send_chat_message(lead_id=lead_id, sender_username=sender_username, message_text=message_text)

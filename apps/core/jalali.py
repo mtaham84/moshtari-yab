@@ -72,10 +72,20 @@ def to_english_digits(val) -> str:
 
 def format_jalali_date(d, persian_digits=True) -> str:
     """
-    Formats a datetime.date or datetime.datetime to Persian string YYYY/MM/DD.
+    Formats a datetime.date, datetime.datetime, or ISO string to Persian string YYYY/MM/DD.
     """
     if not d:
         return ""
+    if isinstance(d, str):
+        try:
+            from django.utils.dateparse import parse_datetime, parse_date
+            parsed = parse_datetime(d) or parse_date(d)
+            if parsed:
+                d = parsed
+            else:
+                d = datetime.fromisoformat(d)
+        except Exception:
+            return d
     if isinstance(d, datetime):
         d = d.date()
     jy, jm, jd = gregorian_to_jalali(d.year, d.month, d.day)
@@ -87,10 +97,26 @@ def format_jalali_date(d, persian_digits=True) -> str:
 
 def format_jalali_datetime(dt, persian_digits=True) -> str:
     """
-    Formats a datetime.datetime to Persian string YYYY/MM/DD - HH:MM.
+    Formats a datetime.datetime or ISO string to Persian string YYYY/MM/DD - HH:MM.
     """
     if not dt:
         return ""
+    if isinstance(dt, str):
+        try:
+            from django.utils.dateparse import parse_datetime
+            parsed = parse_datetime(dt)
+            if parsed:
+                dt = parsed
+            else:
+                dt = datetime.fromisoformat(dt)
+        except Exception:
+            return dt
+    if hasattr(dt, "tzinfo") and dt.tzinfo:
+        try:
+            from django.utils import timezone as dj_tz
+            dt = dj_tz.localtime(dt)
+        except Exception:
+            pass
     date_part = format_jalali_date(dt, persian_digits=persian_digits)
     time_part = f"{dt.hour:02d}:{dt.minute:02d}"
     if persian_digits:

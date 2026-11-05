@@ -1,8 +1,6 @@
 """Dashboard analytics built only from real data: engine opportunities, product-card visits and orders."""
 from __future__ import annotations
 
-from typing import Any
-
 from django.db.models import Sum
 
 from apps.businesses.models import Business
@@ -202,7 +200,8 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                 "source_raw_message": lead.comment_text,
                 "normalized_message": lead.comment_text,
                 "category_confidence": 0.95,
-                "source_posted_at": lead.created_at,
+                "source_posted_at": lead.comment_created_at or lead.created_at,
+                "source_message_timestamp": lead.comment_created_at,
                 "source_query": lead.matched_cta or "instagram_lead",
                 "status": "NEW",
                 "trace_metadata": {
@@ -214,6 +213,14 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
                         "source_label": ai_meta.get("source_label", "") if ai_meta else "",
                         "ig_user_pk": str(lead.ig_user_pk),
                         "lead_id": lead.id,
+                        "is_private": lead.is_private,
+                        "comment_created_at": lead.comment_created_at.isoformat() if lead.comment_created_at else None,
+                        "source_page_username": lead.source_page_username or "",
+                        "source_page_title": lead.source_page_title or "",
+                        "source_page_url": f"https://www.instagram.com/{lead.source_page_username.lstrip('@')}/" if lead.source_page_username else "",
+                        "post_created_at": lead.post_created_at.isoformat() if lead.post_created_at else None,
+                        "outreach_score": lead.outreach_score,
+                        "success_probability": lead.success_probability,
                         "billing": {
                             "cost_usd": float(cost_usd_dec),
                             "raw_cost_toman": int(round(raw_toman_dec)),
@@ -232,8 +239,21 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             if ai_meta and ai_meta.get("source_type"):
                 ig_m["source_type"] = ai_meta["source_type"]
                 ig_m["source_label"] = ai_meta.get("source_label", "")
+            ig_m["is_private"] = lead.is_private
+            ig_m["outreach_score"] = lead.outreach_score
+            ig_m["success_probability"] = lead.success_probability
+            if lead.source_page_username:
+                ig_m["source_page_username"] = lead.source_page_username
+                ig_m["source_page_title"] = lead.source_page_title or lead.source_page_username
+                ig_m["source_page_url"] = f"https://www.instagram.com/{lead.source_page_username.lstrip('@')}/"
+            if lead.post_created_at:
+                ig_m["post_created_at"] = lead.post_created_at.isoformat()
+            if lead.comment_created_at:
+                ig_m["comment_created_at"] = lead.comment_created_at.isoformat()
+                opp.source_posted_at = lead.comment_created_at
+                opp.source_message_timestamp = lead.comment_created_at
             opp.trace_metadata["instagram"] = ig_m
-            opp.save(update_fields=["trace_metadata"])
+            opp.save(update_fields=["trace_metadata", "source_posted_at", "source_message_timestamp"])
 
         intent_flt = float(lead.intent_score or (ai_meta.get("intent_score") if ai_meta else 0.90) or 0.90)
         prod_name = matched_product.name if matched_product else "محصول مورد نظر"

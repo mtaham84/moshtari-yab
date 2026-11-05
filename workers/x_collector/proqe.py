@@ -25,6 +25,11 @@ import sqlite3
 from typing import Any
 
 from need_engine.text import norm, tokens
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 log = logging.getLogger("x_collector.proqe")
 
@@ -502,7 +507,7 @@ def expand_queries_with_proqe(
         data, _ = llm.complete_json(
             "x_query_expand",
             primary_model,
-            PROQE_EXPANSION_SYSTEM,
+            get_system_prompt("proqe_expansion_x", PROQE_EXPANSION_SYSTEM),
             user_prompt,
             max_tokens=2048,
             temperature=0.3,

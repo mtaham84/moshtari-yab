@@ -383,11 +383,28 @@
               <input type="checkbox" class="card-select-checkbox item-select-checkbox" data-id="{{ opp.id }}" data-url="{% url 'discovery:opportunity_detail' opp.id %}" aria-label="انتخاب فرصت {{ opp.customer.display_identifier }}" style="margin-left: 6px;">
               {% if opp.source_platform == 'telegram' %}<span class="opp-chip opp-chip-tg">تلگرام</span>
               {% elif opp.source_platform == 'x' %}<span class="opp-chip">X</span>
-              {% elif opp.source_platform == 'instagram' %}<span class="opp-chip">اینستاگرام</span>
+              {% elif opp.source_platform == 'instagram' %}
+                <span class="opp-chip">اینستاگرام</span>
+                {% if opp.is_private_account %}
+                  <span class="opp-chip" style="background: rgba(239, 68, 68, 0.14); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700;">خصوصی (Private)</span>
+                {% else %}
+                  <span class="opp-chip" style="background: rgba(16, 185, 129, 0.14); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700;">عمومی (Public)</span>
+                {% endif %}
               {% elif opp.source_platform == 'divar' %}<span class="opp-chip">دیوار</span>
               {% else %}<span class="opp-chip">سایر</span>{% endif %}
-              {% if opp.intent_type %}<span class="opp-chip opp-chip-intent">{{ opp.get_intent_type_display }}</span>{% endif %}
-              <strong class="opp-name">{{ opp.customer.display_identifier }}</strong>
+              {% if opp.intent_type %}
+                {% if opp.intent_type == 'direct_intent' or opp.intent_type == 'buy_signal' %}
+                  <span class="opp-chip" style="background: rgba(16, 185, 129, 0.16); color: #059669; border: 1px solid rgba(16, 185, 129, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% elif opp.intent_type == 'comparison' %}
+                  <span class="opp-chip" style="background: rgba(6, 182, 212, 0.16); color: #0891b2; border: 1px solid rgba(6, 182, 212, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% elif opp.intent_type == 'advice_seeking' or opp.intent_type == 'recommendation_ask' %}
+                  <span class="opp-chip" style="background: rgba(99, 102, 241, 0.16); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% elif opp.intent_type == 'competitor_churn' or opp.intent_type == 'complaint' or opp.intent_type == 'switching' %}
+                  <span class="opp-chip" style="background: rgba(245, 158, 11, 0.16); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% else %}
+                  <span class="opp-chip" style="background: rgba(168, 85, 247, 0.16); color: #9333ea; border: 1px solid rgba(168, 85, 247, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% endif %}
+              {% endif %}
               {% if opp.customer.source_username and opp.source_platform == 'x' %}
                 <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
               {% elif opp.customer.source_username and opp.source_platform == 'instagram' %}
@@ -399,16 +416,50 @@
                 <a class="opp-handle" href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
               {% endif %}
               {% if opp.customer.phone_number %}<span class="opp-handle">{{ opp.customer.phone_number }}</span>{% endif %}
-              <span class="opp-date">{{ opp.created_at_jalali|default:"" }}</span>
+              {% if opp.source_platform == 'instagram' %}
+                {% if opp.instagram_comment_created_at_jalali %}
+                  <span class="opp-date" style="color: #047857; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 9px; border-radius: 6px; font-size: 0.81rem; display: inline-flex; align-items: center; gap: 4px;" title="زمان دقیق ثبت کامنت در اینستاگرام">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <span>ثبت کامنت: <strong>{{ opp.instagram_comment_created_at_jalali }}</strong></span>
+                  </span>
+                {% elif opp.message_timestamp_jalali %}
+                  <span class="opp-date" style="color: #047857; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 9px; border-radius: 6px; font-size: 0.81rem; display: inline-flex; align-items: center; gap: 4px;" title="زمان پیام">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <span>زمان پیام: <strong>{{ opp.message_timestamp_jalali }}</strong></span>
+                  </span>
+                {% endif %}
+                {% if opp.instagram_post_created_at_jalali %}
+                  <span class="opp-date" style="color: #334155; font-size: 0.74rem; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 3px 7px; border-radius: 5px;" title="زمان انتشار پست مبدأ در اینستاگرام">
+                    انتشار پست: {{ opp.instagram_post_created_at_jalali }}
+                  </span>
+                {% endif %}
+                <span class="opp-date" style="color: #64748b; font-size: 0.74rem;" title="زمان استخراج و پردازش توسط سیستم">
+                  واکشی: {{ opp.created_at_jalali|default:"" }}
+                </span>
+              {% else %}
+                <span class="opp-date" style="color: #047857; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 9px; border-radius: 6px; font-size: 0.81rem; display: inline-flex; align-items: center; gap: 4px;">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                  <span>زمان پیام: <strong>{{ opp.message_timestamp_jalali|default:opp.created_at_jalali }}</strong></span>
+                </span>
+              {% endif %}
               {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="opp-chip" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
             </div>
             <div class="opp-metrics">
               {% if opp.intent_score_percentage >= 90 %}
                 <span class="opp-chip" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> فرصت طلایی</span>
               {% endif %}
-              <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">
-                احتمال خرید <b>{{ opp.intent_score_percentage }}٪</b>
-              </span>
+              {% if opp.source_platform == 'instagram' %}
+                <span class="opp-metric is-high" style="background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.35); font-weight: 700;" title="درصد احتمال موفقیت">
+                  احتمال خرید: <b>{{ opp.intent_score_percentage }}٪</b>
+                </span>
+                <span class="opp-metric" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-weight: 700;" title="امتیاز اولویت از ۴۵">
+                  امتیاز اولویت: <b>{{ opp.outreach_score_val|default:0 }}</b>/۴۵
+                </span>
+              {% else %}
+                <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">
+                  احتمال خرید <b>{{ opp.intent_score_percentage }}٪</b>
+                </span>
+              {% endif %}
               <span class="opp-metric is-fit" title="انطباق کالا">انطباق <b>{{ opp.product_fit_score_percentage }}٪</b></span>
               {% if opp.status == 'QUALIFIED' %}<span class="opp-status s-blue">تأیید شده</span>
               {% elif opp.status == 'NEW' %}<span class="opp-status s-purple">جدید</span>
@@ -427,10 +478,20 @@
               <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
             {% if opp.source_platform == 'instagram' %}
               <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                {% if opp.instagram_source_page_username %}
+                  <a href="{{ opp.instagram_source_page_url|default:'#' }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #4f46e5; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <span>پیج مبدأ: {{ opp.instagram_source_page_title|default:opp.instagram_source_page_username }} (@{{ opp.instagram_source_page_username }})</span> ↗
+                  </a>
+                {% endif %}
                 {% if opp.instagram_post_url %}
                   <a href="{{ opp.instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #0284c7; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
                     <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست مبدأ</span> ↗
                   </a>
+                {% endif %}
+                {% if opp.instagram_post_created_at_jalali %}
+                  <span style="color: #475569; font-size: 0.76rem; background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 5px;">
+                    انتشار پست: {{ opp.instagram_post_created_at_jalali }}
+                  </span>
                 {% endif %}
                 {% if opp.customer_profile_url %}
                   <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #e1306c; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">

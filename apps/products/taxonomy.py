@@ -20,6 +20,11 @@ from django.utils import timezone
 
 from apps.businesses.models import Business, BusinessType
 from apps.products.models import Category, Product
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 log = logging.getLogger("products.taxonomy")
 
@@ -109,7 +114,7 @@ def ensure_type_tree(btype: BusinessType, llm: Callable | None = None) -> Busine
         locked.tree_built_at = timezone.now()
         locked.save(update_fields=["tree_status", "tree_built_at"])
     try:
-        data = llm(TREE_SYSTEM, f"Business type: {locked.name} ({locked.description}). Kind: "
+        data = llm(get_system_prompt("taxonomy_tree", TREE_SYSTEM), f"Business type: {locked.name} ({locked.description}). Kind: "
                    f"{'services' if locked.kind == 'SERVICE' else 'physical goods'}.", purpose="taxonomy_tree")
         nodes = data.get("children") if isinstance(data, dict) else None
         if not nodes:
@@ -212,10 +217,8 @@ def add_node(business: Business, parent_id: int | None, name: str, source: str =
     if parent_id and not parent:
         raise TaxonomyError("دستهٔ والد پیدا نشد.")
     depth = (parent.depth + 1) if parent else 1
-    if depth > MAX_DEPTH:
-        raise TaxonomyError("حداکثر عمق دسته‌بندی ۴ سطح است.")
-    if source == "ai" and depth > AI_MAX_DEPTH:
-        raise TaxonomyError("حداکثر عمق دسته‌بندی هوش مصنوعی ۳ سطح است.")
+    if depth > 50:
+        raise TaxonomyError("حداکثر عمق مجاز دسته‌بندی رعایت نشده است.")
     if not _unique_sibling(business, parent, name):
         raise TaxonomyError("این دسته‌بندی قبلاً در همین سطح وجود دارد.")
     kind = parent.product_type if parent else ("SERVICE" if business.business_type == "SERVICE" else "PHYSICAL")
@@ -331,7 +334,7 @@ def organize_products(business: Business, llm: Callable | None = None) -> dict:
     user = ("Seller: %s | domain: %s | types: %s\nNotes: %s\n\nTREE:\n%s\n\nPRODUCTS:\n%s" % (
         business.name, business.business_domain, ", ".join(business.business_types.values_list("name", flat=True)), notes,
         "\n".join(tree_lines), "\n".join(f"{p.id}: {p.name} — {(p.description or '')[:120]}" for p in todo[:40])))
-    data = llm(ORGANIZE_SYSTEM, user, purpose="organize_products", business_id=business.pk)
+    data = llm(get_system_prompt("taxonomy_organize", ORGANIZE_SYSTEM), user, purpose="organize_products", business_id=business.pk)
     by_id = {p.id: p for p in todo}
     new_nodes: dict[tuple, Category] = {}
     for item in (data or {}).get("assignments", []) if isinstance(data, dict) else []:

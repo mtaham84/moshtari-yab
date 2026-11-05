@@ -28,6 +28,18 @@ from .sources import GLOBAL
 log = logging.getLogger(__name__)
 
 STRENGTH_INTENT = {"strong": 0.9, "medium": 0.7, "weak": 0.5}
+TIER_INTENT_SCORES = {
+    "direct_intent": 0.98,
+    "buy_signal": 0.98,
+    "comparison": 0.88,
+    "advice_seeking": 0.80,
+    "recommendation_ask": 0.80,
+    "competitor_churn": 0.65,
+    "complaint": 0.65,
+    "switching": 0.65,
+    "pain_need": 0.40,
+    "general": 0.40,
+}
 SELLER_KEYS = ("seller_drafts", "seller_drafts_n")   # trace_metadata keys written by the panel, kept on re-import
 ENGINE_OWNED_STATUSES = {"NEW", "RESOLVED", "EXPIRED"}  # seller-set statuses (REVIEWED, CONTACTED, …) are kept
 
@@ -153,11 +165,35 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
         if is_new and str(source.get("chat_id") or "").lstrip("-").isdigit():
             MonitoredCommunity.objects.filter(business=business, telegram_chat_id=int(source["chat_id"])).update(
                 leads_discovered_count=F("leads_discovered_count") + 1)
+        if is_new and platform == "x" and opp.source_query:
+            from apps.discovery.models import InstagramSourceStat
+            stat = InstagramSourceStat.objects.filter(
+                business=business,
+                source_type="x_query",
+                label=opp.source_query[:100],
+            ).first()
+            if stat:
+                stat.leads += 1
+                stat.alpha += 1.0
+                stat.save(update_fields=["leads", "alpha"])
+            elif business:
+                InstagramSourceStat.objects.create(
+                    business=business,
+                    family_id=f"x_{business.pk}",
+                    source_type="x_query",
+                    label=opp.source_query[:100],
+                    requests=1,
+                    leads=1,
+                    alpha=2.0,
+                    beta=1.0,
+                )
 
         verdict = top_match.get("verdict") or {}
+        intent_type = opp.intent_type or (need.get("intent_type") if isinstance(need, dict) else "") or ""
+        intent_score = TIER_INTENT_SCORES.get(intent_type, STRENGTH_INTENT.get(need.get("strength"), 0.5))
         AIAnalysis.objects.update_or_create(opportunity=opp, defaults={
             "need": need.get("summary") or need.get("situation") or "",
-            "intent_score": STRENGTH_INTENT.get(need.get("strength"), 0.5),
+            "intent_score": intent_score,
             "product_fit_score": float(top_match.get("match_score") or 0),
             "confidence": float(need.get("priority") or 0),
             "why_selected": " — ".join(x for x in (need.get("situation"), verdict.get("reason")) if x),
@@ -179,7 +215,6 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
                               opportunity=opp, product=product).values_list("reply_variants", flat=True).first() or {}})
             if i == 1:
                 primary_suggestion_match = product_match
-        intent_score = STRENGTH_INTENT.get(need.get("strength"), 0.5)
         if platform == "x" and primary_suggestion_match:
             transaction.on_commit(lambda oid=opp.pk, mid=primary_suggestion_match.pk: _auto_suggest_x_reply(oid, mid))
 
