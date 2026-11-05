@@ -328,7 +328,8 @@ class XCliClient:
             return valid_records[:target_posts], stats
         except Exception as cli_exc:
             stats["stop_reason"] = f"SEARCH_FAILED: {cli_exc}"
-            raise
+            log.warning("X search fallback failed for query '%s': %s", query, cli_exc)
+            return valid_records[:target_posts], stats
 
     def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:
         if query.lstrip().startswith("-"):

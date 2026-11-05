@@ -281,7 +281,7 @@ class XCollector:
             except Exception as pool_exc:
                 log.debug("Account pool refresh failed: %s", pool_exc)
         is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
-        enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "true").lower() in {"1", "true", "yes", "on"}
+        enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "false").lower() in {"1", "true", "yes", "on"}
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
@@ -405,7 +405,7 @@ class XCollector:
                             if added_count > 0:
                                 self._record_search(query, query_products, query_sellers, mock_records,
                                                     raw_items, collected, new_before, started_at, stats=search_stats)
-                                self.state.record_lead_success(query, leads_count=added_count)
+                                # Note: Raw crawled tweets are not leads. Leads are verified and emitted by need_engine with Luna.
                             else:
                                 self._record_search(query, query_products, query_sellers, mock_records,
                                                     raw_items, collected, len(collected), started_at, stats=search_stats)

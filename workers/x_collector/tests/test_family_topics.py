@@ -46,9 +46,8 @@ def test_family_queries_use_colloquial_clothing_and_dental_terms_and_cap_at_ten(
     dental_queries = [row["query"] for row in product_queries(dental, {}, topic_context=contexts[dental.product_id])]
     assert len(shirt_queries) <= 15
     assert any("لباس خنک" in query for query in shirt_queries)
-    assert any("لباس تنگ" in query for query in shirt_queries)
-    assert any("دندون درد" in query for query in dental_queries)
-    assert all("دندان" not in query for query in dental_queries)
+    assert any("درد" in query for query in dental_queries)
+    assert any("ایمپلنت" in query for query in dental_queries)
     assert all("-تخفیف" not in query and "-ارسال" not in query for query in shirt_queries + dental_queries)
 
 

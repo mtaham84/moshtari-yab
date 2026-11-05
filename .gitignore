@@ -58,3 +58,4 @@ xray/config.json.bak-*
 xray/config.json.tmp
 *.dump
 
+database_structure_report.*

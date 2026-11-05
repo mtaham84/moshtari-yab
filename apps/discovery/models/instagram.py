@@ -322,6 +322,30 @@ class InstagramEngineLead(models.Model):
     intent_score = models.FloatField(default=0.85, db_index=True, verbose_name="ضریب احتمال خرید")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW", db_index=True, verbose_name="وضعیت لید")
 
+    # Priority Scoring & Freshness System (Max 35 points: 15 Public + 15 Intent + 5 Freshness)
+    comment_created_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان ارسال کامنت")
+    is_private = models.BooleanField(default=False, db_index=True, verbose_name="حساب خصوصی (Private)")
+    comment_intent_type = models.CharField(
+        max_length=32,
+        choices=[
+            ("QUESTION_INQUIRY", "سوال و استعلام نیاز"),
+            ("DIRECT_SHORT_CTA", "پیام مستقیم و کوتاه"),
+            ("GENERAL_BUYER", "قصد خرید عمومی"),
+            ("OTHER", "سایر"),
+        ],
+        default="DIRECT_SHORT_CTA",
+        db_index=True,
+        verbose_name="نوع کامنت و نیت"
+    )
+    outreach_score = models.IntegerField(default=0, db_index=True, verbose_name="امتیاز اولویت دایرکت (تا ۴۵ امتیاز)")
+    success_probability = models.PositiveIntegerField(default=0, db_index=True, verbose_name="درصد احتمال موفقیت لید (۰ تا ۱۰۰)")
+    score_breakdown = models.JSONField(default=dict, blank=True, verbose_name="جزئیات و تفکیک امتیاز")
+
+    # Source Page (Target Account) & Post Meta
+    source_page_username = models.CharField(max_length=100, blank=True, default="", db_index=True, verbose_name="نام کاربری پیج مبدا (ناشر پست)")
+    source_page_title = models.CharField(max_length=255, blank=True, default="", verbose_name="عنوان یا نام کامل پیج مبدا")
+    post_created_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان انتشار پست مبدا")
+
     # Outreach tracking & multi-turn conversations
     sender_account = models.CharField(max_length=100, blank=True, default="", verbose_name="اکانت ارسال‌کننده پیام اول")
     initial_dm_text = models.TextField(blank=True, default="", verbose_name="متن پیام اول ارسالی")
@@ -347,6 +371,11 @@ class InstagramEngineLead(models.Model):
         indexes = [
             models.Index(fields=["tenant_id", "status"], name="ix_leads_t_status"),
             models.Index(fields=["intent_score"], name="ix_leads_intent_score"),
+            models.Index(fields=["tenant_id", "status", "-outreach_score"], name="ix_leads_t_stat_score"),
+            models.Index(fields=["outreach_score"], name="ix_leads_outreach_score"),
+            models.Index(fields=["comment_created_at"], name="ix_leads_comment_created"),
+            models.Index(fields=["success_probability"], name="ix_leads_success_prob"),
+            models.Index(fields=["tenant_id", "-outreach_score", "-comment_created_at"], name="ix_leads_t_score_time"),
         ]
 
     def __str__(self):

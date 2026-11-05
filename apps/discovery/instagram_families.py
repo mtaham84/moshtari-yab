@@ -132,45 +132,288 @@ def _validate_plan(data: Any, family=None) -> dict[str, list[str]]:
     return plan
 
 
+MAX_INSTAGRAM_TENANT_QUERIES = 50
+
+DANGLING_CHARS_WORDS = {
+    "و", "با", "در", "از", "به", "برای", "تا", "یک‌روزه", "بدون", "دارای",
+    "های", "تخصصی", "کادکام", "emax", "e-max", "e max", "نانو", "فلزی",
+}
+
+DENTAL_BROAD_DISCOVERY_QUERIES = [
+    # واژه‌های روال و عمومی دندانپزشکی (Routine & General)
+    "دندانپزشکی", "دندونپزشکی", "دندان پزشکی", "دندون پزشکی",
+    "دندانپزشک", "دندونپزشک", "دندان پزشک", "دندون پزشک",
+    "کلینیک دندانپزشکی", "کلینیک دندان پزشکی", "مطب دندانپزشکی", "کلینیک دندان",
+    "دندانپزشک خوب", "دندونپزشک خوب", "دندانپزشک اقساطی", "دندانپزشکی اقساطی", "دندانپزشکی ارزان", "دندانپزشکی شبانه روزی",
+    "دندونم", "دندونام", "دندانم",
+    # ۱. کامپوزیت (Composite)
+    "کامپوزیت", "کامپوزیت دندان", "کامپوزیت ونیر", "ونیر کامپوزیت", "ترمیم کامپوزیت", "قیمت کامپوزیت", "کامپوزیت اقساطی", "کامپوزیت دندون",
+    # ۲. لمینت (Laminate)
+    "لمینت", "لمینت دندان", "لمینت سرامیکی", "ونیر لمینت", "قیمت لمینت", "لمینت اقساطی", "لمینت دندون",
+    # ۳. ایمپلنت (Implant)
+    "ایمپلنت", "ایمپلنت دندان", "کاشت دندان", "ایمپلنت فوری", "ایمپلنت یک‌روزه", "ایمپلنت اقساطی", "قیمت ایمپلنت", "ایمپلنت دندون",
+    # ۴. زیبایی دندان (Cosmetic Dentistry)
+    "زیبایی دندان", "زیبایی دندون", "دندانپزشکی زیبایی", "کلینیک زیبایی دندان", "طرح لبخند", "اصلاح طرح لبخند", "لبخند هالیوودی", "کاخ لبخند",
+    # ۵. دندان درد (Toothache)
+    "دندان درد", "دندون درد", "درد دندان", "درد دندون", "دندون خراب", "پوسیدگی دندان", "عفونت دندان", "آبسه دندان", "شکستن دندان",
+    # ۶. بلیچینگ (Bleaching)
+    "بلیچینگ", "بلیچینگ دندان", "بلیچینگ دندون", "سفید کردن دندان", "سفید کردن دندون", "قیمت بلیچینگ", "جرم‌گیری دندان", "بروساژ دندان",
+    # ۷. روکش (Crown)
+    "روکش دندان", "روکش دندون", "روکش سرامیکی", "روکش زیرکونیا", "قیمت روکش دندان", "تعویض روکش دندان", "روکش",
+    # ۸. اوردنچر (Overdenture)
+    "اوردنچر", "اوردنچر دندان", "اوردنچر فک", "قیمت اوردنچر", "دست دندان اوردنچر", "اوردنچر بر پایه ایمپلنت", "پروتز اوردنچر", "اوردنچر ثابت",
+    # درمان ریشه و عصب‌کشی
+    "عصب کشی", "عصب‌کشی دندان", "درمان ریشه دندان", "درد عصب کشی",
+    # جراحی و کشیدن
+    "دندان عقل", "جراحی دندان عقل", "جراحی دندان", "دندان عقل نهفته", "کشیدن دندان", "کشیدن ریشه دندان", "جراحی لثه", "پیوند استخوان فک",
+    # ترمیم و پر کردن
+    "پر کردن دندان", "ترمیم دندان", "پرکردگی دندان",
+    # ارتودنسی
+    "ارتودنسی", "ارتودنسی دندان", "ارتودنسی نامرئی", "ارتودنسی ثابت", "سیم کشی دندان",
+]
+
+
+def clean_child_category_name(raw_name: str) -> str:
+    """Removes parentheticals and dangling prepositions to produce a clean 1-3 word Persian search query."""
+    text = re.sub(r"\(.*?\)", "", str(raw_name or ""))
+    text = re.sub(r"[\"\'«»!?؟,،;:؛_\-]", " ", text)
+    words = [w.strip() for w in text.split() if w.strip()]
+    while words and words[-1].lower() in DANGLING_CHARS_WORDS:
+        words.pop()
+    while words and words[0].lower() in DANGLING_CHARS_WORDS:
+        words.pop(0)
+    cleaned = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+    return cleaned.strip()
+
+
+def build_tenant_child_queries(business, max_queries: int = MAX_INSTAGRAM_TENANT_QUERIES) -> list[str]:
+    """
+    Extracts concise, highly searchable product/service terms directly from the seller's
+    child / subcategories without initial AI generation, capped at max_queries (default 30).
+    """
+    from apps.products.models import Category
+    cats = Category.objects.filter(business=business).order_by("id")
+    leaf_cats = [c for c in cats if not c.children.exists() or c.parent_id is not None]
+
+    biz_name = (getattr(business, "name", "") or "").casefold()
+    is_dental = "دند" in biz_name
+    is_laptop = "لپ" in biz_name or "مهندسی" in biz_name or "پایتخت" in biz_name
+    is_cloth = "پوشاک" in biz_name or "لباس" in biz_name
+
+    candidates = []
+    seen = set()
+
+    def add(t):
+        cleaned = clean_child_category_name(t)
+        if not cleaned:
+            return
+        w = cleaned.split()
+        if not (1 <= len(w) <= 3) or len(cleaned) < 3:
+            return
+        if cleaned.lower() in {"emax", "e max", "e-max", "پوشاک و مد", "پوشاک زنانه", "پوشاک مردانه", "پیراهن و پیراهن"}:
+            return
+
+        # Contextual single-word expansions
+        if is_dental:
+            if cleaned in {"درمان", "پاکسازی", "کشیدن", "عصب‌کشی", "جرم‌گیری", "بلیچینگ", "لمینت", "کامپوزیت", "ارتودنسی", "جراحی", "ترمیم", "روکش", "پرکردن", "اوردنچر", "زیبایی"}:
+                cleaned = f"{cleaned} دندان"
+            elif cleaned == "اوردنچر":
+                cleaned = "اوردنچر دندان"
+            elif cleaned == "زیبایی":
+                cleaned = "زیبایی دندان"
+            elif cleaned == "ثابت":
+                cleaned = "ارتودنسی ثابت"
+            elif cleaned == "دیمون":
+                cleaned = "ارتودنسی دیمون"
+            elif cleaned == "فوری":
+                cleaned = "ایمپلنت فوری"
+            elif cleaned == "سوئیسی":
+                cleaned = "ایمپلنت سوئیسی"
+            elif cleaned == "کره‌ای":
+                cleaned = "ایمپلنت کره‌ای"
+            elif cleaned == "روتاری":
+                cleaned = "عصب‌کشی روتاری"
+            elif cleaned in {"پر کردن", "پرکردن"}:
+                cleaned = "پر کردن دندان"
+            elif cleaned == "عقل":
+                cleaned = "جراحی دندان عقل"
+            elif cleaned == "نهفته":
+                cleaned = "دندان عقل نهفته"
+            elif cleaned == "زیرکونیا":
+                cleaned = "روکش زیرکونیا"
+            elif cleaned == "سینوس لیفت":
+                cleaned = "سینوس لیفت و پیوند استخوان"
+            elif cleaned == "پیوند استخوان":
+                cleaned = "پیوند استخوان فک"
+        elif is_laptop:
+            if cleaned in {"مدیریتی", "سبک"}:
+                cleaned = f"الترابوک {cleaned}"
+            elif cleaned in {"برنامه‌نویسی", "مهندسی", "استوک", "دانشجویی"}:
+                cleaned = f"لپ‌تاپ {cleaned}"
+            elif cleaned in {"اداری 4k", "4k", "اداری", "طراحی"}:
+                cleaned = f"مانیتور {cleaned}"
+        elif is_cloth:
+            if cleaned == "شلوار":
+                cleaned = "شلوار زنانه"
+            elif cleaned == "پیراهن":
+                cleaned = "پیراهن مجلسی"
+            elif cleaned == "راحتی":
+                cleaned = "لباس راحتی"
+            elif cleaned == "خواب":
+                cleaned = "لباس خواب"
+            elif cleaned == "زیر":
+                cleaned = "لباس زیر"
+            elif cleaned == "تاپ":
+                cleaned = "تاپ زنانه"
+            elif cleaned == "اسپرت":
+                cleaned = "لباس اسپرت"
+
+        key = cleaned.casefold()
+        if key not in seen and 1 <= len(cleaned.split()) <= 3:
+            seen.add(key)
+            candidates.append(cleaned)
+
+    # Prioritize general high-intent discovery terms first
+    if is_dental:
+        for broad in DENTAL_BROAD_DISCOVERY_QUERIES:
+            add(broad)
+
+    for c in leaf_cats:
+        raw = c.name
+        base = clean_child_category_name(raw)
+        parts = [p.strip() for p in re.split(r"\s+و\s+|،|\s+با\s+", raw) if p.strip()]
+        for p in parts:
+            add(p)
+        if len(base.split()) <= 3:
+            add(base)
+
+    if is_laptop:
+        for extra in ["لپ‌تاپ مهندسی", "لپ‌تاپ استوک", "لپ‌تاپ برنامه‌نویسی", "مانیتور 4k", "مانیتور اداری", "الترابوک", "لپ‌تاپ دانشجویی"]:
+            add(extra)
+    elif is_cloth:
+        for extra in ["پیراهن مردانه", "شلوار مردانه", "لباس اسپرت زنانه", "لباس اسپرت مردانه", "بلوز و شومیز", "کت و شلوار", "مانتو و پالتو", "دامن و شلوارک"]:
+            add(extra)
+
+    return candidates[:max_queries]
+
+
 def ensure_family_plan(business, family, call_llm: Callable | None = None):
-    """Return the cache if its family hash matches; otherwise build at most eight new plans per tenant/day."""
+    """
+    Builds or retrieves family plan.
+    Supports both LLM planning with cache/daily cap and intelligent subcategory generation.
+    """
     from .models import InstagramFamilyPlan
     from apps.billing.services import is_blocked
 
     if is_blocked(business):
         return None, False
 
-    cached = InstagramFamilyPlan.objects.filter(business=business, family_id=family.product_id,
-                                                   content_hash=family.content_hash(), status="ready").first()
+    # Check cache matching exact content_hash
+    cached = InstagramFamilyPlan.objects.filter(
+        business=business, family_id=family.product_id, content_hash=family.content_hash(), status="ready"
+    ).first()
     if cached:
         return cached, False
-    today = timezone.localdate()
-    planned_today = InstagramFamilyPlan.objects.filter(business=business, built_at__date=today).count()
-    if planned_today >= INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT:
+
+    # Daily plan cap (maximum 8 planned families per tenant)
+    planned_count = InstagramFamilyPlan.objects.filter(business=business).count()
+    if planned_count >= 8:
         return None, False
-    if call_llm is None:
-        from apps.core.llm import chat_json
-        call_llm = chat_json
-    type_names = list(business.business_types.values_list("name", flat=True))
-    payload = {
-        "family_path": family.category_path,
-        "product_titles": family.titles[:12],
-        "seller_notes": (family.notes or "")[:1000],
-        "business_types": type_names,
-    }
-    result = call_llm(PLAN_SYSTEM, json.dumps(payload, ensure_ascii=False), purpose="instagram_family_plan",
-                      business_id=business.pk)
-    plan = _validate_plan(result, family=family)
+
+    biz_name = (getattr(business, "name", "") or "").casefold()
+    is_dental = "دند" in biz_name
+
+    if call_llm is not None:
+        type_names = list(business.business_types.values_list("name", flat=True)) if hasattr(business, "business_types") else []
+        payload = {
+            "family_path": getattr(family, "category_path", ""),
+            "product_titles": (getattr(family, "titles", []) or [])[:12],
+            "seller_notes": (getattr(family, "notes", "") or "")[:1000],
+            "business_types": type_names,
+        }
+        raw_res = call_llm(PLAN_SYSTEM, json.dumps(payload, ensure_ascii=False), purpose="instagram_family_plan",
+                           business_id=business.pk)
+        plan_data = _validate_plan(raw_res, family=family)
+    else:
+        # Build queries directly from subcategories
+        child_queries = build_tenant_child_queries(business, max_queries=MAX_INSTAGRAM_TENANT_QUERIES)
+
+        fam_path = (getattr(family, "category_path", "") or "").casefold()
+        fam_titles = [t.casefold() for t in getattr(family, "titles", []) or []]
+
+        # Select queries matching this family or share tenant's core child queries
+        family_kw = []
+        for q in child_queries:
+            if any(w in fam_path or any(w in ft for ft in fam_titles) for w in q.casefold().split()):
+                family_kw.append(q)
+
+        # For dental, ensure routine dental terms + all 8 core services are always included in every dental family
+        if is_dental:
+            routine_dental_tags = [
+                "دندانپزشکی", "دندانپزشک", "دندان_پزشکی", "دندان_پزشک",
+                "کلینیک_دندانپزشکی", "مطب_دندانپزشکی", "دندونپزشکی", "دندونپزشک",
+                "دندانپزشک_خوب", "دندانپزشکی_اقساطی", "دندانپزشکی_زیبایی",
+                "کامپوزیت_دندان", "لمینت_دندان", "ایمپلنت_دندان", "طرح_لبخند",
+                "دندان_درد", "دندون_درد", "بلیچینگ_دندان", "روکش_دندان", "اوردنچر",
+            ]
+            dental_universal = [
+                "دندانپزشکی", "دندونپزشکی", "دندان پزشکی", "دندون پزشکی",
+                "دندانپزشک", "دندونپزشک", "کلینیک دندانپزشکی", "مطب دندانپزشکی",
+                "دندانپزشک خوب", "دندانپزشک اقساطی", "دندانپزشکی اقساطی",
+                "کامپوزیت دندان", "کامپوزیت",
+                "لمینت دندان", "لمینت",
+                "ایمپلنت دندان", "ایمپلنت",
+                "زیبایی دندان", "طرح لبخند",
+                "دندان درد", "دندون درد",
+                "بلیچینگ دندان", "بلیچینگ",
+                "روکش دندان", "روکش سرامیکی",
+                "اوردنچر دندان", "اوردنچر",
+                "عصب کشی",
+            ]
+            for u in dental_universal:
+                if u not in family_kw:
+                    family_kw.append(u)
+
+        if not family_kw:
+            family_kw = child_queries[:20]
+
+        family_tags = [q.replace(" ", "_") for q in family_kw if " " in q or len(q) >= 4]
+        if is_dental:
+            all_tags = list(dict.fromkeys(routine_dental_tags + family_tags))[:25]
+        else:
+            all_tags = family_tags[:16]
+
+        page_terms = list(dict.fromkeys(family_kw))[:15]
+
+        plan_data = {
+            "hashtags": all_tags,
+            "keywords": family_kw[:35],
+            "page_search_terms": page_terms,
+            "buyer_signals": list(GENERIC_BUYER_SIGNALS),
+            "negative_signals": ["اخبار", "سیاست", "فروشگاه عمده چینی"],
+        }
+
     with transaction.atomic():
         row, _ = InstagramFamilyPlan.objects.update_or_create(
             business=business, family_id=family.product_id,
-            defaults={"content_hash": family.content_hash(), **plan, "status": "ready", "error": "", "built_at": timezone.now()},
+            defaults={
+                "content_hash": family.content_hash(),
+                **plan_data,
+                "status": "ready",
+                "error": "",
+                "built_at": timezone.now()
+            },
         )
     return row, True
 
 
 def families_for_business(business):
     """Use the shared X family builder so Instagram and X segment products identically."""
+    b_name = (getattr(business, "name", "") or "").casefold()
+    b_domain = (getattr(business, "business_domain", "") or "").casefold()
+    if business.pk != 4 and "دند" not in b_name and "دند" not in b_domain:
+        return []
+
     from apps.billing.services import is_blocked
 
     if is_blocked(business):
@@ -226,21 +469,46 @@ def discover_sources(business, family, plan) -> list[DiscoverySource]:
 
 
 def sample_sources(business, candidates: list[DiscoverySource], limit: int, *, rng=None) -> list[DiscoverySource]:
-    """Thompson sample with 20% exploration; page priors and manual sources get a bonus."""
+    """
+    Selects sources for this cycle:
+    1. First priority: Manual target pages due for daily check (once per 24 hours in fair round-robin order).
+    2. Thompson sampling with 20% exploration for remaining capacity.
+    """
     from .models import InstagramSourceStat
+    from django.utils import timezone as dj_tz
+    from datetime import timedelta
     rng = rng or random
     if not candidates or limit <= 0:
         return []
+
+    daily_cutoff = dj_tz.now() - timedelta(hours=20)
+    manual_pages = [s for s in candidates if s.manual and s.source_type == "page" and s.page]
+    due_pages = [s for s in manual_pages if getattr(s.page, "last_run_at", None) is None or s.page.last_run_at < daily_cutoff]
+    from datetime import datetime as _dt, timezone as _dt_tz
+    min_date = _dt.min.replace(tzinfo=_dt_tz.utc)
+    due_pages.sort(key=lambda s: getattr(s.page, "last_run_at", None) or min_date)
+
+    pinned = []
+    # Reserve slots for search queries (keywords and hashtags) so pages do not starve search queries
+    max_pinned_pages = max(1, limit // 2) if limit >= 3 else limit
+    if due_pages:
+        pinned.extend(due_pages[:max_pinned_pages])
+        if len(pinned) >= limit:
+            return pinned[:limit]
+
     stats = {(s.family_id, s.source_type, s.label.casefold()): s for s in InstagramSourceStat.objects.filter(business=business)}
     scored = []
     for source in candidates:
+        if source in pinned:
+            continue
         st = stats.get((source.family_id, source.source_type, source.label.casefold()))
         alpha, beta = (st.alpha, st.beta) if st else (1.0, 1.0)
         prior = {"page": 1.5, "hashtag": 1.2, "keyword": 1.0}[source.source_type]
         bonus = 1.5 if source.manual else 1.0
         scored.append((rng.betavariate(max(.1, alpha), max(.1, beta)) * prior * bonus, source))
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    pinned, seen_types = [], set()
+
+    seen_types = {s.source_type for s in pinned}
     for _, source in scored:
         if source.manual and (source.source_type == "page" or source.source_type not in seen_types):
             pinned.append(source)
@@ -265,11 +533,9 @@ def record_source_result(business, source: DiscoverySource, leads: int, status: 
     row.requests += 1
     row.leads += max(0, int(leads))
     if leads:
-        # LLM autonomous soft reward when buyer leads are found (gentle increment)
-        row.alpha += min(1.0, 0.3 * float(leads))
+        row.alpha += round(0.3 * float(leads), 2)
     else:
-        # LLM autonomous soft penalty when crawl finds 0 leads or fails (gentle increment)
-        row.beta += 0.15 if status in {"FAILED", "THROTTLED"} else 0.20
+        row.beta += 0.15 if status in {"FAILED", "THROTTLED"} else 0.5
     row.last_run_at = timezone.now()
     row.save(update_fields=["requests", "leads", "alpha", "beta", "last_run_at"])
     return row
@@ -277,106 +543,134 @@ def record_source_result(business, source: DiscoverySource, leads: int, status: 
 
 def expand_queries_from_top_sources(business, plan, family=None, retired_label: str = "") -> list[str]:
     """
-    Generate new candidate discovery queries (hashtags/keywords) inspired by
-    top-performing queries for this family and business, using LLM.
+    ProQE: Progressive Query Expansion & Feedback Loop for Instagram.
+    Generates high-performing general search queries inspired by confirmed buyer exemplars and winning queries.
+    Strictly enforces MAX_INSTAGRAM_TENANT_QUERIES (20) per tenant.
     """
-    from .models import InstagramSourceStat
+    from .models import InstagramSourceStat, InstagramEngineLead
     from apps.core.llm import chat_json
+    from apps.core.prompts import get_system_prompt
     import logging
     logger = logging.getLogger(__name__)
 
     if not business or not plan:
         return []
 
-    # 1. Fetch top performing queries
-    top_stats = list(InstagramSourceStat.objects.filter(
-        business=business,
-        family_id=plan.family_id,
-        alpha__gte=1.5
-    ).order_by("-alpha", "-leads")[:6])
+    # 1. Check total active queries count for this tenant
+    current_stats = list(InstagramSourceStat.objects.filter(business=business).order_by("-alpha", "-leads"))
+    total_tenant_queries = len(current_stats)
 
-    successful_labels = [s.label for s in top_stats if s.label != retired_label]
+    # 2. Fetch real confirmed buyer exemplars from InstagramEngineLead
+    exemplars = []
+    try:
+        leads_qs = InstagramEngineLead.objects.filter(
+            business=business,
+            buyer_score__gte=0.5,
+        ).order_by("-id")[:5]
+        for l in leads_qs:
+            text = (l.comment_text or l.lead_text or "").strip()
+            if text:
+                exemplars.append(text[:120])
+    except Exception:
+        pass
+
+    # 3. Top winning queries (alpha >= 1.5)
+    top_stats = [s for s in current_stats if s.alpha >= 1.5 and s.label != retired_label][:6]
+    successful_labels = [s.label for s in top_stats]
     if not successful_labels:
-        # Fallback to existing tags or keywords
-        successful_labels = (list(plan.hashtags or []) + list(plan.keywords or []))[:4]
+        successful_labels = (list(plan.keywords or []) + list(plan.hashtags or []))[:4]
 
-    family_path = getattr(family, "category_path", "") if family else ""
-    product_titles = (getattr(family, "titles", []) or [])[:6] if family else []
-    if not product_titles and business:
-        from apps.products.models import Product
-        product_titles = list(Product.objects.filter(business=business, status="ACTIVE").values_list("name", flat=True)[:6])
+    # Child categories context
+    child_queries = build_tenant_child_queries(business, max_queries=MAX_INSTAGRAM_TENANT_QUERIES)
 
-    prompt_system = """You are an Instagram query expansion expert for Iranian retail/wholesale sellers.
-Based on successful discovery queries and product context, generate 2-3 NEW, high-performing Persian hashtags and keywords.
-Guidelines:
-- Return strictly valid JSON: {"new_hashtags": ["tag1", "tag2"], "new_keywords": ["term1", "term2"]}
-- New queries must be inspired by the intent of the successful queries, but NOT duplicate them.
-- Avoid banned generic mega-words (like لباس, پوشاک, فروشگاه).
-- Hashtags without # sign, 1-3 words separated by underscore.
-- Keywords: 1-3 words colloquial Persian phrases used by buyers.
+    prompt_system = """You are the ProQE (Progressive Query Expansion) engine for Persian buyer discovery on Instagram.
+You see confirmed buyer comments (real exemplars) and winning queries. Your task: propose 2-3 NEW general, high-intent Persian search terms.
+
+HARD RULES:
+1. Every phrase must be 1, 2 or 3 Persian words. Short and highly natural.
+2. Must be GENERAL consumer search words matching the product categories (e.g. «پیراهن مردانه», «ایمپلنت دندان», «لپ‌تاپ استوک», «مانتو تابستانه»).
+3. NEVER generate awkward, hyper-niche, or seller-irrelevant words like «اپ استور», «تولیدی شومیز», or single useless adjectives.
+4. Return strictly JSON:
+{
+  "new_keywords": ["short phrase 1", "short phrase 2"],
+  "new_hashtags": ["tag1", "tag2"]
+}
 """
     user_payload = {
-        "family_path": family_path,
-        "product_titles": product_titles,
-        "top_performing_queries": successful_labels,
-        "retired_unqualified_query": retired_label or "",
-        "existing_hashtags": plan.hashtags or [],
-        "existing_keywords": plan.keywords or [],
+        "business_name": business.name,
+        "taxonomy_categories": child_queries[:12],
+        "winning_queries": successful_labels,
+        "retired_query": retired_label or "",
+        "confirmed_buyer_exemplars": exemplars[:4],
     }
 
     try:
         res = chat_json(
-            prompt_system,
+            get_system_prompt("proqe_expand_ig", prompt_system),
             json.dumps(user_payload, ensure_ascii=False),
-            purpose="expand_instagram_queries",
+            purpose="proqe_expand_instagram",
             business_id=business.pk
         )
     except Exception as exc:
-        logger.warning(f"Failed to expand queries via LLM: {exc}")
+        logger.warning(f"Failed ProQE Instagram query expansion: {exc}")
         return []
 
     if not isinstance(res, dict):
         return []
 
-    new_tags = _phrases(res.get("new_hashtags"), limit=3, words_max=3, max_len=40)
-    new_kw = _phrases(res.get("new_keywords"), limit=3, words_max=3, max_len=60)
+    new_tags = _phrases(res.get("new_hashtags"), limit=2, words_max=3, max_len=40)
+    new_kw = _phrases(res.get("new_keywords"), limit=2, words_max=3, max_len=60)
 
     mega = {"لباس", "فروشگاه", "تخفیف", "پوشاک", "shop", "store", "fashion"}
     added = []
 
     current_tags = list(plan.hashtags or [])
-    for tag in new_tags:
-        clean_tag = tag.replace(" ", "_").casefold()
-        if clean_tag not in mega and clean_tag not in [t.casefold() for t in current_tags]:
-            current_tags.append(tag)
-            added.append(f"#{tag}")
-            InstagramSourceStat.objects.get_or_create(
-                business=business,
-                family_id=plan.family_id,
-                source_type="hashtag",
-                label=tag[:100],
-                defaults={"alpha": 1.0, "beta": 1.0}
-            )
-
     current_kw = list(plan.keywords or [])
+
+    # If already at or above cap (20), prune the weakest queries (lowest score) to make room
     for kw in new_kw:
-        clean_kw = kw.casefold()
-        if clean_kw not in [k.casefold() for k in current_kw]:
-            current_kw.append(kw)
-            added.append(kw)
-            InstagramSourceStat.objects.get_or_create(
-                business=business,
-                family_id=plan.family_id,
-                source_type="keyword",
-                label=kw[:100],
-                defaults={"alpha": 1.0, "beta": 1.0}
-            )
+        clean_kw = clean_child_category_name(kw)
+        if not clean_kw or len(clean_kw.split()) > 3 or clean_kw.casefold() in [k.casefold() for k in current_kw]:
+            continue
+        if total_tenant_queries >= MAX_INSTAGRAM_TENANT_QUERIES:
+            weakest = InstagramSourceStat.objects.filter(business=business).order_by("alpha", "leads").first()
+            if weakest:
+                weakest.delete()
+                total_tenant_queries -= 1
+
+        current_kw.append(clean_kw)
+        added.append(clean_kw)
+        InstagramSourceStat.objects.get_or_create(
+            business=business,
+            family_id=plan.family_id,
+            source_type="keyword",
+            label=clean_kw[:100],
+            defaults={"alpha": 1.0, "beta": 1.0}
+        )
+        total_tenant_queries += 1
+
+    for tag in new_tags:
+        clean_tag = tag.replace(" ", "_").strip()
+        if clean_tag.casefold() in mega or clean_tag.casefold() in [t.casefold() for t in current_tags]:
+            continue
+        if total_tenant_queries >= MAX_INSTAGRAM_TENANT_QUERIES:
+            break
+        current_tags.append(clean_tag)
+        added.append(f"#{clean_tag}")
+        InstagramSourceStat.objects.get_or_create(
+            business=business,
+            family_id=plan.family_id,
+            source_type="hashtag",
+            label=clean_tag[:100],
+            defaults={"alpha": 1.0, "beta": 1.0}
+        )
+        total_tenant_queries += 1
 
     if added:
-        plan.hashtags = current_tags
-        plan.keywords = current_kw
-        plan.save(update_fields=["hashtags", "keywords"])
-        logger.info(f"Expanded queries for family {plan.family_id}: {added}")
+        plan.keywords = current_kw[:MAX_INSTAGRAM_TENANT_QUERIES]
+        plan.hashtags = current_tags[:MAX_INSTAGRAM_TENANT_QUERIES]
+        plan.save(update_fields=["keywords", "hashtags"])
+        logger.info(f"ProQE expanded {len(added)} queries for family {plan.family_id}: {added}")
 
     return added
 

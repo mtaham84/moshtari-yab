@@ -27,10 +27,10 @@ INSTAGRAM_WINDOW_START_HOUR = int(os.getenv("INSTAGRAM_WINDOW_START_HOUR", "9"))
 INSTAGRAM_WINDOW_END_HOUR = int(os.getenv("INSTAGRAM_WINDOW_END_HOUR", "23"))     # 23:00
 
 # Daily safety quotas per scraper account
-INSTAGRAM_MAX_DAILY_REQUESTS = int(os.getenv("INSTAGRAM_MAX_DAILY_REQUESTS", "120"))
-INSTAGRAM_MAX_DAILY_QUERIES = int(os.getenv("INSTAGRAM_MAX_DAILY_QUERIES", "20"))
-INSTAGRAM_MAX_DAILY_POSTS = int(os.getenv("INSTAGRAM_MAX_DAILY_POSTS", "45"))
-INSTAGRAM_MAX_COMMENTS_PER_POST = int(os.getenv("INSTAGRAM_MAX_COMMENTS_PER_POST", "40"))
+INSTAGRAM_MAX_DAILY_REQUESTS = int(os.getenv("INSTAGRAM_MAX_DAILY_REQUESTS", "350"))
+INSTAGRAM_MAX_DAILY_QUERIES = int(os.getenv("INSTAGRAM_MAX_DAILY_QUERIES", "60"))
+INSTAGRAM_MAX_DAILY_POSTS = int(os.getenv("INSTAGRAM_MAX_DAILY_POSTS", "150"))
+INSTAGRAM_MAX_COMMENTS_PER_POST = int(os.getenv("INSTAGRAM_MAX_COMMENTS_PER_POST", "50"))
 
 # Delays (seconds) with randomized jitter
 DELAY_BETWEEN_QUERIES = (35.0, 65.0)
@@ -75,17 +75,6 @@ class InstagramAntiBanManager:
             next_window = tomorrow.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
         diff = (next_window - local_now).total_seconds()
         return max(60.0, diff)
-
-    @classmethod
-    def validate_account_role(cls, account, required_role: str) -> Tuple[bool, str]:
-        """
-        Guarantees strict separation between SCRAPER and SENDER accounts.
-        Never allows a SENDER account to be used for scraping, nor a SCRAPER for DMs.
-        """
-        role = getattr(account, "role", "SCRAPER")
-        if role != required_role:
-            return False, f"تداخل نقش: اکانت @{getattr(account, 'username', '')} دارای نقش {role} است و برای {required_role} مجاز نیست."
-        return True, "OK"
 
     @classmethod
     def get_account_daily_usage(cls, account) -> dict[str, int]:

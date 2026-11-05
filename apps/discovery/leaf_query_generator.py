@@ -22,6 +22,11 @@ from apps.products.models import Category, Product
 from apps.products.taxonomy import get_active_leaf_categories
 from shared.mmr import select_by_mmr
 from need_engine.text import norm
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 logger = logging.getLogger("discovery.leaf_query_generator")
 
@@ -159,7 +164,7 @@ def generate_leaf_category_x_queries(
 
     candidates: list[dict[str, Any]] = []
     try:
-        data = llm_func(X_THREE_DOMAINS_SYSTEM, user_prompt, purpose="x_leaf_queries", business_id=business.id)
+        data = llm_func(get_system_prompt("x_three_domains", X_THREE_DOMAINS_SYSTEM), user_prompt, purpose="x_leaf_queries", business_id=business.id)
         raw_items = data.get("queries", []) if isinstance(data, dict) else []
         for item in raw_items:
             if not isinstance(item, dict):
@@ -230,86 +235,54 @@ def generate_leaf_category_instagram_queries(
     llm_func: Callable | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Generates concise product/service Instagram search queries for one leaf category.
-    Strictly 1-3 words, MMR diversified, capped at MAX_IG_QUERIES_PER_LEAF (5).
+    Generates concise product/service Instagram search queries for one leaf category
+    directly from child/leaf category titles and sub-terms (without initial LLM generation).
+    Strictly 1-3 words, natural Persian e-commerce search terms.
     """
-    if llm_func is None:
-        from apps.core.llm import chat_json as llm_func
+    from apps.discovery.instagram_families import clean_child_category_name
 
-    prod_names = [p.name for p in products]
-    user_prompt = (
-        f"Seller: {business.name}\n"
-        f"Leaf Category: {leaf_category.name} ({leaf_category.get_full_path()})\n"
-        f"Associated Products: {', '.join(prod_names[:10])}\n"
-    )
+    raw_name = leaf_category.name
+    candidates = []
+    seen = set()
 
-    candidates: list[dict[str, Any]] = []
-    try:
-        data = llm_func(INSTAGRAM_FIVE_QUERIES_SYSTEM, user_prompt, purpose="ig_leaf_queries", business_id=business.id)
-        raw_items = data.get("queries", []) if isinstance(data, dict) else []
-        for item in raw_items:
-            if not isinstance(item, dict):
-                continue
-            q_text = _clean_query_text(item.get("query", ""))
-            q_type = str(item.get("query_type", "exact_product")).strip().lower()
-            words = q_text.split()
-            # Must be concise: 1 to 3 words
-            if 1 <= len(words) <= 3 and q_text:
+    def add(t, qtype="exact_category"):
+        c = clean_child_category_name(t)
+        if not c:
+            return
+        w = c.split()
+        if 1 <= len(w) <= 3 and len(c) >= 3:
+            key = c.casefold()
+            if key not in seen:
+                seen.add(key)
                 candidates.append({
-                    "query": q_text,
-                    "query_type": q_type,
-                    "related_products": [str(x) for x in item.get("related_products", []) if str(x) in prod_names] or prod_names[:3],
-                })
-    except Exception as exc:
-        logger.warning("LLM generation of Instagram queries failed for leaf category %s: %s", leaf_category.id, exc)
-
-    # Deterministic fallback if insufficient candidates
-    if len(candidates) < 3:
-        cat_name = leaf_category.name
-        seen_q = {_clean_query_text(c["query"]).casefold() for c in candidates}
-        cat_words = cat_name.split()
-        short_cat = " ".join(cat_words[:2]) if len(cat_words) >= 2 else cat_name
-        deterministic = [
-            {"query": short_cat, "query_type": "exact_category"},
-        ]
-        if len(cat_words) >= 3:
-            deterministic.append({"query": " ".join(cat_words[:3]), "query_type": "exact_category"})
-
-        for p in products[:4]:
-            p_words = p.name.split()
-            short_p = " ".join(p_words[:2]) if len(p_words) >= 2 else p.name
-            deterministic.append({"query": short_p, "query_type": "exact_product"})
-            if len(p_words) >= 3:
-                deterministic.append({"query": " ".join(p_words[:3]), "query_type": "variation"})
-
-        # Add keyword variants
-        for kw in leaf_category.keywords or []:
-            kw_clean = _clean_query_text(str(kw))
-            kw_words = kw_clean.split()
-            if 1 <= len(kw_words) <= 3:
-                deterministic.append({"query": kw_clean, "query_type": "synonym"})
-
-        for item in deterministic:
-            q_clean = _clean_query_text(item["query"])
-            words = q_clean.split()
-            if 1 <= len(words) <= 3 and q_clean.casefold() not in seen_q:
-                seen_q.add(q_clean.casefold())
-                candidates.append({
-                    "query": q_clean,
-                    "query_type": item["query_type"],
-                    "related_products": prod_names[:3],
+                    "query": c,
+                    "query_type": qtype,
+                    "related_products": [p.name for p in products[:3]],
                 })
 
-    # Apply MMR Diversification independently for Instagram
-    reference = f"{leaf_category.name} {' '.join(prod_names)}"
-    selected = select_by_mmr(
-        candidates,
-        query_text_fn=lambda item: item["query"],
-        reference_context=reference,
-        top_k=min(len(candidates), MAX_IG_QUERIES_PER_LEAF),
-        lambda_param=0.60,
-    )
-    return selected[:MAX_IG_QUERIES_PER_LEAF]
+    # 1. Base clean leaf category name
+    base = clean_child_category_name(raw_name)
+    if len(base.split()) <= 3:
+        add(base, "exact_category")
+
+    # 2. Sub-terms split on ' و ' or '،'
+    parts = [p.strip() for p in re.split(r"\s+و\s+|،", raw_name) if p.strip()]
+    for p in parts:
+        add(p, "variation")
+
+    # 3. Product short names
+    for p in products[:3]:
+        p_clean = clean_child_category_name(p.name)
+        if p_clean:
+            add(p_clean, "exact_product")
+
+    # 4. Keywords of the category
+    for kw in leaf_category.keywords or []:
+        kw_clean = clean_child_category_name(str(kw))
+        if kw_clean:
+            add(kw_clean, "synonym")
+
+    return candidates[:MAX_IG_QUERIES_PER_LEAF]
 
 
 def replace_platform_queries_for_business(
@@ -430,9 +403,16 @@ def replace_platform_queries_for_business(
 
         # --- Handle Instagram Queries Replacement ---
         if process_ig:
+            from apps.discovery.instagram_families import MAX_INSTAGRAM_TENANT_QUERIES
+            total_tenant_ig = 0
             for leaf in leaf_categories:
                 ig_items = planned_ig_by_cat.get(leaf.id, [])
-                new_terms = [item["query"] for item in ig_items]
+                new_terms = []
+                for item in ig_items:
+                    if total_tenant_ig >= MAX_INSTAGRAM_TENANT_QUERIES:
+                        break
+                    new_terms.append(item["query"])
+                    total_tenant_ig += 1
 
                 # 1. Update or create InstagramCategoryTarget
                 target, _ = InstagramCategoryTarget.objects.get_or_create(
@@ -449,7 +429,7 @@ def replace_platform_queries_for_business(
 
                 target.archived_terms = all_archived
                 target.terms = new_terms
-                target.is_active = True
+                target.is_active = bool(new_terms)
                 target.generation_version = "v2"
                 target.save()
 

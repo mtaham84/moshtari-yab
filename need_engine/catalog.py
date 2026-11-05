@@ -11,6 +11,11 @@ from need_engine.config import EngineConfig
 from need_engine.embeddings import Embedder
 from need_engine.llm import LLMClient
 from need_engine.prompts import PRODUCT_CARD_SYSTEM
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 from need_engine.schemas import Product, ProductCard
 from need_engine.store import Store
 from need_engine.text import BM25
@@ -63,7 +68,7 @@ class Catalog:
     def _cards_for(self, prods: list[Product]) -> dict[str, ProductCard]:
         def run(batch: list[Product]) -> list[dict]:
             user = json.dumps({"listings": [_listing(p) for p in batch]}, ensure_ascii=False)
-            data, _ = self.llm.complete_json("product_cards", self.cfg.extract_model, PRODUCT_CARD_SYSTEM, user, max_tokens=4096,
+            data, _ = self.llm.complete_json("product_cards", self.cfg.extract_model, get_system_prompt("product_card_system", PRODUCT_CARD_SYSTEM), user, max_tokens=4096,
                                              ref=",".join(p.product_id for p in batch),
                                              businesses=[p.business_id for p in batch])
             return [c for c in (data or {}).get("cards", []) if isinstance(c, dict)]
@@ -132,8 +137,17 @@ class Catalog:
         self.cards = {p.product_id: c for p, c, _ in rows}
         self.pid_index = {p.product_id: i for i, p in enumerate(self.products)}
         vecs = [(i, v) for i, (_, _, vs) in enumerate(rows) for v in (vs if vs is not None else [])]
-        self.V = np.stack([v for _, v in vecs]).astype(np.float32) if vecs else np.zeros((0, 1), dtype=np.float32)
-        self.owner = np.array([i for i, _ in vecs], dtype=int)
+        if vecs:
+            dim_counts = {}
+            for _, v in vecs:
+                dim_counts[v.shape] = dim_counts.get(v.shape, 0) + 1
+            target_dim = max(dim_counts, key=dim_counts.get)
+            valid_vecs = [(i, v) for i, v in vecs if v.shape == target_dim]
+            self.V = np.stack([v for _, v in valid_vecs]).astype(np.float32) if valid_vecs else np.zeros((0, 1), dtype=np.float32)
+            self.owner = np.array([i for i, _ in valid_vecs], dtype=int)
+        else:
+            self.V = np.zeros((0, 1), dtype=np.float32)
+            self.owner = np.array([], dtype=int)
         docs = []
         for p, c, _ in rows:
             docs.append(" ".join(str(x) for x in [p.title, p.product_type, p.description, " ".join(p.tags),

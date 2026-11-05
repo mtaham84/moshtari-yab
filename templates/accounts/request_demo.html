@@ -1,0 +1,537 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}درخواست فعال‌سازی و دمو | مشتری‌یاب{% endblock %}
+
+{% block body %}
+<style>
+  :root {
+    --demo-font: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--demo-font);
+    background-color: #121c15;
+    background-image: radial-gradient(circle at 20% 20%, rgba(34, 197, 94, 0.15) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 80%, rgba(16, 185, 129, 0.15) 0%, transparent 50%),
+                      url("{% static 'images/demo_bg.webp' %}");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .demo-page-wrapper {
+    width: 100%;
+    min-height: 100vh;
+    padding: 30px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: rgba(10, 20, 14, 0.45);
+  }
+
+  .demo-card-container {
+    width: 100%;
+    max-width: 1060px;
+    background: #ffffff;
+    border-radius: 28px;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.6);
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    position: relative;
+    animation: fadeInScale 0.45s ease-out;
+  }
+
+  @keyframes fadeInScale {
+    from {
+      opacity: 0;
+      transform: scale(0.97) translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  /* Form Column */
+  .demo-form-col {
+    flex: 1.15;
+    padding: 44px 48px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-sizing: border-box;
+    background: #ffffff;
+  }
+
+  .demo-brand-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .demo-brand-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .demo-brand-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #111827;
+  }
+
+  .demo-brand-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #059669;
+    background: #ecfdf5;
+    padding: 2px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+  }
+
+  .demo-title {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #111827;
+    margin: 0 0 10px 0;
+    line-height: 1.25;
+    letter-spacing: -0.5px;
+  }
+
+  .demo-subtitle {
+    font-size: 0.95rem;
+    color: #6b7280;
+    line-height: 1.6;
+    margin: 0 0 24px 0;
+  }
+
+  .demo-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .demo-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .demo-input-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .demo-input-row .demo-input-group {
+    flex: 1;
+  }
+
+  .demo-input, .demo-select, .demo-textarea {
+    width: 100%;
+    padding: 12px 14px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 0.92rem;
+    color: #1f2937;
+    outline: none;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+  }
+
+  .demo-input:focus, .demo-select:focus, .demo-textarea:focus {
+    background: #ffffff;
+    border-color: #111827;
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
+  }
+
+  .demo-input::placeholder, .demo-textarea::placeholder {
+    color: #9ca3af;
+    font-size: 0.88rem;
+  }
+
+  .demo-textarea {
+    resize: vertical;
+    min-height: 72px;
+  }
+
+  .phone-field-wrapper {
+    display: flex;
+    flex-direction: row;
+    direction: ltr;
+    gap: 6px;
+  }
+
+  .phone-prefix {
+    width: 82px;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #374151;
+    text-align: center;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .phone-input {
+    flex: 1;
+    direction: ltr;
+    text-align: left;
+  }
+
+  .demo-btn-submit {
+    margin-top: 8px;
+    width: 100%;
+    background: #000000;
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    padding: 14px 20px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  }
+
+  .demo-btn-submit:hover {
+    background: #262626;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .demo-btn-submit:active {
+    transform: translateY(0);
+  }
+
+  .demo-terms {
+    text-align: center;
+    font-size: 0.78rem;
+    color: #9ca3af;
+    margin: 12px 0 0 0;
+  }
+
+  .demo-terms a {
+    color: #4b5563;
+    text-decoration: underline;
+  }
+
+  /* Visual Mountain Column */
+  .demo-visual-col {
+    flex: 1;
+    min-height: 580px;
+    background-image: url("{% static 'images/demo_mountain.webp' %}");
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .demo-glass-badge {
+    background: rgba(15, 30, 20, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 18px;
+    padding: 20px 22px;
+    color: #ffffff;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .demo-glass-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #f3f4f6;
+  }
+
+  .demo-glass-title span.badge-num {
+    color: #34d399;
+    font-weight: 800;
+  }
+
+  .demo-glass-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .demo-glass-item {
+    font-size: 0.82rem;
+    color: #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .demo-glass-item svg {
+    color: #34d399;
+    flex-shrink: 0;
+  }
+
+  /* Success View */
+  .demo-success-box {
+    text-align: center;
+    padding: 40px 10px;
+  }
+
+  .demo-success-icon {
+    width: 64px;
+    height: 64px;
+    background: #ecfdf5;
+    border: 2px solid #a7f3d0;
+    color: #059669;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 18px;
+  }
+
+  .demo-success-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #111827;
+    margin: 0 0 10px 0;
+  }
+
+  .demo-success-desc {
+    font-size: 0.95rem;
+    color: #4b5563;
+    line-height: 1.7;
+    margin-bottom: 24px;
+  }
+
+  .demo-success-btn {
+    display: inline-block;
+    background: #111827;
+    color: #ffffff;
+    text-decoration: none;
+    padding: 12px 28px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 880px) {
+    .demo-card-container {
+      flex-direction: column-reverse;
+      max-width: 520px;
+      border-radius: 20px;
+    }
+
+    .demo-visual-col {
+      min-height: 220px;
+      padding: 16px;
+    }
+
+    .demo-form-col {
+      padding: 32px 24px;
+    }
+
+    .demo-title {
+      font-size: 1.6rem;
+    }
+
+    .demo-input-row {
+      flex-direction: column;
+      gap: 14px;
+    }
+  }
+</style>
+
+<div class="demo-page-wrapper">
+  <div class="demo-card-container">
+    
+    <!-- Right/Main Column: Request Form -->
+    <div class="demo-form-col">
+      <div class="demo-brand-row">
+        <div class="demo-brand-icon">
+          <img src="{% static 'images/brand/peyda-mark-dark.png' %}" alt="Peyda Logo" width="30" height="30" style="object-fit: contain;">
+        </div>
+        <span class="demo-brand-title">پیدا <small style="font-size: 0.75rem; font-weight: 700; opacity: 0.85;">PEYDA</small></span>
+        <span class="demo-brand-tag">نسخه سازمانی</span>
+      </div>
+
+      {% if success %}
+      <div class="demo-success-box">
+        <div class="demo-success-icon">
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <h2 class="demo-success-title">درخواست فعال‌سازی شما با موفقیت ثبت شد</h2>
+        <p class="demo-success-desc">
+          مشخصات شما با موفقیت در سیستم ثبت گردید و اعلان آن به تیم فنی مخابره شد.<br>
+          کارشناسان ما به زودی حساب کاربری و فضای اختصاصی کسب‌وکار شما را آماده و با شما ارتباط برقرار خواهند کرد.
+        </p>
+        <a href="{% url 'accounts:login' %}" class="demo-success-btn">رفتن به صفحه ورود</a>
+      </div>
+      {% else %}
+
+      <h1 class="demo-title">درخواست فعال‌سازی و دمو</h1>
+      <p class="demo-subtitle">
+        اطلاعات کسب‌وکار و اهداف خود را با ما در میان بگذارید تا نسخه اختصاصی متناسب با فرآیند کاری شما را آماده کنیم.
+      </p>
+
+      {% if error_message %}
+      <div style="background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 16px;">
+        {{ error_message }}
+      </div>
+      {% endif %}
+
+      <form method="POST" action="{% url 'accounts:request_demo' %}" class="demo-form" id="demoForm">
+        {% csrf_token %}
+
+        <!-- Full Name -->
+        <div class="demo-input-group">
+          <input 
+            type="text" 
+            name="full_name" 
+            class="demo-input" 
+            placeholder="نام و نام خانوادگی" 
+            value="{{ form_data.full_name|default:'' }}" 
+            required
+          >
+        </div>
+
+        <!-- Team size & Phone Row -->
+        <div class="demo-input-row">
+          <div class="demo-input-group" style="flex: 0.85;">
+            <select name="team_size" class="demo-select">
+              <option value="۱ تا ۵ نفر" {% if form_data.team_size == '۱ تا ۵ نفر' %}selected{% endif %}>تیم ۱ تا ۵ نفر</option>
+              <option value="۶ تا ۱۵ نفر" {% if form_data.team_size == '۶ تا ۱۵ نفر' %}selected{% endif %}>تیم ۶ تا ۱۵ نفر</option>
+              <option value="۱۶ تا ۵۰ نفر" {% if form_data.team_size == '۱۶ تا ۵۰ نفر' %}selected{% endif %}>تیم ۱۶ تا ۵۰ نفر</option>
+              <option value="بیش از ۵۰ نفر" {% if form_data.team_size == 'بیش از ۵۰ نفر' %}selected{% endif %}>بیش از ۵۰ نفر</option>
+            </select>
+          </div>
+
+          <div class="demo-input-group" style="flex: 1.15;">
+            <div class="phone-field-wrapper">
+              <div class="phone-prefix">
+                <span>🇮🇷</span>
+                <span>+۹۸</span>
+              </div>
+              <input 
+                type="tel" 
+                name="phone_number" 
+                class="demo-input phone-input" 
+                placeholder="0912 345 6789" 
+                value="{{ form_data.phone_number|default:'' }}" 
+                required
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Company Name -->
+        <div class="demo-input-group">
+          <input 
+            type="text" 
+            name="company_name" 
+            class="demo-input" 
+            placeholder="نام برند، کلینیک یا شرکت" 
+            value="{{ form_data.company_name|default:'' }}" 
+            required
+          >
+        </div>
+
+        <!-- Work Email -->
+        <div class="demo-input-group">
+          <input 
+            type="email" 
+            name="email" 
+            class="demo-input" 
+            placeholder="ایمیل کاری (مثال: name@company.com)" 
+            value="{{ form_data.email|default:'' }}" 
+            dir="ltr"
+            required
+          >
+        </div>
+
+        <!-- What are you trying to solve? -->
+        <div class="demo-input-group">
+          <textarea 
+            name="problem_statement" 
+            class="demo-textarea" 
+            placeholder="چه هدفی دارید یا به دنبال کشف چه نوع مشتریانی هستید؟"
+          >{{ form_data.problem_statement|default:'' }}</textarea>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" class="demo-btn-submit" id="submitBtn">
+          <span>ارسال درخواست فعال‌سازی</span>
+          <span style="font-size: 1.2rem; transform: scaleX(-1); display: inline-block;">&rarr;</span>
+        </button>
+
+        <p class="demo-terms">
+          با ارسال درخواست، شرایط و <a href="#">حریم خصوصی</a> سامانه مشتری‌یاب را می‌پذیرید.
+        </p>
+      </form>
+      {% endif %}
+    </div>
+
+    <!-- Left/Visual Column: Scenic Nature + Trust Badge -->
+    <div class="demo-visual-col">
+      <div class="demo-glass-badge">
+        <div class="demo-glass-title">
+          <span>مورد اعتماد بیش از</span>
+          <span class="badge-num">۱,۰۰۰+</span>
+          <span>کسب‌وکار و متخصص</span>
+        </div>
+        <div class="demo-glass-items">
+          <div class="demo-glass-item">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>امنیت پیشرفته داده‌ها و ایزولاسیون کامل منابع</span>
+          </div>
+          <div class="demo-glass-item">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>پایش و کشف بلادرنگ لیدها در شبکه‌های اجتماعی</span>
+          </div>
+          <div class="demo-glass-item">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>پردازش هوشمند و استخراج خودکار نیازها با مدل لونا</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

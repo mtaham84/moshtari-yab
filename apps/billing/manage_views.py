@@ -1,4 +1,3 @@
-import os
 import json
 import logging
 import socket
@@ -35,8 +34,6 @@ from apps.discovery.models import (
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
 
 logger = logging.getLogger("management")
-DEFAULT_SYSTEM_PROXY = os.environ.get("DEFAULT_IG_PROXY", "socks5h://xray:1080")
-
 
 
 def manage_access_required(view_func):
@@ -52,13 +49,11 @@ def manage_access_required(view_func):
 
 
 def _test_proxy_connection(proxy_url: str, timeout: float = 4.0) -> tuple[bool, str]:
-    """Tests TCP connection to proxy host and port, handling clean URLs and rotation links."""
+    """Tests TCP connection to proxy host and port."""
     if not proxy_url or not proxy_url.strip():
         return True, "بدون پروکسی (اتصال مستقیم)"
     try:
-        from apps.discovery.proxy_service import clean_proxy_url
-        clean_url = clean_proxy_url(proxy_url)
-        parsed = urlparse(clean_url)
+        parsed = urlparse(proxy_url)
         host = parsed.hostname
         port = parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
         if not host:
@@ -188,11 +183,11 @@ def manage_dashboard(request):
     # Scraper latest activity tracking
     latest_scraper = InstagramEngineAccount.objects.filter(role="SCRAPER", last_action_at__isnull=False).order_by("-last_action_at").first()
     latest_scraper_action_at = latest_scraper.last_action_at if latest_scraper else None
-    latest_lead = InstagramEngineLead.objects.order_by("-created_at").first()
+    from apps.discovery.models import Opportunity
+    latest_lead = Opportunity.objects.order_by("-created_at").first()
     latest_lead_at = latest_lead.created_at if latest_lead else None
 
     # 4. Multi-Platform Leads Matrix for all 3 Tenants
-    from apps.discovery.models import Opportunity
     businesses = Business.objects.select_related("wallet", "user").all().order_by("id")
 
     tenant_matrix = []
@@ -765,7 +760,7 @@ def manage_account_add(request):
     password = request.POST.get("password", "").strip()
     sessionid = (request.POST.get("sessionid") or "").strip()
     role = request.POST.get("role", "SCRAPER").strip().upper()
-    proxy_url = request.POST.get("proxy_url", "").strip() or DEFAULT_SYSTEM_PROXY
+    proxy_url = request.POST.get("proxy_url", "").strip() or None
     tenant_id = request.POST.get("tenant_id", "tenant_default").strip()
     account_tier = request.POST.get("account_tier", "NEW").strip()
     custom_daily = request.POST.get("daily_limit", "").strip()
@@ -804,7 +799,8 @@ def manage_account_add(request):
         account.account_tier = account_tier
         account.daily_limit = daily_lim
         account.hourly_limit = hourly_lim
-        account.proxy_url = proxy_url or account.proxy_url or DEFAULT_SYSTEM_PROXY
+        if proxy_url:
+            account.proxy_url = proxy_url
         account.status = "CHALLENGED"
         account.save()
     else:
@@ -879,8 +875,8 @@ def manage_account_add(request):
             dev_profile = {}
             logger.warning(f"Could not apply device profile for @{account.username}: {dev_err}")
 
-        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
-        cl.set_proxy(effective_proxy)
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
 
         def _challenge_detector(u, choice=None):
             raise ChallengeRequired(f"کد تایید به روش {choice or 'ایمیل/پیامک'} ارسال شد.")
@@ -1201,8 +1197,8 @@ def manage_sender_account_edit(request, pk):
 
         from instagrapi import Client
         cl = Client()
-        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
-        cl.set_proxy(effective_proxy)
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
 
         from apps.discovery.device_emulator import apply_device_profile_to_client, ensure_account_device_profile
         dev_profile = ensure_account_device_profile(account)
@@ -1319,8 +1315,8 @@ def manage_account_test(request, pk):
         from instagrapi.exceptions import (ChallengeRequired, FeedbackRequired, BadPassword, TwoFactorRequired,
                                            PleaseWaitFewMinutes)
         cl = Client()
-        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
-        cl.set_proxy(effective_proxy)
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
 
         def _non_interactive_challenge(username, choice=None):
             raise ChallengeRequired(f"کد تایید امنیتی به روش {choice} ارسال شد.")
@@ -1365,10 +1361,18 @@ def manage_account_test(request, pk):
                     account.save(update_fields=["status"])
                     msg = f"سشن اینستاگرام معتبر است و ارتباط با موفقیت برقرار شد. {proxy_msg}"
                 except Exception as se:
-                    live_status = "CHALLENGED"
-                    account.status = "CHALLENGED"
-                    account.save(update_fields=["status"])
-                    msg = f"سشن منقضی شده است: {se}"
+                    se_str = str(se).lower()
+                    if any(k in se_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl", "56"]):
+                        live_status = "COOLDOWN"
+                        account.status = "COOLDOWN"
+                        account.cooldown_until = dj_timezone.now() + timedelta(minutes=15)
+                        account.save(update_fields=["status", "cooldown_until"])
+                        msg = f"خطای موقت اتصال شبکه یا پروکسی: {se}"
+                    else:
+                        live_status = "CHALLENGED"
+                        account.status = "CHALLENGED"
+                        account.save(update_fields=["status"])
+                        msg = f"سشن منقضی شده است: {se}"
         else:
             # First-time login test
             try:
@@ -1471,8 +1475,8 @@ def manage_account_submit_code(request, pk):
     try:
         from instagrapi import Client
         cl = Client()
-        effective_proxy = account.proxy_url or DEFAULT_SYSTEM_PROXY
-        cl.set_proxy(effective_proxy)
+        if account.proxy_url:
+            cl.set_proxy(account.proxy_url)
 
         saved_data = account.device_settings or {}
         saved_settings = (
@@ -1576,7 +1580,14 @@ def manage_leads_export_csv(request):
     import csv
     from django.http import HttpResponse
 
-    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+    from django.db.models import F
+    from django.db.models.functions import Coalesce
+    leads = InstagramEngineLead.objects.all().order_by(
+        F("outreach_score").desc(nulls_last=True),
+        F("intent_score").desc(nulls_last=True),
+        Coalesce("comment_created_at", "created_at").desc(nulls_last=True),
+        "-id"
+    )
 
     response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
     response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
@@ -2835,10 +2846,4 @@ def manage_proxy_channels_sync_all(request):
 
     res = sync_all_active_channels(max_posts=20, max_add_per_channel=10)
     return JsonResponse(res)
-
-
-
-
-
-
 

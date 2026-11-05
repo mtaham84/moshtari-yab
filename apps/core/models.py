@@ -45,3 +45,26 @@ class LLMUsageLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class LLMPromptConfig(models.Model):
+    """Stores active system prompts for LLM (Luna / gpt-6-luna) across all modules."""
+
+    key = models.SlugField(max_length=64, unique=True, verbose_name="شناسه یکتای پرامپت")
+    title = models.CharField(max_length=150, verbose_name="عنوان فارسی پرامپت")
+    category = models.CharField(max_length=80, verbose_name="بخش و ماژول سامانه", db_index=True)
+    module_path = models.CharField(max_length=150, blank=True, verbose_name="مسیر ماژول کد")
+    description = models.TextField(verbose_name="توضیح هدف و کارکرد پرامپت")
+    prompt_text = models.TextField(verbose_name="متن پرامپت فعال")
+    default_prompt = models.TextField(verbose_name="متن پرامپت پیش‌فرض کارخانه")
+    is_customized = models.BooleanField(default=False, verbose_name="سفارشی شده توسط کاربر")
+    version = models.PositiveIntegerField(default=1, verbose_name="نسخه")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
+
+    class Meta:
+        verbose_name = "تنظیمات پرامپت هوش مصنوعی"
+        verbose_name_plural = "تنظیمات پرامپت‌های هوش مصنوعی"
+        ordering = ["category", "id"]
+
+    def __str__(self):
+        return f"{self.title} ({self.key})"

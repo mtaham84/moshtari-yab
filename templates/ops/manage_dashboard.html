@@ -377,7 +377,7 @@
   <button class="tab-btn" onclick="openTab('outreach', this)"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> پیام‌رسانی و دایرکت‌های اینستاگرام ({{ dms_sent_total }})</button>
   <button class="tab-btn" onclick="openTab('senders', this)"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> اکانت‌های فرستنده و پاسخگو ({{ senders_total }})</button>
   <button class="tab-btn" id="tab-btn-proxies" onclick="openTab('proxies', this)"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> پروکسی‌ها ({{ proxy_configs_active }}/{{ proxy_configs_total }})</button>
-  <button class="tab-btn" id="tab-btn-instagram-hub" onclick="openTab('instagram-hub', this)" style="border:1px solid #c084fc; background:rgba(192, 132, 252, 0.08);"><svg class="ico" aria-hidden="true" style="color:#c084fc;"><use href="#i-camera"/></svg> 📷 مرکز اینستاگرام و شبیه‌ساز ({{ ig_accounts_total|default:all_ig_accounts|length }})</button>
+  <button class="tab-btn" id="tab-btn-instagram-hub" onclick="openTab('instagram-hub', this)" style="border:1px solid #c084fc; background:rgba(192, 132, 252, 0.08);"><svg class="ico" aria-hidden="true" style="color:#c084fc;"><use href="#i-camera"/></svg> مرکز اینستاگرام و شبیه‌ساز ({{ ig_accounts_total|default:all_ig_accounts|length }})</button>
 </div>
 
 <!-- TAB: UNIFIED INSTAGRAM HUB & COCKPITS -->
@@ -396,8 +396,8 @@
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <div style="background:rgba(255,255,255,0.05); padding:4px; border-radius:8px; display:flex; gap:4px; border:1px solid var(--border);">
           <button type="button" class="btn sm" id="btn-ig-filter-all" onclick="filterIgAccounts('ALL', this)" style="background:var(--accent); color:#fff; font-weight:700;">همه اکانت‌ها ({{ ig_accounts_total|default:all_ig_accounts|length }})</button>
-          <button type="button" class="btn sm" id="btn-ig-filter-senders" onclick="filterIgAccounts('SENDER', this)" style="background:transparent; color:var(--muted); font-weight:700;">🔵 فرستنده‌ها ({{ senders_total }})</button>
-          <button type="button" class="btn sm" id="btn-ig-filter-scrapers" onclick="filterIgAccounts('SCRAPER', this)" style="background:transparent; color:var(--muted); font-weight:700;">🟣 اسکرپرها ({{ scrapers_total }})</button>
+          <button type="button" class="btn sm" id="btn-ig-filter-senders" onclick="filterIgAccounts('SENDER', this)" style="background:transparent; color:var(--muted); font-weight:700;">فرستنده‌ها ({{ senders_total }})</button>
+          <button type="button" class="btn sm" id="btn-ig-filter-scrapers" onclick="filterIgAccounts('SCRAPER', this)" style="background:transparent; color:var(--muted); font-weight:700;">اسکرپرها ({{ scrapers_total }})</button>
         </div>
       </div>
     </div>
@@ -431,11 +431,11 @@
             <td>
               {% if acc.role == 'SENDER' %}
                 <span class="badge" style="background:#eff6ff; color:#1d4ed8; font-weight:700; padding:4px 8px; border-radius:6px; border:1px solid #bfdbfe;">
-                  🔵 فرستنده رسمی (SENDER)
+                  فرستنده رسمی (SENDER)
                 </span>
               {% else %}
                 <span class="badge" style="background:#faf5ff; color:#7e22ce; font-weight:700; padding:4px 8px; border-radius:6px; border:1px solid #e9d5ff;">
-                  🟣 اسکرپر استخراج (SCRAPER)
+                  اسکرپر استخراج (SCRAPER)
                 </span>
               {% endif %}
             </td>
@@ -474,7 +474,7 @@
               <div style="display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap;">
                 <a href="{% url 'manage:instagram_account_cockpit' acc.id %}" target="_blank"
                    style="background: linear-gradient(135deg, #7c3aed, #9333ea); color:#ffffff; padding:6px 12px; border-radius:6px; font-weight:700; font-size:0.82rem; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(124, 58, 237, 0.35);">
-                  🎮 ورود به کابین اکانت ↗
+                  ورود به کابین اکانت
                 </a>
                 <button type="button" class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-hub-test-{{ acc.id }}"
                         style="padding:6px 10px; font-size:0.8rem; background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; border-radius:6px; cursor:pointer;" title="تست زنده اتصال به اینستاگرام">
@@ -1539,33 +1539,24 @@
           <th>پلتفرم</th>
           <th>اکانت منتسب</th>
           <th>آخرین تست</th>
-          <th style="width:110px; text-align:center;">عملیات</th>
         </tr>
       </thead>
       <tbody>
         {% for px in proxy_configs %}
-        <tr id="proxy-row-{{ px.id }}">
+        <tr>
           <td dir="ltr" style="font-weight:700;">{{ px.local_port|default:"—" }}</td>
           <td>{{ px.tag|default:"—"|truncatechars:28 }}</td>
           <td dir="ltr"><code>{{ px.protocol }}</code></td>
           <td dir="ltr"><code>{{ px.server|default:"—" }}:{{ px.port }}</code></td>
-          <td dir="ltr" id="proxy-ping-{{ px.id }}" style="font-weight:700; {% if px.ping_ms >= 0 %}color:#16a34a;{% else %}color:#dc2626;{% endif %}">
-            {% if px.ping_ms >= 0 %}{{ px.ping_ms|floatformat:0 }} ms{% else %}قطع{% endif %}
-          </td>
-          <td id="proxy-status-{{ px.id }}">
+          <td dir="ltr">{% if px.ping_ms >= 0 %}{{ px.ping_ms|floatformat:0 }} ms{% else %}—{% endif %}</td>
+          <td>
             {% if px.status == 'ACTIVE' %}<span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> فعال</span>
             {% elif px.status == 'DEAD' %}<span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> قطع</span>
             {% else %}<span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> در حال تست</span>{% endif %}
           </td>
           <td>{{ px.get_assigned_platform_display }}</td>
           <td dir="ltr">{{ px.assigned_to|default:"—" }}</td>
-          <td class="jalali-time-cell" id="proxy-last-checked-{{ px.id }}">{% if px.last_checked_at %}{{ px.last_checked_at|time_ago_fa }}{% else %}<span class="muted">—</span>{% endif %}</td>
-          <td style="text-align:center;">
-            <button type="button" class="btn sm" onclick="testSingleProxyLive({{ px.id }}, this)"
-                    style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">
-              تست زنده
-            </button>
-          </td>
+          <td class="jalali-time-cell">{% if px.last_checked_at %}{{ px.last_checked_at|time_ago_fa }}{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -2482,9 +2473,17 @@
               {{ t.source_raw_message }}
             </td>
             <td>
-              <span class="pill" style="background:#f1f5f9; color:#334155; font-size:0.75rem; display:inline-block; margin-bottom:4px;">
-                {{ t.get_intent_type_display|default:"سیگنال خرید" }}
-              </span>
+              {% if t.intent_type == 'direct_intent' or t.intent_type == 'buy_signal' %}
+                <span class="pill" style="background: rgba(16, 185, 129, 0.16); color: #059669; border: 1px solid rgba(16, 185, 129, 0.4); font-size:0.75rem; font-weight:700; display:inline-block; margin-bottom:4px;">{{ t.get_intent_type_display|default:"قصد خرید مستقیم" }}</span>
+              {% elif t.intent_type == 'comparison' %}
+                <span class="pill" style="background: rgba(6, 182, 212, 0.16); color: #0891b2; border: 1px solid rgba(6, 182, 212, 0.4); font-size:0.75rem; font-weight:700; display:inline-block; margin-bottom:4px;">{{ t.get_intent_type_display }}</span>
+              {% elif t.intent_type == 'advice_seeking' or t.intent_type == 'recommendation_ask' %}
+                <span class="pill" style="background: rgba(99, 102, 241, 0.16); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.4); font-size:0.75rem; font-weight:700; display:inline-block; margin-bottom:4px;">{{ t.get_intent_type_display }}</span>
+              {% elif t.intent_type == 'competitor_churn' or t.intent_type == 'complaint' or t.intent_type == 'switching' %}
+                <span class="pill" style="background: rgba(245, 158, 11, 0.16); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); font-size:0.75rem; font-weight:700; display:inline-block; margin-bottom:4px;">{{ t.get_intent_type_display }}</span>
+              {% else %}
+                <span class="pill" style="background: rgba(168, 85, 247, 0.16); color: #9333ea; border: 1px solid rgba(168, 85, 247, 0.4); font-size:0.75rem; font-weight:700; display:inline-block; margin-bottom:4px;">{{ t.get_intent_type_display|default:"بیان درد و نیاز" }}</span>
+              {% endif %}
               {% if t.category %}
               <div class="muted" style="font-size:0.75rem;">{{ t.category.name }}</div>
               {% endif %}

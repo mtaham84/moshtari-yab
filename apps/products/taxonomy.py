@@ -20,6 +20,11 @@ from django.utils import timezone
 
 from apps.businesses.models import Business, BusinessType
 from apps.products.models import Category, Product
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 log = logging.getLogger("products.taxonomy")
 
@@ -109,7 +114,7 @@ def ensure_type_tree(btype: BusinessType, llm: Callable | None = None) -> Busine
         locked.tree_built_at = timezone.now()
         locked.save(update_fields=["tree_status", "tree_built_at"])
     try:
-        data = llm(TREE_SYSTEM, f"Business type: {locked.name} ({locked.description}). Kind: "
+        data = llm(get_system_prompt("taxonomy_tree", TREE_SYSTEM), f"Business type: {locked.name} ({locked.description}). Kind: "
                    f"{'services' if locked.kind == 'SERVICE' else 'physical goods'}.", purpose="taxonomy_tree")
         nodes = data.get("children") if isinstance(data, dict) else None
         if not nodes:
@@ -331,7 +336,7 @@ def organize_products(business: Business, llm: Callable | None = None) -> dict:
     user = ("Seller: %s | domain: %s | types: %s\nNotes: %s\n\nTREE:\n%s\n\nPRODUCTS:\n%s" % (
         business.name, business.business_domain, ", ".join(business.business_types.values_list("name", flat=True)), notes,
         "\n".join(tree_lines), "\n".join(f"{p.id}: {p.name} — {(p.description or '')[:120]}" for p in todo[:40])))
-    data = llm(ORGANIZE_SYSTEM, user, purpose="organize_products", business_id=business.pk)
+    data = llm(get_system_prompt("taxonomy_organize", ORGANIZE_SYSTEM), user, purpose="organize_products", business_id=business.pk)
     by_id = {p.id: p for p in todo}
     new_nodes: dict[tuple, Category] = {}
     for item in (data or {}).get("assignments", []) if isinstance(data, dict) else []:

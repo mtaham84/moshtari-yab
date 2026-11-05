@@ -11,6 +11,11 @@ from need_engine.catalog import Catalog
 from need_engine.config import EngineConfig
 from need_engine.llm import LLMClient
 from need_engine.prompts import NEW_PRODUCT_SYSTEM, REPLY_SYSTEM_X, VERIFY_SYSTEM
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 from need_engine.platforms import for_chat_id
 from need_engine.platforms.x import X
 from need_engine.reply import MessageStyle, write_reply
@@ -42,7 +47,7 @@ def verify_need(n: NeedCard, ret: Retrieval, cat: Catalog, store: Store, llm: LL
 
     def run(cands: list[int]):
         user = head + "\n\nRequirements:\n" + req_block(n) + "\n\nCandidates:\n" + "\n".join(cat.line(j) for j in cands)
-        data, usage = llm.complete_json("verify", cfg.verify_model, VERIFY_SYSTEM, user, max_tokens=2048, ref=n.need_id,
+        data, usage = llm.complete_json("verify", cfg.verify_model, get_system_prompt("verify_system", VERIFY_SYSTEM), user, max_tokens=2048, ref=n.need_id,
                                         businesses=[cat.products[j].business_id for j in cands])   # candidates' owners
         return cands, data, usage["toman"]
 

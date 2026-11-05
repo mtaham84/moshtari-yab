@@ -10,6 +10,11 @@ except ImportError:
     httpx = None
 
 from instagram_engine.config import settings
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 
 logger = logging.getLogger("instagram_engine.analyzer")
 
@@ -221,13 +226,13 @@ def llm_extract_caption_cta(caption: Optional[str]) -> Optional[str]:
     if not caption or not caption.strip() or not settings.llm_api_key:
         return None
 
-    prompt = (
+    default_prompt = (
         "شما تحلیل‌گر کپشن اینستاگرام فارسی هستید. وظیفه شما تشخیص این است که آیا نویسنده کپشن از مخاطبان "
         "خواسته کلمه، عبارت، عدد یا ایموجی خاصی را در کامنت بنویسند تا قیمت/لینک/اطلاعات برایشان دایرکت شود یا خیر.\n"
         "اگر کلمه یا عبارت خاصی مشخص شده، فقط و فقط همان کلمه یا عبارت را بدون هیچ توضیح اضافی برگردان.\n"
-        "اگر هیچ درخواست کامنت خاصی وجود ندارد، دقیقاً کلمه 'NONE' را برگردان.\n\n"
-        f"کپشن:\n{caption[:1500]}"
+        "اگر هیچ درخواست کامنت خاصی وجود ندارد، دقیقاً کلمه 'NONE' را برگردان."
     )
+    prompt = f"{get_system_prompt('ig_cta_extraction', default_prompt)}\n\nکپشن:\n{caption[:1500]}"
 
     payload = {
         "model": "gpt-6-luna",
@@ -303,13 +308,16 @@ def llm_evaluate_batch(caption: str, comments: List[Dict[str, Any]]) -> List[Dic
     batch_slice = comments[:25]
     comments_formatted = "\n".join([f"[{i+1}] ID:{c.get('id')} User:@{c.get('username')}: {c.get('text')}" for i, c in enumerate(batch_slice)])
 
-    prompt = (
+    default_prompt = (
         "شما متخصص ارزیابی قصد خرید و لید در اینستاگرام هستید. با توجه به کپشن پست زیر، کامنت‌هایی که "
         "نشان‌دهنده نیاز واقعی به محصول، سوال جدی، ابراز درد/مشکل مرتبط با محصول، یا تمایل به خرید هستند را "
         "شناسایی کن. کامنت‌های تشکر ساده، ایموجی خالی، یا تعریف غیرخریدارانه را رد کن.\n\n"
-        f"کپشن پست:\n{caption[:800]}\n\n"
-        f"کامنت‌ها:\n{comments_formatted}\n\n"
         "پاسخ را دقیقاً در قالب یک آرایه JSON از شناسه‌ها برگردان. مثال: [\"123\", \"456\"]"
+    )
+    prompt = (
+        f"{get_system_prompt('ig_comments_batch_eval', default_prompt)}\n\n"
+        f"کپشن پست:\n{caption[:800]}\n\n"
+        f"کامنت‌ها:\n{comments_formatted}"
     )
 
     payload = {
@@ -380,10 +388,99 @@ Reject only obvious spam, sellers advertising their own goods, jokes, and comple
 Return JSON: {"results":[{"id":"...","is_buyer":true,"intent_score":0.80,"reason":"short Persian explanation"}]}"""
 
 
+def analyze_post_caption_offer(
+    caption: str,
+    trigger_word: str = "",
+    business_id: Optional[int] = None,
+    product_context: str = "دندانپزشکی"
+) -> Dict[str, str]:
+    """
+    Analyzes the Instagram post caption with Luna (gpt-6-luna) to extract:
+    1. The exact service/offer in the post.
+    2. The customer's inferred need based on the post caption and trigger word.
+    3. The suggested personalized direct message without emojis.
+    Caches the result per caption hash.
+    """
+    if not caption or not caption.strip():
+        need_str = f"استعلام و درخواست اطلاعات در خصوص خدمات {product_context}"
+        suggested = f"سلام {{username}} عزیز، وقتتون بخیر. در خصوص استعلام شما پیرامون خدمات {product_context}، مشخصات و شرایط خدمت شما تقدیم می‌شود."
+        return {"need": need_str, "suggested_reply": suggested, "offer": product_context}
+
+    import hashlib
+    from django.core.cache import cache
+
+    caption_clean = caption.strip()[:1000]
+    cap_hash = hashlib.sha256(caption_clean.encode("utf-8")).hexdigest()[:16]
+    cache_key = f"ig_cap_analysis:{cap_hash}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    from apps.core.llm import chat_json
+    from apps.core.prompts import get_system_prompt
+
+    default_sys_prompt = (
+        "شما تحلیل‌گر فروش دندانپزشکی و خدمات در اینستاگرام هستید. "
+        "مخاطب در کامنت یک کلمه یا عدد کوتاه در پاسخ به این پست ارسال کرده است. "
+        "وظیفه شما این است که صرفاً بر اساس کپشن پست، تشخیص دهید پیشنهاد یا خدمت مطرح‌شده در این پست چیست، "
+        "نیاز مشتری را در یک جمله کوتاه مشخص کنید و یک پیام دایرکت اختصاصی، مودبانه و بدون هیچ‌گونه ایموجی برای او تدوین نمایید.\n"
+        "الزامات قطعی:\n"
+        "۱. در ابتدای پیام از {username} استفاده کنید (مثال: سلام {username} عزیز، وقتتون بخیر).\n"
+        "۲. مطلقاً از هیچ ایموجی یا شکلکی استفاده نکنید.\n"
+        "۳. هیچ لینک مستقیم یا شماره تماسی قرار ندهید.\n"
+        "۴. خروجی را دقیقاً در قالب JSON با این کلیدها برگردانید:\n"
+        "{\"need\": \"شرح نیاز مشتری بر اساس پست\", \"suggested_reply\": \"متن کامل پیام ساجست شده...\", \"offer\": \"عنوان خدمت\"}"
+    )
+
+    sys_prompt = get_system_prompt("ig_caption_offer_discovery", default_sys_prompt)
+    payload = {
+        "post_caption": caption_clean,
+        "trigger_word": trigger_word or "استعلام قیمت و شرایط",
+        "domain": product_context or "خدمات تخصصی دندانپزشکی",
+    }
+
+    try:
+        res = chat_json(
+            sys_prompt,
+            json.dumps(payload, ensure_ascii=False),
+            purpose="instagram_caption_offer_eval",
+            business_id=business_id,
+            max_tokens=400,
+            attempts=2
+        )
+        if isinstance(res, dict):
+            need = str(res.get("need") or f"استعلام و درخواست اطلاعات پیرامون پیشنهاد مطرح‌شده در پست ({trigger_word or product_context})").strip()
+            suggested = str(res.get("suggested_reply") or res.get("template") or "").strip()
+            # Absolute prohibition of emojis: strip any emoticons if present
+            suggested = EMOJI_PATTERN.sub("", suggested).strip()
+            if suggested:
+                out = {
+                    "need": need,
+                    "suggested_reply": suggested,
+                    "offer": str(res.get("offer", product_context)).strip(),
+                }
+                cache.set(cache_key, out, timeout=30 * 86400)
+                return out
+        raise ValueError("Incomplete LLM output")
+    except Exception as exc:
+        logger.warning("Caption offer analysis failed: %s", exc)
+        out = {
+            "need": f"استعلام و درخواست اطلاعات پیرامون پیشنهاد مطرح‌شده در پست ({trigger_word or product_context})",
+            "suggested_reply": f"سلام {{username}} عزیز، وقتتون بخیر. پیرامون پستی که مشاهده فرمودید، جزئیات کامل و شرایط ویژه خدمت شما تقدیم می‌شود.",
+            "offer": product_context,
+        }
+        cache.set(cache_key, out, timeout=60)
+        return out
+
+
 def evaluate_comment_smart(comment_text: str, caption: str = "", cta_word: Optional[str] = None,
                            product_context: str = "", repeated_triggers=None, buyer_signals=None,
-                           negative_signals=None) -> Dict[str, Any]:
-    """Cheap regex pass. Uncertain comments are deferred to ``llm_evaluate_family_batch``."""
+                           negative_signals=None, business_id: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Evaluates an Instagram comment.
+    For short words or numbers (CTA triggers), evaluates the post CAPTION directly via AI
+    to discover the customer's need and draft the suggested DM, without re-evaluating the comment text.
+    """
     if not comment_text or not comment_text.strip():
         return {"is_lead": False, "reason": "empty"}
     is_emoji, reason = is_pure_emoji_or_symbols_only(comment_text)
@@ -392,18 +489,56 @@ def evaluate_comment_smart(comment_text: str, caption: str = "", cta_word: Optio
     rejected, reason = is_toxic_or_spam_comment(comment_text)
     if rejected or is_generic_compliment_comment(comment_text):
         return {"is_lead": False, "is_toxic": bool(rejected), "reason": reason or "generic_compliment"}
+
     from apps.discovery.instagram_families import cheap_buyer_match
     normalized = comment_text.casefold()
     if any(str(s).casefold() in normalized for s in negative_signals or []):
         return {"is_lead": False, "reason": "family_negative_signal"}
+
     matched = cta_word if cta_word and cta_word.casefold() in normalized else None
+
+    # Check if comment is a numeric CTA or single/two-word short inquiry
+    clean_content = EMOJI_PATTERN.sub("", comment_text).strip(" .!،؟?~_-«»\"'#@*()[]{}<>^%$+=/\\").strip()
+    clean_words = clean_content.split()
+    is_short_cta = (
+        clean_content.isdigit()
+        or len(clean_words) == 1
+        or (len(clean_words) <= 2 and len(clean_content) <= 14)
+        or bool(matched)
+    )
+
+    if is_short_cta:
+        # User commented a single word, number or trigger: evaluate CAPTION directly with AI
+        caption_info = analyze_post_caption_offer(
+            caption=caption,
+            trigger_word=clean_content or (cta_word or ""),
+            business_id=business_id,
+            product_context=product_context or "دندانپزشکی",
+        )
+        return {
+            "is_lead": True,
+            "is_direct_cta": True,
+            "is_short_word_cta": True,
+            "intent_score": 0.90,
+            "matched_cta": f"short_trigger:{clean_content[:20]}" if clean_content else (f"cta:{matched}" if matched else "short_cta"),
+            "need": caption_info.get("need", f"استعلام درباره پیشنهاد پست ({clean_content})"),
+            "suggested_reply": caption_info.get("suggested_reply", ""),
+            "why_selected": "ثبت عدد یا کلمه کوتاه کلیدی در پاسخ به پیشنهاد کپشن پست",
+            "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0,
+        }
+
     if not matched and not cheap_buyer_match(comment_text, buyer_signals or []):
         return {"is_lead": False, "is_ambiguous": True, "reason": "needs_batched_review"}
-    return {"is_lead": True, "is_direct_cta": True, "intent_score": 0.86,
-            "matched_cta": f"cta:{matched}" if matched else "regex_buyer_signal",
-            "need": f"استعلام دربارهٔ {product_context or 'محصول'}",
-            "why_selected": "کامنت یک نشانهٔ خرید یا فراخوان مستقیم داشت",
-            "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
+
+    return {
+        "is_lead": True,
+        "is_direct_cta": True,
+        "intent_score": 0.86,
+        "matched_cta": f"cta:{matched}" if matched else "regex_buyer_signal",
+        "need": f"استعلام دربارهٔ {product_context or 'محصول'}",
+        "why_selected": "کامنت یک نشانهٔ خرید یا فراخوان مستقیم داشت",
+        "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0
+    }
 
 
 def llm_evaluate_family_batch(comments: List[Dict[str, Any]], *, business_id: int, family_context: dict,

@@ -106,7 +106,9 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
                                    cards: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Queries per family, interleaved per seller up to ``X_QUERY_MAX_PER_TENANT``, exact duplicates merged (one search,
     tagged with every product/seller it belongs to)."""
-    from workers.x_collector.intent_queries import product_queries
+    from workers.x_collector.intent_queries import product_queries, _quote
+    from workers.x_collector.families import _DENTAL_ROOTS, _DENTAL_DISCOVERY_TERMS
+    from need_engine.text import norm
 
     terms, cards = terms or {}, cards or {}
     from workers.x_collector.families import family_cards, family_topic_contexts
@@ -116,7 +118,7 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
     contexts = family_topic_contexts(families, cards)
     for family in families:
         contexts[str(family.product_id)]["family"] = family
-    cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "40"))
+    cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "150"))
     by_business: dict[str, list[list[dict[str, Any]]]] = {}
     for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.title).casefold())):
         if not getattr(fam, "x_search_enabled", False):
@@ -126,15 +128,32 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
         if items:
             by_business.setdefault(str(fam.business_id), []).append(items)
     merged: dict[str, dict[str, Any]] = {}
+    ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
+
     for biz, lists in by_business.items():
-        picked = 0
+        # Inject universal high-intent discovery terms for dental tenants so broad queries are always covered
+        biz_fams = [f for f in families if str(f.business_id) == str(biz)]
+        all_text = " ".join(f"{getattr(f, 'title', '')} {getattr(f, 'category_path', '')}" for f in biz_fams)
+        if any(root in norm(all_text) for root in _DENTAL_ROOTS):
+            all_pids = sorted({str(pid) for f in biz_fams for pid in getattr(f, "member_product_ids", [f.product_id])})
+            for phrase in _DENTAL_DISCOVERY_TERMS:
+                query = f"{_quote(phrase)} {ops}".strip()
+                key = query.casefold()
+                if key not in merged:
+                    merged[key] = {
+                        "query": query,
+                        "kind": "problem" if any(x in phrase for x in ("درد", "خراب", "لق", "پوسیدگی", "عفونت")) else "intent",
+                        "product_ids": all_pids,
+                        "business_ids": [str(biz)],
+                        "priority": 1.5,
+                    }
+
         for rank in range(max((len(x) for x in lists), default=0)):     # round robin: no family starves the others
             for items in lists:
-                if rank >= len(items) or picked >= cap:
+                if rank >= len(items) or len(merged) >= cap:
                     continue
                 item = items[rank]
                 key = item["query"].casefold()
-                picked += 1
                 if key in merged:
                     hit = merged[key]
                     hit["product_ids"] = sorted(set(hit["product_ids"]) | set(item["product_ids"]))
@@ -181,6 +200,11 @@ def _load_intent_queries(config, source, products, x_mode, mode):
     if skipped:
         log.info("X search paused for %d products (seller balance used up)", len(skipped))
     products_on = [p for p in products_on if not (p.business_id and str(p.business_id) in blocked)]
+    # Strictly limit X collector queries to dental tenant only
+    products_on = [
+        p for p in products_on
+        if (str(p.business_id) == "4" or "دند" in str(getattr(p, "category_path", "")) or "دند" in str(getattr(p, "title", "")))
+    ]
     from workers.x_collector.families import build_families, load_notes
 
     families = build_families(products_on, load_notes(source.db))

@@ -23,6 +23,11 @@ from instagram_engine.models import (
 )
 from instagram_engine.config import settings
 from instagram_engine.session_manager import SessionManager
+try:
+    from apps.core.prompts import get_system_prompt
+except Exception:
+    def get_system_prompt(key, default):
+        return default
 from instagram_engine.circuit_breaker import handle_instagram_exceptions, CircuitBreakerTriggered
 from instagram_engine.analyzer import (
     _call_llm_completion,
@@ -63,10 +68,12 @@ def generate_personalized_dm(
 
     if settings.llm_api_key:
         try:
+            default_sys = "You write ultra-personalized, natural Persian Instagram direct messages. Never include links, mentions, or phone numbers."
+            sys_content = get_system_prompt("ig_outreach_dm", default_sys)
             payload = {
                 "model": settings.llm_model,
                 "messages": [
-                    {"role": "system", "content": "You write ultra-personalized, natural Persian Instagram direct messages. Never include links, mentions, or phone numbers."},
+                    {"role": "system", "content": sys_content},
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": 0.4,
@@ -214,7 +221,7 @@ class OutreachWorker:
                     Lead.tenant_id == self.tenant_id,
                     Lead.status == LeadStatus.NEW,
                 )
-                .order_by(Lead.intent_score.desc(), Lead.created_at.asc())
+                .order_by(Lead.outreach_score.desc(), Lead.intent_score.desc(), Lead.comment_created_at.desc().nullslast())
                 .limit(max_batch)
                 .all()
             )
