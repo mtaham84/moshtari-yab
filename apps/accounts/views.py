@@ -757,10 +757,10 @@ def update_lead_phone_view(request):
     if lead.ig_user_pk:
         cust, _ = Customer.objects.get_or_create(
             business=business,
+            source_platform="instagram",
             external_user_id=str(lead.ig_user_pk),
             defaults={
                 "name": lead.full_name or lead.username,
-                "source_platform": "instagram",
                 "source_username": lead.username,
                 "source_profile_url": lead.profile_url or f"https://www.instagram.com/{lead.username}/",
             }

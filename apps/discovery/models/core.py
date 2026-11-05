@@ -233,6 +233,14 @@ class Customer(models.Model):
         verbose_name = "مشتری کشف‌شده"
         verbose_name_plural = "مشتریان کشف‌شده"
         ordering = ["-created_at"]
+        constraints = [
+            # one identity per platform account inside a business (a Telegram id and an Instagram pk can collide)
+            models.UniqueConstraint(
+                fields=["business", "source_platform", "external_user_id"],
+                condition=~models.Q(external_user_id=""),
+                name="uniq_customer_per_platform",
+            ),
+        ]
 
     def __str__(self):
         display_name = self.name or self.source_username or self.external_user_id or "کاربر ناشناس"
