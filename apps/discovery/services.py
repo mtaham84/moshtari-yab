@@ -115,12 +115,50 @@ def business_for_tenant(tenant_id):
     return Business.objects.filter(pk=int(tenant[len("tenant_"):])).first()
 
 
+# Heuristic fit scores (not measured): how a product matched the comment/caption text.
+FIT_NAME_WORD = 0.94
+FIT_INSTAGRAM_TERM = 0.86
+FIT_HASHTAG = 0.80
+FIT_NONE = 0.0
+
+
+def _first_not_none(*values, default: float) -> float:
+    """First value that is not None (0.0 is a real score, unlike `a or b`)."""
+    for value in values:
+        if value is not None:
+            return float(value)
+    return default
+
+
+def _name_words(product) -> list[str]:
+    return [w for w in product.name.lower().split() if len(w) > 2]
+
+
+def _score_product_against_text(product, text: str) -> int:
+    """Keyword overlap between a product and a lowercased comment/caption text (0 = unrelated)."""
+    score = 3 * sum(1 for word in _name_words(product) if word in text)
+    score += 4 * sum(1 for term in (product.instagram_terms or []) if term.lower() in text)
+    score += 2 * sum(1 for tag in (product.instagram_hashtags or []) if tag.lower() in text)
+    return score
+
+
+def _product_fit_score(product, text: str) -> float:
+    if product is None:
+        return FIT_NONE
+    if any(word in text for word in _name_words(product)):
+        return FIT_NAME_WORD
+    if any(term.lower() in text for term in (product.instagram_terms or [])):
+        return FIT_INSTAGRAM_TERM
+    if any(tag.lower() in text for tag in (product.instagram_hashtags or [])):
+        return FIT_HASHTAG
+    return FIT_NONE
+
+
 def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain with accurate Luna GPT-6 billing."""
     import re
     from decimal import Decimal
     from django.db import transaction
-    from apps.businesses.models import Business
     from apps.products.models import Product
     from apps.billing.models import BillingSettings, WalletTransaction
     from decimal import ROUND_HALF_UP
@@ -172,30 +210,16 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             customer.name = lead.full_name
             customer.save(update_fields=["name"])
 
-        # Find best matching product in business
+        # Find best matching product in business; no keyword overlap means no product (never a fake "match").
         active_products = list(Product.objects.filter(business=business, status="ACTIVE", is_discovery_active=True).select_related("category"))
+        combined_text = f"{lead.comment_text} {lead.post_caption_snippet or ''}".lower()
         matched_product = None
-        if active_products:
-            combined_text = f"{lead.comment_text} {lead.post_caption_snippet or ''}".lower()
-            best_score = -1
-            for p in active_products:
-                score = 0
-                for word in p.name.lower().split():
-                    if len(word) > 2 and word in combined_text:
-                        score += 3
-                if p.instagram_terms:
-                    for term in p.instagram_terms:
-                        if term.lower() in combined_text:
-                            score += 4
-                if p.instagram_hashtags:
-                    for tag in p.instagram_hashtags:
-                        if tag.lower() in combined_text:
-                            score += 2
-                if score > best_score:
-                    best_score = score
-                    matched_product = p
-            if not matched_product or best_score <= 0:
-                matched_product = active_products[0]
+        best_score = 0
+        for p in active_products:
+            score = _score_product_against_text(p, combined_text)
+            if score > best_score:
+                best_score = score
+                matched_product = p
 
         opp, created = Opportunity.objects.get_or_create(
             business=business,
@@ -263,7 +287,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             opp.trace_metadata["instagram"] = ig_m
             opp.save(update_fields=["trace_metadata", "source_posted_at", "source_message_timestamp"])
 
-        intent_flt = float(lead.intent_score or (ai_meta.get("intent_score") if ai_meta else 0.90) or 0.90)
+        intent_flt = _first_not_none(lead.intent_score, (ai_meta or {}).get("intent_score"), default=0.0)
         prod_name = matched_product.name if matched_product else "محصول مورد نظر"
 
         # Suggested reply and reasoning from AI or direct template
@@ -271,15 +295,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
         why_str = (ai_meta.get("why_selected") if ai_meta else None) or f"ثبت کامنت متقاضی خرید ({lead.matched_cta or 'استعلام قیمت/مشاوره'}) زیر پست مرتبط اینستاگرام"
         suggested_reply_str = (ai_meta.get("suggested_reply") if ai_meta else None) or f"سلام و احترام جناب/سرکار {customer.display_identifier} عزیز، در پاسخ به استعلام شما در خصوص «{prod_name}»، شرایط همکاری و مشخصات کامل خدمت شما ارسال گردید."
         model_name = "gpt-6-luna" if (ai_meta and not ai_meta.get("is_direct_cta")) else "instagram_direct_cta"
-        dynamic_fit_score = 0.72
-        if matched_product and active_products:
-            p_name = matched_product.name.lower()
-            if any(w in combined_text for w in p_name.split() if len(w) > 2):
-                dynamic_fit_score = 0.94
-            elif matched_product.instagram_terms and any(t.lower() in combined_text for t in matched_product.instagram_terms):
-                dynamic_fit_score = 0.86
-            elif matched_product.instagram_hashtags and any(h.lower() in combined_text for h in matched_product.instagram_hashtags):
-                dynamic_fit_score = 0.80
+        dynamic_fit_score = _product_fit_score(matched_product, combined_text)
 
         AIAnalysis.objects.update_or_create(
             opportunity=opp,

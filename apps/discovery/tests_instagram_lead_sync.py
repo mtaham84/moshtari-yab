@@ -101,3 +101,31 @@ class BilledTomanTests(TestCase):
         cfg.markup_percent = Decimal("150")
         self.assertEqual(billed_toman(1, cfg), Decimal("250000.00"))
         self.assertEqual(billed_toman(None, cfg), Decimal("0.00"))
+
+
+class LeadScoringTests(TestCase):
+    def setUp(self):
+        from apps.products.models import Product
+
+        self.biz = _business("scoring@example.com")
+        self.product = Product.objects.create(business=self.biz, name="دستکش چرمی", description="x", price=100,
+                                              status="ACTIVE", is_discovery_active=True)
+
+    def test_zero_intent_stays_zero(self):
+        opp = sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}", intent_score=0.0),
+                                                 ai_meta={"intent_score": 0.9})
+        self.assertEqual(opp.ai_analysis.intent_score, 0.0)
+
+    def test_unrelated_comment_gets_no_product_match(self):
+        from apps.discovery.models import OpportunityProductMatch
+
+        opp = sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}", comment_text="سلام وقت بخیر"))
+        self.assertEqual(OpportunityProductMatch.objects.filter(opportunity=opp).count(), 0)
+        self.assertEqual(opp.ai_analysis.product_fit_score, 0.0)
+
+    def test_related_comment_matches_product(self):
+        from apps.discovery.models import OpportunityProductMatch
+
+        opp = sync_instagram_lead_to_opportunity(_lead(f"tenant_{self.biz.pk}", comment_text="قیمت دستکش چنده"))
+        self.assertEqual(OpportunityProductMatch.objects.get(opportunity=opp).product, self.product)
+        self.assertEqual(opp.ai_analysis.product_fit_score, 0.94)
