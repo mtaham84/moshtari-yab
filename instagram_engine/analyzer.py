@@ -88,7 +88,7 @@ def extract_caption_cta(caption: Optional[str]) -> Optional[str]:
 
 
 from apps.discovery.comment_moderation import is_toxic_or_spam_comment, is_pure_emoji_or_symbols_only
-from instagram_engine.post_filters import is_irrelevant_post_for_business, is_generic_compliment_comment, EMOJI_PATTERN
+from instagram_engine.post_filters import is_generic_compliment_comment, EMOJI_PATTERN
 
 PERSIAN_COMMENT_STOPWORDS = {
     "و", "در", "به", "از", "که", "این", "رو", "را", "با", "برای", "است", "شد", "بود",

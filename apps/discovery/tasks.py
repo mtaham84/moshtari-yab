@@ -15,7 +15,6 @@ from django.conf import settings
 from django.utils import timezone as django_tz
 
 from apps.discovery.models.instagram import InstagramEngineAccount
-from apps.discovery.models.proxy import ProxyConfig
 from apps.discovery.human_routine import HumanShiftPlanner  # noqa: F401  (tests patch tasks.HumanShiftPlanner)
 from apps.discovery.outreach_engine import get_available_senders, reply_sync_allowed, run_outreach_batch
 from apps.discovery.outreach_service import check_and_sync_lead_replies

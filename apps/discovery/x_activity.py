@@ -7,7 +7,7 @@ import logging
 import os
 import re
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.db import connection
 from django.utils import timezone

@@ -46,7 +46,6 @@ except Exception as exc:
 from apps.discovery.channel_config_automation import (
     sync_all_active_channels,
     sync_channel_configs,
-    get_monitored_channels,
 )
 
 

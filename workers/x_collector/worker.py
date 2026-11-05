@@ -8,7 +8,7 @@ import re
 import random
 import sqlite3
 import time
-from contextlib import closing, nullcontext
+from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable

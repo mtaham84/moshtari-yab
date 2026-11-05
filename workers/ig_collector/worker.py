@@ -34,8 +34,7 @@ from .post_selection import CommentCandidate, select_comment_candidates, seller_
 
 from .backends.base import (
     AuthFailed, Fatal, InstagramBackend, InstagramComment, InstagramPost,
-    NotFound, PrivateProfile,
-    RateLimited, Transient, UnsupportedCapability,
+    NotFound, RateLimited, Transient, UnsupportedCapability,
 )
 from .lexicon import PersianIntentLexicon, normalize_fa
 

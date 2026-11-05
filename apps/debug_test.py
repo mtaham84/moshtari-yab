@@ -4,7 +4,7 @@ sys.path.insert(0, '/app')
 import json
 from pathlib import Path
 from datetime import datetime, timezone
-from workers.x_collector.worker import XCollector, normalize_tweet, filter_uncrawled_tweets
+from workers.x_collector.worker import XCollector, normalize_tweet
 import tempfile
 
 fixture = json.loads((Path('/app/workers/x_collector/tests/fixtures/x_tweets.json')).read_text(encoding='utf-8'))

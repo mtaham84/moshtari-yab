@@ -3,10 +3,8 @@ Unit tests for Human Behavioral Routine, Organic Navigation Journey, and Dispatc
 """
 import datetime
 from unittest.mock import MagicMock, patch
-from zoneinfo import ZoneInfo
 
 from django.test import TestCase
-from django.utils import timezone
 
 from apps.discovery.human_routine import DailyShiftSchedule, HumanShiftPlanner, TEHRAN_TZ
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead

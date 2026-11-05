@@ -18,7 +18,6 @@ import re
 import sys
 import threading
 import time
-import urllib.parse
 from typing import Any
 
 # Configure logging
@@ -64,12 +63,9 @@ except Exception as exc:
 
 from shared.telegram_alerts import load_subscribers, save_subscribers  # noqa: E402
 from xray.multi_proxy_manager import (
-    validate_config_format,
     add_proxy_config,
     prune_dead_configs,
-    assign_proxies_to_accounts,
-    rebuild_xray_config_file,
-    reload_xray_service
+    assign_proxies_to_accounts
 )
 
 

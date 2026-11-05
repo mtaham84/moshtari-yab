@@ -9,12 +9,8 @@ Protects Instagram Sender accounts from Meta's strict Anti-Abuse Risk Engine:
 from __future__ import annotations
 
 import logging
-import re
-import socket
 import time
-from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Any, Dict, Optional
 
 from django.utils import timezone
 

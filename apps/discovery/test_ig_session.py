@@ -1,5 +1,4 @@
 """Pure tests for the Instagram session lifecycle helpers (no network, no DB)."""
-import json
 import os
 import stat
 

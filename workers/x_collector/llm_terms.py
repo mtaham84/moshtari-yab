@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any
 
-from workers.x_collector.intent_queries import _FA, clean_term, short_terms
+from workers.x_collector.intent_queries import clean_term, short_terms
 try:
     from apps.core.prompts import get_system_prompt
 except Exception:

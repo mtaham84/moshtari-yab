@@ -1,8 +1,7 @@
 import random
 import os
 import time
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import timezone
 
 from django.conf import settings as django_settings
 from django.core.management.base import BaseCommand
@@ -10,15 +9,10 @@ from django.utils import timezone as dj_timezone
 
 from apps.discovery.models import (
     InstagramEngineAccount,
-    InstagramEngineLead,
-    InstagramCrawledPost,
-    InstagramCrawlExecution,
 )
 from apps.discovery.ig_session import (
     ErrorKind, Policy, account_lock, classify, load_file, redact, save_atomic, session_path,
 )
-from instagram_engine.analyzer import get_effective_caption_cta, is_buyer_comment, evaluate_comment_smart
-from instagram_engine.config import settings
 
 
 class ProxyUnavailable(RuntimeError):
@@ -383,7 +377,6 @@ class Command(BaseCommand):
         Runs only if INSTAGRAM_SESSION_AUTO_REAUTH_ENABLED is on, at most INSTAGRAM_SESSION_MAX_RECOVERY_ATTEMPTS per
         incident, under a cross-container account lock. Failure cools the account down (persisted in cooldown_until).
         """
-        from datetime import timedelta
 
         if cl is None or not account.password:
             return False
@@ -488,7 +481,6 @@ class Command(BaseCommand):
         (LOGIN_REQUIRED) and only when auto-reauth is enabled; challenges, restrictions, network and unknown errors
         never log in. Returns True when the account was taken out of rotation.
         """
-        from datetime import timedelta
 
         kind = classify(exc if exc is not None else err_text)
         if kind is ErrorKind.LOGIN_REQUIRED:
@@ -1418,9 +1410,8 @@ class Command(BaseCommand):
         return posts_inspected, qualifying_posts, leads_saved, retired
 
     def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
-        from apps.discovery.models import InstagramCrawlExecution, InstagramPage, InstagramSourceStat
-        from apps.discovery.instagram_families import (DiscoverySource, INSTAGRAM_DAILY_REQUEST_BUDGET,
-                                                         record_source_result)
+        from apps.discovery.models import InstagramCrawlExecution, InstagramSourceStat
+        from apps.discovery.instagram_families import (record_source_result)
 
         total_leads = 0
         from apps.billing.services import is_blocked

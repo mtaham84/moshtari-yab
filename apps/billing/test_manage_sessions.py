@@ -18,7 +18,6 @@ from django.test import TestCase
 from apps.billing.manage_views import (
     TWITTER_SETTINGS_ENDPOINT,
     XSessionValidationResult,
-    _call_twitter_settings_endpoint,
     _get_or_generate_ct0,
     _interpret_twitter_response,
     _test_twitter_account_connection,

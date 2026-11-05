@@ -142,8 +142,6 @@ def purge_panel_x_posts(cutoff: datetime, *, delete: bool, _retention_locked: bo
     import os
 
     from django.conf import settings
-    from django.utils import timezone
-    from django.utils.dateparse import parse_datetime
 
     configured_root = Path(os.getenv("X_COLLECT_OUTPUT_DIR", "data/x_collected"))
     root = (configured_root if configured_root.is_absolute() else settings.BASE_DIR / configured_root).resolve()

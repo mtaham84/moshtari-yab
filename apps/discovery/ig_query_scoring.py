@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import random
-from typing import Any, Callable
+from typing import Callable
 
 HISTORY_DAYS = 30
 EMPTY_RUN_PENALTY = 0.5     # a run with no lead

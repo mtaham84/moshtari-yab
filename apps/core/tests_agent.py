@@ -1,6 +1,5 @@
 """Panel features of this patch: message style + «نمونه بساز», «دوباره بنویس», /r/ click links, product autofill
 (safe fetch), the editable agent card, dashboard/settings/login clean-up and the new-opportunities check."""
-import json
 import os
 from unittest import mock
 

@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from apps.businesses.models import Business
-from apps.billing.models import AIModel, Provider, Wallet, WalletTransaction
+from apps.billing.models import AIModel, Provider, WalletTransaction
 from apps.discovery.instagram_families import (
     DiscoverySource, _validate_plan, cheap_buyer_match, ensure_family_plan, lead_quality_score, sample_sources,
 )
@@ -121,7 +121,7 @@ class InstagramFamilyDatabaseTests(TestCase):
         user = get_user_model().objects.create_user(username="ig-family-test", password="x")
         self.business = Business.objects.create(user=user, name="فروشگاه پوشاک", business_type="PHYSICAL",
                                                 business_domain="پوشاک", search_notes="فروش عمده به فروشگاه‌ها")
-        from apps.billing.models import Wallet, WalletTransaction
+        from apps.billing.models import WalletTransaction
         from apps.billing.services import apply_transaction
         apply_transaction(self.business, 5000, WalletTransaction.TOPUP)
         self.family = SimpleNamespace(product_id=f"f{self.business.pk}-abc", business_id=str(self.business.pk),
@@ -323,7 +323,6 @@ class OutreachBillingDatabaseTests(TestCase):
         from apps.discovery.services import generate_opportunity_reply_suggestions
         from apps.core.models import LLMUsageLog
         from apps.billing.models import Wallet
-        from django.utils import timezone
         from unittest.mock import patch
 
         fake_chat = Mock(side_effect=lambda *args, **kwargs: self._variants("سلام"))

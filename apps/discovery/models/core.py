@@ -1,5 +1,4 @@
 from django.db import models
-from django.utils import timezone as dj_timezone
 
 from apps.businesses.models import Business
 from apps.products.models import Product, Category

@@ -1,11 +1,8 @@
-from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import Client, TestCase
 from django.urls import reverse
-from django.utils import timezone
 from apps.businesses.models import Business
-from .models import EmailVerification
 
 User = get_user_model()
 

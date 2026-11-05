@@ -5,9 +5,7 @@ import secrets
 import string
 from typing import Any
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.utils import timezone
 
 from apps.accounts.models import ActivationRequest
 from apps.businesses.models import Business

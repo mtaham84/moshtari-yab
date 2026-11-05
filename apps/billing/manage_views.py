@@ -2,7 +2,7 @@ import json
 import logging
 from collections import defaultdict
 import socket
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -16,7 +16,7 @@ except ImportError:
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import Count, Q, Sum
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone as dj_timezone
@@ -25,11 +25,11 @@ from django.views.decorators.http import require_POST, require_GET
 import zoneinfo
 
 from apps.businesses.models import Business
-from apps.billing.models import Wallet, WalletTransaction, BillingSettings
+from apps.billing.models import WalletTransaction, BillingSettings
 from apps.discovery.models import (
     InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
     InstagramSourceStat, TwitterEngineAccount, InstagramCrawledPost,
-    XCrawledPost, XSearchQuery, Opportunity, ProxyConfig
+    XCrawledPost, XSearchQuery, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
 from apps.core.http import wants_json

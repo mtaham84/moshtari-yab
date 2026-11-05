@@ -1,6 +1,5 @@
 from django.contrib import admin, messages
 from django.utils.html import format_html
-from django.utils import timezone
 
 from apps.accounts.models import ActivationRequest, EmailVerification
 from apps.accounts.services import activate_account_from_request, send_telegram_alert

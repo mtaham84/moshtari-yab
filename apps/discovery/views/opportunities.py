@@ -4,7 +4,6 @@ import json
 import logging
 import re
 from datetime import timedelta
-from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required

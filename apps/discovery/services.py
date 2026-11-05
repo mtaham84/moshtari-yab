@@ -494,7 +494,7 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
     from django.utils import timezone
     from apps.businesses.models import MessageStyle
     from apps.billing.services import is_blocked
-    from need_engine.reply import MessageStyle as EngineMessageStyle, generate_outreach_variants
+    from need_engine.reply import MessageStyle as EngineMessageStyle
     from apps.discovery.models import InstagramReplySuggestion
 
     if not force and not hasattr(opportunity, "ai_analysis"):
@@ -538,7 +538,7 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
             __import__("json").dumps(payload, ensure_ascii=False), purpose="outreach_suggestion",
             business_id=opportunity.business_id, max_tokens=1800, attempts=1,
         )
-        from need_engine.reply import validate_outreach_result, OUTREACH_SYSTEM
+        from need_engine.reply import validate_outreach_result
         validated = validate_outreach_result(result, platform=opportunity.source_platform, style=style,
                                              prior_suggestions=prior, tracked_link=tracked_link)
         _charge_outreach_llm(opportunity.business, started_at)

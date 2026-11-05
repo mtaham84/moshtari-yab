@@ -10,7 +10,6 @@ Peyda Xray Proxy Auto-Switcher & Health Monitor
 - Supports vless://, vmess://, trojan://, ss://, throne:// link parsing and batch import
 """
 
-import os
 import sys
 import json
 import time

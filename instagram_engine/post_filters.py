@@ -1,5 +1,5 @@
 import re
-from typing import Tuple, Optional
+from typing import Tuple
 
 # Keywords that indicate a Real Estate / Property / Villa sales listing
 REAL_ESTATE_LISTING_PATTERNS = [
