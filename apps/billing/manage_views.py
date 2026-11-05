@@ -31,6 +31,7 @@ from apps.discovery.models import (
     XCrawledPost, XSearchQuery, Opportunity, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
+from apps.core.http import wants_json
 from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
 from apps.discovery.ig_accounts import tenant_keys_for_business
@@ -733,12 +734,6 @@ def _normalize_digits(s: str) -> str:
 # Instagram accounts: the old dashboard endpoints, now thin wrappers over apps.discovery.ig_accounts (the same
 # service as /manage/instagram/accounts/), keeping their JSON replies for the dashboard scripts.
 # ---------------------------------------------------------------------------
-def _ig_ajax(request) -> bool:
-    return (request.headers.get("x-requested-with") == "XMLHttpRequest"
-            or request.content_type == "application/json"
-            or "application/json" in request.headers.get("Accept", ""))
-
-
 def _ig_actor(request) -> str:
     return request.user.get_username()
 
@@ -780,7 +775,7 @@ def manage_account_add(request):
     out = res.as_dict()
     out.update(account_id=acc.pk if acc else None,
                username=acc.username if acc else svc.normalize_username(p.get("username")))
-    if _ig_ajax(request):
+    if wants_json(request):
         return JsonResponse(out)
     if acc is not None and res.state in svc.LIVE_STATES:
         messages.warning(request, res.message)
@@ -874,7 +869,7 @@ def manage_sender_account_edit(request, pk):
     """The old sender editor of the dashboard (see ig_edit_sender)."""
     account = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     out = ig_edit_sender(account, request.POST, _ig_actor(request))
-    if _ig_ajax(request):
+    if wants_json(request):
         return JsonResponse(out)
     (messages.success if out["success"] else messages.error)(request, out["message"])
     return redirect("/manage/?tab=outreach")
@@ -888,7 +883,7 @@ def manage_sender_clear_cooldown(request, pk):
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     res = svc.clear_cooldown(account, actor=_ig_actor(request))
-    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+    if wants_json(request):
         return JsonResponse({"success": True, "message": res.message, "status": account.status})
     messages.success(request, res.message)
     return redirect("/manage/?tab=outreach")
@@ -1356,11 +1351,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
 @manage_access_required
 @require_POST
 def manage_twitter_account_add(request):
-    is_ajax = (
-        request.headers.get("x-requested-with") == "XMLHttpRequest"
-        or request.content_type == "application/json"
-        or "application/json" in request.headers.get("Accept", "")
-    )
+    is_ajax = wants_json(request)
     username = request.POST.get("username", "").strip().lstrip("@")
     password = request.POST.get("password", "").strip()
     auth_token = request.POST.get("auth_token", "").strip()

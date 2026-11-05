@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
+from apps.core.http import wants_json
 from apps.core.permissions import is_operator
 from apps.businesses.models import Business, MessageStyle
 from apps.businesses.services import ensure_business
@@ -572,7 +573,7 @@ def sync_replies_view(request):
     tenant_keys = _outreach_tenant_keys(business)
 
     res = check_and_sync_lead_replies(tenant_keys)
-    if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.GET.get("format") == "json":
+    if wants_json(request):
         return JsonResponse({"success": True, "replies_found": res.get("replies_found", 0), "details": res.get("details", [])})
 
     found = res.get("replies_found", 0)
@@ -597,7 +598,7 @@ def send_followup_view(request):
 
     business = getattr(request.user, "business", None)
     is_staff = is_operator(request.user)
-    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    is_ajax = wants_json(request)
 
     def _fail(error, status=400):
         if is_ajax:

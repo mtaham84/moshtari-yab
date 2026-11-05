@@ -188,3 +188,17 @@ class OperatorPermissionTests(TestCase):
         self.assertFalse(is_operator(AnonymousUser()))
         self.assertFalse(is_operator(None))
         self.assertTrue(is_operator(User(username="s", is_staff=True)))
+
+
+class WantsJsonTests(TestCase):
+    def test_detection(self):
+        from django.test import RequestFactory
+
+        from apps.core.http import wants_json
+
+        rf = RequestFactory()
+        self.assertTrue(wants_json(rf.get("/", HTTP_X_REQUESTED_WITH="XMLHttpRequest")))
+        self.assertTrue(wants_json(rf.get("/", HTTP_ACCEPT="application/json")))
+        self.assertTrue(wants_json(rf.get("/?format=json")))
+        self.assertTrue(wants_json(rf.post("/", data="{}", content_type="application/json")))
+        self.assertFalse(wants_json(rf.get("/", HTTP_ACCEPT="text/html")))
