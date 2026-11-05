@@ -202,3 +202,21 @@ class WantsJsonTests(TestCase):
         self.assertTrue(wants_json(rf.get("/?format=json")))
         self.assertTrue(wants_json(rf.post("/", data="{}", content_type="application/json")))
         self.assertFalse(wants_json(rf.get("/", HTTP_ACCEPT="text/html")))
+
+
+class ChatJsonErrorChainTests(TestCase):
+    """LLM-05: the last provider error is chained onto LLMError instead of being lost."""
+
+    def test_last_exception_is_the_cause(self):
+        from unittest.mock import patch
+
+        from apps.billing.models import AIModel, Provider
+        from apps.core.llm import LLMError, chat_json
+
+        p = Provider.objects.create(name="P", base_url="https://p.example/v1", api_key="PK")
+        AIModel.objects.create(provider=p, name="m1")
+        boom = ConnectionError("connection reset")
+        with patch("urllib.request.urlopen", side_effect=boom), self.assertLogs("core.llm", level="WARNING"):
+            with self.assertRaises(LLMError) as ctx:
+                chat_json("s", "u", purpose="test", attempts=1)
+        self.assertIs(ctx.exception.__cause__, boom)
