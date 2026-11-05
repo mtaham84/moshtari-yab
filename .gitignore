@@ -59,3 +59,4 @@ xray/config.json.tmp
 *.dump
 
 database_structure_report.*
+data/bot_subscribers.json
