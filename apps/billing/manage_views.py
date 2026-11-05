@@ -2132,7 +2132,8 @@ def manage_proxy_channel_add(request):
     try:
         clean_user = normalize_channel_username(raw_channel)
         channel_data = add_monitored_channel(clean_user, title=title)
-        messages.success(request, f"کانال @{clean_user} با موفقیت به لیست پایش کانفیگ اضافه شد.")
+        # JSON endpoint: the page shows this message as a toast; a flash
+        # message here would show it a second time on the next page load.
         return JsonResponse({
             "success": True,
             "message": f"کانال @{clean_user} با موفقیت به لیست اضافه شد.",
