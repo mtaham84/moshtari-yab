@@ -161,14 +161,9 @@ def manage_dashboard(request):
     senders_total = senders.count()
     senders_active = senders.filter(status="ACTIVE").count()
 
-    from apps.discovery.device_emulator import ensure_account_device_profile
     all_ig_accounts = list(senders) + list(scrapers)
-    for acc in all_ig_accounts:
-        if not acc.device_settings or not isinstance(acc.device_settings, dict) or not acc.device_settings.get("device_settings"):
-            try:
-                ensure_account_device_profile(acc)
-            except Exception:
-                pass
+    # Device profiles are assigned when a client is built (device_emulator.apply_device_profile_to_client) and
+    # backfilled by `manage.py instagram_backfill --device-profiles`; a GET of the dashboard writes nothing.
 
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]

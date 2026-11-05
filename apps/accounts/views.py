@@ -427,7 +427,7 @@ def outreach_view(request):
     # Attach pitch preview and ensure score details
     for lead_item in top_leads_qs:
         if not lead_item.outreach_score:
-            update_lead_scoring(lead_item, commit=True)
+            update_lead_scoring(lead_item, commit=False)   # GET: score in memory; the scraper stores it
         lead_item.pitch_preview = build_bulletproof_message(
             lead=lead_item,
             consultant_name=default_consultant,
@@ -962,7 +962,7 @@ def outreach_leads_export_csv(request):
 
     for lead in qs[:500]:
         if not lead.outreach_score:
-            update_lead_scoring(lead, commit=True)
+            update_lead_scoring(lead, commit=False)   # GET: score in memory; the scraper stores it
 
         user_handle = f"@{lead.username.lstrip('@')}" if lead.username else "-"
         page_type = lead.display_page_type

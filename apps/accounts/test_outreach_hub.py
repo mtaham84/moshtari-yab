@@ -117,3 +117,31 @@ class OutreachExportTenantTests(TestCase):
 
         self.assertEqual(tenant_keys_for_business(4), ["tenant_4", "sarv"])
         self.assertEqual(tenant_keys_for_business(self.business), [f"tenant_{self.business.id}"])
+
+
+class OutreachReadOnlyGetTests(TestCase):
+    """BUG-09: opening the outreach page or its CSV export must not write to the database."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="ro@example.com", password="secret-pass-1")
+        self.business = Business.objects.create(user=self.user, name="کلینیک", business_domain="")
+        InstagramEngineLead.objects.create(tenant_id=f"tenant_{self.business.id}", username="buyer", ig_user_pk="1",
+                                           comment_text="قیمت؟", outreach_score=0, comment_created_at=timezone.now())
+        self.client.force_login(self.user)
+
+    def _writes(self, url, params=None):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            res = self.client.get(url, params or {})
+        self.assertEqual(res.status_code, 200)
+        return [q["sql"] for q in ctx.captured_queries if q["sql"].lstrip().upper().startswith(("UPDATE", "INSERT"))]
+
+    def test_export_is_read_only(self):
+        self.assertEqual(self._writes(reverse("accounts:outreach_export"), {"five_days": "0"}), [])
+
+    def test_outreach_page_does_not_store_scores(self):
+        writes = self._writes(reverse("accounts:outreach"))
+        self.assertFalse([sql for sql in writes if "discovery_instagramengineleads" in sql.lower()
+                          or "instagramenginelead" in sql.lower()], writes)
