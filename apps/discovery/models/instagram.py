@@ -499,7 +499,7 @@ class InstagramEngineLead(models.Model):
 class InstagramCrawledPost(models.Model):
     post_hash = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="هش شناسه پست")
     media_id = models.CharField(max_length=64, db_index=True, verbose_name="شناسه پست اینستاگرام")
-    media_code = models.CharField(max_length=32, blank=True, verbose_name="کد کوتاه پست")
+    media_code = models.CharField(max_length=32, blank=True, db_index=True, verbose_name="کد کوتاه پست")
     account_username = models.CharField(max_length=100, verbose_name="اکانت اسکرپر")
     posted_at = models.DateTimeField(db_index=True, verbose_name="زمان انتشار پست")
     crawled_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="زمان ثبت کرول")
@@ -515,6 +515,7 @@ class InstagramCrawledPost(models.Model):
             models.Index(fields=["crawled_at"], name="ix_ig_crawled_at"),
             models.Index(fields=["posted_at"], name="ix_ig_posted_at"),
             models.Index(fields=["post_hash"], name="ix_ig_post_hash"),
+            models.Index(fields=["account_username", "-crawled_at"], name="ix_ig_post_acc_crawl"),
         ]
 
     def __str__(self):
@@ -524,7 +525,7 @@ class InstagramCrawledPost(models.Model):
     def post_url(self) -> str:
         if self.media_code:
             return f"https://www.instagram.com/p/{self.media_code}/"
-        return f"https://www.instagram.com/p/{self.media_id}/" if self.media_id else ""
+        return ""
 
     @property
     def crawled_at_jalali(self) -> str:
@@ -632,7 +633,7 @@ class InstagramCrawlExecution(models.Model):
         verbose_name="کد پست مبدا استخراج",
     )
     top_post_url = models.CharField(
-        max_length=255,
+        max_length=500,
         blank=True,
         default="",
         verbose_name="لینک پست مبدا استخراج",

@@ -114,7 +114,7 @@
     word-break: break-all;
   }
   .hero-post-box {
-    background: #f8fafc;
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 16px 20px;
@@ -163,7 +163,7 @@
     -webkit-overflow-scrolling: touch;
     border-radius: 10px;
     border: 1px solid var(--border);
-    background: #fff;
+    background: var(--card);
   }
   .table-responsive table {
     width: 100%;
@@ -179,17 +179,17 @@
     font-size: 0.88rem;
   }
   .table-responsive th {
-    background: #f8fafc;
+    background: var(--bg);
     font-weight: 700;
-    color: #475569;
+    color: var(--muted);
     border-bottom: 2px solid var(--border);
     white-space: nowrap;
   }
   .table-responsive tbody tr:hover {
-    background: #fdfdfd;
+    background: var(--bg-hover, rgba(125,125,125,0.05));
   }
   .table-responsive tbody tr:not(:last-child) td {
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--border);
   }
 
   /* Badges */
@@ -205,7 +205,7 @@
   .badge-warning { background: #fef3c7; color: #b45309; }
   .badge-danger  { background: #fee2e2; color: #b91c1c; }
   .badge-info    { background: #e0f2fe; color: #0369a1; }
-  .badge-neutral { background: #f1f5f9; color: #475569; }
+  .badge-neutral { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
   .badge-purple  { background: #f3e8ff; color: #7e22ce; }
 
   /* Utilities */
@@ -213,12 +213,12 @@
   .text-muted { color: var(--muted); }
   .text-accent { color: var(--accent); }
   .comment-quote {
-    background: #f8fafc;
+    background: var(--bg);
     border-right: 3px solid var(--accent);
     padding: 6px 12px;
     border-radius: 0 8px 8px 0;
     font-style: italic;
-    color: #334155;
+    color: var(--text);
     max-width: 320px;
     word-break: break-word;
     font-size: 0.84rem;
@@ -344,7 +344,7 @@
       <p>ثبت بلادرنگ آخرین رویدادهای اسکرپر، سرنخ‌های کشف‌شده، پست‌های ارزیابی‌شده و عملکرد ۲۴ ساعته اکانت‌ها</p>
     </div>
     <div class="logs-controls">
-      <span class="badge badge-neutral" style="padding: 8px 14px; font-size: 0.85rem;">
+      <span id="serverTimeBadge" class="badge badge-neutral" style="padding: 8px 14px; font-size: 0.85rem;">
         زمان رسمی سرور (تهران): {{ summary.server_time_jalali }}
       </span>
       <div style="display: flex; align-items: center; gap: 6px;">
@@ -356,12 +356,13 @@
           <option value="60">هر ۶۰ ثانیه</option>
         </select>
       </div>
-      <button class="btn btn-primary" onclick="location.reload()" style="padding: 6px 14px; font-size: 0.88rem;">
+      <button id="manualRefreshBtn" class="btn btn-primary" onclick="triggerLiveUpdate()" style="padding: 6px 14px; font-size: 0.88rem;">
         بروزرسانی داده‌ها
       </button>
     </div>
   </div>
 
+  <div id="dashboard-live-container">
   <!-- Quick Metrics Row -->
   <div class="logs-metrics-grid">
     <div class="metric-card">
@@ -456,8 +457,8 @@
       <!-- Target Post Box where comments were extracted -->
       <div class="hero-post-box">
         <div class="hero-post-header">
-          <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b;">
-            پست یافت‌شده که از آن کامنت استخراج شده است:
+          <div style="font-weight: 700; font-size: 0.95rem; color: var(--text);">
+            پست مبدا استخراج کامنت:
           </div>
           <div>
             {% if latest_execution.top_post_url %}
@@ -478,13 +479,19 @@
             <span style="font-weight: 600;">{{ latest_execution.top_post_taken_at }}</span>
           </div>
           <div>
-            <span class="text-muted" style="font-size: 0.82rem;">تعداد کل کامنت‌های این پست:</span>
+            <span class="text-muted" style="font-size: 0.82rem;">کامنت‌های بررسی‌شده در این کرول:</span>
             <span style="font-weight: 700; color: #7c3aed;">{{ latest_execution.comments_found }}</span>
           </div>
+          {% if latest_execution.top_post_code %}
+          <div>
+            <span class="text-muted" style="font-size: 0.82rem;">کل کامنت‌های این پست در اینستاگرام:</span>
+            <span style="font-weight: 700; color: #0284c7;">{{ latest_execution.top_post_comment_count }}</span>
+          </div>
+          {% endif %}
         </div>
 
         {% if latest_execution.top_post_caption %}
-          <div style="font-size: 0.85rem; color: #475569; background: #fff; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 6px;">
+          <div style="font-size: 0.85rem; color: var(--text); background: var(--bg); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); margin-top: 6px;">
             <b>کپشن پست:</b> {{ latest_execution.top_post_caption }}
           </div>
         {% endif %}
@@ -733,7 +740,7 @@
                 <span class="badge badge-purple">{{ lead.intent_label }}</span>
               </td>
               <td style="white-space: nowrap;">
-                <div><b style="color: var(--accent); font-size: 1rem;">{{ lead.outreach_score }}</b> <small class="text-muted">/ ۳۵</small></div>
+                <div><b style="color: var(--accent); font-size: 1rem;">{{ lead.outreach_score }}</b> <small class="text-muted">/ ۴۵</small></div>
                 <div class="text-muted" style="font-size: 0.76rem;">احتمال: {{ lead.success_probability }}%</div>
               </td>
               <td>
@@ -786,10 +793,49 @@
       </table>
     </div>
   </div>
+  </div>
 </div>
 
 <script>
   let refreshTimer = null;
+  let isUpdating = false;
+
+  async function triggerLiveUpdate() {
+    if (isUpdating) return;
+    if (document.hidden) return;
+    isUpdating = true;
+    const btn = document.getElementById('manualRefreshBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+    }
+    try {
+      const resp = await fetch(window.location.href, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const text = await resp.text();
+      const doc = new DOMParser().parseFromString(text, 'text/html');
+      const newContainer = doc.getElementById('dashboard-live-container');
+      const curContainer = document.getElementById('dashboard-live-container');
+      if (newContainer && curContainer) {
+        curContainer.innerHTML = newContainer.innerHTML;
+      }
+      const newServerTime = doc.getElementById('serverTimeBadge');
+      const curServerTime = document.getElementById('serverTimeBadge');
+      if (newServerTime && curServerTime) {
+        curServerTime.innerHTML = newServerTime.innerHTML;
+      }
+    } catch (err) {
+      console.warn('Live update notice:', err);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
+      isUpdating = false;
+    }
+  }
 
   function handleAutoRefreshChange(seconds) {
     if (refreshTimer) {
@@ -799,13 +845,18 @@
     const sec = parseInt(seconds, 10);
     if (sec > 0) {
       localStorage.setItem('ig_logs_autorefresh', sec);
-      refreshTimer = setInterval(() => {
-        location.reload();
-      }, sec * 1000);
+      refreshTimer = setInterval(triggerLiveUpdate, sec * 1000);
     } else {
       localStorage.removeItem('ig_logs_autorefresh');
     }
   }
+
+  // Resume or trigger update when tab becomes active again
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && refreshTimer) {
+      triggerLiveUpdate();
+    }
+  });
 
   // Restore user's preferred refresh interval on page load
   document.addEventListener('DOMContentLoaded', () => {
@@ -814,6 +865,8 @@
     if (saved && select) {
       select.value = saved;
       handleAutoRefreshChange(saved);
+    } else if (select) {
+      handleAutoRefreshChange(select.value || '30');
     }
   });
 </script>

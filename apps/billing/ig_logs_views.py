@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import Any
 import zoneinfo
 
-from django.db.models import Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as dj_timezone
@@ -36,7 +36,7 @@ def _format_relative_time_fa(dt: Any, now: Any | None = None) -> str:
         return "—"
     now = now or dj_timezone.now()
     diff = (now - dt).total_seconds()
-    if diff < 0:
+    if diff < -5:
         return "در آینده"
     if diff < 60:
         return "چند ثانیه پیش"
@@ -93,21 +93,7 @@ def instagram_logs_view(request):
             if code_candidate:
                 post_obj = InstagramCrawledPost.objects.filter(media_code=code_candidate).first()
 
-        # If not linked directly, find latest crawled post by this account around that execution
-        if not post_obj and latest_exec_obj.account_username:
-            post_obj = (
-                InstagramCrawledPost.objects.filter(account_username=latest_exec_obj.account_username)
-                .order_by("-crawled_at")
-                .first()
-            )
-
-        if post_obj and not top_code:
-            top_code = post_obj.media_code
-            top_url = post_obj.post_url
-
-        comments_count = latest_exec_obj.comments_found
-        if comments_count == 0 and post_obj:
-            comments_count = post_obj.comment_count or len(post_obj.comments or [])
+        top_post_comment_count = post_obj.comment_count if post_obj else 0
 
         latest_execution = {
             "id": latest_exec_obj.id,
@@ -122,33 +108,76 @@ def instagram_logs_view(request):
             "posts_inspected": latest_exec_obj.posts_inspected,
             "qualifying_posts": latest_exec_obj.qualifying_posts,
             "leads_found": latest_exec_obj.leads_found,
-            "comments_found": comments_count,
+            "comments_found": latest_exec_obj.comments_found,
+            "top_post_comment_count": top_post_comment_count,
             "top_post_code": top_code,
-            "top_post_url": top_url,
+            "top_post_url": top_url or (post_obj.post_url if post_obj else ""),
             "top_post_caption": (post_obj.caption[:250] + "...") if (post_obj and len(post_obj.caption or "") > 250) else (post_obj.caption if post_obj else ""),
             "top_post_taken_at": _format_exact_jalali_tehran(post_obj.posted_at) if (post_obj and post_obj.posted_at) else "—",
             "message": latest_exec_obj.message,
         }
 
     # ---------------------------------------------------------
-    # 2. Per-Account Scraper Telemetry
+    # 2. Per-Account Scraper Telemetry (Batch aggregated to eliminate N+1)
     # ---------------------------------------------------------
-    scraper_accounts = list(InstagramEngineAccount.objects.filter(role="SCRAPER").order_by("-id"))
+    scraper_accounts = list(
+        InstagramEngineAccount.objects.filter(role="SCRAPER")
+        .select_related("proxy_config")
+        .order_by("-id")
+    )
+
+    stats_24h_rows = (
+        InstagramCrawlExecution.objects.filter(crawled_at__gte=one_day_ago)
+        .values("account_username")
+        .annotate(
+            searches=Count("id"),
+            leads=Sum("leads_found"),
+        )
+    )
+    stats_24h_by_user = {r["account_username"]: r for r in stats_24h_rows}
+
+    stats_total_rows = (
+        InstagramCrawlExecution.objects.all()
+        .values("account_username")
+        .annotate(
+            searches=Count("id"),
+            leads=Sum("leads_found"),
+        )
+    )
+    stats_total_by_user = {r["account_username"]: r for r in stats_total_rows}
+
+    try:
+        latest_execs = {
+            e.account_username: e
+            for e in InstagramCrawlExecution.objects.all()
+            .order_by("account_username", "-crawled_at")
+            .distinct("account_username")
+        }
+        latest_posts = {
+            p.account_username: p
+            for p in InstagramCrawledPost.objects.all()
+            .order_by("account_username", "-crawled_at")
+            .distinct("account_username")
+        }
+    except Exception:
+        latest_execs = {}
+        for e in InstagramCrawlExecution.objects.all().order_by("-crawled_at")[:200]:
+            if e.account_username not in latest_execs:
+                latest_execs[e.account_username] = e
+        latest_posts = {}
+        for p in InstagramCrawledPost.objects.all().order_by("-crawled_at")[:200]:
+            if p.account_username not in latest_posts:
+                latest_posts[p.account_username] = p
+
     scrapers_telemetry = []
-
     for acc in scraper_accounts:
-        exec_qs = InstagramCrawlExecution.objects.filter(
-            Q(account=acc) | Q(account_username=acc.username)
-        )
-        searches_24h = exec_qs.filter(crawled_at__gte=one_day_ago).count()
-        searches_total = exec_qs.count()
+        searches_24h = stats_24h_by_user.get(acc.username, {}).get("searches", 0)
+        leads_24h = stats_24h_by_user.get(acc.username, {}).get("leads", 0) or 0
+        searches_total = stats_total_by_user.get(acc.username, {}).get("searches", 0)
+        leads_total = stats_total_by_user.get(acc.username, {}).get("leads", 0) or 0
 
-        last_exec = exec_qs.order_by("-crawled_at").first()
-        last_post = (
-            InstagramCrawledPost.objects.filter(account_username=acc.username)
-            .order_by("-crawled_at")
-            .first()
-        )
+        last_exec = latest_execs.get(acc.username)
+        last_post = latest_posts.get(acc.username)
 
         last_post_code = last_post.media_code if last_post else (last_exec.top_post_code if last_exec else "")
         last_post_url = last_post.post_url if last_post else (last_exec.top_post_url if last_exec else "")
@@ -157,11 +186,6 @@ def instagram_logs_view(request):
             if last_post and last_post.comment_count > 0
             else (last_exec.comments_found if last_exec else 0)
         )
-
-        leads_24h = (
-            exec_qs.filter(crawled_at__gte=one_day_ago).aggregate(s=Sum("leads_found"))["s"] or 0
-        )
-        leads_total = exec_qs.aggregate(s=Sum("leads_found"))["s"] or 0
 
         scrapers_telemetry.append({
             "id": acc.id,
@@ -205,9 +229,11 @@ def instagram_logs_view(request):
         })
 
     # ---------------------------------------------------------
-    # 4. Stream of Recently Found Leads
+    # 4. Stream of Recently Found Leads (Ordered by comment_created_at nulls_last)
     # ---------------------------------------------------------
-    leads_qs = InstagramEngineLead.objects.all().order_by("-created_at")[:50]
+    leads_qs = InstagramEngineLead.objects.all().order_by(
+        F("comment_created_at").desc(nulls_last=True), "-id"
+    )[:50]
     recent_leads = []
 
     for l in leads_qs:
