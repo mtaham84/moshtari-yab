@@ -1513,93 +1513,41 @@ def manage_twitter_account_toggle(request, pk):
 def _ping_and_evaluate_proxy_config(proxy: ProxyConfig, timeout_sec: float = 3.5) -> dict[str, Any]:
     """
     Live ping test for a single ProxyConfig instance.
-    Evaluates reachability and latency via:
-    1. SOCKS5 inbound probe through xray container or localhost (if local_port is set)
-    2. test_outbound_ping via multi_proxy_manager (if Xray binary and raw_url available)
-    3. Direct TCP handshake to proxy.server:proxy.port
+    Evaluates real reachability and latency via an end-to-end HTTP GET probe through
+    the proxy's dedicated SOCKS5 port (socks5h://xray:{proxy.local_port}).
+    Only HTTP 200/204 within latency <= 2000ms is accepted as ACTIVE.
     Updates the proxy's ping_ms, status ('ACTIVE' or 'DEAD'), and last_checked_at.
     """
-    import time
+    from xray.multi_proxy_manager import probe_proxy_port, test_outbound_ping, parse_link_to_outbound, XRAY_BIN
+
     is_ok = False
     ping_ms = -1.0
     err_msg = ""
 
-    # Strategy 1: If proxy has a local_port, probe the local socks5 listener
+    # Strategy 1: Real end-to-end HTTP GET probe through dedicated SOCKS5 port
     if proxy.local_port:
-        for host in ["xray", "127.0.0.1", "localhost"]:
-            try:
-                probe_t0 = time.perf_counter()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(min(1.5, timeout_sec))
-                res = sock.connect_ex((host, int(proxy.local_port)))
-                sock.close()
-                if res == 0:
-                    latency = (time.perf_counter() - probe_t0) * 1000.0
-                    is_ok = True
-                    ping_ms = round(latency, 1)
-                    break
-            except Exception:
-                continue
+        ok, p_ms, p_err = probe_proxy_port(proxy.local_port, timeout_sec=min(2.5, timeout_sec))
+        if ok and 0 < p_ms <= 2000.0:
+            is_ok = True
+            ping_ms = round(p_ms, 1)
+        elif p_err:
+            err_msg = p_err
 
-    # Strategy 2: Ephemeral Xray probe if multi_proxy_manager is available
-    if not is_ok and proxy.raw_url:
+    # Strategy 2: If no local port yet but XRAY_BIN is available and raw_url exists
+    if not is_ok and not proxy.local_port and proxy.raw_url and XRAY_BIN and XRAY_BIN.exists():
         try:
-            from xray.multi_proxy_manager import parse_link_to_outbound, test_outbound_ping, XRAY_BIN
-            if XRAY_BIN and XRAY_BIN.exists():
-                ob = parse_link_to_outbound(proxy.raw_url)
-                ok, p_ms, p_err = test_outbound_ping(ob, timeout_sec=min(2.5, timeout_sec))
-                if ok and 0 < p_ms <= 3000:
-                    is_ok = True
-                    ping_ms = round(p_ms, 1)
-                elif p_err:
-                    err_msg = p_err
-        except Exception as exc:
-            logger.debug("Ephemeral Xray probe error: %s", exc)
-
-    # Strategy 3: Direct TCP handshake to remote server & port
-    if not is_ok and proxy.server:
-        try:
-            prt = int(proxy.port or 443)
-            tcp_t0 = time.perf_counter()
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout_sec)
-            res = sock.connect_ex((proxy.server, prt))
-            sock.close()
-            tcp_elapsed = (time.perf_counter() - tcp_t0) * 1000.0
-            if res == 0:
-                is_ok = True
-                ping_ms = round(tcp_elapsed, 1)
-            else:
-                err_msg = f"خطای اتصال TCP به {proxy.server}:{prt} (کد {res})"
-        except Exception as exc:
-            err_msg = f"خطای تست سرور {proxy.server}: {exc}"
-
-    # If server was missing from fields, try parsing from raw_url
-    if not is_ok and not proxy.server and proxy.raw_url:
-        try:
-            from xray.multi_proxy_manager import parse_link_to_outbound
             ob = parse_link_to_outbound(proxy.raw_url)
-            servers = ob.get("settings", {}).get("servers") or ob.get("settings", {}).get("vnext")
-            addr = None
-            prt = None
-            if servers and len(servers) > 0:
-                s0 = servers[0]
-                addr = s0.get("address")
-                prt = s0.get("port")
-            if addr and prt:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(timeout_sec)
-                t_p = time.perf_counter()
-                r = sock.connect_ex((addr, int(prt)))
-                sock.close()
-                if r == 0:
-                    is_ok = True
-                    ping_ms = round((time.perf_counter() - t_p) * 1000.0, 1)
-        except Exception:
-            pass
+            ok, p_ms, p_err = test_outbound_ping(ob, timeout_sec=min(2.5, timeout_sec))
+            if ok and 0 < p_ms <= 2000.0:
+                is_ok = True
+                ping_ms = round(p_ms, 1)
+            elif p_err:
+                err_msg = p_err
+        except Exception as exc:
+            logger.debug("Ephemeral probe error: %s", exc)
 
     # Save evaluated status to database
-    if is_ok and 0 < ping_ms <= 3000:
+    if is_ok and 0 < ping_ms <= 2000.0:
         proxy.ping_ms = ping_ms
         proxy.status = "ACTIVE"
     else:
@@ -1691,22 +1639,32 @@ class SafeCockpitJSONEncoder(DjangoJSONEncoder):
         return super().default(obj)
 
 
-_cockpit_client_cache: dict[int, tuple[float, Any]] = {}
+_cockpit_client_cache: dict[int, tuple[float, Any, str]] = {}
+
+
+def invalidate_cockpit_client(account_id: int) -> None:
+    """Explicitly purges any cached cockpit client instance for the given account."""
+    _cockpit_client_cache.pop(account_id, None)
 
 
 def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = False):
     """
     Returns an authenticated instagrapi.Client with device emulation and proxy applied.
-    Caches client instance in memory for 12 minutes to provide instant UI responsiveness without relogging.
+    Caches client instance in memory for up to 12 minutes to provide instant UI responsiveness,
+    but automatically invalidates immediately if the account's proxy changes.
     """
     import time
     from instagrapi import Client
 
     now_ts = time.time()
+    current_proxy = account.clean_proxy or ""
+
     if not force_fresh and account.id in _cockpit_client_cache:
-        cached_ts, cached_cl = _cockpit_client_cache[account.id]
-        if now_ts - cached_ts < 720:  # 12 minutes
+        cached_ts, cached_cl, cached_proxy = _cockpit_client_cache[account.id]
+        if cached_proxy == current_proxy and now_ts - cached_ts < 720:  # 12 minutes & same proxy
             return cached_cl, None
+        else:
+            _cockpit_client_cache.pop(account.id, None)
 
     cookies = (account.session_json or {}).get("cookies", {})
     sessionid = cookies.get("sessionid")
@@ -1715,12 +1673,12 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
 
     cl = Client()
     cl.delay_range = [0.3, 0.8]
-    if account.clean_proxy:   # its own proxy / system config, else the shared pool (never the server's IP)
-        cl.set_proxy(account.clean_proxy)
+    if current_proxy:   # its own proxy / system config, else the shared pool (never the server's IP)
+        cl.set_proxy(current_proxy)
 
     try:
         connect_saved_session(cl, account)  # same phone + session as the workers, no fresh login per page view
-        _cockpit_client_cache[account.id] = (now_ts, cl)
+        _cockpit_client_cache[account.id] = (now_ts, cl, current_proxy)
         return cl, None
     except Exception as exc:
         logger.warning(f"Failed to initialize cockpit client for @{account.username}: {exc}")

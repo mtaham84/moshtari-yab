@@ -381,7 +381,7 @@ def test_outbound(ob: dict, timeout_sec: float = 3.5) -> tuple:
         http_code = parts[0] if parts else "000"
         time_total = float(parts[1]) * 1000.0 if len(parts) > 1 and parts[1] else elapsed_total_ms
 
-        if http_code in ["200", "301", "302", "307", "400", "403", "404"]:
+        if http_code in ["200", "204"]:
             return True, time_total, ""
         else:
             return False, 9999.0, f"HTTP Code: {http_code}"
@@ -423,7 +423,7 @@ def test_active_docker_proxy() -> tuple:
         parts = raw.split(":")
         code = parts[0] if parts else "000"
         dt_ms = float(parts[1]) * 1000.0 if len(parts) > 1 and parts[1] else (time.time() - t0) * 1000.0
-        if code in ["200", "301", "302", "307", "400", "403", "404"]:
+        if code in ["200", "204"]:
             return True, dt_ms
     except Exception:
         pass
@@ -437,7 +437,7 @@ def test_active_docker_proxy() -> tuple:
         ]
         res = subprocess.run(cmd, cwd=str(COMPOSE_DIR), capture_output=True, text=True, timeout=6)
         dt_ms = (time.time() - t0) * 1000.0
-        if res.returncode == 0 and res.stdout.strip() in ["200", "301", "302", "307", "400", "403", "404"]:
+        if res.returncode == 0 and res.stdout.strip() in ["200", "204"]:
             return True, dt_ms
     except Exception:
         pass
@@ -474,10 +474,25 @@ def set_active_config(chosen_tag: str) -> bool:
             others = [ob for ob in proxies if ob.get("tag") != chosen_tag]
             cfg["outbounds"] = [target_ob] + others + [direct]
 
+            # Update or add default routing rule for pool inbounds (default_socks, default_http)
+            routing = cfg.get("routing", {})
+            rules = routing.get("rules", [])
+            pool_rule = next((r for r in rules if "default_socks" in r.get("inboundTag", [])), None)
+            if pool_rule:
+                pool_rule["outboundTag"] = chosen_tag
+            elif rules:
+                rules.insert(0, {
+                    "type": "field",
+                    "inboundTag": ["default_socks", "default_http"],
+                    "outboundTag": chosen_tag
+                })
+                routing["rules"] = rules
+                cfg["routing"] = routing
+
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"Updated {CONFIG_FILE}: primary outbound set to [{chosen_tag}].")
+            logger.info(f"Updated {CONFIG_FILE}: primary outbound set to [{chosen_tag}] with synchronized routing.")
 
         # Restart xray container
         cmd = ["docker", "compose", "--profile", "proxy", "restart", DOCKER_XRAY_SERVICE]

@@ -315,27 +315,28 @@ class Command(BaseCommand):
         Automatically heals/failovers account connection when proxy drops or dies.
         Finds the next free healthy config (or pool) and updates client proxy immediately.
         """
-        from apps.discovery.ig_accounts import _heal_account, proxy_reachable, effective_proxy_url
+        from apps.discovery.ig_accounts import _heal_account, effective_proxy_url
+        old_proxy = account.clean_proxy or effective_proxy_url(account)
+        curr_cfg_id = account.proxy_config_id
+
         self.stdout.write(self.style.WARNING(
             f"    [Auto-Failover]: Proxy for @{account.username} failed. Searching for healthy replacement config..."
         ))
-        _heal_account(account, actor="scraper_auto_heal")
+        res = _heal_account(account, actor="scraper_auto_heal", force_rotate=True, failed_config_id=curr_cfg_id)
         account.refresh_from_db()
         new_proxy = account.clean_proxy or effective_proxy_url(account)
-        if new_proxy:
-            ok, msg = proxy_reachable(new_proxy, timeout=3.0)
-            if ok:
-                if cl:
-                    cl.set_proxy(new_proxy)
-                # Invalidate client pool cache so fresh client/session is rebuilt with new proxy
-                if hasattr(self, "_client_pool") and account.id in self._client_pool:
-                    self._client_pool.pop(account.id, None)
-                self.stdout.write(self.style.SUCCESS(
-                    f"    [Auto-Failover]: Account @{account.username} successfully rotated to new proxy: {new_proxy}"
-                ))
-                return True
-            else:
-                self.stderr.write(f"    [Auto-Failover]: Fallback proxy {new_proxy} unreachable: {msg}")
+        if new_proxy and (new_proxy != old_proxy or (res and res.get("changed"))):
+            if cl:
+                cl.set_proxy(new_proxy)
+            # Invalidate client pool cache so fresh client/session is rebuilt with new proxy
+            if hasattr(self, "_client_pool") and account.id in self._client_pool:
+                self._client_pool.pop(account.id, None)
+            self.stdout.write(self.style.SUCCESS(
+                f"    [Auto-Failover]: Account @{account.username} successfully rotated to new proxy: {new_proxy}"
+            ))
+            return True
+        else:
+            self.stderr.write(f"    [Auto-Failover]: No alternative healthy proxy available for @{account.username}")
         return False
 
     def _client_or_rest(self, account):

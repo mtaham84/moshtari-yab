@@ -5,8 +5,8 @@
 # new dedicated ports do not exist and accounts cannot use them. Restarts at most once per XRAY_RELOAD_MIN_SECONDS
 # (default 300) so a burst of changes costs one short reconnect, not many.
 CFG="${XRAY_CONFIG:-/etc/xray/config.json}"
-MIN_GAP="${XRAY_RELOAD_MIN_SECONDS:-300}"
-POLL="${XRAY_WATCH_POLL_SECONDS:-15}"
+MIN_GAP="${XRAY_RELOAD_MIN_SECONDS:-5}"
+POLL="${XRAY_WATCH_POLL_SECONDS:-2}"
 BIN="$(command -v xray || echo /usr/bin/xray)"
 pid=""
 
