@@ -8,19 +8,18 @@ Real-time operational dashboard for monitoring Instagram scraper events:
 """
 from __future__ import annotations
 
-import json
 from datetime import timedelta
 from typing import Any
 import zoneinfo
 
-from django.db.models import Count, Q, Sum
-from django.http import HttpResponse, JsonResponse
+from django.db.models import Q, Sum
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as dj_timezone
 
 from apps.billing.manage_views import manage_access_required
 from apps.core.http import wants_json
-from apps.core.jalali import format_jalali_date, format_jalali_datetime, to_persian_digits
+from apps.core.jalali import format_jalali_date, to_persian_digits
 from apps.discovery.models import (
     InstagramCrawledPost,
     InstagramCrawlExecution,
@@ -73,7 +72,6 @@ def instagram_logs_view(request):
     crawled posts, and per-account telemetry.
     """
     now_utc = dj_timezone.now()
-    now_tehran = now_utc.astimezone(TEHRAN_TZ)
     one_day_ago = now_utc - timedelta(hours=24)
 
     # ---------------------------------------------------------

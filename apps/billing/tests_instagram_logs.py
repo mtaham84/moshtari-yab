@@ -11,7 +11,6 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.discovery.models import (
-    InstagramAccountEvent,
     InstagramCrawledPost,
     InstagramCrawlExecution,
     InstagramEngineAccount,
