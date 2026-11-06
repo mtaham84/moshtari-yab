@@ -56,11 +56,13 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
             content = res.get("content")
             if content:
                 return _extract_json(content)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("LLM settings fallback failed: %s", exc, exc_info=True)
+            raise LLMError("هیچ ارائه‌دهنده یا مدل هوش مصنوعی فعالی یافت نشد.") from exc
         raise LLMError("هیچ ارائه‌دهنده یا مدل هوش مصنوعی فعالی یافت نشد.")
 
     last = "no response"
+    last_exc: Exception | None = None
     for model_name, base_url, api_key in candidates:
         url = f"{base_url}/chat/completions"
         headers = {
@@ -104,7 +106,7 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
                         ok=bool(content)
                     )
                 except Exception:
-                    pass
+                    log.warning("Could not write LLMUsageLog for %s", model_name, exc_info=True)
                 if not content:
                     last = "empty response"
                     if "error" in data:
@@ -117,7 +119,7 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
                     continue
                 return _extract_json(content)
             except Exception as exc:
-                last = str(exc)
+                last, last_exc = str(exc), exc
                 log.warning("LLM model %s failed on attempt %d: %s", model_name, attempt + 1, exc)
                 exc_str = str(exc).lower()
                 # Failover immediately on connection, network, or out-of-credit / quota errors
@@ -129,4 +131,4 @@ def chat_json(system: str, user: str, purpose: str, business_id: int | None = No
                     break
         log.warning("Candidate model %s failed (%s), failing over to next model...", model_name, last)
 
-    raise LLMError(last)
+    raise LLMError(last) from last_exc

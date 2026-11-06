@@ -7,7 +7,7 @@ django.setup()
 
 from django.utils import timezone
 from apps.businesses.models import Business
-from apps.products.models import Product, Category
+from apps.products.models import Product
 from apps.discovery.models import Customer, Opportunity, OpportunityProductMatch, AIAnalysis
 
 def seed_clothing():

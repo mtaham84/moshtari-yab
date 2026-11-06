@@ -1,10 +1,10 @@
 import json
 import logging
+from collections import defaultdict
 import socket
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
-from functools import wraps
 from typing import Any
 from urllib.parse import urlparse
 
@@ -13,11 +13,10 @@ try:
 except ImportError:
     import requests
 
+from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, Sum
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone as dj_timezone
@@ -26,28 +25,25 @@ from django.views.decorators.http import require_POST, require_GET
 import zoneinfo
 
 from apps.businesses.models import Business
-from apps.billing.models import Wallet, WalletTransaction, BillingSettings
+from apps.billing.models import WalletTransaction, BillingSettings
 from apps.discovery.models import (
     InstagramEngineAccount, InstagramEngineLead, InstagramCrawlExecution,
     InstagramSourceStat, TwitterEngineAccount, InstagramCrawledPost,
-    XCrawledPost, Opportunity, ProxyConfig
+    XCrawledPost, XSearchQuery, ProxyConfig
 )
 from apps.core.jalali import format_jalali_date, format_jalali_datetime
+from apps.core.http import wants_json
+from apps.core.permissions import operator_required
+from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
+from apps.discovery.channel_config_automation import get_monitored_channels
+from apps.discovery.ig_accounts import canonical_tenant, default_proxy_url, tenant_key, tenant_keys_for_business
 from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
 
 
-def manage_access_required(view_func):
-    """Decorator ensuring user is authenticated and is staff or superuser."""
-    @wraps(view_func)
-    def _wrapped(request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-        if not (request.user.is_staff or request.user.is_superuser):
-            raise PermissionDenied("دسترسی به بخش مدیریت برای حساب کاربری شما مجاز نمی‌باشد.")
-        return view_func(request, *args, **kwargs)
-    return _wrapped
+# Kept as a name because ig_accounts_views and many decorators use it.
+manage_access_required = operator_required
 
 
 def _test_proxy_connection(proxy_url: str, timeout: float = 4.0) -> tuple[bool, str]:
@@ -84,18 +80,20 @@ def manage_dashboard(request):
     one_day_ago = now_utc - timedelta(hours=24)
     thirty_days_ago = now_utc - timedelta(days=30)
 
-    # Operating window for Instagram is 09:00 to 23:00 Tehran time
-    current_tehran_hour = now_tehran.hour
-    is_ig_night_sleep = (current_tehran_hour < 9 or current_tehran_hour >= 23)
+    # Same operating window as the anti-ban manager (INSTAGRAM_WINDOW_START_HOUR / _END_HOUR, Tehran time)
+    from apps.discovery.anti_ban import (INSTAGRAM_WINDOW_END_HOUR, INSTAGRAM_WINDOW_START_HOUR, in_operating_window,
+                                         next_window_start)
+    from apps.core.jalali import to_persian_digits
+
+    is_ig_night_sleep = not in_operating_window(now_tehran.hour)
+    ig_window_label = to_persian_digits(f"{INSTAGRAM_WINDOW_START_HOUR:02d}:00 تا {INSTAGRAM_WINDOW_END_HOUR:02d}:00")
     if is_ig_night_sleep:
-        if current_tehran_hour >= 23:
-            wake_time = (now_tehran + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-        else:
-            wake_time = now_tehran.replace(hour=9, minute=0, second=0, microsecond=0)
-        minutes_to_wake = max(1, int((wake_time - now_tehran).total_seconds() / 60))
+        minutes_to_wake = max(1, int((next_window_start(now_tehran) - now_tehran).total_seconds() / 60))
         hours_to_wake = minutes_to_wake // 60
         rem_mins = minutes_to_wake % 60
-        ig_sleep_desc = f"{hours_to_wake} ساعت و {rem_mins} دقیقه تا ۰۹:۰۰ صبح" if hours_to_wake > 0 else f"{rem_mins} دقیقه تا ۰۹:۰۰ صبح"
+        wake_label = to_persian_digits(f"{INSTAGRAM_WINDOW_START_HOUR:02d}:00")
+        ig_sleep_desc = (f"{hours_to_wake} ساعت و {rem_mins} دقیقه تا {wake_label}" if hours_to_wake > 0
+                         else f"{rem_mins} دقیقه تا {wake_label}")
     else:
         ig_sleep_desc = ""
 
@@ -126,7 +124,7 @@ def manage_dashboard(request):
 
         if is_ig_night_sleep:
             acc.live_status_key = "NIGHT_SLEEP"
-            acc.live_status_label = "خواب شبانه (تا ۰۹:۰۰ صبح)"
+            acc.live_status_label = f"خواب شبانه (تا {wake_label})"
             acc.live_status_badge = "night_sleep"
             acc.live_status_desc = ig_sleep_desc
         elif acc.cooldown_until and acc.cooldown_until > now_utc:
@@ -161,26 +159,21 @@ def manage_dashboard(request):
     senders_total = senders.count()
     senders_active = senders.filter(status="ACTIVE").count()
 
-    from apps.discovery.device_emulator import ensure_account_device_profile
     all_ig_accounts = list(senders) + list(scrapers)
-    for acc in all_ig_accounts:
-        if not acc.device_settings or not isinstance(acc.device_settings, dict) or not acc.device_settings.get("device_settings"):
-            try:
-                ensure_account_device_profile(acc)
-            except Exception:
-                pass
+    # Device profiles are assigned when a client is built (device_emulator.apply_device_profile_to_client) and
+    # backfilled by `manage.py instagram_backfill --device-profiles`; a GET of the dashboard writes nothing.
 
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]
     total_leads = InstagramEngineLead.objects.count()
-    dms_sent_total = InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+    dms_sent_total = InstagramEngineLead.objects.filter(status__in=DM_DELIVERED_STATUSES).count()
     dms_replied_total = InstagramEngineLead.objects.filter(has_replied=True).count()
-    high_intent_leads = InstagramEngineLead.objects.filter(intent_score__gte=0.85).count()
+    high_intent_leads = InstagramEngineLead.objects.filter(intent_score__gte=HIGH_INTENT_THRESHOLD).count()
 
     # 3. Settings & Exchange Rate
     billing_settings = BillingSettings.get()
-    usd_rate = billing_settings.usd_to_toman or Decimal("268000")
-    markup_percent = billing_settings.markup_percent or Decimal("150.0")
+    usd_rate = billing_settings.usd_to_toman
+    markup_percent = billing_settings.markup_percent
 
     # Scraper latest activity tracking
     latest_scraper = InstagramEngineAccount.objects.filter(role="SCRAPER", last_action_at__isnull=False).order_by("-last_action_at").first()
@@ -202,28 +195,51 @@ def manage_dashboard(request):
         "dms_sent": 0,
     }
 
+    # One grouped query per table instead of ~10 queries per business (ADM-03).
+    opp_stats = {
+        row["business_id"]: row
+        for row in Opportunity.objects.order_by().values("business_id").annotate(
+            instagram=Count("id", filter=Q(source_platform="instagram")),
+            telegram=Count("id", filter=Q(source_platform="telegram")),
+            x=Count("id", filter=Q(source_platform="x")),
+            total=Count("id"),
+            high_intent=Count("id", filter=Q(ai_analysis__intent_score__gte=HIGH_INTENT_THRESHOLD)),
+        )
+    }
+    lead_stats: dict[str, dict] = defaultdict(lambda: {"leads": 0, "dms": 0})
+    for row in InstagramEngineLead.objects.order_by().values("tenant_id").annotate(
+            leads=Count("id"), dms=Count("id", filter=Q(status__in=DM_DELIVERED_STATUSES))):
+        bucket = lead_stats[canonical_tenant(row["tenant_id"])]   # legacy aliases count for their business
+        bucket["leads"] += row["leads"]
+        bucket["dms"] += row["dms"]
+    usage_stats = {
+        row["wallet__business_id"]: row
+        for row in WalletTransaction.objects.filter(kind="USAGE").order_by().values("wallet__business_id").annotate(
+            spent=Sum("amount_toman"), cost_usd=Sum("cost_usd"), calls=Sum("calls"))
+    }
+    senders_by_tenant: dict[str, list] = defaultdict(list)
+    for acc in InstagramEngineAccount.objects.filter(role="SENDER").order_by("id"):
+        senders_by_tenant[canonical_tenant(acc.tenant_id)].append(acc)
+    empty_opp = {"instagram": 0, "telegram": 0, "x": 0, "total": 0, "high_intent": 0}
+
     for b in businesses:
-        ig_count = Opportunity.objects.filter(business=b, source_platform="instagram").count()
-        tg_count = Opportunity.objects.filter(business=b, source_platform="telegram").count()
-        x_count = Opportunity.objects.filter(business=b, source_platform="x").count()
-        b_total = Opportunity.objects.filter(business=b).count()
-        b_high_intent = Opportunity.objects.filter(business=b, ai_analysis__intent_score__gte=0.80).count()
-        b_dms = InstagramEngineLead.objects.filter(tenant_id=f"tenant_{b.id}", status="DM_SENT").count()
+        o = opp_stats.get(b.id, empty_opp)
+        b_dms = lead_stats.get(tenant_key(b), {}).get("dms", 0)
 
         tenant_matrix.append({
             "business": b,
-            "instagram": ig_count,
-            "telegram": tg_count,
-            "x": x_count,
-            "total": b_total,
-            "high_intent": b_high_intent,
+            "instagram": o["instagram"],
+            "telegram": o["telegram"],
+            "x": o["x"],
+            "total": o["total"],
+            "high_intent": o["high_intent"],
             "dms_sent": b_dms,
         })
-        matrix_totals["instagram"] += ig_count
-        matrix_totals["telegram"] += tg_count
-        matrix_totals["x"] += x_count
-        matrix_totals["total"] += b_total
-        matrix_totals["high_intent"] += b_high_intent
+        matrix_totals["instagram"] += o["instagram"]
+        matrix_totals["telegram"] += o["telegram"]
+        matrix_totals["x"] += o["x"]
+        matrix_totals["total"] += o["total"]
+        matrix_totals["high_intent"] += o["high_intent"]
         matrix_totals["dms_sent"] += b_dms
 
     # 5. Financial & Credit Consumption per Business / Account
@@ -232,7 +248,6 @@ def manage_dashboard(request):
     total_spent_all = Decimal("0")
     total_cost_usd_all = Decimal("0")
     total_raw_toman_all = Decimal("0")
-    total_payable_all = Decimal("0")
     total_calls_all = 0
 
     for b in businesses:
@@ -241,35 +256,26 @@ def manage_dashboard(request):
         total_balance_all += balance
 
         # Aggregated consumption from transactions
-        if wallet:
-            tx_usage = wallet.transactions.filter(kind="USAGE").aggregate(
-                spent=Sum("amount_toman"),
-                cost_usd=Sum("cost_usd"),
-                calls=Sum("calls"),
-            )
-            spent = abs(tx_usage["spent"] or Decimal("0"))
-            cost_usd = tx_usage["cost_usd"] or Decimal("0")
-            calls = tx_usage["calls"] or 0
-        else:
-            spent = Decimal("0")
-            cost_usd = Decimal("0")
-            calls = 0
+        tx_usage = usage_stats.get(b.id) or {}
+        spent = abs(tx_usage.get("spent") or Decimal("0"))
+        cost_usd = tx_usage.get("cost_usd") or Decimal("0")
+        calls = tx_usage.get("calls") or 0
 
+        # Raw cost at *today's* rate, for reference only. What the tenant
+        # actually paid is ``spent`` (sum of the debited transactions), which
+        # used the rate/markup in force at the time of each call.
         raw_toman = (cost_usd * usd_rate).quantize(Decimal("1"))
-        markup_toman = (raw_toman * (markup_percent / Decimal("100"))).quantize(Decimal("1"))
-        total_payable = raw_toman + markup_toman
 
         total_spent_all += spent
         total_cost_usd_all += cost_usd
         total_raw_toman_all += raw_toman
-        total_payable_all += total_payable
         total_calls_all += calls
 
         # Business associated Instagram leads & senders
-        tenant_key = f"tenant_{b.id}"
-        b_leads_count = InstagramEngineLead.objects.filter(tenant_id=tenant_key).count()
-        b_dms_sent = InstagramEngineLead.objects.filter(tenant_id=tenant_key, status="DM_SENT").count()
-        b_senders = InstagramEngineAccount.objects.filter(tenant_id=tenant_key, role="SENDER")
+        b_leads = lead_stats.get(tenant_key(b), {"leads": 0, "dms": 0})
+        b_leads_count = b_leads["leads"]
+        b_dms_sent = b_leads["dms"]
+        b_senders = senders_by_tenant.get(tenant_key(b), [])
 
         financial_rows.append({
             "business": b,
@@ -277,9 +283,6 @@ def manage_dashboard(request):
             "spent": spent,
             "cost_usd": cost_usd,
             "raw_toman": raw_toman,
-            "markup_percent": markup_percent,
-            "markup_toman": markup_toman,
-            "total_payable": total_payable,
             "calls": calls,
             "leads_count": b_leads_count,
             "dms_sent": b_dms_sent,
@@ -351,6 +354,9 @@ def manage_dashboard(request):
             acc.leads_24h = round(x_leads_24h * (acc.daily_action_count / max(1, x_searches_24h))) if x_searches_24h > 0 else 0
             acc.conv_rate_total = round((acc.leads_total / acc.posts_total * 100.0), 2) if acc.posts_total > 0 else 0.0
             acc.conv_rate_24h = round((acc.leads_24h / acc.posts_24h * 100.0), 2) if acc.posts_24h > 0 else 0.0
+            # posts_24h / leads_* are proportional shares of the totals (X
+            # results don't record which account found them) -> shown with "≈".
+            acc.metrics_estimated = True
 
             if acc.cooldown_until and acc.cooldown_until > now_utc:
                 mins_cd = max(1, int((acc.cooldown_until - now_utc).total_seconds() / 60))
@@ -395,15 +401,17 @@ def manage_dashboard(request):
         ig_conversion_rate_total = round((ig_leads_total / ig_posts_total * 100.0), 2) if ig_posts_total > 0 else 0.0
         ig_conversion_rate_24h = round((ig_leads_24h / ig_posts_24h * 100.0), 2) if ig_posts_24h > 0 else 0.0
 
-        ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago).count()
+        ig_posts_approved = InstagramCrawledPost.objects.filter(comment_count__gte=settings.INSTAGRAM_MIN_COMMENTS, posted_at__gte=thirty_days_ago).count()
         ig_posts_rejected = max(0, ig_posts_total - ig_posts_approved)
         ig_comments_total = InstagramCrawledPost.objects.aggregate(s=Sum("comment_count"))["s"] or 0
+        # Saved leads (one per qualifying comment), not "approved comments":
+        # comment evaluations themselves are not stored.
         ig_comments_approved = InstagramEngineLead.objects.count()
         ig_comments_rejected = max(0, ig_comments_total - ig_comments_approved)
 
         # Approved Instagram Posts
         approved_ig_posts = list(
-            InstagramCrawledPost.objects.filter(comment_count__gte=10, posted_at__gte=thirty_days_ago)
+            InstagramCrawledPost.objects.filter(comment_count__gte=settings.INSTAGRAM_MIN_COMMENTS, posted_at__gte=thirty_days_ago)
             .order_by("-crawled_at")[:40]
         )
         for p in approved_ig_posts:
@@ -527,7 +535,7 @@ def manage_dashboard(request):
         queries_top_losers = sorted([q for q in query_items if q["delta"] < 0], key=lambda x: x["delta"])
         ig_queries_list = sorted(ig_queries_list, key=lambda x: (-x["score"], -x["leads"]))
 
-        x_active_queries_count = 118
+        x_active_queries_count = XSearchQuery.objects.filter(state="active").count()
         ig_active_queries_count = len(ig_queries_list)
 
     except Exception as exc:
@@ -548,21 +556,21 @@ def manage_dashboard(request):
         verified_x_leads = []
         ig_queries_list = []
         queries_top_rated = queries_top_gainers = queries_top_losers = []
-        x_active_queries_count = 118
+        x_active_queries_count = 0
         ig_active_queries_count = 0
 
     # Business-specific tenant filtering for outreach tab
     business_id_filter = request.GET.get("outreach_biz", "").strip()
-    businesses_for_outreach = Business.objects.all().order_by("id")
+    businesses_for_outreach = Business.objects.select_related("user").order_by("id")
     selected_outreach_biz = None
     if business_id_filter and business_id_filter.isdigit():
         selected_outreach_biz = Business.objects.filter(id=int(business_id_filter)).first()
         if selected_outreach_biz:
-            b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
+            b_tenants = tenant_keys_for_business(selected_outreach_biz)
             senders = senders.filter(tenant_id__in=b_tenants)
             leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).order_by("-intent_score", "created_at")[:60]
             total_leads = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants).count()
-            dms_sent_total = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+            dms_sent_total = InstagramEngineLead.objects.filter(tenant_id__in=b_tenants, status__in=DM_DELIVERED_STATUSES).count()
             senders_total = senders.count()
             senders_active = senders.filter(status="ACTIVE").count()
 
@@ -585,18 +593,12 @@ def manage_dashboard(request):
     if accounts_with_pitches:
         default_pitch = accounts_with_pitches[0]["template"]
         default_consultant = accounts_with_pitches[0]["consultant_name"]
-    if not default_pitch:
-        default_pitch = (
-            "درود بر شما \n"
-            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
-            "میتونید هر سوالی دارید از بنده بپرسید. \n"
-            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
-        )
-        default_consultant = "مشاور دندان‌پزشکی"
+    # No hard-coded industry pitch here: per-tenant pitches (and the old
+    # tenant_4 fallback) come from ig_accounts.tenant_pitch().
 
     outreach_replied_qs = InstagramEngineLead.objects.filter(has_replied=True)
     if selected_outreach_biz:
-        b_tenants = [f"tenant_{selected_outreach_biz.id}", "sarv"] if selected_outreach_biz.id == 4 else [f"tenant_{selected_outreach_biz.id}"]
+        b_tenants = tenant_keys_for_business(selected_outreach_biz)
         outreach_replied_qs = outreach_replied_qs.filter(tenant_id__in=b_tenants)
     outreach_replied_leads = outreach_replied_qs.order_by("-reply_at")[:50]
     outreach_replied_count = outreach_replied_qs.count()
@@ -608,7 +610,7 @@ def manage_dashboard(request):
         "proxy_configs": proxy_configs,
         "proxy_configs_total": proxy_configs_total,
         "proxy_configs_active": proxy_configs_active,
-        "proxy_channels": __import__("apps.discovery.channel_config_automation", fromlist=["get_monitored_channels"]).get_monitored_channels(),
+        "proxy_channels": get_monitored_channels(),
         "scrapers": scrapers,
         "scrapers_total": scrapers_total,
         "scrapers_active": scrapers_active,
@@ -650,7 +652,6 @@ def manage_dashboard(request):
         "total_spent_all": total_spent_all,
         "total_cost_usd_all": total_cost_usd_all,
         "total_raw_toman_all": total_raw_toman_all,
-        "total_payable_all": total_payable_all,
         "total_calls_all": total_calls_all,
         "businesses": businesses,
         "crawl_executions": InstagramCrawlExecution.objects.all().select_related("business", "account").order_by("-crawled_at")[:60],
@@ -673,8 +674,10 @@ def manage_dashboard(request):
         "verified_x_leads": verified_x_leads,
         "ig_queries_list": ig_queries_list,
         "x_active_queries_count": x_active_queries_count,
+        "ig_min_comments": settings.INSTAGRAM_MIN_COMMENTS,
         "ig_active_queries_count": ig_active_queries_count,
         "is_ig_night_sleep": is_ig_night_sleep,
+        "ig_window_label": ig_window_label,
         "ig_sleep_desc": ig_sleep_desc,
         "funnel_total_searches": funnel_total_searches,
         "funnel_24h_searches": funnel_24h_searches,
@@ -694,13 +697,12 @@ def manage_dashboard(request):
         "x_conversion_rate_24h": x_conversion_rate_24h,
         "ig_searches_total": ig_searches_total,
         "ig_searches_24h": ig_searches_24h,
-        "ig_posts_total": ig_posts_total,
         "ig_posts_24h": ig_posts_24h,
         "ig_leads_total": ig_leads_total,
         "ig_leads_24h": ig_leads_24h,
         "ig_conversion_rate_total": ig_conversion_rate_total,
         "ig_conversion_rate_24h": ig_conversion_rate_24h,
-        "outreach_dms_list": InstagramEngineLead.objects.filter(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:60],
+        "outreach_dms_list": InstagramEngineLead.objects.filter(status__in=DM_DELIVERED_STATUSES).order_by("-updated_at")[:60],
         "outreach_pending_count": InstagramEngineLead.objects.filter(status="NEW").count(),
         "outreach_failed_count": InstagramEngineLead.objects.filter(status="FAILED").count(),
         "now": dj_timezone.now(),
@@ -729,24 +731,10 @@ def manage_exchange_rate_update(request):
     return redirect("manage:dashboard")
 
 
-def _normalize_digits(s: str) -> str:
-    """Converts Persian and Arabic digits to ASCII digits."""
-    if not s:
-        return ""
-    trans = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-    return s.translate(trans).strip()
-
-
 # ---------------------------------------------------------------------------
 # Instagram accounts: the old dashboard endpoints, now thin wrappers over apps.discovery.ig_accounts (the same
 # service as /manage/instagram/accounts/), keeping their JSON replies for the dashboard scripts.
 # ---------------------------------------------------------------------------
-def _ig_ajax(request) -> bool:
-    return (request.headers.get("x-requested-with") == "XMLHttpRequest"
-            or request.content_type == "application/json"
-            or "application/json" in request.headers.get("Accept", ""))
-
-
 def _ig_actor(request) -> str:
     return request.user.get_username()
 
@@ -788,7 +776,7 @@ def manage_account_add(request):
     out = res.as_dict()
     out.update(account_id=acc.pk if acc else None,
                username=acc.username if acc else svc.normalize_username(p.get("username")))
-    if _ig_ajax(request):
+    if wants_json(request):
         return JsonResponse(out)
     if acc is not None and res.state in svc.LIVE_STATES:
         messages.warning(request, res.message)
@@ -882,7 +870,7 @@ def manage_sender_account_edit(request, pk):
     """The old sender editor of the dashboard (see ig_edit_sender)."""
     account = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     out = ig_edit_sender(account, request.POST, _ig_actor(request))
-    if _ig_ajax(request):
+    if wants_json(request):
         return JsonResponse(out)
     (messages.success if out["success"] else messages.error)(request, out["message"])
     return redirect("/manage/?tab=outreach")
@@ -896,7 +884,7 @@ def manage_sender_clear_cooldown(request, pk):
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     res = svc.clear_cooldown(account, actor=_ig_actor(request))
-    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+    if wants_json(request):
         return JsonResponse({"success": True, "message": res.message, "status": account.status})
     messages.success(request, res.message)
     return redirect("/manage/?tab=outreach")
@@ -954,26 +942,21 @@ def manage_account_submit_code(request, pk):
 @require_GET
 def manage_leads_export_csv(request):
     """
-    Exports all extracted leads as a UTF-8 BOM CSV dataset.
+    Exports all extracted leads as a UTF-8 BOM CSV dataset (streamed, formula-safe).
     """
-    import csv
-    from django.http import HttpResponse
-
     from django.db.models import F
     from django.db.models.functions import Coalesce
+    from django.http import StreamingHttpResponse
+
+    from apps.discovery.exports import instagram_lead_row, stream_csv_rows
+
     leads = InstagramEngineLead.objects.all().order_by(
         F("outreach_score").desc(nulls_last=True),
         F("intent_score").desc(nulls_last=True),
         Coalesce("comment_created_at", "created_at").desc(nulls_last=True),
         "-id"
     )
-
-    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
-    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
-    response.write('\ufeff')
-
-    writer = csv.writer(response)
-    writer.writerow([
+    header = [
         "شناسه عددی کاربر (IG PK)",
         "نام کاربری (Username)",
         "نام کامل (Full Name)",
@@ -986,24 +969,20 @@ def manage_leads_export_csv(request):
         "وضعیت (Status)",
         "مستأجر / فروشگاه (Tenant ID)",
         "زمان کشف (Created At)",
-    ])
+    ]
 
-    for l in leads:
-        writer.writerow([
-            l.ig_user_pk,
-            l.username,
-            l.full_name or "",
-            l.profile_url or f"https://www.instagram.com/{l.username}/",
-            l.comment_text,
-            l.source_post_url or "",
-            l.post_caption_snippet or "",
-            l.matched_cta or "",
-            f"{l.intent_score:.2f}",
-            l.get_status_display(),
-            l.tenant_id,
-            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
-        ])
+    def rows():
+        for lead in leads.iterator(chunk_size=500):
+            r = instagram_lead_row(lead)
+            yield [
+                r["ig_user_pk"], r["username"], r["full_name"], r["profile_url"], r["comment_text"],
+                r["source_post_url"], r["post_caption_snippet"], r["matched_cta"], f"{r['intent_score']:.2f}",
+                r["status_display"], r["tenant_id"],
+                r["created_at"].strftime("%Y-%m-%d %H:%M:%S") if r["created_at"] else "",
+            ]
 
+    response = StreamingHttpResponse(stream_csv_rows(header, rows()), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.csv"'
     return response
 
 
@@ -1013,23 +992,14 @@ def manage_leads_export_json(request):
     """
     Exports all extracted leads as a JSON dataset.
     """
-    leads = InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at")
+    from apps.discovery.exports import instagram_lead_row
+
     data = []
-    for l in leads:
-        data.append({
-            "ig_user_pk": l.ig_user_pk,
-            "username": l.username,
-            "full_name": l.full_name,
-            "profile_url": l.profile_url or f"https://www.instagram.com/{l.username}/",
-            "comment_text": l.comment_text,
-            "source_post_url": l.source_post_url,
-            "post_caption_snippet": l.post_caption_snippet,
-            "matched_cta": l.matched_cta,
-            "intent_score": l.intent_score,
-            "status": l.status,
-            "tenant_id": l.tenant_id,
-            "created_at": l.created_at.isoformat() if l.created_at else None,
-        })
+    for lead in InstagramEngineLead.objects.all().order_by("-intent_score", "-created_at").iterator(chunk_size=500):
+        r = instagram_lead_row(lead)
+        r.pop("status_display")
+        r["created_at"] = r["created_at"].isoformat() if r["created_at"] else None
+        data.append(r)
 
     response = JsonResponse(data, safe=False, json_dumps_params={"ensure_ascii": False, "indent": 2})
     response["Content-Disposition"] = 'attachment; filename="instagram_leads_dataset.json"'
@@ -1307,7 +1277,9 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
                     account.status_message = "محدودیت موقت نرخ درخواست (429)"
                     account.save(update_fields=["status", "status_message", "cooldown_until"])
                     account._validation_result = XSessionValidationResult.RATE_LIMITED
-                    return True, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
+                    # A rate-limited session is not a confirmed session: report
+                    # failure so callers don't show "connected" for it.
+                    return False, "COOLDOWN", "اکانت با محدودیت موقت ریت‌لیمیت توییتر مواجه شد (۱۵ دقیقه استراحت)."
                 elif code in ("not_authenticated", "auth_failed"):
                     account.status = "CHALLENGED"
                     account.status_message = "سشن منقضی یا نامعتبر است (HTTP 401) — auth_token/ct0 جدید ثبت کنید"
@@ -1322,7 +1294,9 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             account._validation_result = XSessionValidationResult.NETWORK_ERROR
             return False, account.status, "زمان پاسخ‌گویی موتور توییتر به پایان رسید (تایم‌اوت)."
         except Exception:
-            pass
+            # Fall back to the HTTP check below, but leave a trace of why the
+            # CLI path failed instead of swallowing it silently.
+            logger.warning("twitter-cli session check failed for @%s; falling back to HTTP", account.username, exc_info=True)
 
     response, exc = _call_twitter_settings_endpoint(auth_token, ct0, proxy_url=account.proxy_url)
     resp_ct0 = _extract_response_ct0(response)
@@ -1360,16 +1334,12 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
 @manage_access_required
 @require_POST
 def manage_twitter_account_add(request):
-    is_ajax = (
-        request.headers.get("x-requested-with") == "XMLHttpRequest"
-        or request.content_type == "application/json"
-        or "application/json" in request.headers.get("Accept", "")
-    )
+    is_ajax = wants_json(request)
     username = request.POST.get("username", "").strip().lstrip("@")
     password = request.POST.get("password", "").strip()
     auth_token = request.POST.get("auth_token", "").strip()
     ct0 = request.POST.get("ct0", "").strip()
-    proxy_url = request.POST.get("proxy_url", "").strip() or "socks5h://xray:1080"
+    proxy_url = request.POST.get("proxy_url", "").strip() or default_proxy_url() or "socks5h://xray:1080"
 
     if not username:
         err = "نام کاربری توییتر الزامی است."
@@ -1884,13 +1854,10 @@ def instagram_cockpit_thread_detail(request, pk: int, thread_id: str):
 @manage_access_required
 @require_POST
 def instagram_cockpit_send_direct(request, pk: int):
-    """AJAX endpoint: Send direct message from cockpit."""
+    """AJAX endpoint: Send direct message from cockpit (same limits as automated outreach)."""
     from django.shortcuts import get_object_or_404
+    from apps.discovery.outreach_service import manual_dm_block_reason, record_manual_dm
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
-
-    cl, err = _get_cockpit_client(account)
-    if not cl:
-        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
 
     thread_id = request.POST.get("thread_id", "").strip()
     user_id = request.POST.get("user_id", "").strip()
@@ -1898,18 +1865,26 @@ def instagram_cockpit_send_direct(request, pk: int):
 
     if not text:
         return JsonResponse({"success": False, "error": "متن پیام نمی‌تواند خالی باشد."}, status=400)
+    if user_id and not user_id.isdigit():
+        return JsonResponse({"success": False, "error": "شناسهٔ کاربر نامعتبر است."}, status=400)
+    if not thread_id and not user_id:
+        return JsonResponse({"success": False, "error": "مخاطب پیام مشخص نیست."}, status=400)
+
+    blocked = manual_dm_block_reason(account)
+    if blocked:
+        return JsonResponse({"success": False, "error": blocked, "blocked": True}, status=429)
+
+    cl, err = _get_cockpit_client(account)
+    if not cl:
+        return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
 
     try:
         if thread_id:
             cl.direct_send(text, thread_ids=[thread_id])
-        elif user_id:
-            cl.direct_send(text, user_ids=[int(user_id)])
         else:
-            return JsonResponse({"success": False, "error": "مخاطب پیام مشخص نیست."}, status=400)
+            cl.direct_send(text, user_ids=[int(user_id)])
 
-        account.daily_action_count = (account.daily_action_count or 0) + 1
-        account.last_action_at = timezone.now()
-        account.save(update_fields=["daily_action_count", "last_action_at"])
+        record_manual_dm(account, user_pk=user_id or None, text=text, actor=_ig_actor(request))
 
         return JsonResponse({
             "success": True,
@@ -2069,7 +2044,7 @@ def instagram_cockpit_search(request, pk: int):
 def instagram_cockpit_organic_dm(request, pk: int):
     """AJAX endpoint: Execute full organic journey to target user and dispatch DM."""
     from django.shortcuts import get_object_or_404
-    from apps.discovery.outreach_service import execute_organic_journey
+    from apps.discovery.outreach_service import execute_organic_journey, manual_dm_block_reason, record_manual_dm
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     target_username = request.POST.get("target_username", "").strip().lstrip("@")
@@ -2077,6 +2052,10 @@ def instagram_cockpit_organic_dm(request, pk: int):
 
     if not target_username or not message_text:
         return JsonResponse({"success": False, "error": "نام کاربری مقصد و متن پیام الزامی است."}, status=400)
+
+    blocked = manual_dm_block_reason(account)
+    if blocked:
+        return JsonResponse({"success": False, "error": blocked, "blocked": True}, status=429)
 
     cl, err = _get_cockpit_client(account)
     if not cl:
@@ -2090,9 +2069,7 @@ def instagram_cockpit_organic_dm(request, pk: int):
 
         cl.direct_send(message_text, user_ids=[target_pk])
 
-        account.daily_action_count = (account.daily_action_count or 0) + 1
-        account.last_action_at = timezone.now()
-        account.save(update_fields=["daily_action_count", "last_action_at"])
+        record_manual_dm(account, user_pk=target_pk, text=message_text, actor=_ig_actor(request))
 
         return JsonResponse({
             "success": True,
@@ -2143,7 +2120,8 @@ def manage_proxy_channel_add(request):
     try:
         clean_user = normalize_channel_username(raw_channel)
         channel_data = add_monitored_channel(clean_user, title=title)
-        messages.success(request, f"کانال @{clean_user} با موفقیت به لیست پایش کانفیگ اضافه شد.")
+        # JSON endpoint: the page shows this message as a toast; a flash
+        # message here would show it a second time on the next page load.
         return JsonResponse({
             "success": True,
             "message": f"کانال @{clean_user} با موفقیت به لیست اضافه شد.",

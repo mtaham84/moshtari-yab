@@ -11,7 +11,6 @@
 """
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -20,11 +19,7 @@ from apps.businesses.models import Business
 from apps.products.models import Category, Product
 from apps.products.taxonomy import get_active_leaf_categories
 from apps.discovery.models import (
-    InstagramCategoryTarget,
-    InstagramCrawlExecution,
     InstagramSourceStat,
-    Opportunity,
-    XQueryDaily,
     XSearchQuery,
 )
 from apps.discovery.leaf_query_generator import (
@@ -35,10 +30,8 @@ from apps.discovery.leaf_query_generator import (
     MAX_IG_QUERIES_PER_LEAF,
 )
 from need_engine.post_qualification import (
-    LunaPostQualification,
     determine_decision,
     qualify_post_deterministic,
-    qualify_post_with_luna,
 )
 from apps.discovery.services import get_leaf_category_dashboard_stats
 

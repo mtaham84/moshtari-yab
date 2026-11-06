@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 from .comment_threshold import jev_selection_threshold
 
 PASSING_LABEL = "share of comments that passed the selection threshold"

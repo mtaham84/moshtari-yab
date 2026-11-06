@@ -17,14 +17,13 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
-import json
 import logging
 import os
 from pathlib import Path
 import sqlite3
 from typing import Any
 
-from need_engine.text import norm, tokens
+from need_engine.text import tokens
 try:
     from apps.core.prompts import get_system_prompt
 except Exception:

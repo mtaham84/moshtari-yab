@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Callable
 
 

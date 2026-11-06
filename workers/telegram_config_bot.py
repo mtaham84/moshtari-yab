@@ -12,14 +12,12 @@ Telegram Config Management Bot (@config_peyda_bot)
 from __future__ import annotations
 
 import html
-import json
 import logging
 import os
 import re
 import sys
 import threading
 import time
-import urllib.parse
 from typing import Any
 
 # Configure logging
@@ -31,10 +29,11 @@ logging.basicConfig(
 log = logging.getLogger("telegram_config_bot")
 
 # Setup Django Environment & Load .env
-sys.path.insert(0, "/root/moshtari-yab")
-sys.path.insert(0, "/home/taha/HDD/customerweb")
 from pathlib import Path
-for env_candidate in [Path("/root/moshtari-yab/.env"), Path(__file__).resolve().parent.parent / ".env"]:
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+for env_candidate in [REPO_ROOT / ".env"]:
     if env_candidate.exists():
         with open(env_candidate, "r", encoding="utf-8") as f:
             for line in f:
@@ -62,13 +61,11 @@ try:
 except Exception as exc:
     log.warning("Django setup warning: %s", exc)
 
+from shared.telegram_alerts import load_subscribers, save_subscribers  # noqa: E402
 from xray.multi_proxy_manager import (
-    validate_config_format,
     add_proxy_config,
     prune_dead_configs,
-    assign_proxies_to_accounts,
-    rebuild_xray_config_file,
-    reload_xray_service
+    assign_proxies_to_accounts
 )
 
 
@@ -77,11 +74,29 @@ def get_proxy_candidates() -> list[str]:
     candidates = []
     if os.environ.get("TG_BOT_PROXY"):
         candidates.append(os.environ["TG_BOT_PROXY"].strip())
-    if Path("/.dockerenv").exists():
-        candidates.extend(["socks5h://xray:1080", "http://xray:8080"])
-    else:
-        candidates.extend(["socks5h://127.0.0.1:1080", "http://127.0.0.1:8080"])
-    return candidates
+    if os.environ.get("TG_PROXY"):
+        candidates.append(os.environ["TG_PROXY"].strip())
+
+    in_docker = Path("/.dockerenv").exists()
+    host = "xray" if in_docker else "127.0.0.1"
+
+    candidates.extend([f"socks5h://{host}:1080", f"http://{host}:8080"])
+
+    # Also add active dedicated ports from DB if Django is ready
+    try:
+        from apps.discovery.models import ProxyConfig
+        active_ports = list(
+            ProxyConfig.objects.filter(status="ACTIVE")
+            .exclude(local_port__isnull=True)
+            .values_list("local_port", flat=True)[:5]
+        )
+        for p in active_ports:
+            candidates.append(f"socks5h://{host}:{p}")
+    except Exception:
+        pass
+
+    # Deduplicate while preserving order
+    return list(dict.fromkeys(candidates))
 
 
 def tg_request(method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any] | None:
@@ -161,27 +176,12 @@ def send_message(chat_id: int | str, text: str, reply_markup: dict[str, Any] | N
             time.sleep(0.15)
 
 
-SUBSCRIBERS_FILE = Path("/root/moshtari-yab/data/bot_subscribers.json")
-if not SUBSCRIBERS_FILE.parent.exists():
-    SUBSCRIBERS_FILE = Path(__file__).resolve().parent.parent / "data" / "bot_subscribers.json"
-
-DEFAULT_ADMIN_CHATS = {1245164686, 1817086635}
-
 # In-memory user state tracker for interactive multi-step commands (e.g. prompt editing)
 USER_STATES: dict[int | str, dict[str, Any]] = {}
 
 
 def get_subscribers() -> set[int]:
-    chats = set(DEFAULT_ADMIN_CHATS)
-    try:
-        if SUBSCRIBERS_FILE.exists():
-            with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-                if isinstance(saved, list):
-                    chats.update(int(c) for c in saved if str(c).isdigit())
-    except Exception as e:
-        log.warning("Could not load subscribers: %s", e)
-    return chats
+    return load_subscribers()
 
 
 def register_subscriber(chat_id: int | str) -> None:
@@ -190,9 +190,7 @@ def register_subscriber(chat_id: int | str) -> None:
         current = get_subscribers()
         if cid not in current:
             current.add(cid)
-            SUBSCRIBERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
-                json.dump(sorted(list(current)), f)
+            save_subscribers(current)
     except Exception as e:
         log.warning("Could not register subscriber %s: %s", chat_id, e)
 
@@ -581,7 +579,7 @@ def send_long_prompt(chat_id: int | str, header_text: str, prompt_text: str, foo
 
 
 def handle_prompts_list(chat_id: int | str) -> None:
-    """Lists all 19 system prompts grouped by category."""
+    """Lists all system prompts grouped by category."""
     register_subscriber(chat_id)
     from apps.core.prompts import get_all_prompts_info, ensure_prompts_seeded
 
@@ -1017,10 +1015,14 @@ def periodic_health_check_worker() -> None:
             except Exception as luna_exc:
                 log.warning("Periodic Luna health check exception: %s", luna_exc)
 
-            # 2. Prune dead configs every 20 minutes (every 4th cycle)
-            if cycle_counter % 4 == 0:
-                log.info("Running scheduled proxy health check & dead config purge...")
-                prune_dead_configs()
+            # 2. Prune dead & slow (>2000ms) configs every 5 minutes (every cycle)
+            try:
+                log.info("Running 5-minute scheduled proxy health check & dead config purge...")
+                removed = prune_dead_configs()
+                if removed:
+                    log.info("5-minute purge removed %d dead/slow configs: %s", len(removed), [r.get("tag") for r in removed])
+            except Exception as prune_exc:
+                log.warning("Periodic proxy prune exception: %s", prune_exc)
 
         except Exception as exc:
             log.warning("Periodic health check exception: %s", exc)

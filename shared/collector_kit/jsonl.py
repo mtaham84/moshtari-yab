@@ -5,7 +5,7 @@ import tempfile
 from contextlib import nullcontext
 from pathlib import Path
 
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 
 
 def append_line(path: str | Path, line: str, *, locked: bool = False) -> int:

@@ -1,23 +1,18 @@
 import random
 import os
 import time
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import timezone
 
+from django.conf import settings as django_settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone as dj_timezone
 
 from apps.discovery.models import (
     InstagramEngineAccount,
-    InstagramEngineLead,
-    InstagramCrawledPost,
-    InstagramCrawlExecution,
 )
 from apps.discovery.ig_session import (
     ErrorKind, Policy, account_lock, classify, load_file, redact, save_atomic, session_path,
 )
-from instagram_engine.analyzer import get_effective_caption_cta, is_buyer_comment, evaluate_comment_smart
-from instagram_engine.config import settings
 
 
 class ProxyUnavailable(RuntimeError):
@@ -43,7 +38,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--min-comments",
             type=int,
-            default=int(os.getenv("INSTAGRAM_MIN_COMMENTS", "10")),
+            default=django_settings.INSTAGRAM_MIN_COMMENTS,
             help="Minimum comments required on a post (configurable through INSTAGRAM_MIN_COMMENTS).",
         )
         parser.add_argument(
@@ -96,9 +91,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Min Comments Threshold: >= {min_comments} comments")
 
         # 2. Initialize Client Library
-        try:
-            from instagrapi import Client
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("instagrapi") is None:
             self.stderr.write(self.style.ERROR("instagrapi is not installed in the environment!"))
             return
 
@@ -266,7 +261,7 @@ class Command(BaseCommand):
         try:
             from apps.discovery.device_emulator import apply_device_profile_to_client
             apply_device_profile_to_client(cl, account)
-        except Exception as dev_err:
+        except Exception:
             if account.device_settings:
                 try:
                     cl.set_device(account.device_settings, reset=False)
@@ -303,18 +298,57 @@ class Command(BaseCommand):
             from apps.discovery.ig_accounts import proxy_reachable
             proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
             if not proxy_ok:
-                # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
-                # (and the same IP for every account) is a far bigger risk than skipping one cycle.
-                raise ProxyUnavailable(f"proxy unreachable for @{account.username}: {proxy_msg}")
-            cl.set_proxy(proxy)
+                self.stderr.write(f"    proxy unreachable for @{account.username} ({proxy_msg}); triggering auto-failover...")
+                if self._rotate_or_heal_proxy(account, cl=cl):
+                    proxy = account.clean_proxy
+                else:
+                    # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
+                    # (and the same IP for every account) is a far bigger risk than skipping one cycle.
+                    raise ProxyUnavailable(f"proxy unreachable for @{account.username} and no healthy fallback: {proxy_msg}")
+            if proxy:
+                cl.set_proxy(proxy)
 
         return cl
+
+    def _rotate_or_heal_proxy(self, account, cl=None) -> bool:
+        """
+        Automatically heals/failovers account connection when proxy drops or dies.
+        Finds the next free healthy config (or pool) and updates client proxy immediately.
+        """
+        from apps.discovery.ig_accounts import _heal_account, proxy_reachable, effective_proxy_url
+        self.stdout.write(self.style.WARNING(
+            f"    [Auto-Failover]: Proxy for @{account.username} failed. Searching for healthy replacement config..."
+        ))
+        _heal_account(account, actor="scraper_auto_heal")
+        account.refresh_from_db()
+        new_proxy = account.clean_proxy or effective_proxy_url(account)
+        if new_proxy:
+            ok, msg = proxy_reachable(new_proxy, timeout=3.0)
+            if ok:
+                if cl:
+                    cl.set_proxy(new_proxy)
+                # Invalidate client pool cache so fresh client/session is rebuilt with new proxy
+                if hasattr(self, "_client_pool") and account.id in self._client_pool:
+                    self._client_pool.pop(account.id, None)
+                self.stdout.write(self.style.SUCCESS(
+                    f"    [Auto-Failover]: Account @{account.username} successfully rotated to new proxy: {new_proxy}"
+                ))
+                return True
+            else:
+                self.stderr.write(f"    [Auto-Failover]: Fallback proxy {new_proxy} unreachable: {msg}")
+        return False
 
     def _client_or_rest(self, account):
         """Client for `account`, or None after resting it for a while when its proxy is down."""
         try:
             return self._get_persistent_client(account)
         except ProxyUnavailable as exc:
+            # One final failover attempt before resting
+            if self._rotate_or_heal_proxy(account):
+                try:
+                    return self._get_persistent_client(account)
+                except Exception:
+                    pass
             self._set_state(account, "COOLDOWN", f"پروکسی در دسترس نیست؛ بدون پروکسی وصل نمی‌شویم: {redact(exc, 150)}",
                             hours=self.PROXY_DOWN_REST_HOURS)
             self.stderr.write(f"    proxy_unavailable: account {account.id} rests {self.PROXY_DOWN_REST_HOURS}h (no direct fallback)")
@@ -382,7 +416,6 @@ class Command(BaseCommand):
         Runs only if INSTAGRAM_SESSION_AUTO_REAUTH_ENABLED is on, at most INSTAGRAM_SESSION_MAX_RECOVERY_ATTEMPTS per
         incident, under a cross-container account lock. Failure cools the account down (persisted in cooldown_until).
         """
-        from datetime import timedelta
 
         if cl is None or not account.password:
             return False
@@ -417,7 +450,7 @@ class Command(BaseCommand):
                 record_login_failure(account, exc, actor="scraper")
                 self.stderr.write(f"    recovery_failed: account {account.id} needs a verification code")
                 return False
-            except BadPassword as exc:
+            except BadPassword:
                 self._set_state(account, "CHALLENGED", "لاگین ناموفق بود: رمز عبور رد شد. رمز را بررسی کنید.")
                 self.stderr.write(f"    recovery_failed: account {account.id} bad credentials")
                 return False
@@ -487,7 +520,6 @@ class Command(BaseCommand):
         (LOGIN_REQUIRED) and only when auto-reauth is enabled; challenges, restrictions, network and unknown errors
         never log in. Returns True when the account was taken out of rotation.
         """
-        from datetime import timedelta
 
         kind = classify(exc if exc is not None else err_text)
         if kind is ErrorKind.LOGIN_REQUIRED:
@@ -511,6 +543,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 f"    {kind.value}: account {account.id} -> {status}{f' ({hours:g}h)' if hours else ''}; no login attempted."))
             return True
+        if kind is ErrorKind.NETWORK:
+            self.stderr.write(f"    Network/Proxy error encountered on @{account.username}; triggering automatic proxy failover...")
+            if self._rotate_or_heal_proxy(account, cl=cl):
+                return False  # successfully failed over to a new proxy, keep account in rotation!
         return False  # network / unclassified: no state change, never a login
 
     def _inspect_and_process_medias(
@@ -601,8 +637,8 @@ class Command(BaseCommand):
                     )
                     continue
 
-            # Strict Filter: Must have at least 10 comments
-            effective_min = 10
+            # Strict Filter: Must have at least --min-comments comments
+            effective_min = min_comments
             if comment_count < effective_min:
                 continue
 
@@ -859,7 +895,21 @@ class Command(BaseCommand):
         if not is_safe:
             raise RuntimeError(f"محدودیت ضدبن اینستاگرام: {reason}")
         self._current_api_requests = int(getattr(self, "_current_api_requests", 0)) + 1
-        return method(*args, **kwargs)
+        try:
+            return method(*args, **kwargs)
+        except Exception as exc:
+            err_str = str(exc).lower()
+            is_net_err = any(k in err_str for k in [
+                "connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl",
+                "56", "connection closed", "refused", "proxyerror", "socks"
+            ])
+            if is_net_err:
+                self.stderr.write(f"    [API Call Warning]: Proxy/Network error during call ({redact(exc, 100)}); initiating auto-failover...")
+                cl = getattr(method, "__self__", None)
+                if self._rotate_or_heal_proxy(account, cl=cl):
+                    self.stdout.write(self.style.SUCCESS("    [API Call Retry]: Retrying operation with rotated proxy..."))
+                    return method(*args, **kwargs)
+            raise
 
     def _discover_candidate_pages(self, cl, account, business, family, plan, source):
         """Search real public accounts, score their recent posts, and cache at most six family candidates."""
@@ -1210,12 +1260,12 @@ class Command(BaseCommand):
         from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
         from instagram_engine.analyzer import (extract_caption_cta, evaluate_comment_smart,
                                                 llm_evaluate_family_batch)
-        from apps.discovery.instagram_families import INSTAGRAM_PAGE_MIN_COMMENTS, lead_quality_score
+        from apps.discovery.instagram_families import lead_quality_score
 
         business, family, plan = target["business"], target["family"], target["plan"]
         post_cutoff = dj_timezone.now() - timedelta(days=30)
         comment_cutoff = dj_timezone.now() - timedelta(days=5)
-        effective_min = 10
+        effective_min = max(1, int(min_comments))
         target_qualifying = 3
         posts_inspected = qualifying_posts = leads_saved = 0
         seen = set()
@@ -1250,10 +1300,10 @@ class Command(BaseCommand):
                 ))
                 continue
 
-            # Rule 2: Minimum comment count >= 10
+            # Rule 2: Minimum comment count >= --min-comments
             if comment_count < effective_min:
                 self.stdout.write(self.style.WARNING(
-                    f"    [{posts_inspected}] ⏭️ [رد شد - کامنت کم]: {post_url} (کامنت: {comment_count} < ۱۰)"
+                    f"    [{posts_inspected}] ⏭️ [رد شد - کامنت کم]: {post_url} (کامنت: {comment_count} < {effective_min})"
                 ))
                 continue
 
@@ -1482,9 +1532,8 @@ class Command(BaseCommand):
         return posts_inspected, qualifying_posts, leads_saved, retired
 
     def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
-        from apps.discovery.models import InstagramCrawlExecution, InstagramPage, InstagramSourceStat
-        from apps.discovery.instagram_families import (DiscoverySource, INSTAGRAM_DAILY_REQUEST_BUDGET,
-                                                         record_source_result)
+        from apps.discovery.models import InstagramCrawlExecution, InstagramSourceStat
+        from apps.discovery.instagram_families import (record_source_result)
 
         total_leads = 0
         from apps.billing.services import is_blocked
@@ -1531,7 +1580,6 @@ class Command(BaseCommand):
                 break
             error = ""
             medias = []
-            actual_source = source
             try:
                 if source.source_type == "page" and source.label.startswith("search:"):
                     page_searches += 1
@@ -1564,7 +1612,7 @@ class Command(BaseCommand):
                 self._note_account_error(account, error, cl, exc)
                 execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
                 query = source.label
-            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=10)
+            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=min_comments)
             total_leads += leads
 
             if not error and retired and not getattr(source, "manual", False):

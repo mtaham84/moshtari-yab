@@ -1,6 +1,7 @@
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 
+from apps.core.permissions import is_operator
 from apps.businesses.models import Business
 from apps.core.jalali import parse_jalali_date
 from apps.discovery.services import get_performance_analytics, get_leaf_category_dashboard_stats
@@ -13,7 +14,7 @@ def api_analytics_report_view(request):
     with support for Persian/Shamsi start_date and end_date filtering.
     """
     business = getattr(request.user, "business", None)
-    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
+    if is_operator(request.user) and request.GET.get("business_id", "").strip().isdigit():
         b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
         if b_found:
             business = b_found
@@ -37,7 +38,7 @@ def api_leaf_category_stats_view(request):
     Accepts ?platform=x, ?platform=instagram, or returns both.
     """
     business = getattr(request.user, "business", None)
-    if (request.user.is_staff or request.user.is_superuser) and request.GET.get("business_id", "").strip().isdigit():
+    if is_operator(request.user) and request.GET.get("business_id", "").strip().isdigit():
         b_found = Business.objects.filter(id=int(request.GET.get("business_id"))).first()
         if b_found:
             business = b_found

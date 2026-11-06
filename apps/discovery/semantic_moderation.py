@@ -101,9 +101,6 @@ def _get_embedder():
         return None
     if _CACHED_EMBEDDER is not None:
         return _CACHED_EMBEDDER if _CACHED_EMBEDDER is not False else None
-    if "PYTEST_CURRENT_TEST" in os.environ and not (os.getenv("NE_DATABASE_URL") or os.getenv("DATABASE_URL")):
-        _CACHED_EMBEDDER = False
-        return None
     try:
         from need_engine.config import EngineConfig
         from need_engine.llm import LLMClient

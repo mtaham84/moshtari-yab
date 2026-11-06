@@ -1,11 +1,9 @@
-import sys
 import time
 from django.core.management.base import BaseCommand
 
 from apps.discovery.channel_config_automation import (
     sync_channel_configs,
     sync_all_active_channels,
-    get_monitored_channels,
 )
 
 

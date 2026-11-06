@@ -15,7 +15,6 @@ from django.conf import settings
 from django.utils import timezone as django_tz
 
 from apps.discovery.models.instagram import InstagramEngineAccount
-from apps.discovery.models.proxy import ProxyConfig
 from apps.discovery.human_routine import HumanShiftPlanner  # noqa: F401  (tests patch tasks.HumanShiftPlanner)
 from apps.discovery.outreach_engine import get_available_senders, reply_sync_allowed, run_outreach_batch
 from apps.discovery.outreach_service import check_and_sync_lead_replies
@@ -38,7 +37,7 @@ def get_available_senders_atomic(tenant_ids: List[str]) -> List[InstagramEngineA
 )
 def task_dispatch_instagram_outreach(
     self,
-    tenant: str = "tenant_4",
+    tenant: Optional[str] = None,
     batch_size: int = 2,
     min_intent: float = 0.65,
     ignore_shift: bool = False,
@@ -47,9 +46,10 @@ def task_dispatch_instagram_outreach(
     Celery tick of the single DM dispatcher (apps.discovery.outreach_engine), same logic as ig-outreach:
     queued messages first, then the best 45-point lead; per-sender and global pacing live in the DB,
     a Postgres advisory lock keeps one step per tenant, so this task never sleeps between DMs.
+    `tenant` limits the tick to one tenant; by default every tenant of `outreach_tenants()` is served.
     `min_intent` is accepted for old beat entries only; ranking uses the 45-point outreach score.
     """
-    tenant_ids = ["tenant_4", "sarv"] if tenant in ("sarv", "tenant_4") else [tenant]
+    from apps.discovery.ig_accounts import outreach_tenants, tenant_ids as ig_tenant_ids
 
     # Single-dispatcher guard: never send in parallel with the ig-outreach command loop
     dispatcher = getattr(settings, "INSTAGRAM_OUTREACH_DISPATCHER", "command")
@@ -57,9 +57,16 @@ def task_dispatch_instagram_outreach(
         logger.info("⏭️ [Celery Outreach] Skipped: INSTAGRAM_OUTREACH_DISPATCHER=%s (the ig-outreach command is the active dispatcher).", dispatcher)
         return {"success": True, "skipped": True, "reason": "dispatcher_disabled", "sent_count": 0}
 
-    batch = run_outreach_batch(tenant_ids, max_sends=batch_size, ignore_shift=ignore_shift, log=logger.info)
-    last = batch["last"]
-    if last.get("action") == "paused":
+    tenants = [tenant] if tenant else outreach_tenants()
+    sent, last, paused = 0, {}, []
+    for t in tenants:
+        batch = run_outreach_batch(ig_tenant_ids(t), max_sends=batch_size, ignore_shift=ignore_shift, log=logger.info)
+        sent += batch["sent"]
+        last = batch["last"]
+        if last.get("action") == "paused":
+            paused.append(last)
+    if tenants and len(paused) == len(tenants):
+        last = paused[0]
         logger.info("💤 [Celery Shift Pause] Task skipped: %s (Resuming in %dm)", last.get("reason"), (last.get("wait_seconds") or 0) // 60)
         return {
             "success": True,
@@ -70,9 +77,9 @@ def task_dispatch_instagram_outreach(
         }
     return {
         "success": True,
-        "sent_count": batch["sent"],
+        "sent_count": sent,
         "last_action": last.get("action"),
-        "tenant": tenant,
+        "tenant": tenant or ",".join(tenants),
         "timestamp": django_tz.now().isoformat(),
     }
 
@@ -88,7 +95,11 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
     skipped so the checks are not evenly spaced.
     """
     if not tenant_ids:
-        tenant_ids = ["tenant_4", "sarv"]
+        from apps.discovery.ig_accounts import outreach_tenant_ids
+
+        tenant_ids = outreach_tenant_ids()
+        if not tenant_ids:
+            return {"success": True, "skipped": True, "reason": "no_outreach_tenants", "replies_found": 0}
     allowed, reason = reply_sync_allowed()
     if not allowed:
         return {"success": True, "skipped": True, "reason": reason, "replies_found": 0}

@@ -88,7 +88,7 @@ def extract_caption_cta(caption: Optional[str]) -> Optional[str]:
 
 
 from apps.discovery.comment_moderation import is_toxic_or_spam_comment, is_pure_emoji_or_symbols_only
-from instagram_engine.post_filters import is_irrelevant_post_for_business, is_generic_compliment_comment, EMOJI_PATTERN
+from instagram_engine.post_filters import is_generic_compliment_comment, EMOJI_PATTERN
 
 PERSIAN_COMMENT_STOPWORDS = {
     "و", "در", "به", "از", "که", "این", "رو", "را", "با", "برای", "است", "شد", "بود",
@@ -151,7 +151,7 @@ def _call_llm_with_usage(payload: dict, timeout: float = 25.0) -> Dict[str, Any]
             if m.provider and m.provider.base_url and m.provider.api_key:
                 candidates.append((m.name, m.provider.base_url.rstrip("/"), m.provider.api_key))
     except Exception:
-        pass
+        logger.warning("Could not read the AIModel table; falling back to env LLM settings", exc_info=True)
 
     # Fallback to settings if candidates table is empty
     if not candidates:
@@ -513,7 +513,7 @@ def evaluate_comment_smart(comment_text: str, caption: str = "", cta_word: Optio
             caption=caption,
             trigger_word=clean_content or (cta_word or ""),
             business_id=business_id,
-            product_context=product_context or "دندانپزشکی",
+            product_context=product_context or "محصول",
         )
         return {
             "is_lead": True,

@@ -125,7 +125,7 @@ def handle_instagram_exceptions(func: Callable) -> Callable:
                 update_account_status(account_id, AccountStatus.CHALLENGED, cooldown_hours=None, log_message=msg)
             raise
 
-        except LoginRequired as exc:
+        except LoginRequired:
             logger.warning("🔑 [SESSION EXPIRED] Account @%s session expired (LoginRequired). Preserving hardware fingerprint for re-login.", username)
             raise
 

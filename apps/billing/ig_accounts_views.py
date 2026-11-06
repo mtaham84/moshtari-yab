@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from apps.billing.manage_views import manage_access_required
+from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
 from apps.discovery.models import InstagramEngineAccount, ProxyConfig
 
@@ -28,11 +29,6 @@ PROXY_MODES = (("config", "کانفیگ اختصاصی سیستم"), ("pool", "�
 
 def _actor(request) -> str:
     return request.user.get_username()
-
-
-def _wants_json(request) -> bool:
-    return (request.headers.get("x-requested-with") == "XMLHttpRequest"
-            or "application/json" in request.headers.get("Accept", ""))
 
 
 def _post(request) -> dict:
@@ -51,7 +47,7 @@ def _detail_url(pk, anchor: str = "") -> str:
 
 
 def _respond(request, res, pk=None, anchor: str = ""):
-    if _wants_json(request):
+    if wants_json(request):
         return JsonResponse(res.as_dict())
     if res.state == "needs_code":
         messages.warning(request, res.message)
@@ -126,7 +122,7 @@ def ig_account_add(request):
         account_tier=p.get("account_tier", "NEW"), daily_limit=p.get("daily_limit"), proxy=p.get("proxy") or "system",
         proxy_url=p.get("proxy_url", ""), config=config, actor=_actor(request), login=True)
     if acc is None:
-        if _wants_json(request):
+        if wants_json(request):
             return JsonResponse(res.as_dict())
         messages.error(request, res.message)
         return redirect(reverse("manage:ig_accounts") + "#add")
@@ -257,7 +253,7 @@ def ig_account_action(request, pk, action):
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     if action == "delete":
         username = svc.delete_account(acc, actor=_actor(request))
-        if _wants_json(request):
+        if wants_json(request):
             return JsonResponse({"success": True, "message": f"اکانت @{username} حذف شد.", "deleted": True})
         messages.success(request, f"اکانت @{username} حذف شد.")
         return redirect("manage:ig_accounts")

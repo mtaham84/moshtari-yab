@@ -46,8 +46,9 @@ class Command(BaseCommand):
     help = "Run the Instagram DM dispatcher (queued messages + 45-point cold outreach) with SENDER accounts."
 
     def add_arguments(self, parser):
-        parser.add_argument("--tenant", type=str, default="tenant_4",
-                            help="Tenant ID or keyword (e.g. 'tenant_4' or 'sarv'). Default: tenant_4")
+        parser.add_argument("--tenant", type=str, default=None,
+                            help="Tenant ID or keyword (e.g. 'tenant_4' or 'sarv'). Default: OUTREACH_TENANTS, "
+                                 "else every tenant with an ACTIVE SENDER account.")
         parser.add_argument("--dry-run", action="store_true",
                             help="Simulate sends without Instagram calls and without pacing. WARNING: it still "
                                  "marks leads as sent in the database, never use it on the production DB.")
@@ -74,7 +75,6 @@ class Command(BaseCommand):
                             help="Bypass the daily shift hours check.")
 
     def handle(self, *args, **options):
-        tenant = options["tenant"]
         dry_run = options["dry_run"]
 
         # Single-dispatcher guard: never run in parallel with the Celery outreach dispatcher
@@ -85,7 +85,17 @@ class Command(BaseCommand):
                 "Stop/remove the ig-outreach service (or use --dry-run) to avoid double-sending."
             )
 
-        tenant_ids = ["tenant_4", "sarv"] if tenant in ("sarv", "tenant_4") else [tenant]
+        from apps.discovery.ig_accounts import outreach_tenants, tenant_ids as ig_tenant_ids
+        def tenant_groups():
+            # re-resolved every tick without --tenant: senders activated later are picked up without a restart
+            tenants = [options["tenant"]] if options["tenant"] else outreach_tenants()
+            return [ig_tenant_ids(t) for t in tenants]   # each includes legacy aliases such as "sarv"
+
+        groups = tenant_groups()
+        tenant_ids = [tid for group in groups for tid in group]
+        if not groups:
+            self.stdout.write(self.style.WARNING(
+                "⚠️ هیچ مستأجری برای ارسال نیست (OUTREACH_TENANTS خالی و اکانت SENDER فعالی وجود ندارد)."))
         min_gap = options["interval"] if options["interval"] is not None else settings.INSTAGRAM_OUTREACH_MIN_GAP_MINUTES
 
         self.stdout.write(self.style.SUCCESS("=" * 75))
@@ -114,9 +124,20 @@ class Command(BaseCommand):
         }
         batch_size = max(1, options["batch_size"])
 
+        def run_batches():
+            nonlocal groups, tenant_ids
+            groups = tenant_groups()
+            tenant_ids = [tid for group in groups for tid in group]
+            cfg = load_outreach_config()   # re-read every tick so pitch edits apply without a restart
+            results = [run_outreach_batch(group, max_sends=batch_size, cfg=cfg, **step_kwargs) for group in groups]
+            for res in results:
+                self._report(res["last"])
+            paused = [r["last"] for r in results if r["last"].get("action") == "paused"]
+            return {"sent": sum(r["sent"] for r in results),
+                    "paused": paused[0] if paused and len(paused) == len(results) else None}
+
         if options["once"] or not options["loop"]:
-            batch = run_outreach_batch(tenant_ids, max_sends=batch_size, cfg=load_outreach_config(), **step_kwargs)
-            self._report(batch["last"])
+            batch = run_batches()
             if not dry_run and reply_sync_allowed(options["ignore_circadian"])[0]:
                 self._sync_replies(tenant_ids)
             self.stdout.write(self.style.SUCCESS(f"\n🏁 عملیات تک‌بچ به پایان رسید. مجموع پیام‌های ارسالی: {batch['sent']}"))
@@ -129,12 +150,9 @@ class Command(BaseCommand):
         while True:
             pause = tick
             try:
-                # config re-read every tick so pitch edits apply without a restart
-                batch = run_outreach_batch(tenant_ids, max_sends=batch_size, cfg=load_outreach_config(), **step_kwargs)
-                last = batch["last"]
-                self._report(last)
-                if last.get("action") == "paused":
-                    pause = max(tick, min(int(last.get("wait_seconds") or tick), 300))
+                batch = run_batches()
+                if batch["paused"]:
+                    pause = max(tick, min(int(batch["paused"].get("wait_seconds") or tick), 300))
                 if not dry_run and time.monotonic() >= next_reply_sync:
                     if reply_sync_allowed(options["ignore_circadian"])[0]:  # no inbox checks outside the shift
                         self._sync_replies(tenant_ids)
@@ -178,6 +196,8 @@ class Command(BaseCommand):
             self.stdout.write("مرحله قبلی هنوز در حال اجراست؛ این دور رد شد.")
 
     def _sync_replies(self, tenant_ids):
+        if not tenant_ids:
+            return
         try:
             res = check_and_sync_lead_replies(tenant_ids)
             if res.get("replies_found", 0) > 0:

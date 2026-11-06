@@ -480,6 +480,23 @@ class InstagramEngineLead(models.Model):
     def __str__(self):
         return f"@{self.username} (احتمال خرید: {int(self.intent_score * 100)}% - {self.get_status_display()})"
 
+    # Used by the seller outreach page and its CSV export (templates/accounts/outreach.html, outreach_leads_export_csv).
+    @property
+    def display_page_type(self) -> str:
+        return "خصوصی (Private)" if self.is_private else "عمومی (Public)"
+
+    @property
+    def comment_created_at_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_datetime
+
+        return format_jalali_datetime(self.comment_created_at) if self.comment_created_at else ""
+
+    @property
+    def post_created_at_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_datetime
+
+        return format_jalali_datetime(self.post_created_at) if self.post_created_at else ""
+
 
 class InstagramCrawledPost(models.Model):
     post_hash = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="هش شناسه پست")

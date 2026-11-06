@@ -23,10 +23,10 @@ import subprocess
 from pathlib import Path
 
 # Paths & Defaults
-BASE_DIR = Path("/root/moshtari-yab/xray")
+BASE_DIR = Path(os.environ.get("XRAY_DIR") or Path(__file__).resolve().parent)
 CONFIG_FILE = BASE_DIR / "config.json"
 XRAY_BIN = Path("/usr/local/bin/xray")
-COMPOSE_DIR = Path("/root/moshtari-yab")
+COMPOSE_DIR = Path(os.environ.get("COMPOSE_DIR") or Path(__file__).resolve().parent.parent)
 OPTIMAL_PING_THRESHOLD_MS = 600.0
 MAX_ACCEPTABLE_PING_THRESHOLD_MS = 2000.0
 CHECK_INTERVAL_SEC = 60

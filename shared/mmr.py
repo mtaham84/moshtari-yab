@@ -8,9 +8,8 @@ MMR balances relevance to a target context with diversity among selected candida
 - lambda = 0.0 -> purely maximum diversity
 - lambda = 0.65 -> optimal balance of high domain relevance and varied topics
 """
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, List, Set
 import re
-import unicodedata
 
 
 def clean_persian_token(token: str) -> str:

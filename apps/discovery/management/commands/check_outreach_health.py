@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_tz
 
+from apps.discovery.ig_accounts import outreach_tenant_ids, tenant_ids as ig_tenant_ids
+
 from apps.discovery.models.instagram import InstagramEngineAccount, InstagramEngineLead
 from apps.discovery.human_routine import HumanShiftPlanner
 
@@ -22,15 +24,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--tenant",
             type=str,
-            default="tenant_4",
-            help="Tenant ID to inspect (default: tenant_4).",
+            default=None,
+            help="Tenant ID to inspect (default: every outreach tenant, see OUTREACH_TENANTS).",
         )
 
     def handle(self, *args, **options):
         tenant = options["tenant"]
-        tenant_ids = [tenant]
-        if tenant in ("sarv", "tenant_4"):
-            tenant_ids = ["tenant_4", "sarv"]
+        # includes legacy aliases such as "sarv"
+        tenant_ids = ig_tenant_ids(tenant) if tenant else outreach_tenant_ids()
 
         now_utc = django_tz.now()
         now_tehran = datetime.now(TEHRAN_TZ)

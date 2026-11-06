@@ -63,5 +63,4 @@ def test_feedback_exports_are_not_scored_until_reviewed():
 
     assert result["predictions"] == []
     assert result["tp"] == result["fp"] == result["fn"] == 0
-from dataclasses import replace
 

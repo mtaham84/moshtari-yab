@@ -1,17 +1,14 @@
 import os
 import random
 import secrets
-from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from django.utils import timezone
 from decimal import Decimal
 from apps.businesses.models import Business, MessageStyle
 from apps.products.models import Category, Product, ProductImage
-from apps.billing.models import Wallet, WalletTransaction
+from apps.billing.models import WalletTransaction
 from apps.billing.services import ensure_wallet, apply_transaction
-from apps.discovery.models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch, MonitoredCommunity
-from apps.discovery.sources import PRIVATE, normalize_link
+from apps.discovery.models import Customer, Opportunity, MonitoredCommunity
 
 User = get_user_model()
 

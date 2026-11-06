@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from apps.businesses.models import Business
-from apps.billing.models import AIModel, Provider, Wallet, WalletTransaction
+from apps.billing.models import AIModel, Provider, WalletTransaction
 from apps.discovery.instagram_families import (
     DiscoverySource, _validate_plan, cheap_buyer_match, ensure_family_plan, lead_quality_score, sample_sources,
 )
@@ -121,7 +121,7 @@ class InstagramFamilyDatabaseTests(TestCase):
         user = get_user_model().objects.create_user(username="ig-family-test", password="x")
         self.business = Business.objects.create(user=user, name="فروشگاه پوشاک", business_type="PHYSICAL",
                                                 business_domain="پوشاک", search_notes="فروش عمده به فروشگاه‌ها")
-        from apps.billing.models import Wallet, WalletTransaction
+        from apps.billing.models import WalletTransaction
         from apps.billing.services import apply_transaction
         apply_transaction(self.business, 5000, WalletTransaction.TOPUP)
         self.family = SimpleNamespace(product_id=f"f{self.business.pk}-abc", business_id=str(self.business.pk),
@@ -243,6 +243,32 @@ class InstagramFamilyDatabaseTests(TestCase):
         self.assertEqual(InstagramCrawledPost.objects.count(), 1)
         self.assertEqual(sync.call_count, 2)
 
+    def _inspect_single(self, comment_count, min_comments):
+        from apps.discovery.management.commands.run_instagram_scraper import Command
+        from apps.discovery.instagram_families import DiscoverySource
+
+        now = timezone.now()
+        media = SimpleNamespace(id=f"media-{comment_count}-{min_comments}", pk=f"media-{comment_count}-{min_comments}",
+                                code="abc", caption_text="پیراهن موجود است", comment_count=comment_count, taken_at=now)
+        client = SimpleNamespace(media_comments=Mock(return_value=[]))
+        account = SimpleNamespace(username="scraper")
+        plan = SimpleNamespace(buyer_signals=["قیمت"], negative_signals=[])
+        source = DiscoverySource(self.family.product_id, "keyword", "پیراهن مردانه")
+        family = SimpleNamespace(product_id=self.family.product_id, category_path="پوشاک > مردانه > پیراهن",
+                                 titles=["پیراهن مردانه"], notes="")
+        command = Command()
+        command._request_budget_available = lambda _account: True
+        command._current_api_requests = 0
+        target = {"business": self.business, "family": family, "plan": plan, "tenant_id": f"tenant_{self.business.pk}"}
+        with patch("apps.discovery.services.sync_instagram_lead_to_opportunity"):
+            command._inspect_family_medias(client, account, target, source, [media], min_comments)
+        return client.media_comments.call_count
+
+    def test_family_path_respects_min_comments(self):
+        # BUG-13: the family path used a hard-coded 10 and ignored --min-comments.
+        self.assertEqual(self._inspect_single(comment_count=6, min_comments=5), 1)
+        self.assertEqual(self._inspect_single(comment_count=6, min_comments=10), 0)
+
 
 class OutreachBillingDatabaseTests(TestCase):
     def setUp(self):
@@ -297,7 +323,6 @@ class OutreachBillingDatabaseTests(TestCase):
         from apps.discovery.services import generate_opportunity_reply_suggestions
         from apps.core.models import LLMUsageLog
         from apps.billing.models import Wallet
-        from django.utils import timezone
         from unittest.mock import patch
 
         fake_chat = Mock(side_effect=lambda *args, **kwargs: self._variants("سلام"))

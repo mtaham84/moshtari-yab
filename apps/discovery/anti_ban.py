@@ -12,10 +12,9 @@ from __future__ import annotations
 import logging
 import os
 import random
-import sys
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional, Tuple
+from typing import Tuple
 
 from django.db.models import Sum
 from django.utils import timezone as dj_timezone
@@ -45,9 +44,22 @@ BREAK_DURATION_MIN_SEC = 150.0   # 2.5 minutes
 BREAK_DURATION_MAX_SEC = 390.0   # 6.5 minutes
 
 
-def _is_testing_environment() -> bool:
-    """Detects whether tests are currently executing to avoid sleeping in test suites."""
-    return "test" in sys.argv or any("pytest" in arg for arg in sys.argv) or os.getenv("TESTING", "").lower() in ("1", "true")
+def _antiban_disabled() -> bool:
+    """settings.INSTAGRAM_ANTIBAN_ENABLED=False (test runner / conftest) skips the hours window and human pauses."""
+    from django.conf import settings
+
+    return not getattr(settings, "INSTAGRAM_ANTIBAN_ENABLED", True)
+
+
+def in_operating_window(hour: int) -> bool:
+    """True when a local (Tehran) hour is inside INSTAGRAM_WINDOW_START_HOUR..INSTAGRAM_WINDOW_END_HOUR."""
+    return INSTAGRAM_WINDOW_START_HOUR <= hour < INSTAGRAM_WINDOW_END_HOUR
+
+
+def next_window_start(local_now: datetime) -> datetime:
+    """The next moment the operating window opens, in local_now's timezone."""
+    start = local_now.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
+    return start if local_now.hour < INSTAGRAM_WINDOW_START_HOUR else start + timedelta(days=1)
 
 
 class InstagramAntiBanManager:
@@ -59,21 +71,15 @@ class InstagramAntiBanManager:
     @classmethod
     def is_within_operating_hours(cls, force: bool = False) -> bool:
         """Returns True if current local time (Asia/Tehran) is between 09:00 and 23:00."""
-        if force or _is_testing_environment():
+        if force or _antiban_disabled():
             return True
-        local_now = dj_timezone.localtime()
-        return INSTAGRAM_WINDOW_START_HOUR <= local_now.hour < INSTAGRAM_WINDOW_END_HOUR
+        return in_operating_window(dj_timezone.localtime().hour)
 
     @classmethod
     def seconds_until_next_window(cls) -> float:
         """Calculates seconds until the next 09:00 AM window begins in local time."""
         local_now = dj_timezone.localtime()
-        if local_now.hour < INSTAGRAM_WINDOW_START_HOUR:
-            next_window = local_now.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
-        else:
-            tomorrow = local_now + timedelta(days=1)
-            next_window = tomorrow.replace(hour=INSTAGRAM_WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
-        diff = (next_window - local_now).total_seconds()
+        diff = (next_window_start(local_now) - local_now).total_seconds()
         return max(60.0, diff)
 
     @classmethod
@@ -150,7 +156,7 @@ class InstagramAntiBanManager:
         Real users take periodic breaks while browsing Instagram.
         """
         acc_id = getattr(account, "id", None)
-        if not acc_id or _is_testing_environment():
+        if not acc_id or _antiban_disabled():
             return
 
         cls._session_action_counts[acc_id] = cls._session_action_counts.get(acc_id, 0) + 1
@@ -181,7 +187,7 @@ class InstagramAntiBanManager:
     @classmethod
     def sleep_after_query(cls, stdout=None) -> None:
         """Sleep with random jitter between queries (35-65s)."""
-        if _is_testing_environment():
+        if _antiban_disabled():
             return
         duration = random.uniform(*DELAY_BETWEEN_QUERIES)
         if stdout:
@@ -191,7 +197,7 @@ class InstagramAntiBanManager:
     @classmethod
     def sleep_after_post(cls, stdout=None) -> None:
         """Sleep with random jitter between inspecting posts (8-16s)."""
-        if _is_testing_environment():
+        if _antiban_disabled():
             return
         duration = random.uniform(*DELAY_BETWEEN_POSTS)
         time.sleep(duration)
@@ -199,7 +205,7 @@ class InstagramAntiBanManager:
     @classmethod
     def sleep_after_comment_fetch(cls) -> None:
         """Sleep with random jitter after fetching comments from API (3-6s)."""
-        if _is_testing_environment():
+        if _antiban_disabled():
             return
         duration = random.uniform(*DELAY_BETWEEN_COMMENTS)
         time.sleep(duration)
@@ -207,7 +213,7 @@ class InstagramAntiBanManager:
     @classmethod
     def sleep_after_business(cls, stdout=None) -> None:
         """Sleep with random jitter between business targets (15-30s)."""
-        if _is_testing_environment():
+        if _antiban_disabled():
             return
         duration = random.uniform(*DELAY_BETWEEN_BUSINESSES)
         if stdout:

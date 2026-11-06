@@ -18,7 +18,6 @@ from django.test import TestCase
 from apps.billing.manage_views import (
     TWITTER_SETTINGS_ENDPOINT,
     XSessionValidationResult,
-    _call_twitter_settings_endpoint,
     _get_or_generate_ct0,
     _interpret_twitter_response,
     _test_twitter_account_connection,
@@ -366,10 +365,21 @@ class SessionReplacementTests(TestCase):
         with mock.patch("shutil.which", return_value="/usr/local/bin/twitter"), \
              mock.patch("subprocess.run", return_value=completed):
             ok, st, msg = _test_twitter_account_connection(acc)
-        self.assertTrue(ok)
+        self.assertFalse(ok)
         self.assertEqual(st, "COOLDOWN")
         acc.refresh_from_db()
         self.assertEqual(acc.status, "COOLDOWN")
+
+    def test_twitter_cli_crash_falls_back_to_http_and_logs(self):
+        acc = self._x_acc(username="cli_crash", status="ACTIVE")
+        resp = mock.MagicMock(status_code=429, text="Rate limit exceeded")
+        with mock.patch("shutil.which", return_value="/usr/local/bin/twitter"), \
+             mock.patch("subprocess.run", side_effect=OSError("boom")), \
+             mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get, \
+             self.assertLogs("management", level="WARNING"):
+            ok, st, msg = _test_twitter_account_connection(acc)
+        self.assertFalse(ok)
+        mock_get.assert_called_once()
 
     # -------------------------------------------------------------------------
     # Unit Tests for Interpretation & Constants

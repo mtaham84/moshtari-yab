@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from workers.ig_collector.backends.base import (
     InstagramPost, RateLimited, Transient,
 )
 from workers.ig_collector.backends.mock import MockInstagramBackend
-from workers.ig_collector.cli import main
 from workers.ig_collector.lexicon import PersianIntentLexicon, normalize_fa
 from workers.ig_collector.post_selection import select_comment_candidates, seller_post_priority
 from instagram_discovery.comment_evaluation import KnowledgeSnapshot
