@@ -136,7 +136,6 @@ def format_error_alert(
     _, jalali_dt = get_tehran_now()
     service = detect_service_context()
 
-    module = record_dict.get("module", "")
     func_name = record_dict.get("funcName", "")
     raw_path = record_dict.get("pathname", "")
     lineno = record_dict.get("lineno", 0)

@@ -4,7 +4,7 @@ import logging
 import os
 import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from shared.tele_logging.formatter import (
     ROOT_CAUSE_ANALYSIS_MAP,

@@ -80,7 +80,6 @@ def send_telegram_raw(
             "disable_web_page_preview": disable_web_page_preview,
         }
 
-        delivered = False
         for proxy_url in proxies_to_try:
             proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
             try:
@@ -92,7 +91,6 @@ def send_telegram_raw(
                 )
                 data = resp.json()
                 if data.get("ok"):
-                    delivered = True
                     any_success = True
                     break
                 elif debug_mode:
