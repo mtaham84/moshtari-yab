@@ -14,7 +14,7 @@ import logging
 import random
 import time
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from django.utils import timezone
 
@@ -49,7 +49,6 @@ def report_live_activity(
         from apps.discovery.models import InstagramLiveActivity, InstagramLiveWorkerState
 
         meta = metadata or {}
-        now = timezone.now()
 
         # 1. Update Worker State if requested
         if update_worker in ("scraper", "outreach", "cockpit"):

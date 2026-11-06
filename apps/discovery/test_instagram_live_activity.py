@@ -1,6 +1,5 @@
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
-from django.utils import timezone
 from apps.discovery.models import (
     InstagramEngineAccount,
     InstagramLiveActivity,

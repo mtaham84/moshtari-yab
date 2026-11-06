@@ -21,14 +21,13 @@ from __future__ import annotations
 import json
 import logging
 import random
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import connection, models, transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.discovery.anti_ban import InstagramAntiBanManager
@@ -43,7 +42,6 @@ from apps.discovery.outreach_service import (
     qualify_recipient_profile,
     resolve_queued_sender,
     select_and_reserve_candidate,
-    select_outreach_candidates,
 )
 
 logger = logging.getLogger("instagram_outreach")
