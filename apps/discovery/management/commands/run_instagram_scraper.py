@@ -576,6 +576,10 @@ class Command(BaseCommand):
         age_cutoff = dj_timezone.now() - timedelta(days=max_age_days)
         comment_cutoff = dj_timezone.now() - timedelta(days=5)
 
+        self._last_crawl_comments = 0
+        self._last_top_code = ""
+        self._last_top_url = ""
+
         for media in medias:
             if posts_inspected >= 30:
                 break
@@ -628,6 +632,8 @@ class Command(BaseCommand):
                         media_code=code,
                         account_username=account.username,
                         posted_at=taken_at or dj_timezone.now(),
+                        caption=caption_text,
+                        comment_count=comment_count,
                     )
                 except Exception:
                     self.stdout.write(
@@ -671,6 +677,11 @@ class Command(BaseCommand):
                 except Exception:
                     self.stderr.write(f"    Failed to fetch comments for {source_post_url}: {exc}")
                     continue
+
+            self._last_crawl_comments += len(comments) or comment_count
+            if not self._last_top_code and code:
+                self._last_top_code = code
+                self._last_top_url = source_post_url or f"https://www.instagram.com/p/{code}/"
 
             all_comment_texts = [getattr(c, "text", "") for c in comments if getattr(c, "text", "")]
             repeated_triggers = detect_repeated_comment_triggers(all_comment_texts, min_count=2)
@@ -1208,6 +1219,10 @@ class Command(BaseCommand):
         family_context = {"category_path": family.category_path, "product_titles": family.titles[:10],
                           "seller_notes": family.notes[:1000], "business_domain": business.business_domain}
 
+        self._last_crawl_comments = 0
+        self._last_top_code = ""
+        self._last_top_url = ""
+
         self.stdout.write(self.style.HTTP_INFO(
             f"  [Scraping Source]: {source.source_type} -> '{source.label}' | Total Medias to inspect: {len(medias or [])}"
         ))
@@ -1311,6 +1326,11 @@ class Command(BaseCommand):
                         caption, raw_comments, comment_count, True, dj_timezone.now()
                     )
                     cached.save(update_fields=["caption", "comments", "comment_count", "comments_cached", "crawled_at"])
+
+            self._last_crawl_comments += len(raw_comments) or comment_count
+            if not self._last_top_code and code:
+                self._last_top_code = code
+                self._last_top_url = post_url
 
             # Rule 3: Comments age limit strictly <= 5 days
             comment_cutoff = dj_timezone.now() - timedelta(days=5)
@@ -1566,6 +1586,9 @@ class Command(BaseCommand):
                     business=target["business"], tenant_id=target["tenant_id"], query_text=query,
                     target_type=execution_type, account_username=account.username, account=account,
                     status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
+                    comments_found=getattr(self, "_last_crawl_comments", 0),
+                    top_post_code=getattr(self, "_last_top_code", ""),
+                    top_post_url=getattr(self, "_last_top_url", ""),
                     requests=self._current_api_requests,
                     message=f"حذف دائمی کوئری: بررسی {inspected} پست و تنها {qualifying} پست واجد شرایط (حداقل ۳ پست با ۱۰+ کامنت و حداکثر ۳۰ روز عمر). کوئری برای همیشه حذف شد.",
                 )
@@ -1578,6 +1601,9 @@ class Command(BaseCommand):
                 business=target["business"], tenant_id=target["tenant_id"], query_text=query,
                 target_type=execution_type, account_username=account.username, account=account,
                 status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
+                comments_found=getattr(self, "_last_crawl_comments", 0),
+                top_post_code=getattr(self, "_last_top_code", ""),
+                top_post_url=getattr(self, "_last_top_url", ""),
                 requests=self._current_api_requests,
             )
             from apps.discovery.anti_ban import InstagramAntiBanManager
@@ -1685,6 +1711,9 @@ class Command(BaseCommand):
                         posts_inspected=p_insp,
                         qualifying_posts=p_qual,
                         leads_found=l_saved,
+                        comments_found=getattr(self, "_last_crawl_comments", 0),
+                        top_post_code=getattr(self, "_last_top_code", ""),
+                        top_post_url=getattr(self, "_last_top_url", ""),
                         message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. کلیدواژه حذف شد.",
                         crawled_at=dj_timezone.now(),
                     )
@@ -1713,6 +1742,9 @@ class Command(BaseCommand):
                     posts_inspected=p_insp,
                     qualifying_posts=p_qual,
                     leads_found=l_saved,
+                    comments_found=getattr(self, "_last_crawl_comments", 0),
+                    top_post_code=getattr(self, "_last_top_code", ""),
+                    top_post_url=getattr(self, "_last_top_url", ""),
                     message=msg_val,
                     crawled_at=dj_timezone.now(),
                 )
@@ -1790,6 +1822,9 @@ class Command(BaseCommand):
                         posts_inspected=p_insp,
                         qualifying_posts=p_qual,
                         leads_found=l_saved,
+                        comments_found=getattr(self, "_last_crawl_comments", 0),
+                        top_post_code=getattr(self, "_last_top_code", ""),
+                        top_post_url=getattr(self, "_last_top_url", ""),
                         message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. هشتگ حذف شد.",
                         crawled_at=dj_timezone.now(),
                     )
@@ -1818,6 +1853,9 @@ class Command(BaseCommand):
                     posts_inspected=p_insp,
                     qualifying_posts=p_qual,
                     leads_found=l_saved,
+                    comments_found=getattr(self, "_last_crawl_comments", 0),
+                    top_post_code=getattr(self, "_last_top_code", ""),
+                    top_post_url=getattr(self, "_last_top_url", ""),
                     message=msg_val,
                     crawled_at=dj_timezone.now(),
                 )
@@ -1885,6 +1923,9 @@ class Command(BaseCommand):
                             posts_inspected=p_insp,
                             qualifying_posts=p_qual,
                             leads_found=l_saved,
+                            comments_found=getattr(self, "_last_crawl_comments", 0),
+                            top_post_code=getattr(self, "_last_top_code", ""),
+                            top_post_url=getattr(self, "_last_top_url", ""),
                             message=f"حذف دائمی پیج رقیب @{handle}: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. پیج غیرفعال شد.",
                             crawled_at=dj_timezone.now(),
                         )
@@ -1908,6 +1949,9 @@ class Command(BaseCommand):
                         posts_inspected=p_insp,
                         qualifying_posts=p_qual,
                         leads_found=l_saved,
+                        comments_found=getattr(self, "_last_crawl_comments", 0),
+                        top_post_code=getattr(self, "_last_top_code", ""),
+                        top_post_url=getattr(self, "_last_top_url", ""),
                         message=f"بررسی {p_insp} پست از صفحه @{handle}، {p_qual} پست حائز شرایط، {l_saved} سرنخ ثبت شد." if not (page_err and not page_medias) else f"خطای دسترسی: {page_err}",
                         crawled_at=dj_timezone.now(),
                     )

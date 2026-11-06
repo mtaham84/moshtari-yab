@@ -1,5 +1,6 @@
 from django.urls import path
 from . import ig_accounts_views as igv
+from . import ig_logs_views
 from . import manage_views
 
 app_name = "manage"
@@ -40,6 +41,7 @@ urlpatterns = [
     path("instagram/accounts/<int:pk>/config.txt", igv.ig_account_config_txt, name="ig_account_config_txt"),
     path("instagram/accounts/<int:pk>/do/<slug:action>/", igv.ig_account_action, name="ig_account_action"),
     path("instagram/tenants/", igv.ig_tenants, name="ig_tenants"),
+    path("instagram/logs/", ig_logs_views.instagram_logs_view, name="instagram_logs"),
     # Instagram Cockpit & Web-Client Simulator
     path("instagram/accounts/<int:pk>/", manage_views.instagram_account_cockpit, name="instagram_account_cockpit"),
     path("instagram/accounts/<int:pk>/api/threads/", manage_views.instagram_cockpit_threads, name="instagram_cockpit_threads"),

@@ -520,6 +520,36 @@ class InstagramCrawledPost(models.Model):
     def __str__(self):
         return f"Post {self.media_code or self.media_id} by @{self.account_username} ({self.post_hash[:8]})"
 
+    @property
+    def post_url(self) -> str:
+        if self.media_code:
+            return f"https://www.instagram.com/p/{self.media_code}/"
+        return f"https://www.instagram.com/p/{self.media_id}/" if self.media_id else ""
+
+    @property
+    def crawled_at_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_date, to_persian_digits
+        if not self.crawled_at:
+            return "—"
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("Asia/Tehran")
+        dt = self.crawled_at.astimezone(tz)
+        date_part = format_jalali_date(dt.date(), persian_digits=True)
+        time_part = to_persian_digits(f"{dt.hour:02d}:{dt.minute:02d}:{dt.second:02d}")
+        return f"{date_part} ساعت {time_part}"
+
+    @property
+    def posted_at_jalali(self) -> str:
+        from apps.core.jalali import format_jalali_date, to_persian_digits
+        if not self.posted_at:
+            return "—"
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("Asia/Tehran")
+        dt = self.posted_at.astimezone(tz)
+        date_part = format_jalali_date(dt.date(), persian_digits=True)
+        time_part = to_persian_digits(f"{dt.hour:02d}:{dt.minute:02d}")
+        return f"{date_part} {time_part}"
+
 
 class InstagramCrawlExecution(models.Model):
     """
@@ -590,6 +620,22 @@ class InstagramCrawlExecution(models.Model):
     leads_found = models.PositiveIntegerField(
         default=0,
         verbose_name="لیدهای یافت‌شده",
+    )
+    comments_found = models.PositiveIntegerField(
+        default=0,
+        verbose_name="تعداد کامنت‌های یافت‌شده در این کرول",
+    )
+    top_post_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        verbose_name="کد پست مبدا استخراج",
+    )
+    top_post_url = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="لینک پست مبدا استخراج",
     )
     message = models.TextField(
         blank=True,

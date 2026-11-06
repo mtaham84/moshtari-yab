@@ -1,0 +1,706 @@
+{% extends "ops/base.html" %}
+{% load ops %}
+
+{% block title %}لاگ‌های اینستاگرام و رادار فعالیت اسکرپرها{% endblock %}
+
+{% block content %}
+<style>
+  .logs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logs-title-group h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text);
+    margin: 0 0 6px 0;
+  }
+  .logs-title-group p {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0;
+  }
+  .logs-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .logs-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .metric-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .metric-card .title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .metric-card .value {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: var(--text);
+    font-family: 'Vazirmatn', Tahoma, sans-serif;
+  }
+  .metric-card .sub {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  /* Latest Execution Hero Card */
+  .hero-exec-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  }
+  .hero-exec-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .hero-exec-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hero-exec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .hero-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hero-item .lbl {
+    font-size: 0.82rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .hero-item .val {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .hero-post-box {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-top: 16px;
+  }
+  .hero-post-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  /* Section Headings */
+  .section-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+  }
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+  }
+
+  /* Table styling */
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+  .table-responsive table {
+    width: 100%;
+    min-width: 820px;
+    border-collapse: collapse;
+  }
+  .table-responsive th, .table-responsive td {
+    padding: 12px 14px;
+    text-align: right;
+    direction: rtl;
+    vertical-align: middle;
+    font-family: 'Vazirmatn', Tahoma, sans-serif;
+    font-size: 0.88rem;
+  }
+  .table-responsive th {
+    background: #f8fafc;
+    font-weight: 700;
+    color: #475569;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  .table-responsive tbody tr:hover {
+    background: #fdfdfd;
+  }
+  .table-responsive tbody tr:not(:last-child) td {
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .badge-success { background: #dcfce7; color: #15803d; }
+  .badge-warning { background: #fef3c7; color: #b45309; }
+  .badge-danger  { background: #fee2e2; color: #b91c1c; }
+  .badge-info    { background: #e0f2fe; color: #0369a1; }
+  .badge-neutral { background: #f1f5f9; color: #475569; }
+  .badge-purple  { background: #f3e8ff; color: #7e22ce; }
+
+  /* Utilities */
+  .font-mono { font-family: monospace; direction: ltr; display: inline-block; }
+  .text-muted { color: var(--muted); }
+  .text-accent { color: var(--accent); }
+  .comment-quote {
+    background: #f8fafc;
+    border-right: 3px solid var(--accent);
+    padding: 6px 12px;
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+    color: #334155;
+    max-width: 320px;
+    word-break: break-word;
+    font-size: 0.84rem;
+  }
+</style>
+
+<div class="logs-container">
+  <!-- Header & Controls -->
+  <div class="logs-header">
+    <div class="logs-title-group">
+      <h1>لاگ‌های زنده و پایش رویدادهای اینستاگرام</h1>
+      <p>ثبت بلادرنگ آخرین رویدادهای اسکرپر، سرنخ‌های کشف‌شده، پست‌های ارزیابی‌شده و عملکرد ۲۴ ساعته اکانت‌ها</p>
+    </div>
+    <div class="logs-controls">
+      <span class="badge badge-neutral" style="padding: 8px 14px; font-size: 0.85rem;">
+        زمان رسمی سرور (تهران): {{ summary.server_time_jalali }}
+      </span>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <label for="autoRefreshSelect" style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">تازه‌سازی خودکار:</label>
+        <select id="autoRefreshSelect" class="btn" style="padding: 6px 10px; font-size: 0.85rem;" onchange="handleAutoRefreshChange(this.value)">
+          <option value="0">خاموش</option>
+          <option value="10">هر ۱۰ ثانیه</option>
+          <option value="30" selected>هر ۳۰ ثانیه</option>
+          <option value="60">هر ۶۰ ثانیه</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="location.reload()" style="padding: 6px 14px; font-size: 0.88rem;">
+        بروزرسانی داده‌ها
+      </button>
+    </div>
+  </div>
+
+  <!-- Quick Metrics Row -->
+  <div class="logs-metrics-grid">
+    <div class="metric-card">
+      <div class="title">تعداد سرچ‌های ۲۴ ساعت اخیر</div>
+      <div class="value">{{ summary.searches_24h }}</div>
+      <div class="sub">مجموع جستجوهای انجام‌شده در هشتگ‌ها و کلمات کلیدی</div>
+    </div>
+    <div class="metric-card">
+      <div class="title">لیدهای ثبت‌شده ۲۴ ساعت اخیر</div>
+      <div class="value" style="color: #15803d;">{{ summary.leads_24h }}</div>
+      <div class="sub">از مجموع کل {{ summary.leads_total }} لید در سیستم</div>
+    </div>
+    <div class="metric-card">
+      <div class="title">پست‌های کرول‌شده ۲۴ ساعت اخیر</div>
+      <div class="value" style="color: #0284c7;">{{ summary.posts_crawled_24h }}</div>
+      <div class="sub">از مجموع کل {{ summary.posts_crawled_total }} پست ثبت‌شده</div>
+    </div>
+    <div class="metric-card">
+      <div class="title">اکانت‌های اسکرپر فعال</div>
+      <div class="value">{{ summary.scrapers_active }} <span style="font-size: 1rem; color: var(--muted);">/ {{ summary.scrapers_total }}</span></div>
+      <div class="sub">اکانت‌های متصل و در حال اجرای پایش</div>
+    </div>
+  </div>
+
+  <!-- 1. Hero Card: Details of the Very Latest Scraping Run -->
+  <div class="hero-exec-card">
+    <div class="hero-exec-header">
+      <div class="hero-exec-title">
+        <span>جزئیات دقیق آخرین اسکرپت انجام‌شده</span>
+        {% if latest_execution %}
+          {% if latest_execution.status == 'SUCCESS' %}
+            <span class="badge badge-success">موفق</span>
+          {% elif latest_execution.status == 'NO_POSTS' %}
+            <span class="badge badge-neutral">بدون پست جدید</span>
+          {% elif latest_execution.status == 'THROTTLED' %}
+            <span class="badge badge-warning">محدودیت موقت</span>
+          {% else %}
+            <span class="badge badge-danger">{{ latest_execution.status_display }}</span>
+          {% endif %}
+        {% endif %}
+      </div>
+      <div>
+        {% if latest_execution %}
+          <span style="font-size: 0.88rem; color: var(--muted);">
+            زمان ثبت کرول: <b>{{ latest_execution.crawled_at_exact }}</b> ({{ latest_execution.crawled_at_relative }})
+          </span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if latest_execution %}
+      <div class="hero-exec-grid">
+        <div class="hero-item">
+          <div class="lbl">کوئری / هشتگ آخرین اسکرپت</div>
+          <div class="val" style="color: var(--accent);">
+            {{ latest_execution.query_text }}
+            <span class="badge badge-info" style="margin-right: 6px;">{{ latest_execution.target_type_display }}</span>
+          </div>
+        </div>
+
+        <div class="hero-item">
+          <div class="lbl">اکانت اسکرپر مجری</div>
+          <div class="val">
+            <a href="https://www.instagram.com/{{ latest_execution.account_username }}/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
+              @{{ latest_execution.account_username }}
+            </a>
+          </div>
+        </div>
+
+        <div class="hero-item">
+          <div class="lbl">تعداد کامنت‌های یافت‌شده در آخرین اسکرپت</div>
+          <div class="val" style="color: #7c3aed; font-size: 1.35rem;">
+            {{ latest_execution.comments_found }} <small style="font-size: 0.8rem; font-weight: 500;">کامنت</small>
+          </div>
+        </div>
+
+        <div class="hero-item">
+          <div class="lbl">لیدهای خریدار استخراج‌شده</div>
+          <div class="val" style="color: #15803d; font-size: 1.35rem;">
+            {{ latest_execution.leads_found }} <small style="font-size: 0.8rem; font-weight: 500;">مشتری بالقوه</small>
+          </div>
+        </div>
+
+        <div class="hero-item">
+          <div class="lbl">پست‌های بررسی‌شده / واجد شرایط</div>
+          <div class="val">
+            {{ latest_execution.posts_inspected }} بررسی / {{ latest_execution.qualifying_posts }} واجد شرایط
+          </div>
+        </div>
+      </div>
+
+      <!-- Target Post Box where comments were extracted -->
+      <div class="hero-post-box">
+        <div class="hero-post-header">
+          <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b;">
+            پست یافت‌شده که از آن کامنت استخراج شده است:
+          </div>
+          <div>
+            {% if latest_execution.top_post_url %}
+              <a href="{{ latest_execution.top_post_url }}" target="_blank" rel="noopener" class="btn btn-outline" style="padding: 4px 12px; font-size: 0.82rem;">
+                مشاهده مستقیم پست در اینستاگرام
+              </a>
+            {% endif %}
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 8px;">
+          <div>
+            <span class="text-muted" style="font-size: 0.82rem;">کد کوتاه پست:</span>
+            <span class="font-mono" style="font-weight: 700;">{{ latest_execution.top_post_code|default:"—" }}</span>
+          </div>
+          <div>
+            <span class="text-muted" style="font-size: 0.82rem;">تاریخ انتشار پست در اینستاگرام:</span>
+            <span style="font-weight: 600;">{{ latest_execution.top_post_taken_at }}</span>
+          </div>
+          <div>
+            <span class="text-muted" style="font-size: 0.82rem;">تعداد کل کامنت‌های این پست:</span>
+            <span style="font-weight: 700; color: #7c3aed;">{{ latest_execution.comments_found }}</span>
+          </div>
+        </div>
+
+        {% if latest_execution.top_post_caption %}
+          <div style="font-size: 0.85rem; color: #475569; background: #fff; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 6px;">
+            <b>کپشن پست:</b> {{ latest_execution.top_post_caption }}
+          </div>
+        {% endif %}
+
+        {% if latest_execution.message %}
+          <div style="font-size: 0.82rem; color: var(--muted); margin-top: 8px;">
+            <b>پیام سامانه:</b> {{ latest_execution.message }}
+          </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div style="text-align: center; padding: 30px; color: var(--muted);">
+        هنوز هیچ لاگ اسکرپتی در سامانه ثبت نشده است. به محض اجرای اولین اسکرپر، جزئیات کامل در اینجا نمایش داده خواهد شد.
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- 2. Section: Per-Account Scraper Telemetry -->
+  <div class="section-box">
+    <div class="section-header">
+      <h2 class="section-title">
+        عملکرد و تله‌متری اکانت‌های اسکرپر (۲۴ ساعت اخیر)
+      </h2>
+      <span class="text-muted" style="font-size: 0.85rem;">
+        تعداد سرچ‌ها، آخرین کرول، آخرین پست و تعداد کامنت‌های هر اکانت
+      </span>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>اکانت اسکرپر</th>
+            <th>وضعیت</th>
+            <th>سرچ‌های ۲۴h اخیر</th>
+            <th>کل سرچ‌ها</th>
+            <th>تایم دقیق آخرین کرول</th>
+            <th>آخرین کوئری سرچ‌شده</th>
+            <th>آخرین پست پیداشده</th>
+            <th>کامنت‌های آخرین پست</th>
+            <th>لیدهای کشف‌شده (۲۴h / کل)</th>
+            <th>کانفیگ و پروکسی</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in scrapers %}
+            <tr>
+              <td>
+                <b>@{{ acc.username }}</b>
+              </td>
+              <td>
+                {% if acc.status == 'ACTIVE' %}
+                  <span class="badge badge-success">فعال</span>
+                {% elif acc.status == 'COOLDOWN' %}
+                  <span class="badge badge-warning">استراحت</span>
+                {% elif acc.status == 'CHALLENGED' %}
+                  <span class="badge badge-danger">چالش امنیتی</span>
+                {% else %}
+                  <span class="badge badge-neutral">{{ acc.status_display }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <b style="font-size: 1rem; color: var(--accent);">{{ acc.searches_24h }}</b>
+              </td>
+              <td>
+                <span class="text-muted">{{ acc.searches_total }}</span>
+              </td>
+              <td style="white-space: nowrap;">
+                <div><b>{{ acc.last_crawl_exact }}</b></div>
+                <div class="text-muted" style="font-size: 0.78rem;">{{ acc.last_crawl_relative }}</div>
+              </td>
+              <td>
+                {% if acc.last_query != '—' %}
+                  <code>{{ acc.last_query }}</code>
+                  <div class="text-muted" style="font-size: 0.76rem;">{{ acc.last_query_type }}</div>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if acc.last_post_url %}
+                  <a href="{{ acc.last_post_url }}" target="_blank" rel="noopener" class="font-mono" style="font-weight: 700; color: #0284c7;">
+                    {{ acc.last_post_code }}
+                  </a>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if acc.last_comments_count > 0 %}
+                  <b style="color: #7c3aed;">{{ acc.last_comments_count }}</b> <small>کامنت</small>
+                {% else %}
+                  <span class="text-muted">۰</span>
+                {% endif %}
+              </td>
+              <td>
+                <span style="color: #15803d; font-weight: 700;">{{ acc.leads_24h }}</span>
+                <span class="text-muted" style="font-size: 0.78rem;">/ {{ acc.leads_total }}</span>
+              </td>
+              <td style="font-size: 0.8rem;">
+                {% if acc.proxy_port != '—' %}
+                  <span class="badge badge-info font-mono">پورت {{ acc.proxy_port }}</span>
+                {% else %}
+                  <span class="text-muted">{{ acc.proxy_url|truncatechars:28 }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="10" style="text-align: center; padding: 24px; color: var(--muted);">
+                هیچ اکانت اسکرپری ثبت نشده است. از منوی اکانت‌های اینستاگرام می‌توانید اکانت جدید اضافه کنید.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 3. Section: Latest Crawled Posts Stream -->
+  <div class="section-box">
+    <div class="section-header">
+      <h2 class="section-title">
+        آخرین پست‌های کرول‌شده به همراه تایم دقیق کرول
+      </h2>
+      <span class="text-muted" style="font-size: 0.85rem;">
+        ۳۰ پست اخیر که توسط اسکرپرها استخراج، تحلیل و کش شده‌اند
+      </span>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>پست اینستاگرام</th>
+            <th>اکانت اسکرپر</th>
+            <th>تعداد کامنت‌ها</th>
+            <th>تایم دقیق کرول سامانه</th>
+            <th>تاریخ انتشار در اینستاگرام</th>
+            <th>کپشن پست</th>
+            <th>وضعیت کش</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for post in recent_posts %}
+            <tr>
+              <td>
+                <a href="{{ post.post_url }}" target="_blank" rel="noopener" class="font-mono" style="font-weight: 700; color: #0284c7; text-decoration: none;">
+                  p/{{ post.media_code }}
+                </a>
+              </td>
+              <td>
+                <b>@{{ post.account_username }}</b>
+              </td>
+              <td>
+                <span class="badge badge-purple" style="font-size: 0.85rem;">
+                  {{ post.comment_count }} کامنت
+                </span>
+              </td>
+              <td style="white-space: nowrap;">
+                <div><b>{{ post.crawled_at_exact }}</b></div>
+                <div class="text-muted" style="font-size: 0.78rem;">{{ post.crawled_at_relative }}</div>
+              </td>
+              <td style="white-space: nowrap;">
+                {{ post.posted_at_exact }}
+              </td>
+              <td style="max-width: 320px;">
+                <span style="font-size: 0.82rem; color: #475569;">{{ post.caption_snippet }}</span>
+              </td>
+              <td>
+                {% if post.comments_cached %}
+                  <span class="badge badge-success">کامنت‌ها کش شد</span>
+                {% else %}
+                  <span class="badge badge-neutral">در انتظار</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" style="text-align: center; padding: 24px; color: var(--muted);">
+                هنوز هیچ پستی در پایگاه داده کرول نشده است.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 4. Section: Latest Discovered Leads -->
+  <div class="section-box">
+    <div class="section-header">
+      <h2 class="section-title">
+        آخرین لیدهای یافت‌شده (خریداران بالقوه)
+      </h2>
+      <span class="text-muted" style="font-size: 0.85rem;">
+        ۵۰ لید اخیر شناسایی‌شده از کامنت‌های اینستاگرام با نیت و امتیاز اولویت
+      </span>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>لید خریدار</th>
+            <th>حساب</th>
+            <th>متن کامنت خریدار</th>
+            <th>نیت و نیاز</th>
+            <th>امتیاز اولویت</th>
+            <th>وضعیت صف دایرکت</th>
+            <th>پست مبدا</th>
+            <th>پیج ناشر</th>
+            <th>تایم کامنت</th>
+            <th>تایم دقیق استخراج</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lead in recent_leads %}
+            <tr>
+              <td>
+                <div>
+                  <a href="{{ lead.profile_url }}" target="_blank" rel="noopener" style="font-weight: 700; color: var(--text); text-decoration: none;">
+                    @{{ lead.username }}
+                  </a>
+                </div>
+                {% if lead.full_name != '—' %}
+                  <div class="text-muted" style="font-size: 0.78rem;">{{ lead.full_name }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if lead.is_private %}
+                  <span class="badge badge-neutral">خصوصی</span>
+                {% else %}
+                  <span class="badge badge-info">عمومی</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="comment-quote">
+                  «{{ lead.comment_text|truncatechars:120 }}»
+                </div>
+              </td>
+              <td>
+                <span class="badge badge-purple">{{ lead.intent_label }}</span>
+              </td>
+              <td style="white-space: nowrap;">
+                <div><b style="color: var(--accent); font-size: 1rem;">{{ lead.outreach_score }}</b> <small class="text-muted">/ ۳۵</small></div>
+                <div class="text-muted" style="font-size: 0.76rem;">احتمال: {{ lead.success_probability }}%</div>
+              </td>
+              <td>
+                {% if lead.status == 'NEW' %}
+                  <span class="badge badge-info">جدید در صف</span>
+                {% elif lead.status == 'DM_SENT' %}
+                  <span class="badge badge-success">دایرکت ارسال شد</span>
+                {% elif lead.status == 'REPLIED' %}
+                  <span class="badge badge-success" style="background: #bbf7d0;">پاسخ داد</span>
+                {% elif lead.status == 'FAILED' %}
+                  <span class="badge badge-danger">ناموفق (FAILED)</span>
+                {% elif lead.status == 'SKIPPED' %}
+                  <span class="badge badge-neutral">رد شد (SKIPPED)</span>
+                {% else %}
+                  <span class="badge badge-neutral">{{ lead.status_display }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if lead.source_post_url != '—' %}
+                  <a href="{{ lead.source_post_url }}" target="_blank" rel="noopener" class="btn btn-outline" style="padding: 2px 8px; font-size: 0.76rem;">
+                    پست مبدا
+                  </a>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if lead.source_page_username != '—' %}
+                  <span class="font-mono">@{{ lead.source_page_username }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td style="white-space: nowrap; font-size: 0.8rem;">
+                {{ lead.comment_created_at_exact }}
+              </td>
+              <td style="white-space: nowrap;">
+                <div><b>{{ lead.created_at_exact }}</b></div>
+                <div class="text-muted" style="font-size: 0.76rem;">{{ lead.created_at_relative }}</div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="10" style="text-align: center; padding: 24px; color: var(--muted);">
+                هنوز هیچ لیدی در سامانه استخراج نشده است.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  let refreshTimer = null;
+
+  function handleAutoRefreshChange(seconds) {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+    const sec = parseInt(seconds, 10);
+    if (sec > 0) {
+      localStorage.setItem('ig_logs_autorefresh', sec);
+      refreshTimer = setInterval(() => {
+        location.reload();
+      }, sec * 1000);
+    } else {
+      localStorage.removeItem('ig_logs_autorefresh');
+    }
+  }
+
+  // Restore user's preferred refresh interval on page load
+  document.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('ig_logs_autorefresh');
+    const select = document.getElementById('autoRefreshSelect');
+    if (saved && select) {
+      select.value = saved;
+      handleAutoRefreshChange(saved);
+    }
+  });
+</script>
+{% endblock %}
