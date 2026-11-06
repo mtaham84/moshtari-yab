@@ -1,32 +1,7 @@
 """The single DM dispatcher shared by ig-outreach and Celery (apps.discovery.outreach_engine)."""
-import os
-import sys
-from unittest import mock
-from contextlib import contextmanager
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-sys.modules.setdefault("instagrapi", mock.MagicMock())
-
-os.environ["DJANGO_SETTINGS_MODULE"] = "config.settings"
-os.environ["DJANGO_DEBUG"] = "True"
-os.environ["DJANGO_SECRET_KEY"] = "test-secret-key-123"
-
-from django.conf import settings
-settings.DATABASES["default"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": ":memory:",
-    "ATOMIC_REQUESTS": False,
-    "AUTOCOMMIT": True,
-}
-
-import django
-django.setup()
-
-from django.core.management import call_command
-call_command("migrate", verbosity=0)
-
-from django.db import connections
 from django.test import TestCase, override_settings
 from django.utils import timezone
 

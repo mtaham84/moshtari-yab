@@ -1,31 +1,5 @@
-import os
-import django
-
-os.environ["DJANGO_SETTINGS_MODULE"] = "config.settings"
-os.environ["DJANGO_DEBUG"] = "True"
-os.environ["DJANGO_SECRET_KEY"] = "test-secret-key-123"
-os.environ["POSTGRES_DB"] = "test_db"
-
-from django.conf import settings
-# Override database to sqlite for local testing without PostgreSQL server
-settings.DATABASES["default"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": ":memory:",
-    "ATOMIC_REQUESTS": False,
-    "AUTOCOMMIT": True,
-}
-
-django.setup()
-
-from django.core.management import call_command
-call_command("migrate", verbosity=0)
-
-from unittest import mock
-import sys
-sys.modules.setdefault("instagrapi", mock.MagicMock())
-
-from django.test import TestCase, Client
 from django.contrib.auth.models import User
+from django.test import Client, TestCase
 from django.utils import timezone
 from apps.discovery.models import (
     InstagramEngineAccount,
