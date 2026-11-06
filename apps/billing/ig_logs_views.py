@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import Any
 import zoneinfo
 
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, F, Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone as dj_timezone
