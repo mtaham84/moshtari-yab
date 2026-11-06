@@ -413,10 +413,18 @@ def ensure_family_plan(business, family, call_llm: Callable | None = None):
 
 def families_for_business(business):
     """Use the shared X family builder so Instagram and X segment products identically."""
+    from django.db.models import Q
+    from apps.businesses.models import Business
+
     b_name = (getattr(business, "name", "") or "").casefold()
     b_domain = (getattr(business, "business_domain", "") or "").casefold()
-    if business.pk != 4 and "دند" not in b_name and "دند" not in b_domain:
-        return []
+    is_dental = business.pk == 4 or "دند" in b_name or "دند" in b_domain
+    if not is_dental:
+        has_dental = Business.objects.filter(
+            Q(id=4) | Q(name__icontains="دندان") | Q(business_domain__icontains="دندان")
+        ).exists()
+        if has_dental:
+            return []
 
     from apps.billing.services import is_blocked
 

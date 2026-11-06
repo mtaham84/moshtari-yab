@@ -446,11 +446,13 @@ def release_config(config, *, actor: str = "system", note: str = "") -> list[str
     return moved
 
 
-def _heal_account(acc, actor: str = "system") -> dict | None:
+def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed_config_id: int | None = None) -> dict | None:
     """Sticky config for one account without its own proxy (see ensure_system_configs). None: nothing moved."""
     mode = proxy_mode(acc)
     if mode == "custom":
-        return None
+        if not force_rotate:
+            return None
+        why = "پروکسی اختصاصی از کار افتاد"
     parked = acc.status in ("BANNED", "DISABLED")   # keeps a live config, never takes a free one from the others
     if mode == "legacy":   # older rows: an xray port without the config link
         cfg = ProxyConfig.objects.filter(local_port=xray_port(acc.proxy_url)).first()
@@ -462,7 +464,8 @@ def _heal_account(acc, actor: str = "system") -> dict | None:
     old = None
     if mode == "config":
         cfg = acc.proxy_config
-        if _config_live(cfg):
+        is_current_failed = force_rotate or (failed_config_id is not None and cfg and cfg.pk == failed_config_id)
+        if _config_live(cfg) and not is_current_failed:
             if acc.proxy_url != config_url(cfg):   # mirror drifted: same config, same IP
                 acc.proxy_url = config_url(cfg)
                 acc.save(update_fields=["proxy_url"])
@@ -476,19 +479,20 @@ def _heal_account(acc, actor: str = "system") -> dict | None:
                             note=f"کانفیگ #{cfg.pk} بین چند اکانت مشترک بود؛ کانفیگ اختصاصی #{new.pk} داده شد")
             return {"username": acc.username, "from": cfg.pk, "to": new.pk, "new_port": new.local_port,
                     "changed": bool(res.extra.get("changed"))}
-        old = cfg.pk
-        try:
-            ProxyConfig.objects.filter(pk=cfg.pk).update(status="DEAD", ping_ms=-1.0)
-        except Exception as upd_err:
-            log.warning("Failed updating dead config #%s: %s", cfg.pk, upd_err)
-        log_event(acc, "proxy_down", f"کانفیگ #{cfg.pk} در دسترس نیست (وضعیت {cfg.status}، پورت {cfg.local_port})",
-                  {"config_id": cfg.pk}, actor)
-        why = f"کانفیگ #{cfg.pk} از کار افتاد"
+        old = cfg.pk if cfg else None
+        if old:
+            try:
+                ProxyConfig.objects.filter(pk=old).update(status="DEAD", ping_ms=-1.0)
+            except Exception as upd_err:
+                log.warning("Failed updating dead config #%s: %s", old, upd_err)
+        log_event(acc, "proxy_down", f"کانفیگ #{old} در دسترس نیست یا دچار خطای شبکه شد",
+                  {"config_id": old}, actor)
+        why = f"کانفیگ #{old} از کار افتاد یا قطع شد"
     elif mode == "legacy":
         why = f"پورت {xray_port(acc.proxy_url)} کانفیگ فعالی ندارد"
     elif parked:
         return None
-    else:
+    elif mode != "custom":
         why = "قبلاً استخر مشترک"
     new = None if parked else pick_free_config(exclude_ids=[old] if old else ())
     if new is None and not parked:
