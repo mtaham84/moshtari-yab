@@ -193,9 +193,16 @@ DATA_RETENTION_DAYS = max(1, int(os.environ.get("DATA_RETENTION_DAYS", "180") or
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d]: %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
+            "formatter": "verbose",
         },
     },
     "root": {
@@ -206,10 +213,20 @@ LOGGING = {
         "django.request": {
             "handlers": ["console"],
             "level": "ERROR",
-            "propagate": False,
+            "propagate": True,
         },
     },
 }
+
+TELEGRAM_ERROR_ALERTS_ENABLED = os.environ.get("TELEGRAM_ERROR_ALERTS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+_TELE_COOLDOWN = max(10, int(os.environ.get("TELEGRAM_ERROR_THROTTLE_MINUTES", "15") or 15) * 60)
+if TELEGRAM_ERROR_ALERTS_ENABLED and (os.environ.get("TELEGRAM_ERROR_BOT_TOKEN") or os.environ.get("CONFIG_BOT_TOKEN")):
+    LOGGING["handlers"]["telegram_error"] = {
+        "class": "shared.tele_logging.AsyncTelegramHandler",
+        "level": "ERROR",
+        "cooldown_seconds": _TELE_COOLDOWN,
+    }
+    LOGGING["root"]["handlers"].append("telegram_error")
 
 # ==============================================================================
 # CELERY & REDIS DISTRIBUTED TASK QUEUE CONFIGURATION
