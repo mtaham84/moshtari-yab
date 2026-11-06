@@ -134,8 +134,14 @@ class Command(BaseCommand):
                 from apps.discovery.instagram_families import families_for_business, ensure_family_plan, discover_sources, sample_sources
                 targets = []
                 by_tenant = []
-                # Exclusively focus on dental business
-                for b in Business.objects.filter(Q(id=4) | Q(name__icontains="دندان") | Q(business_domain__icontains="دندان")).order_by("id"):
+                # Prioritize dental business if configured; fallback to businesses with active products
+                biz_qs = Business.objects.filter(Q(id=4) | Q(name__icontains="دندان") | Q(business_domain__icontains="دندان")).order_by("id")
+                if not biz_qs.exists():
+                    biz_qs = Business.objects.filter(products__status="ACTIVE", products__is_discovery_active=True).distinct().order_by("id")
+                if not biz_qs.exists():
+                    biz_qs = Business.objects.all().order_by("id")
+
+                for b in biz_qs:
                     family_rows = {}
                     tenant_sources = []
                     for family in families_for_business(b):
@@ -294,6 +300,15 @@ class Command(BaseCommand):
                 self.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
         proxy = account.clean_proxy   # its own proxy / system config, else the shared pool (never the server IP)
+        if not proxy:
+            self.stdout.write(self.style.WARNING(
+                f"    [Proxy Guard]: No proxy configured for @{account.username}; allocating replacement config..."
+            ))
+            if self._rotate_or_heal_proxy(account, cl=cl):
+                proxy = account.clean_proxy
+            if not proxy:
+                raise ProxyUnavailable(f"no proxy configured for @{account.username} and no healthy fallback available")
+
         if proxy:
             from apps.discovery.ig_accounts import proxy_reachable
             proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
@@ -307,6 +322,8 @@ class Command(BaseCommand):
                     raise ProxyUnavailable(f"proxy unreachable for @{account.username} and no healthy fallback: {proxy_msg}")
             if proxy:
                 cl.set_proxy(proxy)
+        else:
+            raise ProxyUnavailable(f"strictly blocking direct scraping without proxy for @{account.username}")
 
         return cl
 
@@ -319,7 +336,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING(
             f"    [Auto-Failover]: Proxy for @{account.username} failed. Searching for healthy replacement config..."
         ))
-        _heal_account(account, actor="scraper_auto_heal")
+        curr_cfg_id = account.proxy_config_id
+        _heal_account(account, actor="scraper_auto_heal", force_rotate=True, failed_config_id=curr_cfg_id)
         account.refresh_from_db()
         new_proxy = account.clean_proxy or effective_proxy_url(account)
         if new_proxy:
