@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('discovery', '0038_instagram_live_activity'),
+        ('discovery', '0039_instagram_live_activity'),
     ]
 
     operations = [

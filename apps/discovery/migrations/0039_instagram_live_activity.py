@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('discovery', '0037_instagram_account_management'),
+        ('discovery', '0038_customer_unique_per_platform'),
     ]
 
     operations = [
