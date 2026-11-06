@@ -5,7 +5,7 @@ import json
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
@@ -22,11 +22,9 @@ NOTES_EXAMPLES = [
 
 
 def _business(request) -> Business:
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(user=request.user, name=f"کسب‌وکار {request.user.first_name}".strip(),
-                                           business_type="PHYSICAL", business_domain="")
-    return business
+    from apps.businesses.services import ensure_business
+
+    return ensure_business(request.user, business_domain="")
 
 
 def _json(request) -> dict:

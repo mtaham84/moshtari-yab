@@ -378,8 +378,6 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     max_count = min(15, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "15")))))
     per_format = min(10, max(1, int(os.getenv("X_QUERY_PER_FORMAT", "3"))))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
-    llm_names = list(terms.get("names") or [])
-    model = clean_term(terms.get("model") or "") or model_term(getattr(product, "title", ""))
     # Seller-ad exclusions can hide real buyer posts mentioning shipping or discounts.
     tail_ops = ops
 

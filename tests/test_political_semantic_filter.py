@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-import pytest
 from apps.discovery.semantic_moderation import (
-    is_political_post_semantic,
-    check_comment_semantic_moderation
+    is_political_post_semantic
 )
 from shared.x_filters import is_political_x_post
 

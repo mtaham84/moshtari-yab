@@ -10,7 +10,7 @@ import pytest
 from instagram_discovery.comment_evaluation import KnowledgeSnapshot
 from shared.instagram_manual_post import ManualPostRequest
 from workers.ig_collector.backends.base import (
-    AuthFailed, InstagramComment, NotFound, PrivateProfile, RateLimited, Transient,
+    AuthFailed, NotFound, PrivateProfile, RateLimited, Transient,
 )
 from workers.ig_collector.backends.mock import MockInstagramBackend
 from workers.ig_collector.cli import _main

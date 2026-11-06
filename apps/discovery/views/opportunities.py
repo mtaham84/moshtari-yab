@@ -3,9 +3,7 @@ import io
 import json
 import logging
 import re
-import sys
 from datetime import timedelta
-from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -17,7 +15,10 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from apps.core.permissions import is_operator
+from apps.discovery.exports import safe_csv_cell
 from apps.businesses.models import Business
+from apps.businesses.services import ensure_business
 from apps.core.agent import AgentUnavailable, drafts_for, rewrite_reply
 from apps.core.jalali import format_jalali_date, parse_jalali_date
 from apps.discovery.models import (
@@ -33,16 +34,6 @@ logger = logging.getLogger(__name__)
 _PLATFORM_ID_PREFIXES = ("telegram_", "x_", "instagram_", "divar_")
 
 
-def _get_drafts_for():
-    pkg = sys.modules.get("apps.discovery.views")
-    return getattr(pkg, "drafts_for", drafts_for) if pkg else drafts_for
-
-
-def _get_rewrite_reply():
-    pkg = sys.modules.get("apps.discovery.views")
-    return getattr(pkg, "rewrite_reply", rewrite_reply) if pkg else rewrite_reply
-
-
 def _strip_platform_prefix(value):
     for prefix in _PLATFORM_ID_PREFIXES:
         if value.startswith(prefix):
@@ -50,11 +41,7 @@ def _strip_platform_prefix(value):
     return value
 
 
-def _safe_csv_cell(value):
-    value = str(value)
-    if value != "-" and value.startswith(("=", "+", "-", "@", "\t", "\r")):
-        return "'" + value
-    return value
+_safe_csv_cell = safe_csv_cell
 
 
 def _filter_opportunities_queryset(business, params, is_admin=False, view_all_tenants=False):
@@ -189,47 +176,47 @@ def _filter_opportunities_queryset(business, params, is_admin=False, view_all_te
     return qs, filter_meta
 
 
+def _admin_scope(request, own_business):
+    """(business, view_all_tenants) an admin is looking at; the list, its CSV export and the new-count poll share it.
+
+    ?business_id=all → every tenant; ?business_id=<id> or ?product_id=<id> → that business; otherwise the admin's own
+    business if it has opportunities, else the first business that has any.
+    """
+    requested_biz_id = request.GET.get("business_id", "").strip().lower()
+    requested_prod_id = request.GET.get("product_id", "").strip()
+    if requested_biz_id == "all":
+        return None, True
+    if requested_biz_id.isdigit():
+        found = Business.objects.filter(id=int(requested_biz_id)).first()
+        if found:
+            return found, False
+    elif requested_prod_id.isdigit():
+        prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
+        if prod and prod.business:
+            return prod.business, False
+    if own_business is None or not own_business.opportunities.exists():
+        first_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().order_by("id").first()
+        if first_with_opps:
+            return first_with_opps, False
+        if own_business is None:
+            return Business.objects.order_by("id").first(), False
+    return own_business, False
+
+
 @login_required
 def opportunity_list_view(request):
     business = getattr(request.user, "business", None)
     all_businesses = None
-    is_admin = request.user.is_staff or request.user.is_superuser
+    is_admin = is_operator(request.user)
     view_all_tenants = False
 
     if is_admin:
         from django.db.models import Count
         all_businesses = Business.objects.annotate(opp_count=Count("opportunities")).order_by("id")
-        requested_biz_id = request.GET.get("business_id", "").strip().lower()
-        requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id == "all":
-            business = None
-            view_all_tenants = True
-        elif requested_biz_id.isdigit():
-            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
-            if b_found:
-                business = b_found
-                view_all_tenants = False
-        elif requested_prod_id.isdigit():
-            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
-            if prod and prod.business:
-                business = prod.business
-                view_all_tenants = False
-        else:
-            if not business or business.opportunities.count() == 0:
-                first_with_opps = Business.objects.filter(opportunities__isnull=False).distinct().first()
-                if first_with_opps:
-                    business = first_with_opps
-                elif not business:
-                    business = Business.objects.order_by("id").first()
+        business, view_all_tenants = _admin_scope(request, business)
     else:
         # Strict tenant isolation for regular sellers
-        if not business:
-            business = Business.objects.create(
-                user=request.user,
-                name=f"کسب‌وکار {request.user.first_name or request.user.username}",
-                business_type="PHYSICAL",
-                business_domain="عمومی"
-            )
+        business = ensure_business(request.user)
         requested_prod_id = request.GET.get("product_id", "").strip()
         if requested_prod_id.isdigit():
             if not Product.objects.filter(id=int(requested_prod_id), business=business).exists():
@@ -392,24 +379,10 @@ def opportunity_export_view(request):
     6. پیام ساجست شده برای مشتری
     """
     business = getattr(request.user, "business", None)
-    is_admin = request.user.is_staff or request.user.is_superuser
+    is_admin = is_operator(request.user)
     view_all_tenants = False
     if is_admin:
-        requested_biz_id = request.GET.get("business_id", "").strip().lower()
-        requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id == "all":
-            business = None
-            view_all_tenants = True
-        elif requested_biz_id.isdigit():
-            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
-            if b_found:
-                business = b_found
-        elif requested_prod_id.isdigit():
-            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
-            if prod and prod.business:
-                business = prod.business
-        elif not business:
-            business = Business.objects.order_by("id").first()
+        business, view_all_tenants = _admin_scope(request, business)
     else:
         if not business:
             return HttpResponse("کسب‌وکار یافت نشد.", status=404)
@@ -460,7 +433,6 @@ def opportunity_export_view(request):
         "eitaa": "ایتا",
     }
 
-    _drafts_func = _get_drafts_for()
 
     for opp in qs.select_related("customer", "ai_analysis").prefetch_related("product_matches__product", "evidence_items"):
         c = opp.customer
@@ -553,7 +525,7 @@ def opportunity_export_view(request):
 
         if not suggested_reply:
             try:
-                drafts = _drafts_func(opp)
+                drafts = drafts_for(opp)
                 if drafts:
                     suggested_reply = next((v for v in drafts.values() if v), "").strip()
             except Exception:
@@ -640,7 +612,7 @@ def opportunity_detail_view(request, pk):
         "product_matches__product",
         "evidence_items"
     )
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(qs, pk=pk)
         business = opportunity.business
     else:
@@ -652,8 +624,7 @@ def opportunity_detail_view(request, pk):
     except Exception:
         analysis = None
 
-    _drafts_func = _get_drafts_for()
-    drafts = _drafts_func(opportunity)
+    drafts = drafts_for(opportunity)
     customer_profile_url = opportunity.customer_profile_url or opportunity.customer.source_profile_url
     if not customer_profile_url and opportunity.customer.source_username:
         handle = opportunity.customer.source_username.lstrip("@").strip()
@@ -739,8 +710,7 @@ def opportunity_rewrite_view(request, pk):
     if match is None:
         return JsonResponse({"status": "error", "message": "برای این فرصت محصولی ثبت نشده است."}, status=400)
     try:
-        _rewrite_func = _get_rewrite_reply()
-        text = _rewrite_func(opportunity, match)
+        text = rewrite_reply(opportunity, match)
     except AgentUnavailable as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=503)
     return JsonResponse({"status": "success", "product_id": match.product_id, "reply": text})
@@ -751,7 +721,7 @@ def opportunity_rewrite_view(request, pk):
 def opportunity_reply_suggestions_view(request, pk):
     """Generate/regenerate, edit or mark a human-reviewed X/Instagram draft as sent. Never sends it."""
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(Opportunity.objects.select_related("business", "customer", "ai_analysis"), pk=pk)
         business = opportunity.business
     else:
@@ -815,21 +785,16 @@ def opportunity_reply_suggestions_view(request, pk):
 def opportunity_new_count_view(request):
     """Polled every 20 s by the opportunities list: how many opportunities arrived after ``after`` (an id)."""
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
-        requested_biz_id = request.GET.get("business_id", "").strip()
-        requested_prod_id = request.GET.get("product_id", "").strip()
-        if requested_biz_id.isdigit():
-            b_found = Business.objects.filter(id=int(requested_biz_id)).first()
-            if b_found:
-                business = b_found
-        elif requested_prod_id.isdigit():
-            prod = Product.objects.filter(id=int(requested_prod_id)).select_related("business").first()
-            if prod and prod.business:
-                business = prod.business
+    view_all_tenants = False
+    if is_operator(request.user):
+        business, view_all_tenants = _admin_scope(request, business)
 
     raw = (request.GET.get("after") or "0").strip()
     after = int(raw) if raw.isdigit() else 0
-    qs = Opportunity.objects.filter(business=business, id__gt=after) if business else Opportunity.objects.none()
+    if view_all_tenants:
+        qs = Opportunity.objects.filter(id__gt=after)
+    else:
+        qs = Opportunity.objects.filter(business=business, id__gt=after) if business else Opportunity.objects.none()
     return JsonResponse({"status": "success", "count": qs.count()})
 
 
@@ -839,7 +804,7 @@ def opportunity_status_update_view(request, pk):
         return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
 
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(Opportunity, pk=pk)
     else:
         opportunity = get_object_or_404(Opportunity, pk=pk, business=business)
@@ -874,7 +839,7 @@ def opportunity_feedback_view(request, pk):
         return JsonResponse({"status": "error", "message": "متد غیرمجاز است."}, status=405)
 
     business = getattr(request.user, "business", None)
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         opportunity = get_object_or_404(Opportunity, pk=pk)
     else:
         opportunity = get_object_or_404(Opportunity, pk=pk, business=business)

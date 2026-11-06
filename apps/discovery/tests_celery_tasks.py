@@ -2,7 +2,7 @@
 Unit tests for Celery distributed tasks, Redis task routing,
 and automated proxy self-healing.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from config.celery import app as celery_app

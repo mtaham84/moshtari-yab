@@ -221,6 +221,9 @@ CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
 # Exactly ONE Instagram DM dispatcher may run, otherwise two loops message the same leads with the same senders:
 #   "command" -> docker service `ig-outreach` (manage.py run_instagram_outreach --loop)   [default]
 #   "celery"  -> celery-beat schedules apps.discovery.tasks.task_dispatch_instagram_outreach
+# Minimum comments a post needs before its commenters are inspected (scraper
+# family path, legacy path and the manage dashboard funnel all read this).
+INSTAGRAM_MIN_COMMENTS = max(1, int(os.environ.get("INSTAGRAM_MIN_COMMENTS", os.environ.get("INSTAGRAM_PAGE_MIN_COMMENTS", "10"))))
 INSTAGRAM_OUTREACH_DISPATCHER = os.environ.get("INSTAGRAM_OUTREACH_DISPATCHER", "command").strip().lower()
 if INSTAGRAM_OUTREACH_DISPATCHER not in {"command", "celery"}:
     raise ImproperlyConfigured("INSTAGRAM_OUTREACH_DISPATCHER must be 'command' or 'celery'.")
@@ -240,6 +243,10 @@ INSTAGRAM_DEFAULT_PROXY_URL = os.environ.get("INSTAGRAM_DEFAULT_PROXY_URL", "soc
 # How many Instagram accounts may share one system V2Ray config (1 = every account has its own IP).
 INSTAGRAM_ACCOUNTS_PER_CONFIG = max(1, int(os.environ.get("INSTAGRAM_ACCOUNTS_PER_CONFIG", "1")))
 # A login started in the panel runs in a background thread of the web process and waits there for the code.
+# Working-hours window and human-like pauses for Instagram. Only the test runner/conftest turn this off.
+INSTAGRAM_ANTIBAN_ENABLED = os.environ.get("INSTAGRAM_ANTIBAN_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+# Mirror Instagram/X account changes into the accounts pool file (data/accounts_pool.json).
+ACCOUNTS_POOL_FILE_SYNC = os.environ.get("ACCOUNTS_POOL_FILE_SYNC", "true").strip().lower() not in {"0", "false", "no", "off"}
 INSTAGRAM_LOGIN_IN_BACKGROUND = os.environ.get("INSTAGRAM_LOGIN_IN_BACKGROUND", "true").strip().lower() in {"1", "true", "yes", "on"}
 CELERY_TIMEZONE = "Asia/Tehran"
 CELERY_TASK_TRACK_STARTED = True
@@ -247,6 +254,10 @@ CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+
+# Tenants served by the Instagram DM dispatcher and reply sync, e.g. OUTREACH_TENANTS=tenant_4,tenant_7.
+# Empty = every tenant that has an ACTIVE SENDER account (apps.discovery.ig_accounts.outreach_tenants).
+OUTREACH_TENANTS = [t.strip() for t in os.getenv("OUTREACH_TENANTS", "").split(",") if t.strip()]
 
 CELERY_TASK_ROUTES = {
     "apps.discovery.tasks.task_dispatch_instagram_outreach": {"queue": "outreach"},
@@ -261,8 +272,7 @@ CELERY_BEAT_SCHEDULE = {
     "dispatch-instagram-outreach-periodic": {
         "task": "apps.discovery.tasks.task_dispatch_instagram_outreach",
         "schedule": 60.0,
-        "args": ("tenant_4",),
-        "kwargs": {"batch_size": 2},
+        "kwargs": {"batch_size": 2},   # tenants: OUTREACH_TENANTS (default: every tenant with an active sender)
         "options": {"expires": 55},
     },
     # 2. Lead Reply Sync: ticks every 5 minutes; the task itself skips outside shift hours and skips some ticks at
@@ -270,7 +280,6 @@ CELERY_BEAT_SCHEDULE = {
     "sync-lead-replies-fast": {
         "task": "apps.discovery.tasks.task_sync_lead_replies",
         "schedule": 300.0,
-        "args": (["tenant_4", "sarv"],),
         "options": {"expires": 280},
     },
     # 3. Telegram Proxy Channel Configs Sync (runs every 180 seconds)

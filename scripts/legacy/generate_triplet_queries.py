@@ -1,4 +1,4 @@
-import os, sys, json
+import os
 os.environ['HTTPS_PROXY'] = 'socks5h://xray:1082'
 os.environ['https_proxy'] = 'socks5h://xray:1082'
 import django
@@ -6,12 +6,9 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from apps.businesses.models import Business
-from apps.products.models import Product
-from apps.billing.models import Wallet
 from need_engine.config import EngineConfig
 from need_engine.sources import SQLProductSource
 from need_engine.store import Store
-from workers.x_collector.query_source import load_intent_queries, _load_intent_queries, targeted_queries_from_families
 from workers.x_collector.families import build_families, load_notes, family_cards, family_topic_contexts
 from workers.x_collector.llm_terms import llm_terms, KV_PREFIX
 from need_engine.llm import LLMClient

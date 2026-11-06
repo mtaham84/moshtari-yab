@@ -1,6 +1,7 @@
 """Dashboard analytics built only from real data: engine opportunities, product-card visits and orders."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.db.models import Sum
@@ -9,10 +10,12 @@ from apps.businesses.models import Business
 from apps.core.jalali import format_jalali_date
 from apps.products.models import Product
 
+from .constants import HIGH_INTENT_THRESHOLD as HIGH_INTENT  # noqa: F401  (kept for importers)
 from .engine_bridge import engine_totals
 from .models import Opportunity, ProductDailyMetric
 
-HIGH_INTENT = 0.8
+logger = logging.getLogger(__name__)
+
 PLATFORM_LABELS = {"telegram": "تلگرام", "x": "ایکس", "instagram": "اینستاگرام"}
 
 
@@ -102,43 +105,94 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
     }
 
 
+def business_for_tenant(tenant_id):
+    """The Business behind a tenant id ("tenant_<pk>" or a legacy alias such as "sarv"); None when unknown."""
+    from apps.discovery.ig_accounts import canonical_tenant
+
+    tenant = canonical_tenant(tenant_id)
+    if not tenant.startswith("tenant_") or not tenant[len("tenant_"):].isdigit():
+        return None
+    return Business.objects.filter(pk=int(tenant[len("tenant_"):])).first()
+
+
+# Heuristic fit scores (not measured): how a product matched the comment/caption text.
+FIT_NAME_WORD = 0.94
+FIT_INSTAGRAM_TERM = 0.86
+FIT_HASHTAG = 0.80
+FIT_NONE = 0.0
+
+
+def _first_not_none(*values, default: float) -> float:
+    """First value that is not None (0.0 is a real score, unlike `a or b`)."""
+    for value in values:
+        if value is not None:
+            return float(value)
+    return default
+
+
+def _name_words(product) -> list[str]:
+    return [w for w in product.name.lower().split() if len(w) > 2]
+
+
+def _score_product_against_text(product, text: str) -> int:
+    """Keyword overlap between a product and a lowercased comment/caption text (0 = unrelated)."""
+    score = 3 * sum(1 for word in _name_words(product) if word in text)
+    score += 4 * sum(1 for term in (product.instagram_terms or []) if term.lower() in text)
+    score += 2 * sum(1 for tag in (product.instagram_hashtags or []) if tag.lower() in text)
+    return score
+
+
+def _product_fit_score(product, text: str) -> float:
+    if product is None:
+        return FIT_NONE
+    if any(word in text for word in _name_words(product)):
+        return FIT_NAME_WORD
+    if any(term.lower() in text for term in (product.instagram_terms or [])):
+        return FIT_INSTAGRAM_TERM
+    if any(tag.lower() in text for tag in (product.instagram_hashtags or [])):
+        return FIT_HASHTAG
+    return FIT_NONE
+
+
+def _ai_meta_charge_ref(ai_meta) -> str:
+    """Stable fingerprint of one AI evaluation (same tokens/cost/output -> same ref)."""
+    import hashlib
+    import json as _json
+
+    keys = ("cost_usd", "tokens_in", "tokens_out", "tokens_used", "model", "need", "suggested_reply", "matched_cta")
+    payload = {k: (ai_meta or {}).get(k) for k in keys}
+    return hashlib.sha1(_json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:16]
+
+
 def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
     """Ingest/synchronize an InstagramEngineLead into the unified Opportunity domain with accurate Luna GPT-6 billing."""
     import re
     from decimal import Decimal
     from django.db import transaction
-    from apps.businesses.models import Business
     from apps.products.models import Product
     from apps.billing.models import BillingSettings, WalletTransaction
-    from apps.billing.services import apply_transaction
+    from decimal import ROUND_HALF_UP
+    from apps.billing.services import apply_transaction, billed_toman
     from .models import Customer, Opportunity, AIAnalysis, OpportunityProductMatch
 
     if business is None:
-        if lead.tenant_id and str(lead.tenant_id).startswith("tenant_"):
-            try:
-                biz_id = int(str(lead.tenant_id).replace("tenant_", ""))
-                business = Business.objects.filter(id=biz_id).first()
-            except (ValueError, TypeError):
-                pass
-        if not business:
-            business = Business.objects.filter(user__username="sang@peyda.ir").first() or Business.objects.first()
-
-    if not business:
+        business = business_for_tenant(lead.tenant_id)
+    if business is None:
+        # Never fall back to a default/first business: that leaks one seller's lead to another and bills them.
+        logger.warning("Instagram lead %s has unknown tenant %r; not synced", lead.pk, lead.tenant_id)
         return None
 
     post_match = re.search(r"/p/([A-Za-z0-9_-]+)", lead.source_post_url or "")
     post_code = post_match.group(1) if post_match else "post"
     source_message_id = f"ig:{post_code}:c{lead.ig_user_pk}"
 
-    # Calculate token cost and 150% marked-up tenant fee
+    # Provider cost → seller price; a 0% markup is a valid setting (no `or default` here).
     s = BillingSettings.get()
-    usd_rate = s.usd_to_toman or Decimal("268000")
-    markup_pct = s.markup_percent or Decimal("150.0")
-    tokens_used = int((ai_meta.get("tokens_used", 0) if ai_meta else 0) or 0)
+    usd_rate = s.usd_to_toman
+    markup_pct = s.markup_percent
     cost_usd_dec = Decimal(str(ai_meta.get("cost_usd", 0.0) if ai_meta else 0.0))
     raw_toman_dec = cost_usd_dec * usd_rate
-    # Final price charged to customer = Raw Toman + 150% markup
-    final_toman = int(round(raw_toman_dec * (1 + markup_pct / 100)))
+    final_toman = int(billed_toman(cost_usd_dec, s).quantize(Decimal("1"), ROUND_HALF_UP))
     tokens_used = int((ai_meta.get("tokens_used") or (ai_meta.get("tokens_in", 0) + ai_meta.get("tokens_out", 0))) if ai_meta else 0)
 
     with transaction.atomic():
@@ -166,30 +220,16 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             customer.name = lead.full_name
             customer.save(update_fields=["name"])
 
-        # Find best matching product in business
+        # Find best matching product in business; no keyword overlap means no product (never a fake "match").
         active_products = list(Product.objects.filter(business=business, status="ACTIVE", is_discovery_active=True).select_related("category"))
+        combined_text = f"{lead.comment_text} {lead.post_caption_snippet or ''}".lower()
         matched_product = None
-        if active_products:
-            combined_text = f"{lead.comment_text} {lead.post_caption_snippet or ''}".lower()
-            best_score = -1
-            for p in active_products:
-                score = 0
-                for word in p.name.lower().split():
-                    if len(word) > 2 and word in combined_text:
-                        score += 3
-                if p.instagram_terms:
-                    for term in p.instagram_terms:
-                        if term.lower() in combined_text:
-                            score += 4
-                if p.instagram_hashtags:
-                    for tag in p.instagram_hashtags:
-                        if tag.lower() in combined_text:
-                            score += 2
-                if score > best_score:
-                    best_score = score
-                    matched_product = p
-            if not matched_product or best_score <= 0:
-                matched_product = active_products[0]
+        best_score = 0
+        for p in active_products:
+            score = _score_product_against_text(p, combined_text)
+            if score > best_score:
+                best_score = score
+                matched_product = p
 
         opp, created = Opportunity.objects.get_or_create(
             business=business,
@@ -257,7 +297,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
             opp.trace_metadata["instagram"] = ig_m
             opp.save(update_fields=["trace_metadata", "source_posted_at", "source_message_timestamp"])
 
-        intent_flt = float(lead.intent_score or (ai_meta.get("intent_score") if ai_meta else 0.90) or 0.90)
+        intent_flt = _first_not_none(lead.intent_score, (ai_meta or {}).get("intent_score"), default=0.0)
         prod_name = matched_product.name if matched_product else "محصول مورد نظر"
 
         # Suggested reply and reasoning from AI or direct template
@@ -265,15 +305,7 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
         why_str = (ai_meta.get("why_selected") if ai_meta else None) or f"ثبت کامنت متقاضی خرید ({lead.matched_cta or 'استعلام قیمت/مشاوره'}) زیر پست مرتبط اینستاگرام"
         suggested_reply_str = (ai_meta.get("suggested_reply") if ai_meta else None) or f"سلام و احترام جناب/سرکار {customer.display_identifier} عزیز، در پاسخ به استعلام شما در خصوص «{prod_name}»، شرایط همکاری و مشخصات کامل خدمت شما ارسال گردید."
         model_name = "gpt-6-luna" if (ai_meta and not ai_meta.get("is_direct_cta")) else "instagram_direct_cta"
-        dynamic_fit_score = 0.72
-        if matched_product and active_products:
-            p_name = matched_product.name.lower()
-            if any(w in combined_text for w in p_name.split() if len(w) > 2):
-                dynamic_fit_score = 0.94
-            elif matched_product.instagram_terms and any(t.lower() in combined_text for t in matched_product.instagram_terms):
-                dynamic_fit_score = 0.86
-            elif matched_product.instagram_hashtags and any(h.lower() in combined_text for h in matched_product.instagram_hashtags):
-                dynamic_fit_score = 0.80
+        dynamic_fit_score = _product_fit_score(matched_product, combined_text)
 
         AIAnalysis.objects.update_or_create(
             opportunity=opp,
@@ -304,19 +336,31 @@ def sync_instagram_lead_to_opportunity(lead, business=None, ai_meta=None):
         else:
             match = None
 
-        # Apply transaction debit for AI usage if cost incurred
-        if final_toman > 0:
+        # Debit the AI cost once per analysis: re-syncing the same lead with the
+        # same ai_meta (e.g. a retried scraper cycle) must not charge again.
+        charge_ref = _ai_meta_charge_ref(ai_meta)
+        ig_trace = dict((opp.trace_metadata or {}).get("instagram") or {})
+        billing_trace = dict(ig_trace.get("billing") or {})
+        charged_refs = list(billing_trace.get("charged_refs") or [])
+        if final_toman > 0 and charge_ref not in charged_refs:
+            model_label = (ai_meta or {}).get("model") or model_name
             try:
                 apply_transaction(
                     business=business,
                     amount=-final_toman,
                     kind=WalletTransaction.USAGE,
-                    description=f"تحلیل هوشمند کامنت اینستاگرام (GPT-6 Luna: {tokens_used} توکن)",
+                    description=f"تحلیل هوشمند کامنت اینستاگرام ({model_label}: {tokens_used} توکن)",
                     cost_usd=cost_usd_dec,
                     calls=1
                 )
-            except Exception as w_exc:
-                pass
+            except Exception:
+                logger.exception("Wallet debit failed for business=%s opportunity=%s amount=%s",
+                                 business.pk, opp.pk, final_toman)
+            else:
+                billing_trace["charged_refs"] = (charged_refs + [charge_ref])[-20:]
+                ig_trace["billing"] = billing_trace
+                opp.trace_metadata = {**(opp.trace_metadata or {}), "instagram": ig_trace}
+                opp.save(update_fields=["trace_metadata"])
 
         if match:
             from django.db import transaction
@@ -421,10 +465,10 @@ def _recent_reply_suggestions(business) -> list[str]:
 
 def _charge_outreach_llm(business, started_at):
     """Price the direct chat_json call from the admin model registry and write the normal wallet ledger entry."""
-    from decimal import Decimal, ROUND_HALF_UP
+    from decimal import Decimal
     from apps.core.models import LLMUsageLog
     from apps.billing.models import AIModel, BillingSettings, WalletTransaction
-    from apps.billing.services import apply_transaction
+    from apps.billing.services import apply_transaction, billed_toman
 
     usage = LLMUsageLog.objects.filter(business_id=business.pk, purpose="outreach_suggestion", created_at__gte=started_at,
                                        ok=True).order_by("-pk").first()
@@ -436,8 +480,7 @@ def _charge_outreach_llm(business, started_at):
     cost = (Decimal(usage.tokens_in) * model.input_price_usd + Decimal(usage.tokens_out) * model.output_price_usd) / Decimal(1_000_000)
     usage.cost_usd = cost
     usage.save(update_fields=["cost_usd"])
-    settings = BillingSettings.get()
-    amount = (cost * settings.usd_to_toman * settings.multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    amount = billed_toman(cost, BillingSettings.get())
     if amount > 0:
         apply_transaction(business, -amount, WalletTransaction.USAGE, "ساخت پیش‌نویس پیام شخصی‌سازی‌شده", cost_usd=cost, calls=1)
     return amount
@@ -451,15 +494,13 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
     from django.utils import timezone
     from apps.businesses.models import MessageStyle
     from apps.billing.services import is_blocked
-    from need_engine.reply import MessageStyle as EngineMessageStyle, generate_outreach_variants
+    from need_engine.reply import MessageStyle as EngineMessageStyle
     from apps.discovery.models import InstagramReplySuggestion
 
     if not force and not hasattr(opportunity, "ai_analysis"):
         return None
     if is_blocked(opportunity.business):
         return None
-    meta = dict(opportunity.trace_metadata or {})
-    pid = str(match.product_id)
     if opportunity.source_platform == "instagram":
         saved, _ = InstagramReplySuggestion.objects.get_or_create(opportunity=opportunity, product=match.product)
         existing = saved.reply_variants or {}
@@ -495,7 +536,7 @@ def generate_opportunity_reply_suggestions(opportunity, match, *, instruction: s
             __import__("json").dumps(payload, ensure_ascii=False), purpose="outreach_suggestion",
             business_id=opportunity.business_id, max_tokens=1800, attempts=1,
         )
-        from need_engine.reply import validate_outreach_result, OUTREACH_SYSTEM
+        from need_engine.reply import validate_outreach_result
         validated = validate_outreach_result(result, platform=opportunity.source_platform, style=style,
                                              prior_suggestions=prior, tracked_link=tracked_link)
         _charge_outreach_llm(opportunity.business, started_at)

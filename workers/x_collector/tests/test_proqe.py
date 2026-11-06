@@ -2,8 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from shared.collector_kit.seen import SeenStore
-from workers.x_collector.proqe import (ExemplarStore, expand_queries_with_proqe, load_proqe_queries,
-                                       purge_legacy_product_state)
+from workers.x_collector.proqe import (ExemplarStore, expand_queries_with_proqe, purge_legacy_product_state)
 from workers.x_collector.intent_queries import product_queries
 
 

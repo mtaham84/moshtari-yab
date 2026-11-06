@@ -1,4 +1,3 @@
-import unittest
 from unittest.mock import MagicMock, patch
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model

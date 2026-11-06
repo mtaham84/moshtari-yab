@@ -9,12 +9,11 @@ import json
 import logging
 import os
 import re
-import socket
 import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 logger = logging.getLogger("discovery.channel_config_automation")
 

@@ -5,7 +5,7 @@ import os
 from contextlib import nullcontext
 from pathlib import Path
 
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 
 
 def write_status(path: str | Path, payload: dict, *, locked: bool = False) -> None:

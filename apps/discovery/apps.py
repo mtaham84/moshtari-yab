@@ -7,7 +7,6 @@ class DiscoveryConfig(AppConfig):
     verbose_name = "پایش و کشف هوشمند مشتریان"
 
     def ready(self):
-        import sys
         # Apply runtime patches for instagrapi
         from apps.discovery import instagrapi_patch
         instagrapi_patch.patch_instagrapi_password_keys()
@@ -23,14 +22,15 @@ class DiscoveryConfig(AppConfig):
 
         pre_delete.connect(_release_config, sender=ProxyConfig, weak=False, dispatch_uid="ig_release_proxy_config")
 
-        if "test" in sys.argv[1:2] or "pytest" in sys.modules:   # tests must never rewrite the real pool file
-            return
+        from django.conf import settings
         from django.db import transaction
         from django.db.models.signals import post_delete, post_save
 
         from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
 
         def _sync(sender, **kwargs):
+            if not getattr(settings, "ACCOUNTS_POOL_FILE_SYNC", True):   # off under tests (config/test_runner.py)
+                return
             from apps.discovery.accounts_pool_file import export_pool
             transaction.on_commit(export_pool)
 

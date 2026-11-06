@@ -2,8 +2,8 @@ import re
 import random
 import time
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, timezone
+from typing import Optional, List, Any
 import pytz
 
 try:
@@ -32,9 +32,6 @@ from instagram_engine.circuit_breaker import handle_instagram_exceptions, Circui
 from instagram_engine.analyzer import (
     _call_llm_completion,
     validate_and_sanitize_dm,
-    URL_REGEX,
-    MENTION_REGEX,
-    PHONE_REGEX,
 )
 
 logger = logging.getLogger("instagram_engine.outreach_worker")

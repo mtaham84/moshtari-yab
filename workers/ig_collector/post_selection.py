@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-import re
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence, TypeAlias
 

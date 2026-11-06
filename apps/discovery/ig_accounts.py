@@ -1266,6 +1266,23 @@ def canonical_tenant(tenant_id) -> str:
     return TENANT_ALIASES.get(tid, tid)
 
 
+def tenant_key(business_or_id) -> str:
+    """The canonical tenant id of a business ("tenant_<pk>")."""
+    return f"tenant_{getattr(business_or_id, 'pk', business_or_id)}"
+
+
+def tenant_business_id(tenant_id) -> int | None:
+    """Business pk of a tenant id ("tenant_7" / legacy alias), None for unknown formats."""
+    m = re.fullmatch(r"tenant_(\d+)", canonical_tenant(tenant_id))
+    return int(m.group(1)) if m else None
+
+
+def tenant_keys_for_business(business_or_id) -> list[str]:
+    """Every tenant id whose rows belong to a business: the canonical one plus legacy aliases (e.g. "sarv")."""
+    key = tenant_key(business_or_id)
+    return [key] + sorted(alias for alias, target in TENANT_ALIASES.items() if target == key)
+
+
 def tenant_profile(tenant_id) -> dict:
     """{"consultant_name", "consultant_role", "pitch_template"} of the tenant ({} when it has none yet)."""
     row = OutreachTenantProfile.objects.filter(tenant_id=canonical_tenant(tenant_id)).first()
@@ -1309,9 +1326,45 @@ def tenant_choices() -> list[tuple[str, str]]:
     return [(t, f"{names.get(t) or names.get(canonical_tenant(t)) or t} ({t})") for t in keys]
 
 
-def _tenant_ids(tenant_id) -> set[str]:
+# Lowest-priority pitch per tenant (below its profile and legacy sender pitches).
+# This used to be hard-coded as "if business.id == 4" in two views.
+FALLBACK_TENANT_PITCHES = {
+    "tenant_4": {
+        "consultant_name": "مشاور دندان‌پزشکی",
+        "pitch_template": (
+            "درود بر شما \n"
+            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
+            "میتونید هر سوالی دارید از بنده بپرسید. \n"
+            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
+        ),
+    },
+}
+
+
+def tenant_ids(tenant_id) -> list[str]:
+    """A tenant id plus every legacy alias of the same tenant ("sarv" <-> "tenant_4"), canonical first."""
     tid = canonical_tenant(tenant_id)
-    return {tid, str(tenant_id or "")} | {alias for alias, target in TENANT_ALIASES.items() if target == tid}
+    return [tid] + sorted({str(tenant_id or "")} - {tid, ""} | {a for a, t in TENANT_ALIASES.items() if t == tid})
+
+
+def outreach_tenants() -> list[str]:
+    """Canonical tenants the DM dispatcher and reply sync serve (TEN-03).
+
+    settings.OUTREACH_TENANTS (env OUTREACH_TENANTS="tenant_4,tenant_7") when set, otherwise every tenant that
+    has an ACTIVE SENDER account."""
+    configured = [str(t).strip() for t in getattr(settings, "OUTREACH_TENANTS", None) or [] if str(t).strip()]
+    raw = configured or InstagramEngineAccount.objects.filter(role="SENDER", status="ACTIVE").exclude(
+        tenant_id__isnull=True).exclude(tenant_id="").values_list("tenant_id", flat=True).distinct()
+    return list(dict.fromkeys(canonical_tenant(t) for t in raw))
+
+
+def outreach_tenant_ids() -> list[str]:
+    """`outreach_tenants()` expanded with legacy aliases (for lead/sender filters)."""
+    return [tid for tenant in outreach_tenants() for tid in tenant_ids(tenant)]
+
+
+def _tenant_ids(tenant_id) -> set[str]:
+    return set(tenant_ids(tenant_id))
 
 
 def tenant_pitch(tenant_id, usernames=None) -> dict:
@@ -1335,4 +1388,9 @@ def tenant_pitch(tenant_id, usernames=None) -> dict:
         if prof.get(key):
             out[key] = prof[key]
             out["source"] = "profile"
+    fallback = FALLBACK_TENANT_PITCHES.get(canonical_tenant(tenant_id), {})
+    if not out["pitch_template"] and fallback.get("pitch_template"):
+        out["pitch_template"] = fallback["pitch_template"]
+        out["consultant_name"] = out["consultant_name"] or fallback.get("consultant_name", "")
+        out["source"] = out["source"] or "fallback"
     return out

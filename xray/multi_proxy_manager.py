@@ -15,7 +15,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import re
 import socket
 import subprocess
 import time
@@ -28,12 +27,6 @@ def _get_base_dir() -> Path:
     env_dir = os.environ.get("XRAY_DIR")
     if env_dir:
         return Path(env_dir)
-    try:
-        p = Path("/root/moshtari-yab/xray")
-        if p.is_dir():
-            return p
-    except Exception:
-        pass
     return Path(__file__).resolve().parent
 
 BASE_DIR = _get_base_dir()
@@ -45,30 +38,38 @@ if not XRAY_BIN.exists():
 PROBE_URL = os.environ.get("PROBE_URL", "https://api.telegram.org")
 BASE_LOCAL_PORT = 1081
 
-# Permanent fallback tunnel to ensure Iran server never loses access to Telegram/external APIs
-DEFAULT_BACKUP_TUNNEL = {
-    "tag": "default_proxy",
-    "protocol": "shadowsocks",
-    "settings": {
-        "servers": [
-            {
-                "address": "87.107.104.4",
-                "port": 2083,
-                "method": "chacha20-ietf-poly1305",
-                "password": "ayC61MsT3ztDAgq5YgiMAg"
-            }
-        ]
+def backup_tunnel() -> dict:
+    """Fallback "default_proxy" outbound used when no proxy config is available.
+
+    Credentials come from the environment (XRAY_BACKUP_SS_ADDRESS / _PORT / _METHOD / _PASSWORD); nothing is
+    hard-coded in the repository. Without them the fallback is a plain direct outbound (logged)."""
+    address = os.environ.get("XRAY_BACKUP_SS_ADDRESS", "").strip()
+    password = os.environ.get("XRAY_BACKUP_SS_PASSWORD", "").strip()
+    if not address or not password:
+        log.warning("XRAY_BACKUP_SS_ADDRESS/XRAY_BACKUP_SS_PASSWORD not set; default_proxy falls back to direct")
+        return {"tag": "default_proxy", "protocol": "freedom"}
+    return {
+        "tag": "default_proxy",
+        "protocol": "shadowsocks",
+        "settings": {
+            "servers": [
+                {
+                    "address": address,
+                    "port": int(os.environ.get("XRAY_BACKUP_SS_PORT", "443") or 443),
+                    "method": os.environ.get("XRAY_BACKUP_SS_METHOD", "chacha20-ietf-poly1305").strip(),
+                    "password": password,
+                }
+            ]
+        },
     }
-}
 
 
 def _ensure_django() -> None:
     import sys
     import django
     if not os.environ.get("DJANGO_SETTINGS_MODULE"):
-        sys.path.insert(0, "/root/moshtari-yab")
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        for env_candidate in [Path(__file__).resolve().parent.parent / ".env", Path("/root/moshtari-yab/.env")]:
+        for env_candidate in [Path(__file__).resolve().parent.parent / ".env"]:
             try:
                 if env_candidate.is_file():
                     with open(env_candidate, "r", encoding="utf-8") as f:
@@ -531,7 +532,7 @@ def rebuild_xray_config_file() -> bool:
     else:
         # DB has 0 active proxies: inject the permanent fallback tunnel as default_proxy
         # so Xray and the Telegram bot never lose outbound connectivity to filtered services.
-        outbounds.insert(0, dict(DEFAULT_BACKUP_TUNNEL))
+        outbounds.insert(0, backup_tunnel())
 
     # Tags must be unique or Xray refuses to start ("existing tag found")
     if not any(o.get("tag") == "direct" for o in outbounds):

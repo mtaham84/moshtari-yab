@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import socket
 import threading
@@ -158,28 +157,15 @@ class LLMClient:
             post_body.pop("response_format", None)
         req = urllib.request.Request(base_url.rstrip("/") + path, data=json.dumps(post_body).encode(),
                                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
-        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+        # Domestic endpoints bypass the proxy; everything else uses urllib's default opener, which already honours
+        # HTTPS_PROXY/https_proxy/NO_PROXY from the environment (tests mock urlopen, so no special case is needed).
         is_domestic = any(d in base_url.lower() for d in ("houshyar24", ".ir", "127.0.0.1", "localhost"))
-        if is_domestic:
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            try:
-                with opener.open(req, timeout=timeout) as r:
-                    return r.status, r.read().decode("utf-8", "replace")
-            except urllib.error.HTTPError as e:
-                return e.code, e.read().decode("utf-8", "replace")
-        elif proxy and not os.environ.get("PYTEST_CURRENT_TEST"):
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy, "http": proxy}))
-            try:
-                with opener.open(req, timeout=timeout) as r:
-                    return r.status, r.read().decode("utf-8", "replace")
-            except urllib.error.HTTPError as e:
-                return e.code, e.read().decode("utf-8", "replace")
-        else:
-            try:
-                with urllib.request.urlopen(req, timeout=timeout) as r:
-                    return r.status, r.read().decode("utf-8", "replace")
-            except urllib.error.HTTPError as e:
-                return e.code, e.read().decode("utf-8", "replace")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if is_domestic else None
+        try:
+            with (opener.open(req, timeout=timeout) if opener else urllib.request.urlopen(req, timeout=timeout)) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")
 
     def complete_json(self, stage: str, model: str, system: str, user: str, max_tokens: int = 4096,
                       temperature: float = 0.0, parse_retries: int = 1, ref: str = "",

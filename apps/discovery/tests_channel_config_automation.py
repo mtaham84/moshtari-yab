@@ -1,22 +1,18 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from apps.discovery.channel_config_automation import (
     normalize_channel_username,
-    get_monitored_channels,
     add_monitored_channel,
     delete_monitored_channel,
     toggle_monitored_channel,
     extract_configs_from_text,
-    fetch_channel_messages,
     load_channel_state,
-    save_channel_state,
     sync_channel_configs,
-    sync_all_active_channels,
 )
 
 
@@ -71,7 +67,6 @@ class ChannelConfigAutomationUnitTests(SimpleTestCase):
 
     def test_channel_crud_operations(self):
         """Tests adding, toggling, and deleting monitored channels in fallback JSON mode."""
-        from unittest.mock import mock_open
         fake_store = []
 
         with patch("apps.discovery.channel_config_automation._load_channels_json", return_value=fake_store), \

@@ -7,7 +7,12 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_POST
+from apps.core.http import wants_json
+from apps.core.permissions import is_operator
 from apps.businesses.models import Business, MessageStyle
+from apps.businesses.services import ensure_business
+from apps.discovery.constants import DM_DELIVERED_STATUSES
+from apps.discovery.exports import safe_csv_row
 from apps.discovery.models import Opportunity, InstagramEngineAccount
 from apps.discovery.services import get_performance_analytics
 
@@ -138,7 +143,7 @@ def login_view(request):
             login(request, user)
             name = user.get_full_name() or user.first_name or user.username
             messages.success(request, f"خوش آمدید، {name} عزیز!")
-            if not next_url and (user.is_staff or user.is_superuser):
+            if not next_url and is_operator(user):
                 fallback_url = reverse("manage:dashboard")
             return redirect(next_url or fallback_url)
         else:
@@ -161,14 +166,7 @@ def logout_view(request):
 
 @login_required
 def dashboard_view(request):
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     if request.method == "POST":
         if request.POST.get("update_targeting_constraints"):
@@ -201,14 +199,7 @@ def settings_view(request):
     Dedicated settings page for business profile, targeting constraints,
     and Telegram / messaging configuration.
     """
-    business = getattr(request.user, "business", None)
-    if not business:
-        business = Business.objects.create(
-            user=request.user,
-            name=f"کسب‌وکار {request.user.first_name or request.user.username}",
-            business_type="PHYSICAL",
-            business_domain="عمومی"
-        )
+    business = ensure_business(request.user)
 
     if request.method == "POST":
         section = request.POST.get("section", "all")
@@ -288,8 +279,9 @@ def style_sample_view(request):
 
 def _outreach_tenant_keys(business) -> list[str]:
     """Lead/sender tenant ids that belong to a business (tenant_4 also owns legacy 'sarv' rows)."""
-    tenant_key = f"tenant_{business.id}"
-    return [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    from apps.discovery.ig_accounts import tenant_keys_for_business
+
+    return tenant_keys_for_business(business)
 
 
 def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, business=None):
@@ -315,6 +307,24 @@ def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, 
     return None
 
 
+def _operator_outreach_business(biz_param, own_business, all_businesses):
+    """Business shown to an operator on the outreach page (TEN-03: no hardcoded business ids).
+
+    Explicit ?biz=<id> wins, then the operator's own business if it runs outreach, then the first business that
+    runs outreach (OUTREACH_TENANTS / ACTIVE SENDER), then the operator's own business, then the first business."""
+    from apps.discovery.ig_accounts import outreach_tenants, tenant_business_id
+
+    by_id = {b.id: b for b in all_businesses}
+    if biz_param and str(biz_param).isdigit() and int(biz_param) in by_id:
+        return by_id[int(biz_param)]
+    outreach_ids = [bid for bid in (tenant_business_id(t) for t in outreach_tenants()) if bid in by_id]
+    if own_business and own_business.id in outreach_ids:
+        return own_business
+    if outreach_ids:
+        return by_id[outreach_ids[0]]
+    return own_business or (all_businesses[0] if all_businesses else None)
+
+
 @login_required
 def outreach_view(request):
     """Business owner's dedicated Instagram Outreach & Sender Management page."""
@@ -323,26 +333,18 @@ def outreach_view(request):
 
     business = getattr(request.user, "business", None)
 
-    # For staff / superuser, support ?biz=<id> or default to tenant_4 (Sarv Dental) if current business is empty
+    # Operators pick a business with ?biz=<id>; otherwise their own, else the first one running outreach.
     all_businesses = []
-    if request.user.is_staff or request.user.is_superuser:
+    if is_operator(request.user):
         all_businesses = list(Business.objects.all().order_by("id"))
-        biz_param = request.GET.get("biz")
-        if biz_param and biz_param.isdigit():
-            b = Business.objects.filter(id=int(biz_param)).first()
-            if b:
-                business = b
-        elif not business or business.id not in [4, 6]:
-            sarv_biz = Business.objects.filter(id=4).first()
-            if sarv_biz:
-                business = sarv_biz
+        business = _operator_outreach_business(request.GET.get("biz"), business, all_businesses)
 
     if not business:
         messages.error(request, "ابتدا اطلاعات کسب‌وکار خود را تکمیل نمایید.")
         return redirect("accounts:dashboard")
 
     tenant_key = f"tenant_{business.id}"
-    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    tenant_keys = _outreach_tenant_keys(business)
 
     from apps.discovery.outreach_service import (
         TIER_LIMITS,
@@ -351,8 +353,8 @@ def outreach_view(request):
     from apps.discovery.models import Customer
 
     accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
-    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).order_by("-updated_at")[:50]
-    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT"]).count()
+    sent_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=DM_DELIVERED_STATUSES).order_by("-updated_at")[:50]
+    total_dms = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status__in=DM_DELIVERED_STATUSES).count()
     pending_leads = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys, status="NEW").count()
 
     # Leads who replied to our direct outreach or have active conversation
@@ -360,7 +362,7 @@ def outreach_view(request):
     conversation_leads = list(InstagramEngineLead.objects.filter(
         tenant_id__in=tenant_keys
     ).filter(
-        Q(has_replied=True) | Q(status__in=["DM_SENT", "REPLIED", "FOLLOWUP_SENT", "QUEUED"]) | Q(initial_dm_text__isnull=False)
+        Q(has_replied=True) | Q(status__in=[*DM_DELIVERED_STATUSES, "QUEUED"]) | Q(initial_dm_text__isnull=False)
     ).order_by("-reply_at", "-updated_at")[:60])
 
     # Leads who replied to our direct outreach
@@ -397,14 +399,6 @@ def outreach_view(request):
     default_pitch = pitch["pitch_template"]
     default_consultant = pitch["consultant_name"] or (accounts[0].username if accounts else "")
     default_username = accounts[0].username if accounts else ""
-    if not default_pitch and business.id == 4:
-        default_pitch = (
-            "درود بر شما \n"
-            "بنده مشاور و پشتیبانی تخصصی دندان پزشکی هستم، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
-            "میتونید هر سوالی دارید از بنده بپرسید. \n"
-            "اگر هم فکر میکنید موثر هست ، شماره تماستون رو بزارید برای ۱۰ دقیقه مشاوره تخصصی رایگان با شما تماس میگیرم"
-        )
-        default_consultant = pitch["consultant_name"] or "مشاور دندان‌پزشکی"
 
     # Top-Scoring Prioritized Leads (Ranked by 35-point scoring: Public + Intent + Freshness)
     from django.db.models import Q
@@ -426,7 +420,7 @@ def outreach_view(request):
     # Attach pitch preview and ensure score details
     for lead_item in top_leads_qs:
         if not lead_item.outreach_score:
-            update_lead_scoring(lead_item, commit=True)
+            update_lead_scoring(lead_item, commit=False)   # GET: score in memory; the scraper stores it
         lead_item.pitch_preview = build_bulletproof_message(
             lead=lead_item,
             consultant_name=default_consultant,
@@ -463,7 +457,7 @@ def outreach_view(request):
 
 
 def _staff(user) -> bool:
-    return bool(user.is_staff or user.is_superuser)
+    return is_operator(user)
 
 
 def _outreach_redirect(request, business_id=None):
@@ -579,11 +573,10 @@ def sync_replies_view(request):
     if not business:
         return redirect("accounts:dashboard")
 
-    tenant_key = f"tenant_{business.id}"
-    tenant_keys = [tenant_key, "sarv"] if business.id == 4 else [tenant_key]
+    tenant_keys = _outreach_tenant_keys(business)
 
     res = check_and_sync_lead_replies(tenant_keys)
-    if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.GET.get("format") == "json":
+    if wants_json(request):
         return JsonResponse({"success": True, "replies_found": res.get("replies_found", 0), "details": res.get("details", [])})
 
     found = res.get("replies_found", 0)
@@ -607,8 +600,8 @@ def send_followup_view(request):
     from apps.discovery.outreach_service import enqueue_direct_message
 
     business = getattr(request.user, "business", None)
-    is_staff = request.user.is_staff or request.user.is_superuser
-    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    is_staff = is_operator(request.user)
+    is_ajax = wants_json(request)
 
     def _fail(error, status=400):
         if is_ajax:
@@ -746,7 +739,7 @@ def update_lead_phone_view(request):
         return JsonResponse({"success": False, "error": "شناسه مشتری یا شماره تماس نامعتبر است."}, status=400)
 
     lead_qs = InstagramEngineLead.objects.filter(pk=lead_id)
-    if not (request.user.is_staff or request.user.is_superuser):
+    if not is_operator(request.user):
         lead_qs = lead_qs.filter(tenant_id__in=_outreach_tenant_keys(business))
     lead = lead_qs.first()
     if not lead:
@@ -757,10 +750,10 @@ def update_lead_phone_view(request):
     if lead.ig_user_pk:
         cust, _ = Customer.objects.get_or_create(
             business=business,
+            source_platform="instagram",
             external_user_id=str(lead.ig_user_pk),
             defaults={
                 "name": lead.full_name or lead.username,
-                "source_platform": "instagram",
                 "source_username": lead.username,
                 "source_profile_url": lead.profile_url or f"https://www.instagram.com/{lead.username}/",
             }
@@ -877,14 +870,11 @@ def outreach_leads_export_csv(request):
     if not business:
         return HttpResponse("حساب کسب‌وکار مرتبط یافت نشد.", status=404)
 
-    is_admin = request.user.is_staff or request.user.is_superuser
+    is_admin = is_operator(request.user)
     if is_admin and request.GET.get("business_id", "").strip().lower() == "all":
         qs = InstagramEngineLead.objects.all()
     else:
-        tenant_keys = [f"tenant_{business.id}"]
-        if business.id == 4:
-            tenant_keys.append("sarv_dental")
-        qs = InstagramEngineLead.objects.filter(tenant_id__in=tenant_keys)
+        qs = InstagramEngineLead.objects.filter(tenant_id__in=_outreach_tenant_keys(business))
 
     # فیلتر ۵ روز اخیر
     cutoff_5_days = timezone.now() - timedelta(days=5)
@@ -942,30 +932,13 @@ def outreach_leads_export_csv(request):
         "UNKNOWN": "عمومی",
     }
 
-    status_map = {
-        "NEW": "در صف ارسال",
-        "APPROVED": "تایید شده",
-        "PITCH_GENERATED": "آماده ارسال",
-        "SENT": "ارسال شده",
-        "DM_SENT": "ارسال شده",
-        "FOLLOWUP_1": "پیگیری اول",
-        "FOLLOWUP_2": "پیگیری دوم",
-        "FOLLOWUP_SENT": "پیگیری شده",
-        "REPLIED": "پاسخ داده",
-        "CONVERTED": "موفق",
-        "FAILED": "ناموفق",
-        "REJECTED": "رد شده",
-        "SKIPPED": "رد شده (حفاظت)",
-    }
-
     from apps.discovery.outreach_service import build_bulletproof_message
-    default_consultant = "مشاور فروشگاه"
-    if business and business.id == 4:
-        default_consultant = "مشاور دندان‌پزشکی"
+    from apps.discovery.ig_accounts import tenant_key as business_tenant_key, tenant_pitch
+    default_consultant = (tenant_pitch(business_tenant_key(business))["consultant_name"] if business else "") or "مشاور فروشگاه"
 
     for lead in qs[:500]:
         if not lead.outreach_score:
-            update_lead_scoring(lead, commit=True)
+            update_lead_scoring(lead, commit=False)   # GET: score in memory; the scraper stores it
 
         user_handle = f"@{lead.username.lstrip('@')}" if lead.username else "-"
         page_type = lead.display_page_type
@@ -987,7 +960,7 @@ def outreach_leads_export_csv(request):
         outreach_status_label = lead.get_status_display()
         reply_snippet = (lead.reply_text or "").strip() if lead.has_replied else "-"
 
-        writer.writerow([
+        writer.writerow(safe_csv_row([
             user_handle,
             page_type,
             comment_time,
@@ -1004,10 +977,11 @@ def outreach_leads_export_csv(request):
             profile_url,
             outreach_status_label,
             reply_snippet,
-        ])
+        ]))
 
+    # One BOM only (encoding with utf-8-sig on top of "\ufeff" wrote two).
     csv_data = "\ufeff" + buffer.getvalue()
-    response = HttpResponse(csv_data.encode("utf-8-sig"), content_type="text/csv; charset=utf-8")
+    response = HttpResponse(csv_data.encode("utf-8"), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 

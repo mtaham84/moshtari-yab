@@ -1,11 +1,9 @@
-import os, sys, json
+import os
 import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from apps.businesses.models import Business
-from apps.products.models import Product
-from apps.billing.models import Wallet, WalletTransaction
 from apps.discovery.models import Opportunity
 import psycopg
 from x_ingest.__main__ import _dsn

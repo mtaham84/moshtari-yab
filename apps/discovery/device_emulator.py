@@ -7,7 +7,6 @@ Instagram servers see completely distinct physical devices and network endpoints
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import secrets
 from typing import Any

@@ -23,7 +23,7 @@ log = logging.getLogger("workers.channel_config_collector")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-for env_candidate in [ROOT_DIR / ".env", Path("/root/moshtari-yab/.env")]:
+for env_candidate in [ROOT_DIR / ".env"]:
     if env_candidate.exists():
         try:
             with open(env_candidate, "r", encoding="utf-8") as f:
@@ -46,7 +46,6 @@ except Exception as exc:
 from apps.discovery.channel_config_automation import (
     sync_all_active_channels,
     sync_channel_configs,
-    get_monitored_channels,
 )
 
 

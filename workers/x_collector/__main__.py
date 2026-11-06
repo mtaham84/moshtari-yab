@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .client import XCliError
 from .worker import XCollector, auto_ingest_enabled, charge_searches, collect_forever, record_searches, ingest_new, latest_offset
-from file_lock import exclusive_file_lock
+from shared.collector_kit.file_lock import exclusive_file_lock
 
 
 def main(argv: list[str] | None = None) -> int:
