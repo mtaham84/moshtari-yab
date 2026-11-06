@@ -293,20 +293,22 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
-        proxy = account.clean_proxy   # its own proxy / system config, else the shared pool (never the server IP)
+        from apps.discovery.ig_accounts import effective_proxy_url, proxy_reachable
+        proxy = account.clean_proxy or effective_proxy_url(account)   # its own proxy / system config, else the shared pool (never the server IP)
         if proxy:
-            from apps.discovery.ig_accounts import proxy_reachable
             proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
             if not proxy_ok:
                 self.stderr.write(f"    proxy unreachable for @{account.username} ({proxy_msg}); triggering auto-failover...")
                 if self._rotate_or_heal_proxy(account, cl=cl):
-                    proxy = account.clean_proxy
+                    proxy = account.clean_proxy or effective_proxy_url(account)
                 else:
                     # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
                     # (and the same IP for every account) is a far bigger risk than skipping one cycle.
                     raise ProxyUnavailable(f"proxy unreachable for @{account.username} and no healthy fallback: {proxy_msg}")
             if proxy:
                 cl.set_proxy(proxy)
+        else:
+            raise ProxyUnavailable(f"no proxy configured for @{account.username}")
 
         return cl
 
@@ -315,7 +317,7 @@ class Command(BaseCommand):
         Automatically heals/failovers account connection when proxy drops or dies.
         Finds the next free healthy config (or pool) and updates client proxy immediately.
         """
-        from apps.discovery.ig_accounts import _heal_account, effective_proxy_url
+        from apps.discovery.ig_accounts import _heal_account, effective_proxy_url, proxy_reachable
         old_proxy = account.clean_proxy or effective_proxy_url(account)
         curr_cfg_id = account.proxy_config_id
 
@@ -326,15 +328,19 @@ class Command(BaseCommand):
         account.refresh_from_db()
         new_proxy = account.clean_proxy or effective_proxy_url(account)
         if new_proxy and (new_proxy != old_proxy or (res and res.get("changed"))):
-            if cl:
-                cl.set_proxy(new_proxy)
-            # Invalidate client pool cache so fresh client/session is rebuilt with new proxy
-            if hasattr(self, "_client_pool") and account.id in self._client_pool:
-                self._client_pool.pop(account.id, None)
-            self.stdout.write(self.style.SUCCESS(
-                f"    [Auto-Failover]: Account @{account.username} successfully rotated to new proxy: {new_proxy}"
-            ))
-            return True
+            ok, msg = proxy_reachable(new_proxy, timeout=3.0)
+            if ok:
+                if cl:
+                    cl.set_proxy(new_proxy)
+                # Invalidate client pool cache so fresh client/session is rebuilt with new proxy
+                if hasattr(self, "_client_pool") and account.id in self._client_pool:
+                    self._client_pool.pop(account.id, None)
+                self.stdout.write(self.style.SUCCESS(
+                    f"    [Auto-Failover]: Account @{account.username} successfully rotated to new proxy: {new_proxy}"
+                ))
+                return True
+            else:
+                self.stderr.write(f"    [Auto-Failover]: Fallback proxy {new_proxy} unreachable: {msg}")
         else:
             self.stderr.write(f"    [Auto-Failover]: No alternative healthy proxy available for @{account.username}")
         return False
