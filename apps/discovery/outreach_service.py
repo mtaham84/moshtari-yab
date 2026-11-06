@@ -163,6 +163,61 @@ def select_outreach_candidates(tenant_ids: List[str], slots: int, *, now=None) -
     return leads
 
 
+def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional[Any]:
+    """
+    Gold standard distributed locking:
+    Atomically selects and locks candidate NEW leads using select_for_update(skip_locked=True),
+    updates scoring, skips ineligible ones, and marks the highest-scoring candidate as 'PROCESSING'.
+    Ensures parallel workers never double-message leads or encounter race conditions.
+    """
+    from django.conf import settings
+    from django.db import transaction
+    from django.db.models import Q
+    from apps.discovery.models import InstagramEngineLead
+    from apps.discovery.instagram_scoring import update_lead_scoring
+
+    now = now or timezone.now()
+    cutoff_days_val = getattr(settings, "INSTAGRAM_OUTREACH_CUTOFF_DAYS", 10)
+    cutoff = now - timedelta(days=cutoff_days_val)
+
+    with transaction.atomic():
+        candidates = list(
+            InstagramEngineLead.objects.select_for_update(skip_locked=True)
+            .filter(tenant_id__in=tenant_ids, status="NEW")
+            .filter(Q(comment_created_at__gte=cutoff) | Q(comment_created_at__isnull=True, created_at__gte=cutoff))
+            .order_by("-outreach_score", "-comment_created_at", "-created_at")[:15]
+        )
+        if not candidates:
+            return None
+
+        scored = []
+        for cand in candidates:
+            calc = update_lead_scoring(cand, commit=False, now=now)
+            if calc.get("is_eligible", True):
+                cand.outreach_score = calc.get("total_score", cand.outreach_score)
+                scored.append(cand)
+            else:
+                cand.status = "SKIPPED"
+                cand.outreach_score = calc.get("total_score", cand.outreach_score)
+                cand.save(update_fields=["status", "outreach_score", "updated_at"])
+
+        if not scored:
+            return None
+
+        # Pick the highest-scored candidate
+        scored.sort(
+            key=lambda l: (
+                l.outreach_score,
+                l.comment_created_at or l.created_at,
+            ),
+            reverse=True,
+        )
+        winner = scored[0]
+        winner.status = "PROCESSING"
+        winner.save(update_fields=["status", "outreach_score", "updated_at"])
+        return winner
+
+
 def parse_spintax(text: str) -> str:
     """
     Recursively parse and resolve Spintax patterns such as {سلام|درود|وقت بخیر}.
@@ -405,6 +460,20 @@ def perform_organic_warmup(cl: Any, target_pk: int, username: str, *, story_chan
                 cl.story_seen(story_pks)
                 actions["viewed_story"] = True
                 logger.info("Organic story view executed for @%s (pks: %s)", username, story_pks)
+                try:
+                    from apps.discovery.live_logger import report_live_activity
+                    report_live_activity(
+                        account_username=getattr(cl, "username", "outreach"),
+                        action_type="WATCH_STORY",
+                        title=f"تماشای استوری @{username}",
+                        description=f"مشاهده استوری لید @{username} جهت ثبت بازدید در بخش Viewers مخاطب",
+                        media_type="STORY",
+                        duration_seconds=3.0,
+                        update_worker="outreach",
+                        worker_active=True,
+                    )
+                except Exception:
+                    pass
                 time.sleep(random.uniform(2.0, 4.5))
     except Exception as story_err:
         logger.debug("Organic story view skipped for @%s: %s", username, story_err)

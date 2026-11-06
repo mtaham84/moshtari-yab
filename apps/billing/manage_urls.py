@@ -49,4 +49,8 @@ urlpatterns = [
     path("instagram/accounts/<int:pk>/api/scroll-feed/", manage_views.instagram_cockpit_scroll_feed, name="instagram_cockpit_scroll_feed"),
     path("instagram/accounts/<int:pk>/api/search/", manage_views.instagram_cockpit_search, name="instagram_cockpit_search"),
     path("instagram/accounts/<int:pk>/api/organic-dm/", manage_views.instagram_cockpit_organic_dm, name="instagram_cockpit_organic_dm"),
+    # Instagram Real-Time Live Logs & Activity Radar
+    path("instagram/live-logs/", manage_views.instagram_live_logs_api, name="instagram_live_logs_api"),
+    path("instagram/live-logs/test-pulse/", manage_views.instagram_live_test_pulse_api, name="instagram_live_test_pulse_api"),
+    path("instagram/live-logs/clear/", manage_views.instagram_live_clear_logs_api, name="instagram_live_clear_logs_api"),
 ]

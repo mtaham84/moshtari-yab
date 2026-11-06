@@ -21,15 +21,13 @@ from __future__ import annotations
 import json
 import logging
 import random
-import zlib
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import connection, models, transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.discovery.anti_ban import InstagramAntiBanManager
@@ -43,7 +41,7 @@ from apps.discovery.outreach_service import (
     process_queued_outbox_message,
     qualify_recipient_profile,
     resolve_queued_sender,
-    select_outreach_candidates,
+    select_and_reserve_candidate,
 )
 
 logger = logging.getLogger("instagram_outreach")
@@ -88,7 +86,6 @@ MAX_LEADS_PER_STEP = 3             # leads tried in one step when the first ones
 QUEUED_MAX_ATTEMPTS = 3            # message-level failures before a queued message is marked FAILED
 QUEUED_RETRY_MINUTES = 10          # back-off per failed attempt of a queued message
 UNKNOWN_ERROR_PAUSE_MINUTES = 10   # short pause for a sender after an unclassified error
-LOCK_NAMESPACE = 0x4D59            # pg advisory lock namespace ("MY")
 
 
 def _error_matches(exc_str: str, markers: Tuple[str, ...]) -> bool:
@@ -334,34 +331,6 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
 
 
 # ---------------------------------------------------------------------------
-# Dispatcher lock
-# ---------------------------------------------------------------------------
-def dispatch_lock_key(tenant_ids: List[str]) -> int:
-    return zlib.crc32(("ig-outreach:" + ",".join(sorted(tenant_ids))).encode()) & 0x7FFFFFFF
-
-
-@contextmanager
-def dispatch_lock(tenant_ids: List[str]):
-    """Session-level Postgres advisory lock so only one dispatch step runs per tenant at a time."""
-    if connection.vendor != "postgresql":
-        yield True
-        return
-    key = dispatch_lock_key(tenant_ids)
-    with connection.cursor() as cur:
-        cur.execute("SELECT pg_try_advisory_lock(%s, %s)", [LOCK_NAMESPACE, key])
-        acquired = bool(cur.fetchone()[0])
-    try:
-        yield acquired
-    finally:
-        if acquired:
-            try:
-                with connection.cursor() as cur:
-                    cur.execute("SELECT pg_advisory_unlock(%s, %s)", [LOCK_NAMESPACE, key])
-            except Exception as exc:  # the lock dies with the DB session anyway
-                logger.warning("Could not release outreach dispatch lock: %s", exc)
-
-
-# ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
 class _Ctx:
@@ -412,43 +381,66 @@ def _record_queued_failure(lead, error: str, kind: str, now) -> bool:
 
 
 def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
-    queued = InstagramEngineLead.objects.filter(tenant_id__in=ctx.tenant_ids, status="QUEUED").order_by("updated_at")[:25]
-    for lead in queued:
-        _, item = _first_queued_item(lead)
-        if item is None:
-            continue
-        retry_after = item.get("retry_after")
-        if retry_after and not ctx.dry_run and datetime.fromisoformat(retry_after) > now:
-            continue
-        sender = resolve_queued_sender(lead, item)
-        if not _sender_can_act(sender, now, dry_run=ctx.dry_run):
-            continue
+    # Step 1: Safely lock and reserve candidate from queue with select_for_update(skip_locked=True)
+    lead_to_process = None
+    sender = None
 
-        ctx.log(f"⚡ [اولویت ۱ - صف ارسال مستقیم]: ارسال پیام صف برای @{lead.username} توسط @{sender.username}...")
-        try:
-            if not ctx.dry_run:
-                from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
-                prepare_sender_proxy_before_dm(sender, stdout=ctx.stdout)
-                get_sender_client(sender)  # cached; process_queued_outbox_message reuses it
-            res = process_queued_outbox_message(lead, client_cache=_CLIENTS, dry_run=ctx.dry_run, sender=sender)
-        except Exception as exc:
-            res = {"success": False, "error": str(exc)}
+    with transaction.atomic():
+        candidates = list(
+            InstagramEngineLead.objects.select_for_update(skip_locked=True)
+            .filter(tenant_id__in=ctx.tenant_ids, status="QUEUED")
+            .order_by("updated_at")[:25]
+        )
+        for cand in candidates:
+            _, item = _first_queued_item(cand)
+            if item is None:
+                continue
+            retry_after = item.get("retry_after")
+            if retry_after and not ctx.dry_run and datetime.fromisoformat(retry_after) > now:
+                continue
+            cand_sender = resolve_queued_sender(cand, item)
+            if not _sender_can_act(cand_sender, now, dry_run=ctx.dry_run):
+                continue
 
-        if res.get("success"):
-            if not ctx.dry_run:
-                persist_sender_session(sender)
-            ctx.log(f"   ✅ پیام صف با موفقیت برای @{lead.username} توسط @{sender.username} ارسال شد.")
-            return {"action": "queued_sent", "sent": True, "lead": lead.username, "sender": sender.username}
+            # Atomically reserve by setting status to PROCESSING
+            cand.status = "PROCESSING"
+            cand.save(update_fields=["status", "updated_at"])
+            lead_to_process = cand
+            sender = cand_sender
+            break
 
-        error = res.get("error") or ""
-        kind = classify_send_error(error)
-        ctx.log(f"   ❌ خطا در ارسال پیام صف برای @{lead.username} ({kind}): {error[:120]}")
-        apply_sender_error(sender, kind, error, ctx.log)
-        gave_up = _record_queued_failure(lead, error, kind, now)
-        if gave_up:
-            ctx.log(f"   🛑 پیام صف @{lead.username} بعد از چند تلاش ناموفق به وضعیت FAILED رفت.")
-        return {"action": "queued_failed", "sent": False, "lead": lead.username, "sender": sender.username, "kind": kind}
-    return None
+    if not lead_to_process or not sender:
+        return None
+
+    # Step 2: Dispatch message to Instagram outside DB lock
+    ctx.log(f"⚡ [اولویت ۱ - صف ارسال مستقیم]: ارسال پیام صف برای @{lead_to_process.username} توسط @{sender.username}...")
+    try:
+        if not ctx.dry_run:
+            from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+            prepare_sender_proxy_before_dm(sender, stdout=ctx.stdout)
+            get_sender_client(sender)  # cached; process_queued_outbox_message reuses it
+        res = process_queued_outbox_message(lead_to_process, client_cache=_CLIENTS, dry_run=ctx.dry_run, sender=sender)
+    except Exception as exc:
+        res = {"success": False, "error": str(exc)}
+
+    if res.get("success"):
+        if not ctx.dry_run:
+            persist_sender_session(sender)
+        ctx.log(f"   ✅ پیام صف با موفقیت برای @{lead_to_process.username} توسط @{sender.username} ارسال شد.")
+        return {"action": "queued_sent", "sent": True, "lead": lead_to_process.username, "sender": sender.username}
+
+    error = res.get("error") or ""
+    kind = classify_send_error(error)
+    ctx.log(f"   ❌ خطا در ارسال پیام صف برای @{lead_to_process.username} ({kind}): {error[:120]}")
+    apply_sender_error(sender, kind, error, ctx.log)
+    gave_up = _record_queued_failure(lead_to_process, error, kind, now)
+    if gave_up:
+        ctx.log(f"   🛑 پیام صف @{lead_to_process.username} بعد از چند تلاش ناموفق به وضعیت FAILED رفت.")
+    else:
+        # Revert back to QUEUED for retry
+        lead_to_process.status = "QUEUED"
+        lead_to_process.save(update_fields=["status", "updated_at"])
+    return {"action": "queued_failed", "sent": False, "lead": lead_to_process.username, "sender": sender.username, "kind": kind}
 
 
 def _pitch_for(cfg: dict, sender) -> Tuple[str, str]:
@@ -572,11 +564,27 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         elif kind == "unknown":
             lead.status = "FAILED"
             lead.save(update_fields=["status", "updated_at"])
-        # sender-level errors: the lead stays NEW so another sender can deliver it
+        else:
+            # sender-level errors: the lead reverts to NEW so another sender can deliver it
+            lead.status = "NEW"
+            lead.save(update_fields=["status", "updated_at"])
         return {"action": "cold_failed", "sent": False, "lead": lead.username, "sender": sender.username, "kind": kind}
 
     delay, is_break = _mark_cold_sent(lead, sender, pitch_text, pace=True)
     persist_sender_session(sender)
+    try:
+        from apps.discovery.live_logger import report_live_activity
+        report_live_activity(
+            account_username=sender.username,
+            action_type="SEND_DM",
+            title=f"ارسال دایرکت به @{lead.username}",
+            description=f"دایرکت معرفی با موفقیت برای @{lead.username} توسط @{sender.username} ارسال شد.",
+            level="SUCCESS",
+            update_worker="outreach",
+            worker_active=True,
+        )
+    except Exception:
+        pass
     pause = "☕ استراحت طبیعی" if is_break else "⏳ وقفه ایمنی"
     ctx.log(f"   ✅ دایرکت به @{lead.username} ارسال شد. {pause}: دایرکت بعدی @{sender.username} "
             f"حداقل {delay / 60.0:.0f} دقیقه دیگر.")
@@ -600,17 +608,13 @@ def _send_next_cold(ctx: _Ctx, now) -> Dict[str, Any]:
         ready = senders
     sender = ready[0]
 
-    leads = select_outreach_candidates(ctx.tenant_ids, MAX_LEADS_PER_STEP)
-    if not leads:
+    lead = select_and_reserve_candidate(ctx.tenant_ids, now=now)
+    if not lead:
         return {"action": "idle", "sent": False, "reason": "no_new_leads"}
-    for lead in leads[:MAX_LEADS_PER_STEP]:
-        lead.refresh_from_db(fields=["status"])
-        if lead.status != "NEW":
-            continue
-        result = _send_cold_dm(ctx, sender, lead)
-        if result["action"] != "skipped":
-            return result
-    return {"action": "idle", "sent": False, "reason": "candidates_skipped"}
+    result = _send_cold_dm(ctx, sender, lead)
+    if result.get("action") == "skipped":
+        return {"action": "idle", "sent": False, "reason": "candidates_skipped"}
+    return result
 
 
 def run_outreach_step(
@@ -631,15 +635,12 @@ def run_outreach_step(
         active, reason, wait_sec = HumanShiftPlanner.is_shift_active()
         if not active:
             return {"action": "paused", "sent": False, "reason": reason, "wait_seconds": wait_sec}
-    with dispatch_lock(ctx.tenant_ids) as acquired:
-        if not acquired:
-            return {"action": "busy", "sent": False, "reason": "another dispatch step is running"}
-        now = timezone.now()
-        refresh_sender_states(ctx.tenant_ids, ctx.log)
-        queued = _send_next_queued(ctx, now)
-        if queued:
-            return queued
-        return _send_next_cold(ctx, now)
+    now = timezone.now()
+    refresh_sender_states(ctx.tenant_ids, ctx.log)
+    queued = _send_next_queued(ctx, now)
+    if queued:
+        return queued
+    return _send_next_cold(ctx, now)
 
 
 def reply_sync_allowed(ignore_shift: bool = False) -> Tuple[bool, str]:
