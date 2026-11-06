@@ -22,6 +22,7 @@
     <div class="ops-side-nav">
       <a href="{% url 'manage:dashboard' %}?tab=outreach" class="{% if request.GET.tab == 'outreach' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-mail"/></svg> پیام‌رسانی و دایرکت اینستاگرام</a>
       <a href="{% url 'manage:ig_accounts' %}" class="{% if nav == 'ig_accounts' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> اکانت‌های اینستاگرام</a>
+      <a href="{% url 'manage:instagram_logs' %}" class="{% if nav == 'instagram_logs' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-monitor"/></svg> لاگ‌های اینستاگرام</a>
       <a href="{% url 'manage:ig_tenants' %}" class="{% if nav == 'ig_tenants' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-edit"/></svg> نام مشاور و پیام مشتری‌ها</a>
       <a href="{% url 'manage:dashboard' %}?tab=crawler-audit" class="{% if request.GET.tab == 'crawler-audit' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> پایش کرول و هوشمندی کوئری‌ها</a>
       <a href="{% url 'manage:dashboard' %}" class="{% if nav == 'manage' and request.GET.tab != 'crawler-audit' and request.GET.tab != 'outreach' %}on{% endif %}"><svg class="ico" aria-hidden="true"><use href="#i-cpu"/></svg> مرکز مدیریت و اسکرپرها</a>

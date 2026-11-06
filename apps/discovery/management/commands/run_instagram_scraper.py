@@ -576,6 +576,13 @@ class Command(BaseCommand):
         age_cutoff = dj_timezone.now() - timedelta(days=max_age_days)
         comment_cutoff = dj_timezone.now() - timedelta(days=5)
 
+        crawl_comments = 0
+        top_code = ""
+        top_url = ""
+        self._last_crawl_comments = 0
+        self._last_top_code = ""
+        self._last_top_url = ""
+
         for media in medias:
             if posts_inspected >= 30:
                 break
@@ -628,6 +635,8 @@ class Command(BaseCommand):
                         media_code=code,
                         account_username=account.username,
                         posted_at=taken_at or dj_timezone.now(),
+                        caption=caption_text,
+                        comment_count=comment_count,
                     )
                 except Exception:
                     self.stdout.write(
@@ -671,6 +680,14 @@ class Command(BaseCommand):
                 except Exception:
                     self.stderr.write(f"    Failed to fetch comments for {source_post_url}: {exc}")
                     continue
+
+            crawl_comments += len(comments)
+            self._last_crawl_comments = crawl_comments
+            if not top_code and code:
+                top_code = code
+                top_url = (source_post_url or f"https://www.instagram.com/p/{code}/")[:500]
+                self._last_top_code = top_code
+                self._last_top_url = top_url
 
             all_comment_texts = [getattr(c, "text", "") for c in comments if getattr(c, "text", "")]
             repeated_triggers = detect_repeated_comment_triggers(all_comment_texts, min_count=2)
@@ -813,7 +830,11 @@ class Command(BaseCommand):
         if qualifying_posts < 3:
             retired = True
 
-        return posts_inspected, qualifying_posts, leads_saved, retired
+        self._last_crawl_comments = crawl_comments
+        self._last_top_code = top_code
+        self._last_top_url = top_url
+
+        return posts_inspected, qualifying_posts, leads_saved, retired, crawl_comments, top_code, top_url
 
     def _request_budget_available(self, account) -> bool:
         from apps.discovery.anti_ban import InstagramAntiBanManager
@@ -1208,6 +1229,13 @@ class Command(BaseCommand):
         family_context = {"category_path": family.category_path, "product_titles": family.titles[:10],
                           "seller_notes": family.notes[:1000], "business_domain": business.business_domain}
 
+        crawl_comments = 0
+        top_code = ""
+        top_url = ""
+        self._last_crawl_comments = 0
+        self._last_top_code = ""
+        self._last_top_url = ""
+
         self.stdout.write(self.style.HTTP_INFO(
             f"  [Scraping Source]: {source.source_type} -> '{source.label}' | Total Medias to inspect: {len(medias or [])}"
         ))
@@ -1311,6 +1339,14 @@ class Command(BaseCommand):
                         caption, raw_comments, comment_count, True, dj_timezone.now()
                     )
                     cached.save(update_fields=["caption", "comments", "comment_count", "comments_cached", "crawled_at"])
+
+            crawl_comments += len(raw_comments)
+            self._last_crawl_comments = crawl_comments
+            if not top_code and code:
+                top_code = code
+                top_url = post_url[:500]
+                self._last_top_code = top_code
+                self._last_top_url = top_url
 
             # Rule 3: Comments age limit strictly <= 5 days
             comment_cutoff = dj_timezone.now() - timedelta(days=5)
@@ -1464,7 +1500,11 @@ class Command(BaseCommand):
         if posts_inspected >= 15 and qualifying_posts < target_qualifying:
             retired = True
 
-        return posts_inspected, qualifying_posts, leads_saved, retired
+        self._last_crawl_comments = crawl_comments
+        self._last_top_code = top_code
+        self._last_top_url = top_url
+
+        return posts_inspected, qualifying_posts, leads_saved, retired, crawl_comments, top_code, top_url
 
     def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
         from apps.discovery.models import InstagramCrawlExecution, InstagramSourceStat
@@ -1492,6 +1532,12 @@ class Command(BaseCommand):
         for source in target["sources"]:
             self._current_api_requests = 0
             self._page_search_error = ""
+            crawl_comments = 0
+            top_code = ""
+            top_url = ""
+            self._last_crawl_comments = 0
+            self._last_top_code = ""
+            self._last_top_url = ""
             if is_blocked(target["business"]):
                 self.stdout.write(self.style.WARNING(
                     f"Stopping Instagram sources for tenant {target['business'].pk}: اعتبار تمام شده"
@@ -1530,6 +1576,7 @@ class Command(BaseCommand):
                         business=target["business"], tenant_id=target["tenant_id"], query_text=query,
                         target_type=execution_type, account_username=account.username, account=account,
                         status=search_status, posts_inspected=0, qualifying_posts=0, leads_found=0,
+                        comments_found=0, top_post_code="", top_post_url="",
                         requests=self._current_api_requests,
                         message=f"صفحه‌های رقیب شناسایی‌شده: {len(created)}",
                     )
@@ -1547,7 +1594,7 @@ class Command(BaseCommand):
                 self._note_account_error(account, error, cl, exc)
                 execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
                 query = source.label
-            inspected, qualifying, leads, retired = self._inspect_family_medias(cl, account, target, source, medias, min_comments=min_comments)
+            inspected, qualifying, leads, retired, crawl_comments, top_code, top_url = self._inspect_family_medias(cl, account, target, source, medias, min_comments=min_comments)
             total_leads += leads
 
             if not error and retired and not getattr(source, "manual", False):
@@ -1566,6 +1613,9 @@ class Command(BaseCommand):
                     business=target["business"], tenant_id=target["tenant_id"], query_text=query,
                     target_type=execution_type, account_username=account.username, account=account,
                     status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
+                    comments_found=crawl_comments,
+                    top_post_code=top_code,
+                    top_post_url=top_url,
                     requests=self._current_api_requests,
                     message=f"حذف دائمی کوئری: بررسی {inspected} پست و تنها {qualifying} پست واجد شرایط (حداقل ۳ پست با ۱۰+ کامنت و حداکثر ۳۰ روز عمر). کوئری برای همیشه حذف شد.",
                 )
@@ -1578,6 +1628,9 @@ class Command(BaseCommand):
                 business=target["business"], tenant_id=target["tenant_id"], query_text=query,
                 target_type=execution_type, account_username=account.username, account=account,
                 status=status, posts_inspected=inspected, qualifying_posts=qualifying, leads_found=leads,
+                comments_found=crawl_comments,
+                top_post_code=top_code,
+                top_post_url=top_url,
                 requests=self._current_api_requests,
             )
             from apps.discovery.anti_ban import InstagramAntiBanManager
@@ -1639,6 +1692,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"\n  [🔍] Keyword Search: '{term}'"))
             term_err = ""
             term_medias = []
+            crawl_comments = 0
+            top_code = ""
+            top_url = ""
+            self._last_crawl_comments = 0
+            self._last_top_code = ""
+            self._last_top_url = ""
             try:
                 term_medias = self._fetch_source_medias(
                     cl=cl, account=account, source_type="keyword", source_label=term,
@@ -1650,7 +1709,7 @@ class Command(BaseCommand):
                 if term_err:
                     self.stderr.write(f"    Notice: media_search error for '{term}': {term_err}")
 
-            p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
+            p_insp, p_qual, l_saved, p_retired, crawl_comments, top_code, top_url = self._inspect_and_process_medias(
                 cl=cl,
                 account=account,
                 target=target,
@@ -1685,6 +1744,9 @@ class Command(BaseCommand):
                         posts_inspected=p_insp,
                         qualifying_posts=p_qual,
                         leads_found=l_saved,
+                        comments_found=crawl_comments,
+                        top_post_code=top_code,
+                        top_post_url=top_url,
                         message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. کلیدواژه حذف شد.",
                         crawled_at=dj_timezone.now(),
                     )
@@ -1713,6 +1775,9 @@ class Command(BaseCommand):
                     posts_inspected=p_insp,
                     qualifying_posts=p_qual,
                     leads_found=l_saved,
+                    comments_found=crawl_comments,
+                    top_post_code=top_code,
+                    top_post_url=top_url,
                     message=msg_val,
                     crawled_at=dj_timezone.now(),
                 )
@@ -1743,6 +1808,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"\n  [#] Hashtag: #{tag}"))
             tag_err = ""
             tag_medias = []
+            crawl_comments = 0
+            top_code = ""
+            top_url = ""
+            self._last_crawl_comments = 0
+            self._last_top_code = ""
+            self._last_top_url = ""
 
             try:
                 tag_medias = self._fetch_source_medias(
@@ -1755,7 +1826,7 @@ class Command(BaseCommand):
                 if tag_err:
                     self.stderr.write(f"    Notice: hashtag fetch error for #{tag}: {tag_err}")
 
-            p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
+            p_insp, p_qual, l_saved, p_retired, crawl_comments, top_code, top_url = self._inspect_and_process_medias(
                 cl=cl,
                 account=account,
                 target=target,
@@ -1790,6 +1861,9 @@ class Command(BaseCommand):
                         posts_inspected=p_insp,
                         qualifying_posts=p_qual,
                         leads_found=l_saved,
+                        comments_found=crawl_comments,
+                        top_post_code=top_code,
+                        top_post_url=top_url,
                         message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. هشتگ حذف شد.",
                         crawled_at=dj_timezone.now(),
                     )
@@ -1818,6 +1892,9 @@ class Command(BaseCommand):
                     posts_inspected=p_insp,
                     qualifying_posts=p_qual,
                     leads_found=l_saved,
+                    comments_found=crawl_comments,
+                    top_post_code=top_code,
+                    top_post_url=top_url,
                     message=msg_val,
                     crawled_at=dj_timezone.now(),
                 )
@@ -1842,6 +1919,12 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"\n  [👤] Scraper @{account.username} inspecting competitor page: @{handle}"))
                 page_err = ""
                 page_medias = []
+                crawl_comments = 0
+                top_code = ""
+                top_url = ""
+                self._last_crawl_comments = 0
+                self._last_top_code = ""
+                self._last_top_url = ""
                 try:
                     uid = cl.user_id_from_username(handle)
                     page_medias = cl.user_medias(uid, amount=min(max_posts, 30))
@@ -1850,7 +1933,7 @@ class Command(BaseCommand):
                     self._note_account_error(account, page_err, cl, exc)
                     self.stderr.write(f"    Notice: Error fetching medias from @{handle}: {exc}")
 
-                p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
+                p_insp, p_qual, l_saved, p_retired, crawl_comments, top_code, top_url = self._inspect_and_process_medias(
                     cl=cl,
                     account=account,
                     target=target,
@@ -1885,6 +1968,9 @@ class Command(BaseCommand):
                             posts_inspected=p_insp,
                             qualifying_posts=p_qual,
                             leads_found=l_saved,
+                            comments_found=crawl_comments,
+                            top_post_code=top_code,
+                            top_post_url=top_url,
                             message=f"حذف دائمی پیج رقیب @{handle}: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. پیج غیرفعال شد.",
                             crawled_at=dj_timezone.now(),
                         )
@@ -1908,6 +1994,9 @@ class Command(BaseCommand):
                         posts_inspected=p_insp,
                         qualifying_posts=p_qual,
                         leads_found=l_saved,
+                        comments_found=crawl_comments,
+                        top_post_code=top_code,
+                        top_post_url=top_url,
                         message=f"بررسی {p_insp} پست از صفحه @{handle}، {p_qual} پست حائز شرایط، {l_saved} سرنخ ثبت شد." if not (page_err and not page_medias) else f"خطای دسترسی: {page_err}",
                         crawled_at=dj_timezone.now(),
                     )
