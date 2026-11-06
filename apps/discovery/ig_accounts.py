@@ -418,10 +418,24 @@ def release_config(config, *, actor: str = "system", note: str = "") -> list[str
         log_event(acc, "proxy_down", note or f"کانفیگ #{config.pk} ({config.tag or config.server}) از کار افتاد",
                   {"config_id": config.pk}, actor)
         new = pick_free_config(exclude_ids=[config.pk]) if xray_up and acc.status not in ("BANNED", "DISABLED") else None
+        if new is None and xray_up and acc.status not in ("BANNED", "DISABLED"):
+            # Multi-tier failover: try picking an active config with room up to 3 accounts before pool
+            new = pick_free_config(exclude_ids=[config.pk], max_accounts=3)
+
         if new is not None:
-            set_proxy(acc, "config", config=new, actor=actor, note=f"کانفیگ #{new.pk} جایگزین کانفیگ #{config.pk} شد")
+            res = set_proxy(acc, "config", config=new, actor=actor, note=f"کانفیگ #{new.pk} جایگزین کانفیگ حذف‌شده #{config.pk} شد")
         else:
-            set_proxy(acc, "pool", actor=actor, note="موقتاً روی استخر مشترک تا کانفیگ تازه پیدا شود")
+            res = set_proxy(acc, "pool", actor=actor, note="موقتاً روی استخر مشترک تا کانفیگ تازه پیدا شود")
+
+        # Lift cooldown if account was in cooldown due to dead proxy
+        if acc.status == "COOLDOWN" and acc.status_reason == "proxy_down" and (new is not None or (res and res.ok)):
+            acc.status = "ACTIVE"
+            acc.status_reason = ""
+            acc.cooldown_until = None
+            acc.status_message = "کانفیگ سالم جدید جایگزین شد و اکانت فعال گردید"
+            acc.save(update_fields=["status", "status_reason", "cooldown_until", "status_message"])
+            log_event(acc, "cooldown_cleared", "استراحت ناشی از قطعی پروکسی پس از جایگزینی کانفیگ حذف‌شده لغو شد", {}, actor)
+
         moved.append(acc.username)
     return moved
 

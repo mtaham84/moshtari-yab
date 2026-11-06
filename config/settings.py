@@ -288,10 +288,10 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 180.0,  # 3 minutes
         "kwargs": {"max_posts": 15, "max_add": 10},
     },
-    # 4. Proxy Healthcheck & Auto-Healing (runs every 10 minutes)
+    # 4. Proxy Healthcheck & Auto-Healing (runs every 5 minutes)
     "healthcheck-and-heal-proxies": {
         "task": "apps.discovery.tasks.task_healthcheck_and_heal_proxies",
-        "schedule": 600.0,  # 10 minutes
+        "schedule": 300.0,  # 5 minutes
     },
 }
 

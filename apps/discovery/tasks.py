@@ -139,15 +139,21 @@ def task_sync_telegram_channel_configs(max_posts: int = 15, max_add: int = 10) -
 )
 def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
     """
-    Proxy healthcheck & healing for every Instagram account without its own proxy (ig_accounts.ensure_system_configs):
-    a config that is still ACTIVE and listening stays with its account (same IP); a dead one is replaced by a free
-    config (else the shared pool) and the move is logged on the account's timeline. Accounts with their own
-    (custom) proxy are never touched; nothing moves while xray itself is down.
+    Periodic 5-minute health check: prunes dead (-1) or slow (>2000ms) configs from the pool,
+    then automatically rotates affected Instagram/Twitter accounts to healthy configs.
     """
     from apps.discovery.ig_accounts import ensure_system_configs
+    from xray.multi_proxy_manager import prune_dead_configs
 
+    # 1. Prune dead or slow (>2000ms) configs
+    removed = prune_dead_configs()
+    if removed:
+        logger.info("🔧 [Auto-Prune] Removed %d dead/slow configs from pool: %s",
+                    len(removed), [r.get("tag") for r in removed])
+
+    # 2. Heal remaining accounts and balance to active configs
     result = ensure_system_configs(actor="system")
     for d in result.get("details", []):
         logger.info("🔧 [Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
                     d.get("new_port"))
-    return result
+    return {"pruned": removed, "heal_result": result}

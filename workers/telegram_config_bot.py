@@ -1015,10 +1015,14 @@ def periodic_health_check_worker() -> None:
             except Exception as luna_exc:
                 log.warning("Periodic Luna health check exception: %s", luna_exc)
 
-            # 2. Prune dead configs every 20 minutes (every 4th cycle)
-            if cycle_counter % 4 == 0:
-                log.info("Running scheduled proxy health check & dead config purge...")
-                prune_dead_configs()
+            # 2. Prune dead & slow (>2000ms) configs every 5 minutes (every cycle)
+            try:
+                log.info("Running 5-minute scheduled proxy health check & dead config purge...")
+                removed = prune_dead_configs()
+                if removed:
+                    log.info("5-minute purge removed %d dead/slow configs: %s", len(removed), [r.get("tag") for r in removed])
+            except Exception as prune_exc:
+                log.warning("Periodic proxy prune exception: %s", prune_exc)
 
         except Exception as exc:
             log.warning("Periodic health check exception: %s", exc)
