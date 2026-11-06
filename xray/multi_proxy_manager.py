@@ -11,6 +11,7 @@ Multi-Proxy Manager & Xray Port-Routing Controller
 from __future__ import annotations
 
 import base64
+import html
 import json
 import logging
 import os
@@ -158,7 +159,7 @@ def validate_config_format(url: str) -> tuple[bool, str, str]:
     Validates if a link is a properly formatted proxy URL.
     Returns (is_valid: bool, protocol: str, error_msg: str).
     """
-    url = url.strip()
+    url = html.unescape(url.strip())
     if not url:
         return False, "", "متن کانفیگ خالی است."
 
@@ -380,7 +381,7 @@ def parse_ss_url(url: str) -> dict[str, Any]:
 
 
 def parse_link_to_outbound(link: str) -> dict[str, Any]:
-    link = link.strip()
+    link = html.unescape(link.strip())
     if link.startswith("vless://"):
         return parse_vless_url(link)
     elif link.startswith("vmess://"):
@@ -390,6 +391,49 @@ def parse_link_to_outbound(link: str) -> dict[str, Any]:
     elif link.startswith("ss://"):
         return parse_ss_url(link)
     raise ValueError(f"پروتکل پشتیبانی نشده: {link[:15]}...")
+
+
+def is_valid_xray_outbound(ob: dict[str, Any]) -> tuple[bool, str]:
+    """
+    Validates outbound structure to ensure Xray core will not fail on startup.
+    Rejects:
+    - VLESS without TLS or encryption on public hosts
+    - VLESS Reality missing publicKey
+    - Missing server address/port or users
+    """
+    proto = ob.get("protocol")
+    if proto == "vless":
+        stream = ob.get("streamSettings", {})
+        sec = stream.get("security", "none")
+        vnext = ob.get("settings", {}).get("vnext", [])
+        if not vnext:
+            return False, "VLESS missing vnext servers"
+        v0 = vnext[0]
+        users = v0.get("users", [])
+        if not users or not users[0].get("id"):
+            return False, "VLESS missing user id"
+        enc = users[0].get("encryption", "none")
+        addr = v0.get("address", "")
+        if sec in ("none", "") and enc in ("none", ""):
+            is_local = (
+                addr in ("127.0.0.1", "localhost", "::1")
+                or addr.startswith(("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.3"))
+            )
+            if not is_local:
+                return False, f"VLESS without TLS/encryption on public address ({addr}) is prohibited by Xray"
+        if sec == "reality":
+            r_settings = stream.get("realitySettings", {})
+            if not r_settings.get("publicKey"):
+                return False, "VLESS Reality requires non-empty publicKey"
+    elif proto == "vmess":
+        vnext = ob.get("settings", {}).get("vnext", [])
+        if not vnext or not vnext[0].get("address") or not vnext[0].get("users"):
+            return False, "VMess missing server or user configuration"
+    elif proto in ("trojan", "shadowsocks"):
+        servers = ob.get("settings", {}).get("servers", [])
+        if not servers or not servers[0].get("address") or not servers[0].get("port"):
+            return False, f"{proto} missing server address or port"
+    return True, ""
 
 
 def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) -> tuple[bool, float, str]:
@@ -500,6 +544,13 @@ def rebuild_xray_config_file() -> bool:
     for p in active_proxies:
         try:
             ob = parse_link_to_outbound(p.raw_url)
+            is_valid, invalid_reason = is_valid_xray_outbound(ob)
+            if not is_valid:
+                log.warning("Skipping invalid outbound for ProxyConfig #%s (%s): %s", p.id, p.tag, invalid_reason)
+                p.status = "DEAD"
+                p.save(update_fields=["status"])
+                continue
+
             port_tag = f"proxy_{p.local_port}"
             in_tag = f"in_{p.local_port}"
             ob["tag"] = port_tag
@@ -625,6 +676,7 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
     from apps.discovery.models import ProxyConfig
     from django.utils import timezone
 
+    raw_link = html.unescape(raw_link.strip())
     valid, proto, err = validate_config_format(raw_link)
     if not valid:
         return {"success": False, "ping_ms": -1.0, "message": f"فرمت کانفیگ نامعتبر است: {err}"}

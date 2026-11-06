@@ -250,7 +250,7 @@ services:
 
   celery-beat:
     <<: *app
-    command: ["celery", "-A", "config", "beat", "-l", "info"]
+    command: ["celery", "-A", "config", "beat", "-l", "info", "-s", "/app/data/celerybeat-schedule"]
     depends_on:
       web:
         condition: service_healthy
