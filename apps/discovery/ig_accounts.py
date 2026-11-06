@@ -13,7 +13,6 @@ Views, workers and commands call this module; nothing else should log an account
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 import re
 import socket
@@ -36,7 +35,7 @@ from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount,
 
 log = logging.getLogger("instagram.accounts")
 
-XRAY_HOST = os.environ.get("XRAY_HOST", "xray" if Path("/.dockerenv").exists() else "127.0.0.1")
+XRAY_HOST = "xray"
 POOL_PORT = 1080
 RESERVED_PORTS = (1080, 8080)          # xray's shared pool inbounds, never a dedicated config
 LOGIN_WAIT_SECONDS = 600               # a started login waits this long for the operator's code
@@ -189,7 +188,8 @@ def xray_port(url) -> int | None:
     """Port of an xray inbound URL (socks5h://xray:1083), None for any other proxy."""
     try:
         parsed = urlparse(_strip_fragment(url))
-        if (parsed.hostname or "").lower() != XRAY_HOST:
+        host = (parsed.hostname or "").lower()
+        if host not in (XRAY_HOST, "127.0.0.1", "localhost"):
             return None
         return parsed.port
     except ValueError:
@@ -259,6 +259,12 @@ def port_open(host: str, port: int, timeout: float = 1.5) -> bool:
         with socket.create_connection((host, int(port)), timeout=timeout):
             return True
     except (OSError, ValueError):
+        if host == "xray" and not Path("/.dockerenv").exists():
+            try:
+                with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+                    return True
+            except (OSError, ValueError):
+                pass
         return False
 
 
