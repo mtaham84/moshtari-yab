@@ -69,57 +69,81 @@ from xray.multi_proxy_manager import (
 )
 
 
+_proxy_cache: tuple[float, list[str]] = (0.0, [])
+_last_working_proxy: str | None = None
+
+
 def get_proxy_candidates() -> list[str]:
-    """Returns list of proxy candidates to try for Telegram API."""
-    candidates = []
-    if os.environ.get("TG_BOT_PROXY"):
-        candidates.append(os.environ["TG_BOT_PROXY"].strip())
-    if os.environ.get("TG_PROXY"):
-        candidates.append(os.environ["TG_PROXY"].strip())
+    """Returns list of proxy candidates to try for Telegram API, cached for 60s."""
+    global _proxy_cache
+    now = time.time()
+    if _proxy_cache[1] and (now - _proxy_cache[0]) < 60:
+        candidates = list(_proxy_cache[1])
+    else:
+        candidates = []
+        if os.environ.get("TG_BOT_PROXY"):
+            candidates.append(os.environ["TG_BOT_PROXY"].strip())
+        if os.environ.get("TG_PROXY"):
+            candidates.append(os.environ["TG_PROXY"].strip())
 
-    in_docker = Path("/.dockerenv").exists()
-    host = "xray" if in_docker else "127.0.0.1"
+        in_docker = Path("/.dockerenv").exists()
+        host = "xray" if in_docker else "127.0.0.1"
 
-    candidates.extend([f"socks5h://{host}:1080", f"http://{host}:8080"])
+        candidates.extend([f"socks5h://{host}:1080", f"http://{host}:8080"])
 
-    # Also add active dedicated ports from DB if Django is ready
-    try:
-        from apps.discovery.models import ProxyConfig
-        active_ports = list(
-            ProxyConfig.objects.filter(status="ACTIVE")
-            .exclude(local_port__isnull=True)
-            .values_list("local_port", flat=True)[:5]
-        )
-        for p in active_ports:
-            candidates.append(f"socks5h://{host}:{p}")
-    except Exception:
-        pass
+        # Also add active dedicated ports from DB if Django is ready
+        try:
+            from apps.discovery.models import ProxyConfig
+            from django.db import close_old_connections
+            close_old_connections()
+            active_ports = list(
+                ProxyConfig.objects.filter(status="ACTIVE")
+                .exclude(local_port__isnull=True)
+                .values_list("local_port", flat=True)[:5]
+            )
+            for p in active_ports:
+                candidates.append(f"socks5h://{host}:{p}")
+        except Exception:
+            pass
 
-    # Deduplicate while preserving order
-    return list(dict.fromkeys(candidates))
+        candidates = list(dict.fromkeys(candidates))
+        _proxy_cache = (now, candidates)
+
+    # Prioritize last working proxy if known
+    if _last_working_proxy and _last_working_proxy in candidates:
+        candidates.remove(_last_working_proxy)
+        candidates.insert(0, _last_working_proxy)
+
+    return candidates
 
 
 def tg_request(method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any] | None:
     """Sends a request to Telegram Bot API via requests library using local proxy."""
+    global _last_working_proxy
     import requests
     url = f"{TG_API_BASE}/{method}"
     candidates = get_proxy_candidates()
 
     last_exc = None
+    # Connect timeout max 4s to skip dead proxies quickly; read timeout stays up to `timeout`
+    req_timeout = (4.0, float(timeout))
     for proxy_url in candidates:
         proxies = {"http": proxy_url, "https": proxy_url}
         try:
             if payload:
-                resp = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
+                resp = requests.post(url, json=payload, proxies=proxies, timeout=req_timeout)
             else:
-                resp = requests.get(url, proxies=proxies, timeout=timeout)
+                resp = requests.get(url, proxies=proxies, timeout=req_timeout)
 
             data = resp.json()
             if not data.get("ok"):
                 log.warning("Telegram API error (%s): %s", method, data)
+            _last_working_proxy = proxy_url
             return data
         except Exception as exc:
             last_exc = exc
+            if _last_working_proxy == proxy_url:
+                _last_working_proxy = None
             continue
 
     log.warning("Telegram request failed (%s) across all proxy candidates: %s", method, last_exc)

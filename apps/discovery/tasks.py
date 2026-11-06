@@ -135,19 +135,54 @@ def task_sync_telegram_channel_configs(max_posts: int = 15, max_add: int = 10) -
 
 
 @shared_task(
+    name="apps.discovery.tasks.task_prune_dead_proxy_configs",
+)
+def task_prune_dead_proxy_configs() -> Dict[str, Any]:
+    """
+    Periodic 5-minute health check: prunes dead (-1) or slow (>2000ms) configs from the pool.
+    """
+    from apps.discovery.ig_accounts import port_open, XRAY_HOST, POOL_PORT
+
+    if not port_open(XRAY_HOST, POOL_PORT):
+        return {"success": False, "skipped": "xray_down", "removed_count": 0}
+
+    try:
+        from xray.multi_proxy_manager import prune_dead_configs
+        removed = prune_dead_configs()
+        logger.info("[Auto-Prune] Prune completed. Removed %d dead/slow configs.", len(removed))
+        return {"success": True, "removed_count": len(removed), "removed": removed}
+    except Exception as exc:
+        logger.warning("Error running prune_dead_configs task: %s", exc)
+        return {"success": False, "error": str(exc)}
+
+
+@shared_task(
     name="apps.discovery.tasks.task_healthcheck_and_heal_proxies",
 )
-def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
+def task_healthcheck_and_heal_proxies(prune: bool = False) -> Dict[str, Any]:
     """
     Proxy healthcheck & healing for every Instagram account without its own proxy (ig_accounts.ensure_system_configs):
     a config that is still ACTIVE and listening stays with its account (same IP); a dead one is replaced by a free
     config (else the shared pool) and the move is logged on the account's timeline. Accounts with their own
     (custom) proxy are never touched; nothing moves while xray itself is down.
     """
-    from apps.discovery.ig_accounts import ensure_system_configs
+    from apps.discovery.ig_accounts import ensure_system_configs, port_open, XRAY_HOST, POOL_PORT
+
+    if not port_open(XRAY_HOST, POOL_PORT):
+        return {"success": False, "skipped": "xray_down", "healed_count": 0, "details": []}
+
+    if prune:
+        try:
+            from xray.multi_proxy_manager import prune_dead_configs
+            removed = prune_dead_configs()
+            if removed:
+                logger.info("[Auto-Prune] Removed %d dead/slow configs from pool: %s",
+                            len(removed), [r.get("tag") for r in removed])
+        except Exception as exc:
+            logger.warning("Error running prune_dead_configs in healthcheck task: %s", exc)
 
     result = ensure_system_configs(actor="system")
     for d in result.get("details", []):
-        logger.info("🔧 [Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
+        logger.info("[Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
                     d.get("new_port"))
     return result

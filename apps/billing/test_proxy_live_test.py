@@ -31,11 +31,7 @@ class ProxyLiveTestUnitTests(SimpleTestCase):
         proxy.raw_url = "vless://test"
         proxy.save = MagicMock()
 
-        with patch("socket.socket") as mock_sock_cls:
-            mock_sock = MagicMock()
-            mock_sock.connect_ex.return_value = 0
-            mock_sock_cls.return_value = mock_sock
-
+        with patch("xray.multi_proxy_manager.probe_proxy_port", return_value=(True, 45.0, "")):
             res = _ping_and_evaluate_proxy_config(proxy)
             self.assertEqual(res["status"], "ACTIVE")
             self.assertEqual(res["status_label"], "فعال")
@@ -49,16 +45,12 @@ class ProxyLiveTestUnitTests(SimpleTestCase):
         proxy.tag = "Dead Proxy"
         proxy.server = "192.0.2.1"
         proxy.port = 443
-        proxy.local_port = None
+        proxy.local_port = 1082
         proxy.protocol = "trojan"
         proxy.raw_url = ""
         proxy.save = MagicMock()
 
-        with patch("socket.socket") as mock_sock_cls:
-            mock_sock = MagicMock()
-            mock_sock.connect_ex.return_value = 111  # Connection refused
-            mock_sock_cls.return_value = mock_sock
-
+        with patch("xray.multi_proxy_manager.probe_proxy_port", return_value=(False, -1.0, "Connection error")):
             res = _ping_and_evaluate_proxy_config(proxy)
             self.assertEqual(res["status"], "DEAD")
             self.assertEqual(res["status_label"], "قطع")
@@ -73,18 +65,14 @@ class ProxyLiveTestUnitTests(SimpleTestCase):
         proxy.tag = "Proxy 10"
         proxy.server = "1.2.3.4"
         proxy.port = 443
-        proxy.local_port = None
+        proxy.local_port = 1083
         proxy.protocol = "ss"
         proxy.raw_url = ""
         proxy.save = MagicMock()
 
         mock_qs.get.return_value = proxy
 
-        with patch("socket.socket") as mock_sock_cls:
-            mock_sock = MagicMock()
-            mock_sock.connect_ex.return_value = 0
-            mock_sock_cls.return_value = mock_sock
-
+        with patch("xray.multi_proxy_manager.probe_proxy_port", return_value=(True, 80.0, "")):
             req = self.rf.post("/manage/proxies/10/test/")
             req.user = self.user
             resp = manage_proxy_test(req, pk=10)
@@ -96,17 +84,12 @@ class ProxyLiveTestUnitTests(SimpleTestCase):
 
     @patch("apps.discovery.models.ProxyConfig.objects")
     def test_manage_proxy_test_all(self, mock_qs):
-        p1 = MagicMock(id=1, tag="P1", server="1.1.1.1", port=443, local_port=None, protocol="vless", raw_url="", save=MagicMock())
-        p2 = MagicMock(id=2, tag="P2", server="2.2.2.2", port=443, local_port=None, protocol="vmess", raw_url="", save=MagicMock())
+        p1 = MagicMock(id=1, tag="P1", server="1.1.1.1", port=443, local_port=1081, protocol="vless", raw_url="", save=MagicMock())
+        p2 = MagicMock(id=2, tag="P2", server="2.2.2.2", port=443, local_port=1082, protocol="vmess", raw_url="", save=MagicMock())
 
         mock_qs.all.return_value.order_by.return_value = [p1, p2]
 
-        with patch("socket.socket") as mock_sock_cls:
-            mock_sock = MagicMock()
-            # P1 succeeds, P2 fails
-            mock_sock.connect_ex.side_effect = [0, 111]
-            mock_sock_cls.return_value = mock_sock
-
+        with patch("xray.multi_proxy_manager.probe_proxy_port", side_effect=[(True, 50.0, ""), (False, -1.0, "Error")]):
             req = self.rf.post("/manage/proxies/test/", {"all": "1"})
             req.user = self.user
             resp = manage_proxy_test(req)
