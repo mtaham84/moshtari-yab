@@ -13,6 +13,8 @@ Views, workers and commands call this module; nothing else should log an account
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 import re
 import socket
 import threading
@@ -34,7 +36,7 @@ from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount,
 
 log = logging.getLogger("instagram.accounts")
 
-XRAY_HOST = "xray"
+XRAY_HOST = os.environ.get("XRAY_HOST", "xray" if Path("/.dockerenv").exists() else "127.0.0.1")
 POOL_PORT = 1080
 RESERVED_PORTS = (1080, 8080)          # xray's shared pool inbounds, never a dedicated config
 LOGIN_WAIT_SECONDS = 600               # a started login waits this long for the operator's code
@@ -455,6 +457,10 @@ def _heal_account(acc, actor: str = "system") -> dict | None:
             return {"username": acc.username, "from": cfg.pk, "to": new.pk, "new_port": new.local_port,
                     "changed": bool(res.extra.get("changed"))}
         old = cfg.pk
+        try:
+            ProxyConfig.objects.filter(pk=cfg.pk).update(status="DEAD", ping_ms=-1.0)
+        except Exception as upd_err:
+            log.warning("Failed updating dead config #%s: %s", cfg.pk, upd_err)
         log_event(acc, "proxy_down", f"کانفیگ #{cfg.pk} در دسترس نیست (وضعیت {cfg.status}، پورت {cfg.local_port})",
                   {"config_id": cfg.pk}, actor)
         why = f"کانفیگ #{cfg.pk} از کار افتاد"
@@ -465,12 +471,25 @@ def _heal_account(acc, actor: str = "system") -> dict | None:
     else:
         why = "قبلاً استخر مشترک"
     new = None if parked else pick_free_config(exclude_ids=[old] if old else ())
+    if new is None and not parked:
+        # Multi-tier failover: try picking an active config with room up to 3 accounts before pool
+        new = pick_free_config(exclude_ids=[old] if old else (), max_accounts=3)
     if new is not None:
         res = set_proxy(acc, "config", config=new, actor=actor, note=f"{why}؛ کانفیگ اختصاصی #{new.pk} داده شد")
     elif mode == "pool":
         return None
     else:
         res = set_proxy(acc, "pool", actor=actor, note=f"{why}؛ کانفیگ آزادی نبود، موقتاً استخر مشترک")
+
+    # If the account was in cooldown due to proxy failure and now has a working proxy, lift the cooldown
+    if acc.status == "COOLDOWN" and acc.status_reason == "proxy_down" and (new is not None or (res and res.ok)):
+        acc.status = "ACTIVE"
+        acc.status_reason = ""
+        acc.cooldown_until = None
+        acc.status_message = "پروکسی سالم متصل شد و اکانت از استراحت خارج گردید"
+        acc.save(update_fields=["status", "status_reason", "cooldown_until", "status_message"])
+        log_event(acc, "cooldown_cleared", "استراحت ناشی از قطعی پروکسی پس از انتساب پروکسی جدید لغو شد", {}, actor)
+
     return {"username": acc.username, "from": old, "to": new.pk if new else None,
             "new_port": new.local_port if new else POOL_PORT, "changed": bool(res.extra.get("changed"))}
 

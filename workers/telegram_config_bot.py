@@ -74,11 +74,29 @@ def get_proxy_candidates() -> list[str]:
     candidates = []
     if os.environ.get("TG_BOT_PROXY"):
         candidates.append(os.environ["TG_BOT_PROXY"].strip())
-    if Path("/.dockerenv").exists():
-        candidates.extend(["socks5h://xray:1080", "http://xray:8080"])
-    else:
-        candidates.extend(["socks5h://127.0.0.1:1080", "http://127.0.0.1:8080"])
-    return candidates
+    if os.environ.get("TG_PROXY"):
+        candidates.append(os.environ["TG_PROXY"].strip())
+
+    in_docker = Path("/.dockerenv").exists()
+    host = "xray" if in_docker else "127.0.0.1"
+
+    candidates.extend([f"socks5h://{host}:1080", f"http://{host}:8080"])
+
+    # Also add active dedicated ports from DB if Django is ready
+    try:
+        from apps.discovery.models import ProxyConfig
+        active_ports = list(
+            ProxyConfig.objects.filter(status="ACTIVE")
+            .exclude(local_port__isnull=True)
+            .values_list("local_port", flat=True)[:5]
+        )
+        for p in active_ports:
+            candidates.append(f"socks5h://{host}:{p}")
+    except Exception:
+        pass
+
+    # Deduplicate while preserving order
+    return list(dict.fromkeys(candidates))
 
 
 def tg_request(method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any] | None:

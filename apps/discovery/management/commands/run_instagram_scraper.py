@@ -298,18 +298,57 @@ class Command(BaseCommand):
             from apps.discovery.ig_accounts import proxy_reachable
             proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
             if not proxy_ok:
-                # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
-                # (and the same IP for every account) is a far bigger risk than skipping one cycle.
-                raise ProxyUnavailable(f"proxy unreachable for @{account.username}: {proxy_msg}")
-            cl.set_proxy(proxy)
+                self.stderr.write(f"    proxy unreachable for @{account.username} ({proxy_msg}); triggering auto-failover...")
+                if self._rotate_or_heal_proxy(account, cl=cl):
+                    proxy = account.clean_proxy
+                else:
+                    # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
+                    # (and the same IP for every account) is a far bigger risk than skipping one cycle.
+                    raise ProxyUnavailable(f"proxy unreachable for @{account.username} and no healthy fallback: {proxy_msg}")
+            if proxy:
+                cl.set_proxy(proxy)
 
         return cl
+
+    def _rotate_or_heal_proxy(self, account, cl=None) -> bool:
+        """
+        Automatically heals/failovers account connection when proxy drops or dies.
+        Finds the next free healthy config (or pool) and updates client proxy immediately.
+        """
+        from apps.discovery.ig_accounts import _heal_account, proxy_reachable, effective_proxy_url
+        self.stdout.write(self.style.WARNING(
+            f"    [Auto-Failover]: Proxy for @{account.username} failed. Searching for healthy replacement config..."
+        ))
+        _heal_account(account, actor="scraper_auto_heal")
+        account.refresh_from_db()
+        new_proxy = account.clean_proxy or effective_proxy_url(account)
+        if new_proxy:
+            ok, msg = proxy_reachable(new_proxy, timeout=3.0)
+            if ok:
+                if cl:
+                    cl.set_proxy(new_proxy)
+                # Invalidate client pool cache so fresh client/session is rebuilt with new proxy
+                if hasattr(self, "_client_pool") and account.id in self._client_pool:
+                    self._client_pool.pop(account.id, None)
+                self.stdout.write(self.style.SUCCESS(
+                    f"    [Auto-Failover]: Account @{account.username} successfully rotated to new proxy: {new_proxy}"
+                ))
+                return True
+            else:
+                self.stderr.write(f"    [Auto-Failover]: Fallback proxy {new_proxy} unreachable: {msg}")
+        return False
 
     def _client_or_rest(self, account):
         """Client for `account`, or None after resting it for a while when its proxy is down."""
         try:
             return self._get_persistent_client(account)
         except ProxyUnavailable as exc:
+            # One final failover attempt before resting
+            if self._rotate_or_heal_proxy(account):
+                try:
+                    return self._get_persistent_client(account)
+                except Exception:
+                    pass
             self._set_state(account, "COOLDOWN", f"پروکسی در دسترس نیست؛ بدون پروکسی وصل نمی‌شویم: {redact(exc, 150)}",
                             hours=self.PROXY_DOWN_REST_HOURS)
             self.stderr.write(f"    proxy_unavailable: account {account.id} rests {self.PROXY_DOWN_REST_HOURS}h (no direct fallback)")
@@ -504,6 +543,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 f"    {kind.value}: account {account.id} -> {status}{f' ({hours:g}h)' if hours else ''}; no login attempted."))
             return True
+        if kind is ErrorKind.NETWORK:
+            self.stderr.write(f"    Network/Proxy error encountered on @{account.username}; triggering automatic proxy failover...")
+            if self._rotate_or_heal_proxy(account, cl=cl):
+                return False  # successfully failed over to a new proxy, keep account in rotation!
         return False  # network / unclassified: no state change, never a login
 
     def _inspect_and_process_medias(
@@ -787,7 +830,21 @@ class Command(BaseCommand):
         if not is_safe:
             raise RuntimeError(f"محدودیت ضدبن اینستاگرام: {reason}")
         self._current_api_requests = int(getattr(self, "_current_api_requests", 0)) + 1
-        return method(*args, **kwargs)
+        try:
+            return method(*args, **kwargs)
+        except Exception as exc:
+            err_str = str(exc).lower()
+            is_net_err = any(k in err_str for k in [
+                "connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl",
+                "56", "connection closed", "refused", "proxyerror", "socks"
+            ])
+            if is_net_err:
+                self.stderr.write(f"    [API Call Warning]: Proxy/Network error during call ({redact(exc, 100)}); initiating auto-failover...")
+                cl = getattr(method, "__self__", None)
+                if self._rotate_or_heal_proxy(account, cl=cl):
+                    self.stdout.write(self.style.SUCCESS("    [API Call Retry]: Retrying operation with rotated proxy..."))
+                    return method(*args, **kwargs)
+            raise
 
     def _discover_candidate_pages(self, cl, account, business, family, plan, source):
         """Search real public accounts, score their recent posts, and cache at most six family candidates."""

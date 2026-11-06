@@ -15,6 +15,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import time
@@ -31,9 +32,26 @@ def _get_base_dir() -> Path:
 
 BASE_DIR = _get_base_dir()
 CONFIG_FILE = BASE_DIR / "config.json"
-XRAY_BIN = Path("/usr/local/bin/xray")
-if not XRAY_BIN.exists():
-    XRAY_BIN = Path("/usr/bin/xray")
+
+
+def _find_xray_bin() -> Path:
+    env_bin = os.environ.get("XRAY_BIN")
+    if env_bin and Path(env_bin).exists():
+        return Path(env_bin)
+    which_bin = shutil.which("xray")
+    if which_bin and Path(which_bin).exists():
+        return Path(which_bin)
+    for candidate in [
+        Path("/usr/local/bin/xray"),
+        Path("/usr/bin/xray"),
+        Path.home() / ".local" / "bin" / "xray",
+    ]:
+        if candidate.exists():
+            return candidate
+    return Path("/usr/local/bin/xray")
+
+
+XRAY_BIN = _find_xray_bin()
 
 PROBE_URL = os.environ.get("PROBE_URL", "https://api.telegram.org")
 BASE_LOCAL_PORT = 1081
