@@ -101,6 +101,27 @@ class TestFormatter(unittest.TestCase):
         self.assertIn("send_dm", msg)
         self.assertIn("#err_123", msg)
 
+    def test_compact_format_with_request_info(self) -> None:
+        record_dict = {
+            "levelname": "ERROR",
+            "module": "views",
+            "pathname": "/app/apps/discovery/views/opportunities.py",
+            "lineno": 185,
+            "funcName": "opportunity_detail",
+            "message": "Error 500",
+            "exc_type": "IntegrityError",
+            "exc_msg": "duplicate key value violates unique constraint\nDETAIL: Key (id)=(482) already exists.",
+            "exc_tb": None,
+            "request_info": "POST /panel/opportunities/482/ (User: admin)",
+        }
+        msg = format_error_alert(record_dict, fingerprint="err_482", repeat_count=3)
+        self.assertIn("IntegrityError", msg)
+        self.assertIn("POST /panel/opportunities/482/", msg)
+        self.assertIn("User: admin", msg)
+        self.assertIn("(تکرار: 3)", msg)
+        # Verify it is compact (no more than 7 lines)
+        self.assertLessEqual(len(msg.strip().split("\n")), 7)
+
 
 class TestSender(unittest.TestCase):
     @patch.dict(os.environ, {"TELEGRAM_ERROR_BOT_TOKEN": "bot_err_123", "CONFIG_BOT_TOKEN": "bot_cfg_456"})

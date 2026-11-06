@@ -132,11 +132,10 @@ def format_error_alert(
     fingerprint: str,
     repeat_count: int = 1,
 ) -> str:
-    """Builds a human-readable, well-structured Telegram HTML message explaining WHERE and WHY."""
-    gregorian_dt, jalali_dt = get_tehran_now()
+    """Builds a compact, glanceable Telegram HTML message explaining WHERE and WHY."""
+    _, jalali_dt = get_tehran_now()
     service = detect_service_context()
 
-    level = record_dict.get("levelname", "ERROR")
     module = record_dict.get("module", "")
     func_name = record_dict.get("funcName", "")
     raw_path = record_dict.get("pathname", "")
@@ -144,51 +143,38 @@ def format_error_alert(
     clean_file = get_clean_path(raw_path)
 
     exc_type = record_dict.get("exc_type") or "Exception"
-    exc_msg = sanitize_text(record_dict.get("exc_msg") or record_dict.get("message") or "بدون توضیحات")
-    raw_tb = record_dict.get("exc_tb")
+    raw_msg = record_dict.get("exc_msg") or record_dict.get("message") or "بدون شرح"
+    exc_msg = sanitize_text(raw_msg).strip()
 
     # Conceptual analysis
-    diagnosis = ROOT_CAUSE_ANALYSIS_MAP.get(exc_type, "خطای داخلی در منطق اجرای برنامه.")
+    diagnosis = ROOT_CAUSE_ANALYSIS_MAP.get(exc_type, "خطای داخلی در اجرای برنامه.")
 
-    # Location
-    location_str = f"<code>{html.escape(clean_file)}:{lineno}</code>"
+    # Location line
+    loc_part = f"<code>{html.escape(clean_file)}:{lineno}</code>"
     if func_name and func_name != "<module>":
-        location_str += f" (در تابع <code>{html.escape(func_name)}</code>)"
+        loc_part += f" (<code>{html.escape(func_name)}</code>)"
 
-    # Stack frames
-    frames = extract_relevant_stack_frames(raw_tb, max_frames=3)
-    frames_block = ""
-    if frames:
-        cleaned_frames = "\n".join(sanitize_text(f) for f in frames)
-        frames_block = f"\n\n<b>ردپای فراخوانی در پروژه:</b>\n<pre>{html.escape(cleaned_frames[:800])}</pre>"
-
-    # HTTP request info (if attached to record)
-    req_info = ""
+    # Service & Request line
     http_req = record_dict.get("request_info")
     if http_req:
-        req_info = f"\n• <b>درخواست وب:</b> <code>{html.escape(http_req)}</code>"
+        service_line = f"<b>سرویس:</b> {html.escape(service)} | <b>درخواست:</b> <code>{html.escape(http_req)}</code>"
+    else:
+        service_line = f"<b>سرویس:</b> {html.escape(service)}"
 
-    # Repetition notice
-    repetition_badge = ""
-    if repeat_count > 1:
-        repetition_badge = f"\n<i>(این خطا {repeat_count} بار در بازه اخیر تکرار شده است)</i>"
+    # Footer: Time, ID, Repetition
+    rep_badge = f" (تکرار: {repeat_count})" if repeat_count > 1 else ""
+    footer = f"<b>زمان:</b> {html.escape(jalali_dt)} | <code>#{html.escape(fingerprint)}</code>{rep_badge}"
 
-    message = (
-        "<b>[گزارش خطای سامانه]</b>\n"
-        f"<b>سطح:</b> <code>{html.escape(level)}</code> | <b>سرویس:</b> <code>{html.escape(service)}</code>\n"
-        f"<b>زمان (ایران):</b> {html.escape(jalali_dt)} [{html.escape(gregorian_dt)}]\n\n"
-        f"<b>محل وقوع خطا (کجا؟):</b>\n"
-        f"• <b>فایل و سطر:</b> {location_str}\n"
-        f"• <b>ماژول:</b> <code>{html.escape(module)}</code>"
-        f"{req_info}\n\n"
-        f"<b>علت و ریشه خطا (چرا؟):</b>\n"
-        f"• <b>نوع استثنا:</b> <code>{html.escape(exc_type)}</code>\n"
-        f"• <b>تحلیل ریشه‌ای:</b> {html.escape(diagnosis)}\n"
-        f"• <b>شرح خطا:</b>\n"
-        f"<code>{html.escape(exc_msg[:400])}</code>"
-        f"{frames_block}\n\n"
-        f"<b>شناسه خطا:</b> <code>#{html.escape(fingerprint)}</code>"
-        f"{repetition_badge}"
-    )
+    # Error message line (clean first 250 chars)
+    short_msg = exc_msg.split("\n")[0][:250] if exc_msg else "بدون شرح"
 
-    return message
+    lines = [
+        f"<b>[خطای سامانه]</b> <code>{html.escape(exc_type)}</code>",
+        service_line,
+        f"<b>محل:</b> {loc_part}",
+        f"<b>علت:</b> {html.escape(diagnosis)}",
+        f"<b>پیام:</b> <code>{html.escape(short_msg)}</code>",
+        footer,
+    ]
+
+    return "\n".join(lines)
