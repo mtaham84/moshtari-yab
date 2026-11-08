@@ -142,13 +142,14 @@ def select_outreach_candidates(tenant_ids: List[str], slots: int, *, now=None) -
     """
     from django.db.models import Q
     from apps.discovery.models import InstagramEngineLead
-    from apps.discovery.instagram_scoring import update_lead_scoring
+    from apps.discovery.instagram_scoring import update_lead_scoring, get_outreach_cutoff_days
 
     now = now or timezone.now()
-    cutoff_5_days = now - timedelta(days=5)
+    cutoff_days = get_outreach_cutoff_days()
+    cutoff = now - timedelta(days=cutoff_days)
     candidates = list(
         InstagramEngineLead.objects.filter(tenant_id__in=tenant_ids, status="NEW")
-        .filter(Q(comment_created_at__gte=cutoff_5_days) | Q(comment_created_at__isnull=True, created_at__gte=cutoff_5_days))
+        .filter(Q(comment_created_at__gte=cutoff) | Q(comment_created_at__isnull=True, created_at__gte=cutoff))
         .order_by("-outreach_score", "-comment_created_at", "-created_at")[:max(slots * 20, 50)]
     )
     leads = []
@@ -156,9 +157,6 @@ def select_outreach_candidates(tenant_ids: List[str], slots: int, *, now=None) -
         calc = update_lead_scoring(cand, commit=True, now=now)
         if calc.get("is_eligible", True):
             leads.append(cand)
-        else:
-            cand.status = "SKIPPED"
-            cand.save(update_fields=["status", "updated_at"])
     leads.sort(key=lambda lead: (lead.outreach_score, lead.comment_created_at or lead.created_at), reverse=True)
     return leads
 
@@ -170,15 +168,14 @@ def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional
     updates scoring, skips ineligible ones, and marks the highest-scoring candidate as 'PROCESSING'.
     Ensures parallel workers never double-message leads or encounter race conditions.
     """
-    from django.conf import settings
     from django.db import transaction
     from django.db.models import Q
     from apps.discovery.models import InstagramEngineLead
-    from apps.discovery.instagram_scoring import update_lead_scoring
+    from apps.discovery.instagram_scoring import update_lead_scoring, get_outreach_cutoff_days
 
     now = now or timezone.now()
-    cutoff_days_val = getattr(settings, "INSTAGRAM_OUTREACH_CUTOFF_DAYS", 10)
-    cutoff = now - timedelta(days=cutoff_days_val)
+    cutoff_days = get_outreach_cutoff_days()
+    cutoff = now - timedelta(days=cutoff_days)
 
     with transaction.atomic():
         candidates = list(
@@ -193,13 +190,11 @@ def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional
         scored = []
         for cand in candidates:
             calc = update_lead_scoring(cand, commit=False, now=now)
+            cand.outreach_score = calc.get("total_score", cand.outreach_score)
             if calc.get("is_eligible", True):
-                cand.outreach_score = calc.get("total_score", cand.outreach_score)
                 scored.append(cand)
             else:
-                cand.status = "SKIPPED"
-                cand.outreach_score = calc.get("total_score", cand.outreach_score)
-                cand.save(update_fields=["status", "outreach_score", "updated_at"])
+                cand.save(update_fields=["outreach_score", "updated_at"])
 
         if not scored:
             return None

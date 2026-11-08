@@ -2,8 +2,8 @@
 Instagram Lead Priority Scoring Engine.
 
 Implements the official 45-point scoring and outreach priority algorithm:
-1. Hard Freshness Gate: strictly comments from the past 5 days (120 hours).
-   Comments older than 5 days are disqualified and rejected (eligible = False).
+1. Freshness Window: 30-day cutoff with gradual score decay.
+   Age reduces the freshness score gradually but does not disqualify the lead.
 2. Profile Privacy (15 points):
    - Public account: +15 points
    - Private account: 0 points
@@ -203,12 +203,25 @@ def detect_target_page_bonus(source_page_username: str, source_post_url: str = "
     return 0, ""
 
 
+DEFAULT_OUTREACH_CUTOFF_DAYS = 30
+
+
+def get_outreach_cutoff_days() -> int:
+    try:
+        from django.conf import settings
+        return int(getattr(settings, "INSTAGRAM_OUTREACH_CUTOFF_DAYS", DEFAULT_OUTREACH_CUTOFF_DAYS))
+    except Exception:
+        return DEFAULT_OUTREACH_CUTOFF_DAYS
+
+
 def calculate_freshness_score(
     comment_time: Optional[datetime],
-    now: Optional[datetime] = None
+    now: Optional[datetime] = None,
+    max_age_days: Optional[int] = None,
 ) -> Tuple[int, float, bool]:
     """
-    Calculates freshness bonus (0 to 5 points) and enforces the 5-day freshness rule.
+    Calculates freshness bonus (0 to 5 points) with gradual decay across the cutoff window.
+    Age reduces the score gradually, but does not mark a lead ineligible.
     Returns:
         (freshness_score: int, age_days: float, is_eligible: bool)
     """
@@ -225,20 +238,22 @@ def calculate_freshness_score(
     age_seconds = max(0.0, delta.total_seconds())
     age_days = round(age_seconds / 86400.0, 2)
 
-    # Hard gate: strictly past 5 days (120 hours)
-    if age_days > 5.0:
-        return 0, age_days, False
+    cutoff_days = max_age_days if max_age_days is not None else get_outreach_cutoff_days()
 
     if age_days < 1.0:
-        return 5, age_days, True
+        freshness_score = 5
     elif age_days < 2.0:
-        return 4, age_days, True
-    elif age_days < 3.0:
-        return 3, age_days, True
+        freshness_score = 4
     elif age_days < 4.0:
-        return 2, age_days, True
+        freshness_score = 3
+    elif age_days < 7.0:
+        freshness_score = 2
+    elif age_days <= float(cutoff_days):
+        freshness_score = 1
     else:
-        return 1, age_days, True
+        freshness_score = 0
+
+    return freshness_score, age_days, True
 
 
 def calculate_success_probability(
@@ -320,6 +335,7 @@ def calculate_lead_outreach_score(
     total_score = public_score + intent_score + freshness_score + target_page_score + service_score
 
     # Human-readable age description in Persian
+    cutoff_days = get_outreach_cutoff_days()
     if age_days < 0.08:
         age_label = "چند دقیقه پیش"
     elif age_days < 1.0:
@@ -330,10 +346,12 @@ def calculate_lead_outreach_score(
         age_label = "۲ روز پیش"
     elif age_days < 4.0:
         age_label = "۳ روز پیش"
-    elif age_days <= 5.0:
-        age_label = "۴ تا ۵ روز پیش"
+    elif age_days <= 7.0:
+        age_label = f"{int(age_days)} روز پیش"
+    elif age_days <= float(cutoff_days):
+        age_label = f"{int(age_days)} روز پیش"
     else:
-        age_label = f"بیش از ۵ روز ({int(age_days)} روز پیش - منقضی)"
+        age_label = f"بیش از {cutoff_days} روز ({int(age_days)} روز پیش)"
 
     # Calculate Success / Conversion Probability %
     success_probability = calculate_success_probability(

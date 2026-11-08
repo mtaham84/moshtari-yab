@@ -37,10 +37,10 @@ class OutreachEngineTests(TestCase):
             username=name, password="x", role="SENDER", status="ACTIVE", tenant_id=TENANT, account_tier="AGED",
             daily_limit=30, hourly_limit=5, session_json={"cookies": {"sessionid": f"sid-{name}"}}, **extra)
 
-    def _lead(self, name, pk, text="قیمت کامپوزیت چنده؟", **extra):
+    def _lead(self, name, pk, text="قیمت کامپوزیت چنده؟", comment_created_at=None, **extra):
         return InstagramEngineLead.objects.create(
             tenant_id=TENANT, username=name, ig_user_pk=pk, status="NEW", comment_text=text, is_private=False,
-            comment_created_at=timezone.now(), **extra)
+            comment_created_at=comment_created_at or timezone.now(), **extra)
 
     def _queued_lead(self, sender_name, **extra):
         return InstagramEngineLead.objects.create(
@@ -157,6 +157,25 @@ class OutreachEngineTests(TestCase):
 
         cand3 = engine.select_and_reserve_candidate([TENANT])
         self.assertIsNone(cand3)
+
+    def test_fifteen_day_old_lead_not_skipped_and_scores_lower_than_fresh(self):
+        now = timezone.now()
+        fresh = self._lead("fresh_user", "201", comment_created_at=now - timedelta(hours=2))
+        older = self._lead("older_user", "202", comment_created_at=now - timedelta(days=15))
+
+        first = engine.select_and_reserve_candidate([TENANT], now=now)
+        self.assertIsNotNone(first)
+        self.assertEqual(first.id, fresh.id)
+
+        older.refresh_from_db()
+        self.assertNotEqual(older.status, "SKIPPED")
+        self.assertEqual(older.status, "NEW")
+        self.assertLess(older.outreach_score, first.outreach_score)
+
+        second = engine.select_and_reserve_candidate([TENANT], now=now)
+        self.assertIsNotNone(second)
+        self.assertEqual(second.id, older.id)
+        self.assertEqual(second.status, "PROCESSING")
 
     def test_shift_pause_sends_nothing(self):
         self._lead("a", "101")
