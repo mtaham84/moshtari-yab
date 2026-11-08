@@ -245,18 +245,6 @@ def _cold_ready(sender, now) -> bool:
     return _sender_can_act(sender, now, dry_run=False) and (not sender.next_outreach_at or sender.next_outreach_at <= now)
 
 
-def global_gap_until(tenant_ids: List[str], min_gap_minutes: int) -> Optional[datetime]:
-    """Earliest time the next cold DM may go out (any sender): last cold DM + gap with stable 0-50% jitter."""
-    if not min_gap_minutes:
-        return None
-    last = InstagramEngineLead.objects.filter(tenant_id__in=tenant_ids, initial_dm_at__isnull=False).aggregate(
-        m=models.Max("initial_dm_at"))["m"]
-    if not last:
-        return None
-    jitter = random.Random(int(last.timestamp())).uniform(1.0, 1.5)
-    return last + timedelta(minutes=min_gap_minutes * jitter)
-
-
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
@@ -597,9 +585,6 @@ def _send_next_cold(ctx: _Ctx, now) -> Dict[str, Any]:
     if not senders:
         return {"action": "no_senders", "sent": False}
     if not ctx.dry_run:
-        gap_until = global_gap_until(ctx.tenant_ids, ctx.min_gap_minutes)
-        if gap_until and gap_until > now:
-            return {"action": "waiting", "sent": False, "reason": "global_gap", "next_at": gap_until}
         ready = [s for s in senders if _cold_ready(s, now)]
         if not ready:
             next_at = min((s.next_outreach_at for s in senders if s.next_outreach_at), default=None)

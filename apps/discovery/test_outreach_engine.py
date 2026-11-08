@@ -66,16 +66,22 @@ class OutreachEngineTests(TestCase):
         self.ig.direct_send.assert_called_once()
         self.assertEqual(InstagramEngineLead.objects.get(username="second").status, "NEW")
 
-    def test_global_gap_spaces_cold_dms_across_senders(self):
+    def test_senders_send_concurrently_without_global_gap_lock(self):
         self._sender("s_two")
         self._lead("a", "101")
         self._lead("b", "102")
 
-        self.assertEqual(self.step(min_gap_minutes=20)["action"], "cold_sent")
-        blocked = self.step(min_gap_minutes=20)
+        first = self.step(min_gap_minutes=20)
+        second = self.step(min_gap_minutes=20)
 
-        self.assertEqual((blocked["action"], blocked["reason"]), ("waiting", "global_gap"))
-        self.assertEqual(self.ig.direct_send.call_count, 1)
+        self.assertEqual(first["action"], "cold_sent")
+        self.assertEqual(first["sender"], "s_one")
+        self.assertEqual(second["action"], "cold_sent")
+        self.assertEqual(second["sender"], "s_two")
+        self.assertEqual(self.ig.direct_send.call_count, 2)
+
+        third = self.step(min_gap_minutes=20)
+        self.assertEqual((third["action"], third["reason"]), ("waiting", "sender_pacing"))
 
     def test_rate_limited_sender_rests_and_another_sender_takes_over(self):
         self._sender("s_two", last_action_at=timezone.now() - timedelta(hours=1))
