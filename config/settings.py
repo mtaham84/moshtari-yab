@@ -282,7 +282,6 @@ CELERY_TASK_ROUTES = {
     "apps.discovery.tasks.task_sync_lead_replies": {"queue": "outreach"},
     "apps.discovery.tasks.task_sync_telegram_channel_configs": {"queue": "periodic"},
     "apps.discovery.tasks.task_healthcheck_and_heal_proxies": {"queue": "periodic"},
-    "apps.discovery.tasks.task_prune_dead_proxy_configs": {"queue": "periodic"},
 }
 
 CELERY_BEAT_SCHEDULE = {
@@ -311,11 +310,6 @@ CELERY_BEAT_SCHEDULE = {
     "healthcheck-and-heal-proxies": {
         "task": "apps.discovery.tasks.task_healthcheck_and_heal_proxies",
         "schedule": 300.0,  # 5 minutes
-    },
-    # 5. Dead Proxy Configs Pruner (runs every 10 minutes)
-    "prune-dead-proxy-configs": {
-        "task": "apps.discovery.tasks.task_prune_dead_proxy_configs",
-        "schedule": 600.0,  # 10 minutes
     },
 }
 
