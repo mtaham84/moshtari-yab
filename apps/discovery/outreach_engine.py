@@ -227,7 +227,8 @@ def get_available_senders(tenant_ids: List[str], fallback_daily: Optional[int] =
         daily, hourly = get_effective_sender_limits(s, fallback_daily=fallback_daily)
         if s.daily_action_count < daily and (s.hourly_action_count or 0) < hourly:
             available.append(s)
-    available.sort(key=lambda s: s.last_action_at or datetime.min.replace(tzinfo=dt_timezone.utc))
+    # LRU first; ties (e.g. senders that never acted) go to the oldest account, not to whatever row order the DB returns
+    available.sort(key=lambda s: (s.last_action_at or datetime.min.replace(tzinfo=dt_timezone.utc), s.pk))
     return available
 
 

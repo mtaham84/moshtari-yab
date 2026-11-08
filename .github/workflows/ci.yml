@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # Branches get CI through their pull request only; push builds would run every job twice per PR.
   push:
+    branches: [main]
   pull_request:
 
 env:
