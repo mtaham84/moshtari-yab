@@ -9,6 +9,9 @@ Moshtari-Yab: a Django panel plus background workers. They collect public posts 
 Instagram, use an LLM to extract purchase needs, match them to sellers' products and show the resulting
 "opportunities" in the panel. Everything runs on one PostgreSQL 16 database with pgvector.
 
+**The codebase is being refactored in phases. Before any refactor or cleanup work, read `docs/CLEANUP_ROADMAP.md`
+(status, next step, baseline, known issues) and update it in the same PR.**
+
 The user-facing UI and its texts are in Persian. Code, identifiers, comments, commit messages and docs for developers are
 in English.
 
