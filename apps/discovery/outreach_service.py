@@ -964,14 +964,8 @@ def execute_organic_journey(
 
     resolved_pk = target_pk
     if not resolved_pk:
-        # Resolve target_pk via username lookup
-        if hasattr(cl, "user_id_from_username"):
-            try:
-                resolved_pk = int(cl.user_id_from_username(target_username))
-            except Exception as uid_err:
-                logger.debug("user_id_from_username skipped for @%s: %s", target_username, uid_err)
-
-        if not resolved_pk and hasattr(cl, "search_users"):
+        # Search for user in search bar (/users/search/)
+        if hasattr(cl, "search_users"):
             try:
                 search_results = cl.search_users(target_username)
                 actions_taken["user_searched"] = True
@@ -983,6 +977,12 @@ def execute_organic_journey(
                         break
             except Exception as search_err:
                 logger.debug("search_users fallback failed for @%s: %s", target_username, search_err)
+
+        if not resolved_pk and hasattr(cl, "user_id_from_username"):
+            try:
+                resolved_pk = int(cl.user_id_from_username(target_username))
+            except Exception as uid_err:
+                logger.debug("user_id_from_username skipped for @%s: %s", target_username, uid_err)
 
     # Short randomized typing jitter (6 to 10 seconds)
     typing_sec = random.uniform(6.0, 10.0)

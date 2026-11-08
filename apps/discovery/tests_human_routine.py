@@ -202,7 +202,6 @@ class HumanRoutineAndQueueTests(TestCase):
     def test_execute_organic_journey(self, mock_sleep):
         """Test lightweight pre-send path with target resolution and typing delay."""
         mock_cl = MagicMock()
-        del mock_cl.user_id_from_username
         mock_cl.search_users.return_value = [MagicMock(pk="987654321", username="client_test")]
 
         res = execute_organic_journey(mock_cl, "client_test", target_pk=None)
