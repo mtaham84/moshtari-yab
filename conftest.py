@@ -5,6 +5,7 @@ In Docker: ``docker compose run --rm web python -m pytest``.
 """
 from __future__ import annotations
 
+import gc
 import os
 import uuid
 from pathlib import Path
@@ -62,3 +63,21 @@ def pg_schema(pg_dsn):
     with psycopg.connect(pg_dsn, autocommit=True) as conn:
         for n in names:
             conn.execute(f"DROP SCHEMA IF EXISTS {n} CASCADE")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _test_switches():
+    """Production code must not guess whether it runs under tests; switch these off explicitly. (Settings are imported
+    by pytest-django before this module's environment defaults above, so set them directly.)"""
+    from django.conf import settings
+
+    settings.INSTAGRAM_ANTIBAN_ENABLED = False   # no working-hours window, no human pauses
+    settings.ACCOUNTS_POOL_FILE_SYNC = False     # never rewrite the real accounts pool file
+
+
+@pytest.fixture(scope="session")
+def django_db_setup(django_db_setup):
+    """A psycopg connection reachable only through a reference cycle (e.g. a traceback frame) stays open until the next
+    GC run, and PostgreSQL refuses to drop the test database while another session is connected. Collect it first."""
+    yield
+    gc.collect()

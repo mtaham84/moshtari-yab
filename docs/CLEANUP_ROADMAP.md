@@ -58,9 +58,9 @@ The mess came from the process, not from one bad decision. Fix the process first
 ## Phase 1: Repository hygiene
 
 - [ ] Mark `docs/architecture/*` as outdated or delete it; remove other docs that no longer match the code.
-- [ ] One test command: tests are split between `pytest.ini` paths and `manage.py test apps`, and some `tests_*.py`
-      files may be in neither. Make one command run everything and fix the 3 locally-failing X tests (see Known
-      issues).
+- [x] One test command: `python -m pytest` runs everything (pytest-django runs the Django suites; the custom Django
+      runner moved into `conftest.py`). This also picked up `shared/tele_logging/tests.py` (18 tests), which neither
+      runner collected before.
 
 ## Phase 2: Live map and dead code removal
 
@@ -103,7 +103,7 @@ docker compose up -d db
 docker compose run --rm -T --user root -v "$PWD":/app -v "$PWD/data":/app/data \
   -e DJANGO_DEBUG=true -e NE_PANEL_MOCK_LLM=true -e REQUIRE_DB=true \
   -e TEST_DATABASE_URL=postgresql://postgres:<POSTGRES_PASSWORD>@db:5432/postgres \
-  web sh -c "python -m pytest -q -p no:cacheprovider && python manage.py test apps"
+  web python -m pytest -q -p no:cacheprovider
 docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q ruff && ruff check ."
 ```
 

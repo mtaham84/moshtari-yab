@@ -46,8 +46,7 @@ cp .env.example .env                      # every config variable is documented 
 # Tests need PostgreSQL 16 with pgvector. Without it, DB tests are SKIPPED silently, not failed.
 docker compose up -d db
 export TEST_DATABASE_URL=postgresql://postgres:<pass>@127.0.0.1:5432/postgres REQUIRE_DB=true
-python -m pytest                          # collector/engine tests (paths in pytest.ini)
-python manage.py test apps                # Django app tests. CI runs BOTH; run both.
+python -m pytest                          # every test, including the Django apps (pytest-django)
 python -m pytest path/to/test_x.py::test_name -q   # single test
 
 pip install ruff==0.17.4 && ruff check .  # same version and rules as CI (pyproject.toml)
@@ -60,7 +59,8 @@ Existing violations are recorded in `scripts/guardrail_baseline.json` (file size
 run `python scripts/check_baseline.py --update`; after you remove a forbidden import, delete its `ALLOWED` entry. Never
 add entries. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
 
-When adding a test file outside the paths in `pytest.ini`, add its directory there, or CI will never run it.
+Test files are named `test_*.py`, `tests.py` or `tests_*.py` and live under a `testpaths` directory of `pytest.ini`;
+anything else never runs in CI.
 
 ## Rules that exist because we broke them before
 
@@ -98,7 +98,7 @@ This code was built fast with AI help, and the same mistakes kept piling up. Eac
 
 - A bug fix comes with a test that fails without the fix (use the `systematic-debugging` and
   `test-driven-development` skills).
-- `ruff check .`, `python -m pytest` and `python manage.py test apps` were actually run and passed. Paste the result
+- `ruff check .` and `python -m pytest` were actually run and passed. Paste the result
   in the summary. If you could not run them (no database, for example), say so explicitly; never say "should pass".
   See the `verification-before-completion` skill.
 - The diff contains only the task. Dead code you replaced is gone.

@@ -29,7 +29,7 @@ class DiscoveryConfig(AppConfig):
         from apps.discovery.models import InstagramEngineAccount, TwitterEngineAccount
 
         def _sync(sender, **kwargs):
-            if not getattr(settings, "ACCOUNTS_POOL_FILE_SYNC", True):   # off under tests (config/test_runner.py)
+            if not getattr(settings, "ACCOUNTS_POOL_FILE_SYNC", True):   # off under tests (conftest.py)
                 return
             from apps.discovery.accounts_pool_file import export_pool
             transaction.on_commit(export_pool)
