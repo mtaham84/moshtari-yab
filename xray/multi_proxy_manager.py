@@ -62,12 +62,23 @@ PROBE_URL = os.environ.get("PROBE_URL", "https://api.telegram.org")
 BASE_LOCAL_PORT = 1081
 
 
+def _redirect_stays_on_probe_domain(probe_url: str, location: str) -> bool:
+    """True when a redirect points to the probe host's own domain (api.telegram.org -> core.telegram.org).
+
+    A filtering box redirects to a block page on another host, which must not count as a working tunnel.
+    """
+    probe_host = (urllib.parse.urlsplit(probe_url).hostname or "").lower()
+    target_host = (urllib.parse.urlsplit(urllib.parse.urljoin(probe_url, location)).hostname or "").lower()
+    domain = ".".join(probe_host.split(".")[-2:])
+    return bool(domain) and (target_host == domain or target_host.endswith("." + domain))
+
+
 def probe_socks5_http(proxy_url: str, probe_url: str = PROBE_URL, timeout_sec: float = 2.5) -> tuple[bool, float, str]:
     """
     Performs an end-to-end HTTP GET probe through a socks5 proxy to probe_url.
     Returns (is_connected: bool, ping_ms: float, error_message: str).
-    Only true HTTP 200/204 status within latency <= 2000ms is considered alive.
-    Redirects (HTTP 301/302/307) and error codes (400/403/404/5xx) are strictly rejected.
+    Alive: HTTP 200/204, or a redirect that stays on the probe URL's domain (api.telegram.org answers 302 to
+    core.telegram.org), within latency <= 2000ms. Redirects elsewhere and error codes (4xx/5xx) are rejected.
     """
     import requests
     t0 = time.perf_counter()
@@ -81,7 +92,11 @@ def probe_socks5_http(proxy_url: str, probe_url: str = PROBE_URL, timeout_sec: f
             allow_redirects=False,
         )
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        if resp.status_code in (200, 204):
+        reached = resp.status_code in (200, 204) or (
+            resp.status_code in (301, 302, 303, 307, 308)
+            and _redirect_stays_on_probe_domain(probe_url, resp.headers.get("Location", ""))
+        )
+        if reached:
             if elapsed_ms > 2000.0:
                 return False, -1.0, f"پینگ بالا ({elapsed_ms:.0f}ms > ۲۰۰۰ms)"
             return True, round(elapsed_ms, 1), ""
