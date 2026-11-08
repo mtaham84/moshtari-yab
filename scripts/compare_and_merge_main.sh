@@ -19,7 +19,8 @@ if [ -z "$BRANCH" ]; then
     if [ "$CURRENT_BRANCH" != "main" ] && [ -n "$CURRENT_BRANCH" ]; then
         BRANCH="$CURRENT_BRANCH"
     else
-        BRANCH="taha"
+        echo "Usage: $0 [--yes] <branch>   (or run it from the branch to merge)"
+        exit 1
     fi
 fi
 
