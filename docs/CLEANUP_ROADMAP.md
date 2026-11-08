@@ -59,8 +59,7 @@ The mess came from the process, not from one bad decision. Fix the process first
 
 - [ ] Mark `docs/architecture/*` as outdated or delete it; remove other docs that no longer match the code.
 - [ ] One test command: tests are split between `pytest.ini` paths and `manage.py test apps`, and some `tests_*.py`
-      files may be in neither. Make one command run everything and fix the 3 locally-failing X tests (see Known
-      issues).
+      files may be in neither. Make one command run everything.
 
 ## Phase 2: Live map and dead code removal
 
@@ -109,8 +108,8 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
 
 ## Known issues
 
-- 3 tests fail locally but pass in CI (also on unchanged `main`): `workers/x_collector/tests/test_intent_queries.py`
-  (2) and `workers/x_collector/tests/test_proqe.py` (1). Cause not yet found.
+- Tests must not depend on a developer's `.env`: need_engine and telegram_crawler load it at import time. The
+  X-collector tests clear `X_QUERY_*` (`workers/x_collector/tests/conftest.py`); do the same for new env-driven tests.
 - Tests that mock the function under review can pass while production breaks (PR #21: the probe was mocked, so CI
   never saw that `api.telegram.org` answers 302). Prefer real local servers/databases in tests.
 - A deploy that changes the `Dockerfile` needs `docker compose build` on the server (the app image ships the xray
