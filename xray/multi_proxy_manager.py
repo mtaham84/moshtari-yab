@@ -697,27 +697,7 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
         return {"success": False, "ping_ms": -1.0, "message": f"خطا در تجزیه ساختار کانفیگ: {exc}"}
 
     # Live test ping (max 2.5s timeout; ping > 2000ms is treated as -1)
-    if XRAY_BIN.exists():
-        ok, ping_ms, test_err = test_outbound_ping(ob, timeout_sec=2.5)
-    else:
-        # Probe using running Xray service in container
-        candidate_port = get_next_available_local_port()
-        temp_obj = ProxyConfig.objects.create(
-            raw_url=raw_link,
-            protocol=proto,
-            tag=f"probe_{int(time.time())}"[:145],
-            server="",
-            port=443,
-            local_port=candidate_port,
-            status="DEAD",
-            ping_ms=-1.0,
-        )
-        rebuild_xray_config_file()
-        time.sleep(2.5)  # fast watch.sh reload
-        ok, ping_ms, test_err = probe_proxy_port(candidate_port, timeout_sec=2.5)
-        temp_obj.delete()
-        if not ok:
-            rebuild_xray_config_file()
+    ok, ping_ms, test_err = test_outbound_ping(ob, timeout_sec=2.5)   # fails clearly when the xray binary is missing
     if not ok or ping_ms < 0 or ping_ms > 2000:
         # If config already existed in DB, delete it
         if ProxyConfig.objects.filter(raw_url=raw_link).exists():
