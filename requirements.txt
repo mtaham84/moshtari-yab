@@ -25,6 +25,7 @@ curl_cffi>=0.7.0
 
 # Tests
 pytest>=8.0
+pytest-django>=4.11   # runs the Django TestCase suites under pytest: one test command
 pytest-asyncio>=0.23
 
 # Distributed task queue & Redis

@@ -170,8 +170,7 @@ For X analysis, NE_X_PREFILTER=shadow records decisions without dropping posts; 
 تست‌های ذخیره‌سازی روی PostgreSQL واقعی (با pgvector) و در schemaهای موقت اجرا می‌شوند:
 
 ```bash
-docker compose run --rm web python -m pytest            # crawler + need_engine + x_collector
-docker compose run --rm web python manage.py test apps  # پنل و sync
+docker compose run --rm web python -m pytest            # همه‌ی تست‌ها، از جمله پنل Django (pytest-django)
 # بیرون از Docker: TEST_DATABASE_URL=postgresql://postgres:pass@127.0.0.1:5432/postgres python -m pytest
 ```
 
