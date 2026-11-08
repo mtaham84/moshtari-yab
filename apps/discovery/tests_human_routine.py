@@ -200,25 +200,37 @@ class HumanRoutineAndQueueTests(TestCase):
 
     @patch("time.sleep", return_value=None)
     def test_execute_organic_journey(self, mock_sleep):
-        """Test full in-app organic navigation steps simulation."""
+        """Test lightweight pre-send path with target resolution and typing delay."""
         mock_cl = MagicMock()
-        mock_cl.timeline_feed.return_value = [MagicMock(id="media_1")]
         mock_cl.search_users.return_value = [MagicMock(pk="987654321", username="client_test")]
+
+        res = execute_organic_journey(mock_cl, "client_test", target_pk=None)
+
+        self.assertEqual(res["target_pk"], 987654321)
+        actions = res["actions"]
+        self.assertTrue(actions["user_searched"])
+        self.assertGreaterEqual(actions["typing_delay_sec"], 6.0)
+        self.assertLessEqual(actions["typing_delay_sec"], 10.0)
+
+    @patch("time.sleep", return_value=None)
+    def test_execute_background_organic_warmup(self, mock_sleep):
+        """Test background warm-up simulation (feed, stories, post likes)."""
+        from apps.discovery.outreach_service import execute_background_organic_warmup
+
+        mock_cl = MagicMock()
+        mock_cl.get_timeline_feed.return_value = MagicMock(feed_items=[MagicMock(id="media_1")])
         mock_cl.user_medias.return_value = [MagicMock(id="post_1")]
 
         with patch("apps.discovery.outreach_service.perform_organic_warmup") as mock_warmup, \
                 patch("apps.discovery.outreach_service.random.random", return_value=0.0):  # every optional step
             mock_warmup.return_value = {"liked_post": True, "viewed_story": True}
-            res = execute_organic_journey(mock_cl, "client_test", target_pk=987654321)
+            actions = execute_background_organic_warmup(mock_cl, "client_test", target_pk=987654321)
 
-        self.assertEqual(res["target_pk"], 987654321)
-        actions = res["actions"]
         self.assertTrue(actions["feed_scrolled"])
-        self.assertTrue(actions["user_searched"])
+        self.assertTrue(actions["feed_post_liked"])
         self.assertTrue(actions["profile_viewed"])
         self.assertTrue(actions["target_post_liked"])
         self.assertTrue(actions["story_viewed"])
-        self.assertGreater(actions["typing_delay_sec"], 0)
 
     @patch("time.sleep", return_value=None)
     def test_run_instagram_outreach_command_execution(self, mock_sleep):

@@ -450,7 +450,9 @@ def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed
     """Sticky config for one account without its own proxy (see ensure_system_configs). None: nothing moved."""
     mode = proxy_mode(acc)
     if mode == "custom":
-        return None
+        if not force_rotate:
+            return None
+        why = "پروکسی اختصاصی از کار افتاد"
     parked = acc.status in ("BANNED", "DISABLED")   # keeps a live config, never takes a free one from the others
     if mode == "legacy":   # older rows: an xray port without the config link
         cfg = ProxyConfig.objects.filter(local_port=xray_port(acc.proxy_url)).first()
@@ -479,6 +481,7 @@ def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed
             return {"username": acc.username, "from": cfg.pk, "to": new.pk, "new_port": new.local_port,
                     "changed": bool(res.extra.get("changed"))}
         old = cfg.pk if cfg else None
+        old = cfg.pk if cfg else None
         if live:   # xray still serves it: only this account saw it fail, the others keep using it
             why = f"کانفیگ #{old} برای این اکانت جواب نداد"
         else:
@@ -491,7 +494,7 @@ def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed
         why = f"پورت {xray_port(acc.proxy_url)} کانفیگ فعالی ندارد"
     elif parked:
         return None
-    else:
+    elif mode != "custom":
         why = "قبلاً استخر مشترک"
     new = None if parked else pick_free_config(exclude_ids=[old] if old else ())
     if new is None and not parked:

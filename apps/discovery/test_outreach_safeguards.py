@@ -107,13 +107,15 @@ class CandidateSelectionTests(TestCase):
             comment_text=text, is_private=is_private, comment_created_at=timezone.now() - timedelta(hours=hours_ago),
         )
 
-    def test_selection_ranks_by_45_point_score_within_5_days(self):
+    def test_selection_ranks_by_45_point_score_within_30_days(self):
         self._lead("hot", hours_ago=2, is_private=False, text="قیمت کامپوزیت چنده؟", intent=0.3)
         self._lead("cold", hours_ago=60, is_private=True, text="عالیه", intent=0.99)
-        self._lead("old", hours_ago=24 * 6, is_private=False, text="قیمت لمینت؟", intent=0.99)
+        self._lead("week_old", hours_ago=24 * 6, is_private=False, text="قیمت لمینت؟", intent=0.99)
+        self._lead("too_old", hours_ago=24 * 32, is_private=False, text="قیمت ایمپلنت؟", intent=0.99)
 
         picked = select_outreach_candidates(["tenant_4"], 5)
 
-        self.assertEqual([lead.username for lead in picked], ["hot", "cold"])
+        self.assertEqual([lead.username for lead in picked], ["hot", "week_old", "cold"])
         self.assertGreater(picked[0].outreach_score, picked[1].outreach_score)
+        self.assertGreater(picked[1].outreach_score, picked[2].outreach_score)
         self.assertTrue(picked[0].score_breakdown["service_score"])

@@ -1,9 +1,7 @@
 """The single DM dispatcher shared by ig-outreach and Celery (apps.discovery.outreach_engine)."""
-from contextlib import contextmanager
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from django.db import connections
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -39,10 +37,10 @@ class OutreachEngineTests(TestCase):
             username=name, password="x", role="SENDER", status="ACTIVE", tenant_id=TENANT, account_tier="AGED",
             daily_limit=30, hourly_limit=5, session_json={"cookies": {"sessionid": f"sid-{name}"}}, **extra)
 
-    def _lead(self, name, pk, text="قیمت کامپوزیت چنده؟", **extra):
+    def _lead(self, name, pk, text="قیمت کامپوزیت چنده؟", comment_created_at=None, **extra):
         return InstagramEngineLead.objects.create(
             tenant_id=TENANT, username=name, ig_user_pk=pk, status="NEW", comment_text=text, is_private=False,
-            comment_created_at=timezone.now(), **extra)
+            comment_created_at=comment_created_at or timezone.now(), **extra)
 
     def _queued_lead(self, sender_name, **extra):
         return InstagramEngineLead.objects.create(
@@ -68,16 +66,22 @@ class OutreachEngineTests(TestCase):
         self.ig.direct_send.assert_called_once()
         self.assertEqual(InstagramEngineLead.objects.get(username="second").status, "NEW")
 
-    def test_global_gap_spaces_cold_dms_across_senders(self):
+    def test_senders_send_concurrently_without_global_gap_lock(self):
         self._sender("s_two")
         self._lead("a", "101")
         self._lead("b", "102")
 
-        self.assertEqual(self.step(min_gap_minutes=20)["action"], "cold_sent")
-        blocked = self.step(min_gap_minutes=20)
+        first = self.step(min_gap_minutes=20)
+        second = self.step(min_gap_minutes=20)
 
-        self.assertEqual((blocked["action"], blocked["reason"]), ("waiting", "global_gap"))
-        self.assertEqual(self.ig.direct_send.call_count, 1)
+        self.assertEqual(first["action"], "cold_sent")
+        self.assertEqual(first["sender"], "s_one")
+        self.assertEqual(second["action"], "cold_sent")
+        self.assertEqual(second["sender"], "s_two")
+        self.assertEqual(self.ig.direct_send.call_count, 2)
+
+        third = self.step(min_gap_minutes=20)
+        self.assertEqual((third["action"], third["reason"]), ("waiting", "sender_pacing"))
 
     def test_rate_limited_sender_rests_and_another_sender_takes_over(self):
         self._sender("s_two", last_action_at=timezone.now() - timedelta(hours=1))
@@ -137,15 +141,41 @@ class OutreachEngineTests(TestCase):
         self.assertEqual(queued.conversation_history[0]["delivery_status"], "FAILED")
         self.assertEqual(queued.status, "REPLIED")
 
-    def test_step_is_skipped_while_another_step_holds_the_lock(self):
-        @contextmanager
-        def busy(_tenant_ids):
-            yield False
+    def test_skip_locked_lead_reservation(self):
+        """Verify select_and_reserve_candidate marks candidate as PROCESSING so subsequent calls pick next lead."""
+        self._lead("lead_1", "101")
+        self._lead("lead_2", "102")
 
-        self._lead("a", "101")
-        with patch.object(engine, "dispatch_lock", busy):
-            self.assertEqual(self.step()["action"], "busy")
-        self.ig.direct_send.assert_not_called()
+        cand1 = engine.select_and_reserve_candidate([TENANT])
+        self.assertIsNotNone(cand1)
+        self.assertEqual(cand1.status, "PROCESSING")
+
+        cand2 = engine.select_and_reserve_candidate([TENANT])
+        self.assertIsNotNone(cand2)
+        self.assertEqual(cand2.status, "PROCESSING")
+        self.assertNotEqual(cand1.id, cand2.id)
+
+        cand3 = engine.select_and_reserve_candidate([TENANT])
+        self.assertIsNone(cand3)
+
+    def test_fifteen_day_old_lead_not_skipped_and_scores_lower_than_fresh(self):
+        now = timezone.now()
+        fresh = self._lead("fresh_user", "201", comment_created_at=now - timedelta(hours=2))
+        older = self._lead("older_user", "202", comment_created_at=now - timedelta(days=15))
+
+        first = engine.select_and_reserve_candidate([TENANT], now=now)
+        self.assertIsNotNone(first)
+        self.assertEqual(first.id, fresh.id)
+
+        older.refresh_from_db()
+        self.assertNotEqual(older.status, "SKIPPED")
+        self.assertEqual(older.status, "NEW")
+        self.assertLess(older.outreach_score, first.outreach_score)
+
+        second = engine.select_and_reserve_candidate([TENANT], now=now)
+        self.assertIsNotNone(second)
+        self.assertEqual(second.id, older.id)
+        self.assertEqual(second.status, "PROCESSING")
 
     def test_shift_pause_sends_nothing(self):
         self._lead("a", "101")
@@ -155,17 +185,26 @@ class OutreachEngineTests(TestCase):
         self.ig.direct_send.assert_not_called()
 
 
-class DispatchLockTests(TestCase):
-    def test_lock_is_exclusive_across_db_sessions(self):
-        other = connections.create_connection("default")
-        try:
-            with engine.dispatch_lock([TENANT]) as acquired:
-                self.assertTrue(acquired)
-                with other.cursor() as cur:
-                    cur.execute("SELECT pg_try_advisory_lock(%s, %s)", [engine.LOCK_NAMESPACE, engine.dispatch_lock_key([TENANT])])
-                    self.assertFalse(cur.fetchone()[0])
-        finally:
-            other.close()
+class OrganicSendPathTests(TestCase):
+    def test_send_path_works_without_heavy_organic_steps(self):
+        """Verify pre-send journey only resolves PK and applies typing delay without heavy browsing."""
+        from apps.discovery.outreach_service import execute_organic_journey
+        cl = MagicMock()
+        cl.user_id_from_username.return_value = 777
+
+        with patch("apps.discovery.outreach_service.time.sleep"):
+            res = execute_organic_journey(cl, "target_buyer", target_pk=None)
+
+        self.assertEqual(res["target_pk"], 777)
+        self.assertIn("typing_delay_sec", res["actions"])
+        self.assertGreaterEqual(res["actions"]["typing_delay_sec"], 6.0)
+        self.assertLessEqual(res["actions"]["typing_delay_sec"], 10.0)
+
+        # Ensure no heavy feed or media calls were made on the Instagram client
+        cl.get_timeline_feed.assert_not_called()
+        cl.user_medias.assert_not_called()
+        cl.user_stories.assert_not_called()
+        cl.media_like.assert_not_called()
 
 
 class SenderClientCacheTests(TestCase):

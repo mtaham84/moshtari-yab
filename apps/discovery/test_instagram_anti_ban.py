@@ -215,10 +215,10 @@ class OrganicJourneyTests(SimpleTestCase):
         cl.user_stories.return_value = []
         cl.user_medias.return_value = [SimpleNamespace(id="m1")]
         with patch("apps.discovery.outreach_service.random.random", return_value=0.0):
-            res = outreach_service.execute_organic_journey(cl, "buyer", target_pk=42)
+            res = outreach_service.execute_background_organic_warmup(cl, "buyer", target_pk=42)
         cl.user_medias.assert_called_once()  # the profile view's posts are reused, no second request
         cl.media_like.assert_called_once_with("m1")
-        self.assertTrue(res["actions"]["target_post_liked"])
+        self.assertTrue(res["target_post_liked"])
 
     def test_likes_and_story_views_are_occasional(self, _sleep):
         self.assertLessEqual(outreach_service.ORGANIC_JOURNEY_ODDS["like"], 0.25)

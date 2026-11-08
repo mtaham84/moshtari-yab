@@ -154,3 +154,33 @@ def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
         logger.info("[Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
                     d.get("new_port"))
     return result
+
+
+@shared_task(
+    name="apps.discovery.tasks.task_warmup_sender_account",
+    max_retries=1,
+)
+def task_warmup_sender_account(username: Optional[str] = None, tenant_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Independent Celery warmup task: simulates natural browsing (feed scroll, story views, occasional likes)
+    for active sender accounts without blocking or slowing down the direct message send path.
+    """
+    from apps.discovery.outreach_engine import get_available_senders, get_sender_client
+    from apps.discovery.outreach_service import execute_background_organic_warmup
+    from apps.discovery.ig_accounts import outreach_tenant_ids
+
+    tenants = tenant_ids or outreach_tenant_ids()
+    senders = get_available_senders(tenants)
+    if username:
+        senders = [s for s in senders if s.username == username]
+    if not senders:
+        return {"success": True, "skipped": True, "reason": "no_available_senders"}
+
+    sender = senders[0]
+    try:
+        cl = get_sender_client(sender)
+        actions = execute_background_organic_warmup(cl, target_username=sender.username)
+        return {"success": True, "sender": sender.username, "actions": actions}
+    except Exception as exc:
+        logger.warning("Error running background warmup for @%s: %s", sender.username, exc)
+        return {"success": False, "sender": sender.username, "error": str(exc)}

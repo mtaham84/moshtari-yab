@@ -397,6 +397,8 @@ class OutreachTenantProfile(models.Model):
 class InstagramEngineLead(models.Model):
     STATUS_CHOICES = [
         ("NEW", "جدید (در صف ارسال اولویت‌دار)"),
+        ("PROCESSING", "در حال پردازش / ارسال توسط ورکر"),
+        ("QUEUED", "در صف ارسال زمان‌بندی‌شده"),
         ("DM_SENT", "دایرکت ارسال شد (در انتظار پاسخ)"),
         ("REPLIED", "پاسخ مشتری دریافت شد"),
         ("FOLLOWUP_SENT", "پیام دوم ارسال شد"),
@@ -631,3 +633,95 @@ class InstagramCrawlExecution(models.Model):
         date_part = format_jalali_date(dt.date(), persian_digits=True)
         time_part = to_persian_digits(f"{dt.hour:02d}:{dt.minute:02d}:{dt.second:02d}")
         return f"{date_part} ساعت {time_part}"
+
+
+class InstagramLiveActivity(models.Model):
+    """
+    Real-time activity log stream for Instagram operations:
+    scraping posts, watching videos/reels/stories, checking comments, buyer detection, DMs.
+    """
+    ACTION_CHOICES = [
+        ("SCRAPE", "اسکرپ هشتگ/کلیدواژه"),
+        ("WATCH_VIDEO", "تماشای ویدیو / ریلز"),
+        ("WATCH_STORY", "تماشای استوری"),
+        ("COMMENTS", "بررسی کامنت‌ها"),
+        ("LEAD_FOUND", "کشف خریدار"),
+        ("SEND_DM", "ارسال دایرکت"),
+        ("WARMUP", "گشت‌وگذار ارگانیک"),
+        ("COOLDOWN", "استراحت و وقفه ضدبن"),
+        ("SYSTEM", "سیستمی"),
+        ("ERROR", "خطای عملیاتی"),
+    ]
+
+    account_username = models.CharField(max_length=150, db_index=True, verbose_name="اکانت مجری")
+    action_type = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True, verbose_name="نوع عملیات")
+    title = models.CharField(max_length=255, verbose_name="عنوان خلاصه")
+    description = models.TextField(blank=True, default="", verbose_name="توضیحات و جزییات لاگ")
+    media_type = models.CharField(max_length=32, blank=True, default="NONE", verbose_name="نوع مدیا")  # REEL, VIDEO, STORY, POST, NONE
+    media_code = models.CharField(max_length=64, blank=True, default="", verbose_name="کد کوتاه اینستاگرام")
+    media_url = models.CharField(max_length=500, blank=True, default="", verbose_name="لینک اینستاگرام")
+    duration_seconds = models.FloatField(default=0.0, verbose_name="مدت زمان تماشا یا عملیات (ثانیه)")
+    level = models.CharField(max_length=20, default="INFO", verbose_name="سطح لاگ")  # INFO, SUCCESS, WARNING, ERROR
+    metadata = models.JSONField(blank=True, default=dict, verbose_name="داده‌های تکمیلی")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="زمان ثبت")
+
+    class Meta:
+        db_table = "ig_live_activities"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["-created_at"], name="ix_ig_live_created_at"),
+            models.Index(fields=["action_type", "-created_at"], name="ix_ig_live_type_created"),
+            models.Index(fields=["account_username", "-created_at"], name="ix_ig_live_acc_created"),
+        ]
+        verbose_name = "فعالیت زنده اینستاگرام"
+        verbose_name_plural = "فعالیت‌های زنده اینستاگرام"
+
+    def __str__(self):
+        return f"[{self.action_type}] @{self.account_username}: {self.title} ({self.created_at:%H:%M:%S})"
+
+    @property
+    def created_at_tehran(self):
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("Asia/Tehran")
+        if self.created_at:
+            return self.created_at.astimezone(tz)
+        return None
+
+    @property
+    def time_fa(self) -> str:
+        dt = self.created_at_tehran
+        if not dt:
+            return "--:--:--"
+        return f"{dt.hour:02d}:{dt.minute:02d}:{dt.second:02d}"
+
+
+class InstagramLiveWorkerState(models.Model):
+    """
+    Heartbeat and immediate live state for Instagram components (scraper, outreach, cockpit).
+    Answers in real-time: 'Is it scraping right now?', 'Is it watching a video right now?'
+    """
+    WORKER_CHOICES = [
+        ("scraper", "ربات اسکرپر و استخراج لید"),
+        ("outreach", "ربات پیام‌رسان دایرکت"),
+        ("cockpit", "کابین و شبیه‌ساز"),
+    ]
+
+    worker_key = models.CharField(max_length=32, primary_key=True, choices=WORKER_CHOICES)
+    is_active = models.BooleanField(default=False, verbose_name="فعال در این لحظه")
+    current_account = models.CharField(max_length=150, blank=True, default="", verbose_name="اکانت جاری")
+    action_type = models.CharField(max_length=50, blank=True, default="IDLE", verbose_name="نوع اکشن لحظه‌ای")  # SCRAPING, WATCHING_VIDEO, WATCHING_STORY, FETCHING_COMMENTS, TYPING, IDLE
+    details = models.CharField(max_length=500, blank=True, default="", verbose_name="شرح فعالیت لحظه‌ای")
+    media_type = models.CharField(max_length=32, blank=True, default="NONE", verbose_name="نوع مدیا")
+    media_code = models.CharField(max_length=64, blank=True, default="", verbose_name="کد پست")
+    media_url = models.CharField(max_length=500, blank=True, default="", verbose_name="لینک پست")
+    duration_seconds = models.FloatField(default=0.0, verbose_name="مدت تماشا")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین پالس")
+    metadata = models.JSONField(blank=True, default=dict, verbose_name="متادیتا")
+
+    class Meta:
+        db_table = "ig_live_worker_states"
+        verbose_name = "وضعیت لحظه‌ای ورکر اینستاگرام"
+        verbose_name_plural = "وضعیت‌های لحظه‌ای ورکرهای اینستاگرام"
+
+    def __str__(self):
+        return f"{self.worker_key}: {'ACTIVE' if self.is_active else 'IDLE'} ({self.action_type})"
