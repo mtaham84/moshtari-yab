@@ -293,9 +293,9 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
+        from apps.discovery.ig_accounts import proxy_reachable
         proxy = account.clean_proxy   # its own proxy / system config, else the shared pool (never the server IP)
         if proxy:
-            from apps.discovery.ig_accounts import proxy_reachable
             proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
             if not proxy_ok:
                 self.stderr.write(f"    proxy unreachable for @{account.username} ({proxy_msg}); triggering auto-failover...")
@@ -307,6 +307,8 @@ class Command(BaseCommand):
                     raise ProxyUnavailable(f"proxy unreachable for @{account.username} and no healthy fallback: {proxy_msg}")
             if proxy:
                 cl.set_proxy(proxy)
+        else:
+            raise ProxyUnavailable(f"no proxy configured for @{account.username}")
 
         return cl
 
@@ -315,14 +317,17 @@ class Command(BaseCommand):
         Automatically heals/failovers account connection when proxy drops or dies.
         Finds the next free healthy config (or pool) and updates client proxy immediately.
         """
-        from apps.discovery.ig_accounts import _heal_account, proxy_reachable, effective_proxy_url
+        from apps.discovery.ig_accounts import _heal_account, proxy_reachable
+        old_proxy = account.clean_proxy
+        curr_cfg_id = account.proxy_config_id
+
         self.stdout.write(self.style.WARNING(
             f"    [Auto-Failover]: Proxy for @{account.username} failed. Searching for healthy replacement config..."
         ))
-        _heal_account(account, actor="scraper_auto_heal")
+        res = _heal_account(account, actor="scraper_auto_heal", force_rotate=True, failed_config_id=curr_cfg_id)
         account.refresh_from_db()
-        new_proxy = account.clean_proxy or effective_proxy_url(account)
-        if new_proxy:
+        new_proxy = account.clean_proxy
+        if new_proxy and (new_proxy != old_proxy or (res and res.get("changed"))):
             ok, msg = proxy_reachable(new_proxy, timeout=3.0)
             if ok:
                 if cl:
@@ -336,6 +341,8 @@ class Command(BaseCommand):
                 return True
             else:
                 self.stderr.write(f"    [Auto-Failover]: Fallback proxy {new_proxy} unreachable: {msg}")
+        else:
+            self.stderr.write(f"    [Auto-Failover]: No alternative healthy proxy available for @{account.username}")
         return False
 
     def _client_or_rest(self, account):

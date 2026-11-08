@@ -1,4 +1,11 @@
+# Same image as the docker-compose `xray` service: its binary lets the app test a config through a real tunnel
+# (xray/multi_proxy_manager.py test_outbound_ping) before it is saved.
+ARG XRAY_IMAGE=teddysun/xray
+FROM ${XRAY_IMAGE} AS xray
+
 FROM python:3.12-slim
+
+COPY --from=xray /usr/bin/xray /usr/local/bin/xray
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

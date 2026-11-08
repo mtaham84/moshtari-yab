@@ -271,6 +271,7 @@ CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 mins max execution time per task
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+CELERY_BEAT_SCHEDULE_FILENAME = os.environ.get("CELERY_BEAT_SCHEDULE_FILENAME", "/app/data/celerybeat-schedule")
 
 # Tenants served by the Instagram DM dispatcher and reply sync, e.g. OUTREACH_TENANTS=tenant_4,tenant_7.
 # Empty = every tenant that has an ACTIVE SENDER account (apps.discovery.ig_accounts.outreach_tenants).

@@ -11,6 +11,7 @@ Multi-Proxy Manager & Xray Port-Routing Controller
 from __future__ import annotations
 
 import base64
+import html
 import json
 import logging
 import os
@@ -45,6 +46,10 @@ def _find_xray_bin() -> Path:
         Path("/usr/local/bin/xray"),
         Path("/usr/bin/xray"),
         Path.home() / ".local" / "bin" / "xray",
+        Path("/opt/happ/bin/core/xray"),
+        Path("/opt/v2rayN/bin/xray/xray"),
+        Path.home() / ".local" / "share" / "v2rayN" / "bin" / "xray" / "xray",
+        Path(__file__).resolve().parent / "bin" / "xray",
     ]:
         if candidate.exists():
             return candidate
@@ -55,6 +60,58 @@ XRAY_BIN = _find_xray_bin()
 
 PROBE_URL = os.environ.get("PROBE_URL", "https://api.telegram.org")
 BASE_LOCAL_PORT = 1081
+
+
+def _redirect_stays_on_probe_domain(probe_url: str, location: str) -> bool:
+    """True when a redirect points to the probe host's own domain (api.telegram.org -> core.telegram.org).
+
+    A filtering box redirects to a block page on another host, which must not count as a working tunnel.
+    """
+    probe_host = (urllib.parse.urlsplit(probe_url).hostname or "").lower()
+    target_host = (urllib.parse.urlsplit(urllib.parse.urljoin(probe_url, location)).hostname or "").lower()
+    domain = ".".join(probe_host.split(".")[-2:])
+    return bool(domain) and (target_host == domain or target_host.endswith("." + domain))
+
+
+def probe_socks5_http(proxy_url: str, probe_url: str = PROBE_URL, timeout_sec: float = 2.5) -> tuple[bool, float, str]:
+    """
+    Performs an end-to-end HTTP GET probe through a socks5 proxy to probe_url.
+    Returns (is_connected: bool, ping_ms: float, error_message: str).
+    Alive: HTTP 200/204, or a redirect that stays on the probe URL's domain (api.telegram.org answers 302 to
+    core.telegram.org), within latency <= 2000ms. Redirects elsewhere and error codes (4xx/5xx) are rejected.
+    """
+    import requests
+    t0 = time.perf_counter()
+    proxies = {"http": proxy_url, "https": proxy_url}
+    try:
+        resp = requests.get(
+            probe_url,
+            proxies=proxies,
+            timeout=timeout_sec,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            allow_redirects=False,
+        )
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        reached = resp.status_code in (200, 204) or (
+            resp.status_code in (301, 302, 303, 307, 308)
+            and _redirect_stays_on_probe_domain(probe_url, resp.headers.get("Location", ""))
+        )
+        if reached:
+            if elapsed_ms > 2000.0:
+                return False, -1.0, f"پینگ بالا ({elapsed_ms:.0f}ms > ۲۰۰۰ms)"
+            return True, round(elapsed_ms, 1), ""
+        return False, -1.0, f"کد وضعیت نامعتبر یا فیلترشده: HTTP {resp.status_code}"
+    except requests.exceptions.Timeout:
+        return False, -1.0, f"تایم‌اوت اتصال (بیش از {timeout_sec:.1f} ثانیه)"
+    except Exception as exc:
+        return False, -1.0, f"خطای ارتباط پروکسی: {exc}"
+
+
+def probe_proxy_port(local_port: int, probe_url: str = PROBE_URL, timeout_sec: float = 2.5) -> tuple[bool, float, str]:
+    """Probes dedicated local port socks5h://{xray_host}:{local_port}."""
+    in_docker = Path("/.dockerenv").exists()
+    host = os.environ.get("XRAY_HOST", "xray" if in_docker else "127.0.0.1")
+    return probe_socks5_http(f"socks5h://{host}:{local_port}", probe_url=probe_url, timeout_sec=timeout_sec)
 
 def backup_tunnel() -> dict:
     """Fallback "default_proxy" outbound used when no proxy config is available.
@@ -117,7 +174,7 @@ def validate_config_format(url: str) -> tuple[bool, str, str]:
     Validates if a link is a properly formatted proxy URL.
     Returns (is_valid: bool, protocol: str, error_msg: str).
     """
-    url = url.strip()
+    url = html.unescape(url.strip())
     if not url:
         return False, "", "متن کانفیگ خالی است."
 
@@ -339,7 +396,7 @@ def parse_ss_url(url: str) -> dict[str, Any]:
 
 
 def parse_link_to_outbound(link: str) -> dict[str, Any]:
-    link = link.strip()
+    link = html.unescape(link.strip())
     if link.startswith("vless://"):
         return parse_vless_url(link)
     elif link.startswith("vmess://"):
@@ -351,38 +408,57 @@ def parse_link_to_outbound(link: str) -> dict[str, Any]:
     raise ValueError(f"پروتکل پشتیبانی نشده: {link[:15]}...")
 
 
+def is_valid_xray_outbound(ob: dict[str, Any]) -> tuple[bool, str]:
+    """
+    Validates outbound structure to ensure Xray core will not fail on startup.
+    Rejects:
+    - VLESS without TLS or encryption on public hosts
+    - VLESS Reality missing publicKey
+    - Missing server address/port or users
+    """
+    proto = ob.get("protocol")
+    if proto == "vless":
+        stream = ob.get("streamSettings", {})
+        sec = stream.get("security", "none")
+        vnext = ob.get("settings", {}).get("vnext", [])
+        if not vnext:
+            return False, "VLESS missing vnext servers"
+        v0 = vnext[0]
+        users = v0.get("users", [])
+        if not users or not users[0].get("id"):
+            return False, "VLESS missing user id"
+        enc = users[0].get("encryption", "none")
+        addr = v0.get("address", "")
+        if sec in ("none", "") and enc in ("none", ""):
+            is_local = (
+                addr in ("127.0.0.1", "localhost", "::1")
+                or addr.startswith(("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.3"))
+            )
+            if not is_local:
+                return False, f"VLESS without TLS/encryption on public address ({addr}) is prohibited by Xray"
+        if sec == "reality":
+            r_settings = stream.get("realitySettings", {})
+            if not r_settings.get("publicKey"):
+                return False, "VLESS Reality requires non-empty publicKey"
+    elif proto == "vmess":
+        vnext = ob.get("settings", {}).get("vnext", [])
+        if not vnext or not vnext[0].get("address") or not vnext[0].get("users"):
+            return False, "VMess missing server or user configuration"
+    elif proto in ("trojan", "shadowsocks"):
+        servers = ob.get("settings", {}).get("servers", [])
+        if not servers or not servers[0].get("address") or not servers[0].get("port"):
+            return False, f"{proto} missing server address or port"
+    return True, ""
+
+
 def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) -> tuple[bool, float, str]:
     """
-    Tests an outbound config using a temporary ephemeral Xray instance and curl.
-    Falls back to direct TCP socket handshake if Xray binary is not on host.
+    Tests an outbound config using a temporary ephemeral Xray instance and python requests.
+    If Xray binary is not on host, returns failure (no fake TCP socket fallback).
     Returns (is_connected: bool, ping_ms: float, error_message: str).
     """
     if not XRAY_BIN.exists():
-        # Fallback to direct TCP socket ping to server & port
-        try:
-            addr = None
-            port = None
-            servers = outbound_dict.get("settings", {}).get("servers") or outbound_dict.get("settings", {}).get("vnext")
-            if servers and len(servers) > 0:
-                s0 = servers[0]
-                addr = s0.get("address")
-                port = s0.get("port")
-            if addr and port:
-                t0 = time.perf_counter()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(min(float(timeout_sec), 2.5))
-                res = sock.connect_ex((addr, int(port)))
-                sock.close()
-                elapsed = (time.perf_counter() - t0) * 1000.0
-                if res == 0 and elapsed <= 2000.0:
-                    return True, round(elapsed, 1), ""
-                elif res == 0:
-                    return False, -1.0, f"پینگ بالا ({elapsed:.0f}ms > ۲۰۰۰ms)"
-                else:
-                    return False, -1.0, f"عدم پاسخگویی {addr}:{port} (کد {res})"
-        except Exception as exc:
-            return False, -1.0, f"خطای تست TCP: {exc}"
-        return False, -1.0, f"Xray binary not found at {XRAY_BIN}"
+        return False, -1.0, f"باینری Xray در سیستم یافت نشد ({XRAY_BIN})"
 
     test_port = get_free_port()
     test_cfg_path = Path(f"/tmp/xray_probe_{test_port}.json")
@@ -430,34 +506,8 @@ def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) 
         if not ready:
             return False, -1.0, "خطا: پروسه تست Xray آماده نشد."
 
-        t0 = time.time()
-        max_time = min(float(timeout_sec), 2.0)
-        res = subprocess.run(
-            [
-                "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
-                "--connect-timeout", str(max(1, int(max_time))),
-                "--max-time", str(round(max_time, 1)),
-                "-x", f"socks5h://127.0.0.1:{test_port}",
-                PROBE_URL
-            ],
-            capture_output=True,
-            text=True
-        )
-        elapsed_total_ms = (time.time() - t0) * 1000.0
-
-        raw_out = res.stdout.strip()
-        parts = raw_out.split(":")
-        http_code = parts[0] if parts else "000"
-        time_total = float(parts[1]) * 1000.0 if len(parts) > 1 and parts[1] else elapsed_total_ms
-
-        if http_code in ["200", "301", "302", "307", "400", "403", "404"]:
-            if time_total > 2000.0:
-                return False, -1.0, f"پینگ بالا ({time_total:.0f}ms > ۲۰۰۰ms)"
-            return True, round(time_total, 1), ""
-        elif res.returncode == 28:
-            return False, -1.0, "تایم‌اوت اتصال (پینگ بالای ۲۰۰۰ms)"
-        else:
-            return False, -1.0, f"پاسخ سرور: HTTP {http_code}"
+        max_time = min(float(timeout_sec), 2.5)
+        return probe_socks5_http(f"socks5h://127.0.0.1:{test_port}", probe_url=PROBE_URL, timeout_sec=max_time)
     except Exception as e:
         return False, -1.0, str(e)
     finally:
@@ -509,6 +559,13 @@ def rebuild_xray_config_file() -> bool:
     for p in active_proxies:
         try:
             ob = parse_link_to_outbound(p.raw_url)
+            is_valid, invalid_reason = is_valid_xray_outbound(ob)
+            if not is_valid:
+                log.warning("Skipping invalid outbound for ProxyConfig #%s (%s): %s", p.id, p.tag, invalid_reason)
+                p.status = "DEAD"
+                p.save(update_fields=["status"])
+                continue
+
             port_tag = f"proxy_{p.local_port}"
             in_tag = f"in_{p.local_port}"
             ob["tag"] = port_tag
@@ -589,7 +646,8 @@ def reload_xray_service() -> bool:
     """Restarts the Xray container when the docker CLI is available (host scripts).
 
     Inside the app containers there is no docker CLI: the xray service (docker-compose, xray/watch.sh) restarts
-    itself when config.json changes, so new dedicated ports go live without a manual restart.
+    itself when config.json changes (at most every XRAY_RELOAD_MIN_SECONDS), so new dedicated ports go live without a
+    manual restart.
     """
     try:
         res = subprocess.run(
@@ -600,7 +658,7 @@ def reload_xray_service() -> bool:
         )
         return res.returncode == 0
     except FileNotFoundError:   # app container: the xray service reloads itself (xray/watch.sh)
-        log.debug("no docker CLI here; the xray service picks up config.json changes by itself")
+        log.debug("no docker CLI here; the xray service picks up config.json changes by itself via watch.sh")
         return False
     except Exception as exc:
         log.warning("Could not restart Xray container: %s", exc)
@@ -628,6 +686,7 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
     from apps.discovery.models import ProxyConfig
     from django.utils import timezone
 
+    raw_link = html.unescape(raw_link.strip())
     valid, proto, err = validate_config_format(raw_link)
     if not valid:
         return {"success": False, "ping_ms": -1.0, "message": f"فرمت کانفیگ نامعتبر است: {err}"}
@@ -637,8 +696,8 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
     except Exception as exc:
         return {"success": False, "ping_ms": -1.0, "message": f"خطا در تجزیه ساختار کانفیگ: {exc}"}
 
-    # Live test ping (max 2.0s timeout; ping > 2000ms is treated as -1)
-    ok, ping_ms, test_err = test_outbound_ping(ob, timeout_sec=2.0)
+    # Live test ping (max 2.5s timeout; ping > 2000ms is treated as -1)
+    ok, ping_ms, test_err = test_outbound_ping(ob, timeout_sec=2.5)   # fails clearly when the xray binary is missing
     if not ok or ping_ms < 0 or ping_ms > 2000:
         # If config already existed in DB, delete it
         if ProxyConfig.objects.filter(raw_url=raw_link).exists():
@@ -650,7 +709,7 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
             "ping_ms": -1.0,
             "protocol": proto,
             "tag": ob.get("tag", "بدون نام"),
-            "message": f"❌ تست پینگ ناموفق بود (پینگ -۱ یا بالای ۲۰۰۰ms). {test_err or 'تایم‌اوت / قطعی'}. کانفیگ اضافه نگردید."
+            "message": f"[ناموفق] تست پینگ ناموفق بود (پینگ -۱ یا بالای ۲۰۰۰ms). {test_err or 'تایم‌اوت / قطعی'}. کانفیگ اضافه نگردید."
         }
 
     # Extract tag, server, port
@@ -707,7 +766,7 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
         "tag": tag,
         "local_port": obj.local_port,
         "proxy_url": f"socks5h://xray:{obj.local_port}",
-        "message": f"✅ کانفیگ سالم است و متصل شد! پینگ: {ping_ms}ms | پورت اختصاصی: {obj.local_port}"
+        "message": f"[موفق] کانفیگ سالم است و متصل شد. پینگ: {ping_ms}ms | پورت اختصاصی: {obj.local_port}"
     }
 
 
@@ -726,8 +785,11 @@ def prune_dead_configs() -> list[dict[str, Any]]:
     dead = []
     for p in list(ProxyConfig.objects.all()):
         try:
-            ob = parse_link_to_outbound(p.raw_url)
-            ok, ping_ms, _ = test_outbound_ping(ob, timeout_sec=2.0)
+            if p.local_port:
+                ok, ping_ms, _ = probe_proxy_port(p.local_port, timeout_sec=2.0)
+            else:
+                ob = parse_link_to_outbound(p.raw_url)
+                ok, ping_ms, _ = test_outbound_ping(ob, timeout_sec=2.0)
         except Exception as exc:
             log.warning("Error probing config #%s: %s", p.id, exc)
             ok, ping_ms = False, -1.0
