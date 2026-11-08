@@ -1,0 +1,15 @@
+# Local copy of the CI lint checks. Setup once: pip install pre-commit && pre-commit install
+# Keep the ruff rev equal to RUFF_VERSION in .github/workflows/ci.yml (guardrail_baseline.json counts depend on it).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4
+    hooks:
+      - id: ruff-check
+  - repo: local
+    hooks:
+      - id: guardrail-baseline
+        name: guardrail baseline (file size, broad excepts)
+        entry: python scripts/check_baseline.py   # needs ruff on PATH (pip install ruff==0.17.4)
+        language: system
+        pass_filenames: false
+        types_or: [python, html, css]
