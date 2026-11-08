@@ -144,10 +144,13 @@ def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
     config (else the shared pool) and the move is logged on the account's timeline. Accounts with their own
     (custom) proxy are never touched; nothing moves while xray itself is down.
     """
-    from apps.discovery.ig_accounts import ensure_system_configs
+    from apps.discovery.ig_accounts import ensure_system_configs, port_open, XRAY_HOST, POOL_PORT
+
+    if not port_open(XRAY_HOST, POOL_PORT):
+        return {"success": False, "skipped": "xray_down", "healed_count": 0, "details": []}
 
     result = ensure_system_configs(actor="system")
     for d in result.get("details", []):
-        logger.info("🔧 [Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
+        logger.info("[Auto-Heal] @%s: config %s -> %s (port %s)", d["username"], d.get("from"), d.get("to"),
                     d.get("new_port"))
     return result

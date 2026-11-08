@@ -3,10 +3,10 @@
 #
 # The app rewrites config.json (atomic replace) whenever V2Ray configs are added or die; until xray restarts, the
 # new dedicated ports do not exist and accounts cannot use them. Restarts at most once per XRAY_RELOAD_MIN_SECONDS
-# (default 300) so a burst of changes costs one short reconnect, not many.
+# (default 60) so a burst of changes costs one short reconnect, not many: every restart drops all live connections.
 CFG="${XRAY_CONFIG:-/etc/xray/config.json}"
-MIN_GAP="${XRAY_RELOAD_MIN_SECONDS:-300}"
-POLL="${XRAY_WATCH_POLL_SECONDS:-15}"
+MIN_GAP="${XRAY_RELOAD_MIN_SECONDS:-60}"
+POLL="${XRAY_WATCH_POLL_SECONDS:-2}"
 BIN="$(command -v xray || echo /usr/bin/xray)"
 pid=""
 
