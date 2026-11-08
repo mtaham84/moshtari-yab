@@ -952,21 +952,66 @@ def execute_organic_journey(
     target_pk: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    A varied, human-like path before sending a direct message (see ORGANIC_JOURNEY_ODDS):
-    1. Sometimes scrolls the home timeline for 3-6s (rarely likes a feed post).
-    2. Sometimes searches the username in the search bar (always when the numeric PK is unknown).
-    3. Usually opens the target profile grid.
-    4. Sometimes views active stories; rarely likes the latest post (only after the profile was opened).
-    5. Applies human typing jitter (15-30s).
+    Lightweight pre-send dispatch routine:
+    1. Resolves numeric target_pk if missing (via user_id_from_username or search_users).
+    2. Applies a short human typing delay (6-10 seconds) instead of blocking the send path
+       with heavy feed scrolling, story viewing, and post likes (which run in background warmup).
+    """
+    actions_taken = {
+        "user_searched": False,
+        "typing_delay_sec": 0.0,
+    }
+
+    resolved_pk = target_pk
+    if not resolved_pk:
+        # Resolve target_pk via username lookup
+        if hasattr(cl, "user_id_from_username"):
+            try:
+                resolved_pk = int(cl.user_id_from_username(target_username))
+            except Exception as uid_err:
+                logger.debug("user_id_from_username skipped for @%s: %s", target_username, uid_err)
+
+        if not resolved_pk and hasattr(cl, "search_users"):
+            try:
+                search_results = cl.search_users(target_username)
+                actions_taken["user_searched"] = True
+                for u in (search_results or []):
+                    u_name = getattr(u, "username", "") or (u.get("username", "") if isinstance(u, dict) else "")
+                    u_pk = getattr(u, "pk", None) or (u.get("pk") if isinstance(u, dict) else None)
+                    if str(u_name).lower() == str(target_username).lower() and u_pk:
+                        resolved_pk = int(u_pk)
+                        break
+            except Exception as search_err:
+                logger.debug("search_users fallback failed for @%s: %s", target_username, search_err)
+
+    # Short randomized typing jitter (6 to 10 seconds)
+    typing_sec = random.uniform(6.0, 10.0)
+    actions_taken["typing_delay_sec"] = round(typing_sec, 2)
+    time.sleep(typing_sec)
+
+    return {
+        "target_pk": resolved_pk,
+        "actions": actions_taken,
+    }
+
+
+def execute_background_organic_warmup(
+    cl: Any,
+    target_username: Optional[str] = None,
+    target_pk: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Independent organic warmup session for sender accounts:
+    1. Scrolls the home timeline feed and occasionally likes a feed post.
+    2. If target user provided, optionally views profile, active stories, and likes latest post.
+    Runs asynchronously and decoupled from the active DM dispatch path.
     """
     actions_taken = {
         "feed_scrolled": False,
         "feed_post_liked": False,
-        "user_searched": False,
         "profile_viewed": False,
         "story_viewed": False,
         "target_post_liked": False,
-        "typing_delay_sec": 0.0,
     }
 
     # Step 1: Open Timeline Feed & simulate casual scrolling
@@ -987,47 +1032,24 @@ def execute_organic_journey(
                 if m_id and hasattr(cl, "media_like"):
                     cl.media_like(str(m_id))
                     actions_taken["feed_post_liked"] = True
-                    logger.info("❤️ Organic feed post like executed during casual scroll (media: %s)", m_id)
+                    logger.info("Organic feed post like executed during casual scroll (media: %s)", m_id)
                     time.sleep(random.uniform(1.5, 3.0))
     except Exception as feed_err:
         logger.debug("Organic timeline feed scroll skipped: %s", feed_err)
 
-    # Step 2: Search for user in search bar (/users/search/)
-    resolved_pk = target_pk
-    try:
-        if (not target_pk or _journey_step("search")) and hasattr(cl, "search_users"):
-            time.sleep(random.uniform(2.0, 4.0))
-            search_results = cl.search_users(target_username)
-            actions_taken["user_searched"] = True
-            for u in (search_results or []):
-                u_name = getattr(u, "username", "") or (u.get("username", "") if isinstance(u, dict) else "")
-                u_pk = getattr(u, "pk", None) or (u.get("pk") if isinstance(u, dict) else None)
-                if str(u_name).lower() == str(target_username).lower() and u_pk:
-                    resolved_pk = int(u_pk)
-                    break
-    except Exception as search_err:
-        logger.debug("Organic search bar simulation skipped for @%s: %s", target_username, search_err)
-
-    if not resolved_pk and hasattr(cl, "user_id_from_username"):
-        try:
-            resolved_pk = int(cl.user_id_from_username(target_username))
-        except Exception:
-            pass
-
-    # Step 3: Browse target user profile and recent medias
-    if resolved_pk:
+    # Step 2: Browse target user profile and warmup if target specified
+    if target_pk:
         medias = None
         try:
             if _journey_step("profile") and hasattr(cl, "user_medias"):
                 time.sleep(random.uniform(2.0, 4.0))
-                medias = cl.user_medias(resolved_pk, amount=random.randint(3, 6))
+                medias = cl.user_medias(target_pk, amount=random.randint(3, 6))
                 actions_taken["profile_viewed"] = True
         except Exception as profile_err:
             logger.debug("Organic profile inspection skipped for @%s: %s", target_username, profile_err)
 
-        # Step 4: Sometimes a story view, rarely a like (only on posts actually seen on the profile)
         warmup_res = perform_organic_warmup(
-            cl, resolved_pk, target_username,
+            cl, target_pk, target_username or "",
             story_chance=ORGANIC_JOURNEY_ODDS["story"],
             like_chance=ORGANIC_JOURNEY_ODDS["like"] if medias else 0.0,
             medias=medias or [],
@@ -1035,15 +1057,7 @@ def execute_organic_journey(
         actions_taken["story_viewed"] = warmup_res.get("viewed_story", False)
         actions_taken["target_post_liked"] = warmup_res.get("liked_post", False)
 
-    # Step 5: Realistic typing delay before dispatching
-    typing_sec = random.uniform(15.0, 30.0)
-    actions_taken["typing_delay_sec"] = round(typing_sec, 2)
-    time.sleep(typing_sec)
-
-    return {
-        "target_pk": resolved_pk,
-        "actions": actions_taken,
-    }
+    return actions_taken
 
 
 def enqueue_direct_message(

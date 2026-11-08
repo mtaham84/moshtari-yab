@@ -185,6 +185,28 @@ class OutreachEngineTests(TestCase):
         self.ig.direct_send.assert_not_called()
 
 
+class OrganicSendPathTests(TestCase):
+    def test_send_path_works_without_heavy_organic_steps(self):
+        """Verify pre-send journey only resolves PK and applies typing delay without heavy browsing."""
+        from apps.discovery.outreach_service import execute_organic_journey
+        cl = MagicMock()
+        cl.user_id_from_username.return_value = 777
+
+        with patch("apps.discovery.outreach_service.time.sleep"):
+            res = execute_organic_journey(cl, "target_buyer", target_pk=None)
+
+        self.assertEqual(res["target_pk"], 777)
+        self.assertIn("typing_delay_sec", res["actions"])
+        self.assertGreaterEqual(res["actions"]["typing_delay_sec"], 6.0)
+        self.assertLessEqual(res["actions"]["typing_delay_sec"], 10.0)
+
+        # Ensure no heavy feed or media calls were made on the Instagram client
+        cl.get_timeline_feed.assert_not_called()
+        cl.user_medias.assert_not_called()
+        cl.user_stories.assert_not_called()
+        cl.media_like.assert_not_called()
+
+
 class SenderClientCacheTests(TestCase):
     def test_client_is_reused_until_session_changes(self):
         engine._CLIENTS.clear()

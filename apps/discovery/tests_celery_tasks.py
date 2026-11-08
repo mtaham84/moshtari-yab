@@ -22,6 +22,7 @@ class CeleryTaskQueueTestCase(SimpleTestCase):
         self.assertIn("apps.discovery.tasks.task_sync_lead_replies", celery_app.tasks)
         self.assertIn("apps.discovery.tasks.task_sync_telegram_channel_configs", celery_app.tasks)
         self.assertIn("apps.discovery.tasks.task_healthcheck_and_heal_proxies", celery_app.tasks)
+        self.assertIn("apps.discovery.tasks.task_warmup_sender_account", celery_app.tasks)
 
     @override_settings(INSTAGRAM_OUTREACH_DISPATCHER="celery")
     @patch("apps.discovery.tasks.HumanShiftPlanner.is_shift_active")
