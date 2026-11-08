@@ -10,10 +10,10 @@ green, before the next one starts. Behavior must not change unless the step says
 
 ## Current status (2026-11-08)
 
-- Phase 0 is mostly done: AGENTS.md, skills and git conventions are in `main` (PR #22). The proxy PR #21 is merged
-  (review fixes included).
-- **Next step:** Phase 0 CI checks (one PR touching only CI/config), then Phase 2 easy deletions
-  (`scripts/legacy/`, `xray/proxy_switcher.py`).
+- Phase 0 is done: AGENTS.md, skills, git conventions (PR #22), and CI guardrails (`ci/guardrail-checks`): file size
+  and broad-except baseline, import-boundary test, commit message check, pinned ruff, pre-commit.
+- **Next step:** Phase 1 (outdated docs, one test command), then Phase 2 easy deletions (`scripts/legacy/`,
+  `xray/proxy_switcher.py`).
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -24,7 +24,9 @@ green, before the next one starts. Behavior must not change unless the step says
 | HTML template lines | 16,473 |
 | CSS lines | 7,225 |
 | Files over 800 lines (`.py`/`.html`/`.css`) | 23 |
-| Broad `except Exception` blocks (non-test) | 417 |
+| Broad `except Exception` blocks (non-test, grep) | 417 |
+| Broad-except hits, ruff `BLE001` + `S110` (`guardrail_baseline.json`) | 391 in 89 files |
+| Forbidden imports (`ALLOWED` in `tests/test_architecture.py`) | 13 |
 
 Largest files: `templates/ops/manage_dashboard.html` 4,369; `static/css/site.css` 3,332; `static/css/panel.css`
 2,737; `apps/billing/manage_views.py` 2,213; `apps/discovery/management/commands/run_instagram_scraper.py` 2,034;
@@ -42,15 +44,14 @@ The mess came from the process, not from one bad decision. Fix the process first
 - [x] Git conventions: `<type>/<description>` branches, Conventional Commits, no AI attribution
       (`.claude/settings.json` turns off Claude Code's own).
 - [x] `scripts/compare_and_merge_main.sh` no longer defaults to a personal branch.
-- [ ] CI checks (agents ignore text rules more often than failing checks):
-  - [ ] fail when a changed `.py`/`.html`/`.css` file is over 800 lines; allow-list the existing big files with their
-        current size, which may only shrink
-  - [ ] `tests/test_architecture.py`: AST import-boundary test (rule 7 in `AGENTS.md`)
-  - [ ] stage-2 ruff rules from `pyproject.toml` (`BLE001`, `S110`, ...) with a baseline so new code can't add broad
-        excepts
-  - [ ] reject PR commits with AI attribution (`Co-Authored-By: Claude|Antigravity|...`, "Generated with ...") or a
-        non-Conventional-Commits subject
-- [ ] `pre-commit` config running ruff locally.
+- [x] CI checks (agents ignore text rules more often than failing checks):
+  - [x] `scripts/check_baseline.py` + `scripts/guardrail_baseline.json`: no new file over 800 lines, no existing big
+        file grows, no file gains broad excepts (ruff `BLE001`, `S110`); `--update` only lowers entries
+  - [x] `tests/test_architecture.py`: AST import-boundary test (rule 7 in `AGENTS.md`), 13 existing violations in
+        `ALLOWED`, which may only shrink
+  - [x] `scripts/check_commits.py` (PRs only): Conventional Commits subjects, no AI attribution
+  - [x] ruff pinned to one version (`RUFF_VERSION` in CI, `rev` in pre-commit)
+- [x] `.pre-commit-config.yaml`: ruff + guardrail baseline before every commit.
 - Working habits: one task per agent session and per branch; ask for a plan first for anything over ~50 lines; read
   the diff before committing; when an agent repeats a mistake, add one line to `AGENTS.md` or a CI check.
 

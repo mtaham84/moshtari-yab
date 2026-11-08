@@ -50,8 +50,15 @@ python -m pytest                          # collector/engine tests (paths in pyt
 python manage.py test apps                # Django app tests. CI runs BOTH; run both.
 python -m pytest path/to/test_x.py::test_name -q   # single test
 
-pip install ruff && ruff check .          # same rules as CI (pyproject.toml)
+pip install ruff==0.17.4 && ruff check .  # same version and rules as CI (pyproject.toml)
+python scripts/check_baseline.py          # CI guardrail: files over 800 lines and broad excepts may only shrink
+pip install pre-commit && pre-commit install   # runs both before every commit
 ```
+
+Existing violations are recorded in `scripts/guardrail_baseline.json` (file size, broad excepts) and in `ALLOWED` in
+`tests/test_architecture.py` (import boundaries). Both may only shrink: after you shrink a file or remove an except,
+run `python scripts/check_baseline.py --update`; after you remove a forbidden import, delete its `ALLOWED` entry. Never
+add entries. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
 
 When adding a test file outside the paths in `pytest.ini`, add its directory there, or CI will never run it.
 
