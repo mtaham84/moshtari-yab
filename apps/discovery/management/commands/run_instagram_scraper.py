@@ -293,14 +293,14 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
-        from apps.discovery.ig_accounts import effective_proxy_url, proxy_reachable
-        proxy = account.clean_proxy or effective_proxy_url(account)   # its own proxy / system config, else the shared pool (never the server IP)
+        from apps.discovery.ig_accounts import proxy_reachable
+        proxy = account.clean_proxy   # its own proxy / system config, else the shared pool (never the server IP)
         if proxy:
             proxy_ok, proxy_msg = proxy_reachable(proxy, timeout=2.5)
             if not proxy_ok:
                 self.stderr.write(f"    proxy unreachable for @{account.username} ({proxy_msg}); triggering auto-failover...")
                 if self._rotate_or_heal_proxy(account, cl=cl):
-                    proxy = account.clean_proxy or effective_proxy_url(account)
+                    proxy = account.clean_proxy
                 else:
                     # Never fall back to the server's own IP: the same session suddenly coming from a datacenter IP
                     # (and the same IP for every account) is a far bigger risk than skipping one cycle.
@@ -317,8 +317,8 @@ class Command(BaseCommand):
         Automatically heals/failovers account connection when proxy drops or dies.
         Finds the next free healthy config (or pool) and updates client proxy immediately.
         """
-        from apps.discovery.ig_accounts import _heal_account, effective_proxy_url, proxy_reachable
-        old_proxy = account.clean_proxy or effective_proxy_url(account)
+        from apps.discovery.ig_accounts import _heal_account, proxy_reachable
+        old_proxy = account.clean_proxy
         curr_cfg_id = account.proxy_config_id
 
         self.stdout.write(self.style.WARNING(
@@ -326,7 +326,7 @@ class Command(BaseCommand):
         ))
         res = _heal_account(account, actor="scraper_auto_heal", force_rotate=True, failed_config_id=curr_cfg_id)
         account.refresh_from_db()
-        new_proxy = account.clean_proxy or effective_proxy_url(account)
+        new_proxy = account.clean_proxy
         if new_proxy and (new_proxy != old_proxy or (res and res.get("changed"))):
             ok, msg = proxy_reachable(new_proxy, timeout=3.0)
             if ok:

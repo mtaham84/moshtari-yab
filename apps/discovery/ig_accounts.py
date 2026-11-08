@@ -392,11 +392,6 @@ def set_proxy(account, mode: str, *, url: str = "", config=None, actor: str = ""
         _sync_config_owner(cfg)
     label = proxy_label(account)
     if changed:
-        try:
-            from apps.billing.manage_views import invalidate_cockpit_client
-            invalidate_cockpit_client(account.id)
-        except Exception:
-            pass
         log_event(account, "proxy_changed", note or f"اتصال جدید: {label}",
                   {"from": before_url, "to": effective_proxy_url(account), "mode": proxy_mode(account),
                    "config_id": new_cfg.pk if new_cfg else None}, actor)

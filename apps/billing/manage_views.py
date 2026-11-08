@@ -1642,11 +1642,6 @@ class SafeCockpitJSONEncoder(DjangoJSONEncoder):
 _cockpit_client_cache: dict[int, tuple[float, Any, str]] = {}
 
 
-def invalidate_cockpit_client(account_id: int) -> None:
-    """Explicitly purges any cached cockpit client instance for the given account."""
-    _cockpit_client_cache.pop(account_id, None)
-
-
 def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = False):
     """
     Returns an authenticated instagrapi.Client with device emulation and proxy applied.
