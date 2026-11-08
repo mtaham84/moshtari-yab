@@ -463,7 +463,8 @@ def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed
     if mode == "config":
         cfg = acc.proxy_config
         is_current_failed = force_rotate or (failed_config_id is not None and cfg and cfg.pk == failed_config_id)
-        if _config_live(cfg) and not is_current_failed:
+        live = _config_live(cfg)
+        if live and not is_current_failed:
             if acc.proxy_url != config_url(cfg):   # mirror drifted: same config, same IP
                 acc.proxy_url = config_url(cfg)
                 acc.save(update_fields=["proxy_url"])
@@ -478,14 +479,14 @@ def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed
             return {"username": acc.username, "from": cfg.pk, "to": new.pk, "new_port": new.local_port,
                     "changed": bool(res.extra.get("changed"))}
         old = cfg.pk if cfg else None
-        if old:
-            try:
+        if live:   # xray still serves it: only this account saw it fail, the others keep using it
+            why = f"کانفیگ #{old} برای این اکانت جواب نداد"
+        else:
+            if old:
                 ProxyConfig.objects.filter(pk=old).update(status="DEAD", ping_ms=-1.0)
-            except Exception as upd_err:
-                log.warning("Failed updating dead config #%s: %s", old, upd_err)
-            log_event(acc, "proxy_down", f"کانفیگ #{old} در دسترس نیست یا دچار قطعی شد",
-                      {"config_id": old}, actor)
-        why = f"کانفیگ #{old} از کار افتاد یا قطع شد"
+                log_event(acc, "proxy_down", f"کانفیگ #{old} در دسترس نیست یا دچار قطعی شد",
+                          {"config_id": old}, actor)
+            why = f"کانفیگ #{old} از کار افتاد یا قطع شد"
     elif mode == "legacy":
         why = f"پورت {xray_port(acc.proxy_url)} کانفیگ فعالی ندارد"
     elif parked:

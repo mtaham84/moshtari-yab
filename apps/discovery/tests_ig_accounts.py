@@ -391,6 +391,28 @@ class ConnectionTests(IgAccountsTestBase):
         self.assertIn("proxy_down", self.kinds(c))
         self.assertEqual(ig.ensure_system_configs()["healed_count"], 0)   # stable: nothing moves twice
 
+    def test_forced_rotation_off_a_live_config_moves_only_that_account(self):
+        # the scraper saw the proxy fail once, but xray still serves the config: other accounts keep using it
+        c1, c2 = self.cfg(1091), self.cfg(1092)
+        a = self.acc("a", status="ACTIVE", proxy_config=c1, proxy_url="socks5h://xray:1091")
+        ig._heal_account(a, force_rotate=True, failed_config_id=c1.pk)
+        a.refresh_from_db()
+        c1.refresh_from_db()
+        self.assertEqual(a.proxy_config_id, c2.pk)
+        self.assertEqual(c1.status, "ACTIVE")
+        self.assertNotIn("proxy_down", self.kinds(a))
+
+    def test_forced_rotation_off_a_dead_config_marks_it_dead(self):
+        c1, c2 = self.cfg(1091), self.cfg(1092)
+        a = self.acc("a", status="ACTIVE", proxy_config=c1, proxy_url="socks5h://xray:1091")
+        self.closed = {1091}
+        ig._heal_account(a, force_rotate=True, failed_config_id=c1.pk)
+        a.refresh_from_db()
+        c1.refresh_from_db()
+        self.assertEqual(a.proxy_config_id, c2.pk)
+        self.assertEqual(c1.status, "DEAD")
+        self.assertIn("proxy_down", self.kinds(a))
+
     def test_legacy_port_is_linked_to_its_config(self):
         c = self.cfg(1095)
         a = self.acc(proxy_url="socks5h://xray:1095")
