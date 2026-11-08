@@ -34,9 +34,6 @@ in English.
 `instagram_discovery/`, `workers/ig_collector/` (both experimental), `xray/proxy_switcher.py`,
 `workers/telegram_config_bot.py`, `scripts/legacy/`.
 
-The files in `docs/architecture/` are outdated (written before the large refactors). Verify against the code before
-trusting them.
-
 ## Commands
 
 ```bash

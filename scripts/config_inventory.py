@@ -184,8 +184,7 @@ def main() -> None:
         status = ("documented" if key in documented else "used-but-undocumented") if entries or key in SHELL_READS or key in COMPOSE_READS or key in config_keys else "documented-but-unused"
         output.append(f"| {key} | {', '.join(sorted(defaults)) or '—'} | {', '.join(sorted(processes)) or 'not read'} | {status} | {', '.join(sorted(proofs)) or '—'} |")
     output.extend(["", "Some values are chosen by helper functions, runtime settings, or configuration files rather than direct environment reads. Evidence points to the helper or call site.", ""])
-    target = ROOT / "docs/architecture/CONFIG.md"
-    target.write_text("\n".join(output), encoding="utf-8")
+    print("\n".join(output))   # markdown table on stdout
 
 
 if __name__ == "__main__":

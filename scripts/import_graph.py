@@ -99,10 +99,7 @@ def render(edges: set[tuple[str, str]]) -> str:
 
 
 def main() -> None:
-    destination = ROOT / "docs" / "architecture" / "dependency-graph.md"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(render(build_edges()), encoding="utf-8")
-    print(f"Wrote {destination.relative_to(ROOT)}")
+    print(render(build_edges()))   # mermaid markdown on stdout
 
 
 if __name__ == "__main__":

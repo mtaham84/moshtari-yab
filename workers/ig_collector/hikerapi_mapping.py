@@ -1,7 +1,6 @@
 """UNVERIFIED HikerAPI contract assumptions; check current provider docs.
 
-References are also listed in docs/IG_COLLECTION_ANALYSIS.md. Keep every endpoint,
-parameter, and response-path assumption in this mapping module.
+Keep every endpoint, parameter, and response-path assumption in this mapping module.
 """
 
 BASE_URL = "https://api.hikerapi.com"

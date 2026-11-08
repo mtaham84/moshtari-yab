@@ -57,7 +57,10 @@ The mess came from the process, not from one bad decision. Fix the process first
 
 ## Phase 1: Repository hygiene
 
-- [ ] Mark `docs/architecture/*` as outdated or delete it; remove other docs that no longer match the code.
+- [x] Deleted the outdated `docs/architecture/` and 5 point-in-time analysis files (`IG_/X_COLLECTION_ANALYSIS`,
+      `X_GROWTH/INTENT_PREFLIGHT`, `X_NEED_ENGINE_ANALYSIS`). `scripts/import_graph.py` and
+      `scripts/config_inventory.py` now print to stdout. Kept: `INSTAGRAM_SESSIONS.md`, `SECURITY_CLEANUP.md` (until the
+      leaked proxy links are confirmed rotated) and the business docs.
 - [x] One test command: `python -m pytest` runs everything (pytest-django runs the Django suites; the custom Django
       runner moved into `conftest.py`). This also picked up `shared/tele_logging/tests.py` (18 tests), which neither
       runner collected before.
@@ -109,8 +112,8 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
 
 ## Known issues
 
-- 3 tests fail locally but pass in CI (also on unchanged `main`): `workers/x_collector/tests/test_intent_queries.py`
-  (2) and `workers/x_collector/tests/test_proqe.py` (1). Cause not yet found.
+- Tests must not depend on a developer's `.env`: need_engine and telegram_crawler load it at import time. The
+  X-collector tests clear `X_QUERY_*` (`workers/x_collector/tests/conftest.py`); do the same for new env-driven tests.
 - Tests that mock the function under review can pass while production breaks (PR #21: the probe was mocked, so CI
   never saw that `api.telegram.org` answers 302). Prefer real local servers/databases in tests.
 - A deploy that changes the `Dockerfile` needs `docker compose build` on the server (the app image ships the xray
