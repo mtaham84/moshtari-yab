@@ -269,7 +269,7 @@ services:
     # The whole folder is mounted: the file is replaced atomically, which a single-file mount would never see.
     entrypoint: ["/bin/sh", "/etc/xray/watch.sh"]
     environment:
-      XRAY_RELOAD_MIN_SECONDS: ${XRAY_RELOAD_MIN_SECONDS:-5}
+      XRAY_RELOAD_MIN_SECONDS: ${XRAY_RELOAD_MIN_SECONDS:-60}
       XRAY_WATCH_POLL_SECONDS: ${XRAY_WATCH_POLL_SECONDS:-2}
     ports:
       - "127.0.0.1:1080:1080"

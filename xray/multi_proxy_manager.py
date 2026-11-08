@@ -631,14 +631,9 @@ def reload_xray_service() -> bool:
     """Restarts the Xray container when the docker CLI is available (host scripts).
 
     Inside the app containers there is no docker CLI: the xray service (docker-compose, xray/watch.sh) restarts
-    itself when config.json changes (within 2-5 seconds), so new dedicated ports go live without a manual restart.
+    itself when config.json changes (at most every XRAY_RELOAD_MIN_SECONDS), so new dedicated ports go live without a
+    manual restart.
     """
-    try:
-        if CONFIG_FILE.exists():
-            CONFIG_FILE.touch()
-    except Exception:
-        pass
-
     try:
         res = subprocess.run(
             ["docker", "restart", "moshtari-yab-xray-1"],
