@@ -83,6 +83,16 @@ class OutreachEngineTests(TestCase):
         third = self.step(min_gap_minutes=20)
         self.assertEqual((third["action"], third["reason"]), ("waiting", "sender_pacing"))
 
+    def test_never_used_senders_are_picked_oldest_account_first(self):
+        # The sender query has no ORDER BY, so PostgreSQL may return the rows in any order (it depends on the query
+        # plan and table statistics). Return them newest first, as such a plan would; the pick must not change.
+        self._sender("s_two")
+        real_filter = InstagramEngineAccount.objects.filter
+        with patch.object(InstagramEngineAccount.objects, "filter",
+                          lambda *a, **kw: real_filter(*a, **kw).order_by("-pk")):
+            picked = engine.get_available_senders([TENANT], refresh=False)
+        self.assertEqual([s.username for s in picked], ["s_one", "s_two"])
+
     def test_rate_limited_sender_rests_and_another_sender_takes_over(self):
         self._sender("s_two", last_action_at=timezone.now() - timedelta(hours=1))
         self.s1.last_action_at = timezone.now() - timedelta(hours=2)  # least recently used -> picked first
