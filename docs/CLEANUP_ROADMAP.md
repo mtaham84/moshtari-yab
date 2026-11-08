@@ -12,8 +12,8 @@ green, before the next one starts. Behavior must not change unless the step says
 
 - Phase 0 is done: AGENTS.md, skills, git conventions (PR #22), and CI guardrails (`ci/guardrail-checks`): file size
   and broad-except baseline, import-boundary test, commit message check, pinned ruff, pre-commit.
-- **Next step:** Phase 1 (outdated docs, one test command), then Phase 2 easy deletions (`scripts/legacy/`,
-  `xray/proxy_switcher.py`).
+- Phase 1 in review: stale docs removed (#26), one test command (#27), CI push builds only on `main` (#28).
+- **Next step:** Phase 2 easy deletions (`scripts/legacy/`, `xray/proxy_switcher.py`).
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
