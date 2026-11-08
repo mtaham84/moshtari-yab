@@ -57,7 +57,10 @@ The mess came from the process, not from one bad decision. Fix the process first
 
 ## Phase 1: Repository hygiene
 
-- [ ] Mark `docs/architecture/*` as outdated or delete it; remove other docs that no longer match the code.
+- [x] Deleted the outdated `docs/architecture/` and 5 point-in-time analysis files (`IG_/X_COLLECTION_ANALYSIS`,
+      `X_GROWTH/INTENT_PREFLIGHT`, `X_NEED_ENGINE_ANALYSIS`). `scripts/import_graph.py` and
+      `scripts/config_inventory.py` now print to stdout. Kept: `INSTAGRAM_SESSIONS.md`, `SECURITY_CLEANUP.md` (until the
+      leaked proxy links are confirmed rotated) and the business docs.
 - [ ] One test command: tests are split between `pytest.ini` paths and `manage.py test apps`, and some `tests_*.py`
       files may be in neither. Make one command run everything.
 
