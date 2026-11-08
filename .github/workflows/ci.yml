@@ -73,3 +73,13 @@ jobs:
       - name: Guardrail baseline (file size, broad excepts)
         run: python scripts/check_baseline.py
 
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Conventional Commits, no AI attribution
+        run: python3 scripts/check_commits.py "origin/${{ github.base_ref }}..HEAD"
