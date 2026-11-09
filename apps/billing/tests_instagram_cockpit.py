@@ -55,7 +55,7 @@ class InstagramCockpitViewTests(TestCase):
         self.assertContains(res, "ورود به کابین اکانت")
 
     def test_safe_encoder_handles_pydantic_http_url(self):
-        from apps.billing.manage_views import SafeCockpitJSONEncoder
+        from apps.billing.manage.cockpit import SafeCockpitJSONEncoder
         import json
 
         class MockHttpUrl:
@@ -90,7 +90,7 @@ class InstagramCockpitSendCounterTests(TestCase):
         from unittest.mock import MagicMock, patch
 
         fake = MagicMock()
-        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)):
+        with patch("apps.billing.manage.cockpit._get_cockpit_client", return_value=(fake, None)):
             res = self.client.post(
                 reverse("manage:instagram_cockpit_send_direct", args=[self.account.pk]),
                 {"thread_id": "123", "text": "سلام"},
@@ -105,7 +105,7 @@ class InstagramCockpitSendCounterTests(TestCase):
         from unittest.mock import MagicMock, patch
 
         fake = MagicMock()
-        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)):
+        with patch("apps.billing.manage.cockpit._get_cockpit_client", return_value=(fake, None)):
             res = self.client.post(
                 reverse("manage:instagram_cockpit_send_direct", args=[self.account.pk]),
                 {"user_id": "abc", "text": "سلام"},
@@ -117,7 +117,7 @@ class InstagramCockpitSendCounterTests(TestCase):
         from unittest.mock import MagicMock, patch
 
         fake = MagicMock()
-        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)), \
+        with patch("apps.billing.manage.cockpit._get_cockpit_client", return_value=(fake, None)), \
                 patch("apps.discovery.outreach_service.execute_organic_journey", return_value={"target_pk": 1}):
             res = self.client.post(
                 reverse("manage:instagram_cockpit_organic_dm", args=[self.account.pk]),
@@ -132,7 +132,7 @@ class InstagramCockpitSendCounterTests(TestCase):
         from unittest.mock import MagicMock, patch
 
         fake = MagicMock()
-        with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)):
+        with patch("apps.billing.manage.cockpit._get_cockpit_client", return_value=(fake, None)):
             res = self.client.post(reverse("manage:instagram_cockpit_send_direct", args=[self.account.pk]), data)
         return res, fake
 

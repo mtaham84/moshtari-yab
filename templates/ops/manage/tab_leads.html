@@ -1,0 +1,107 @@
+{% load ops static %}<div id="tab-leads" class="tab-pane">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> صف سرنخ‌های پالایش‌شده اینستاگرام بر اساس بالاترین احتمال خرید</h2>
+        <p class="muted" style="font-size:0.8rem; margin:2px 0 0;">
+          کامنت‌های حاوی توهین و دیس کاملاً مسدود شده‌اند؛ کامنت‌های CTA مستقیم بدون هزینه و سایر کامنت‌ها توسط هوش مصنوعی Luna GPT-6 ارزیابی شده‌اند.
+        </p>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <a href="{% url 'manage:leads_export_csv' %}" class="btn sm" style="background:#059669; color:#fff;" title="دانلود کل دیتاست با فرمت اکسل">
+          <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg> خروجی اکسل (CSV)
+        </a>
+        <a href="{% url 'manage:leads_export_json' %}" class="btn sm" style="background:#0284c7; color:#fff;" title="دانلود دیتاست استاندارد JSON">
+          <svg class="ico" aria-hidden="true"><use href="#i-box"/></svg> خروجی JSON
+        </a>
+        <span class="pill" style="font-weight:700;">{{ total_leads }} کل لیدها</span>
+      </div>
+    </div>
+
+    {% if leads %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>اولویت خرید</th>
+            <th>کاربر خریدار</th>
+            <th>متن کامنت خریدار</th>
+            <th>پست مبدأ و کپشن</th>
+            <th>روش پردازش و تطابق</th>
+            <th>وضعیت ارسال</th>
+            <th>زمان کشف</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in leads %}
+          <tr>
+            <td>
+              {% if l.intent_score >= 0.95 %}
+                <span class="intent-badge intent-very-high"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> {{ l.intent_score|floatformat:2 }} (بسیار بالا)</span>
+              {% elif l.intent_score >= 0.88 %}
+                <span class="intent-badge intent-high"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> {{ l.intent_score|floatformat:2 }} (بالا)</span>
+              {% else %}
+                <span class="intent-badge intent-mid"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> {{ l.intent_score|floatformat:2 }} (عادی)</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ l.profile_url|default:'https://www.instagram.com/'|add:l.username }}" target="_blank" style="font-weight:700; color:var(--accent); text-decoration:none;">
+                @{{ l.username }} ↗
+              </a>
+              {% if l.full_name %}<div class="muted" style="font-size:0.75rem;">{{ l.full_name }}</div>{% endif %}
+              <div class="muted" style="font-size:0.7rem; font-family:monospace;">شناسه: {{ l.ig_user_pk }}</div>
+            </td>
+            <td style="max-width:320px;">
+              <div style="font-size:0.86rem; line-height:1.5; background:#f8fafc; padding:8px 10px; border-radius:6px; border:1px solid #e2e8f0;">
+                «{{ l.comment_text }}»
+              </div>
+            </td>
+            <td style="max-width:280px;">
+              {% if l.source_post_url %}
+                <a href="{{ l.source_post_url }}" target="_blank" style="font-size:0.8rem; font-weight:700; color:#0284c7; display:inline-flex; align-items:center; gap:4px; margin-bottom:4px;">
+                  <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست در اینستاگرام</span> ↗
+                </a>
+              {% endif %}
+              {% if l.post_caption_snippet %}
+                <details style="margin-top:2px;">
+                  <summary style="font-size:0.74rem; color:var(--muted); cursor:pointer;"><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> پیش‌نمایش کپشن پست</summary>
+                  <div style="font-size:0.74rem; background:#fff; padding:6px; border-radius:4px; margin-top:4px; border:1px solid #cbd5e1; line-height:1.4; max-height:90px; overflow-y:auto;">
+                    {{ l.post_caption_snippet }}
+                  </div>
+                </details>
+              {% endif %}
+            </td>
+            <td>
+              {% if l.matched_cta %}
+                {% if 'cta' in l.matched_cta or 'direct' in l.matched_cta %}
+                  <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.74rem;"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> CTA مستقیم (رایگان)</span>
+                {% else %}
+                  <span class="pill" style="background:#fce7f3; color:#be185d; font-size:0.74rem;"><svg class="ico" aria-hidden="true"><use href="#i-cpu"/></svg> ارزیابی Luna GPT-6</span>
+                {% endif %}
+                <div style="font-size:0.72rem; margin-top:3px; color:var(--muted);">{{ l.matched_cta|truncatechars:25 }}</div>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if l.status == 'DM_SENT' %}
+                <span class="badge-status active"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> ارسال شد</span>
+              {% elif l.status == 'NEW' %}
+                <span class="badge-status cooldown"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg> در صف ارسال</span>
+              {% elif l.status == 'SKIPPED' %}
+                <span class="badge-status" style="background:#f1f5f9; color:#64748b;">رد شده</span>
+              {% else %}
+                <span class="badge-status banned">خطا</span>
+              {% endif %}
+            </td>
+            <td class="jalali-time-cell" style="font-size:0.8rem;">{{ l.created_at|time_ago_fa }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز لیدی استخراج نشده است.</p>
+    {% endif %}
+  </div>
+</div>

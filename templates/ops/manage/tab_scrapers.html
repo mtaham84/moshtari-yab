@@ -1,0 +1,315 @@
+{% load ops static %}<div id="tab-scrapers" class="tab-pane">
+  <div class="msg" style="margin-bottom:14px">افزودن، ورود و ثبت کد، اتصال و کانفیگ/QR، توقف و تاریخچه‌ی اکانت‌های اینستاگرام حالا یک‌جا در صفحه‌ی <a href="{% url 'manage:ig_accounts' %}"><b>اکانت‌های اینستاگرام</b></a> است (نام مشاور و پیام هر مشتری: <a href="{% url 'manage:ig_tenants' %}">پیام مشتری‌ها</a>).</div>
+  <div class="account-form">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> افزودن اکانت اسکرپر جدید به مخزن (Instagram Scraper Account)</h2>
+    <form id="form-add-scraper" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
+      {% csrf_token %}
+      <input type="hidden" name="role" value="SCRAPER">
+      <input type="hidden" name="tenant_id" value="tenant_default">
+      <div class="form-row">
+        <div class="field">
+          <label>نام کاربری اینستاگرام</label>
+          <input type="text" name="username" class="ops-input" placeholder="مثال: scraper_bot_99" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>رمز عبور اکانت</label>
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" dir="ltr">
+          <span class="help">در صورت ورود با sessionid، می‌توانید رمز عبور را اختیاری بگذارید.</span>
+        </div>
+        <div class="field">
+          <label>کوکی sessionid (اختیاری - بدون چالش امنیتی)</label>
+          <input type="text" name="sessionid" class="ops-input" placeholder="مثال: 61533556495%3AYzR..." dir="ltr">
+          <span class="help">ورود امن و فوری با کوکی مرورگر بدون نیاز به پسورد و بدون ریسک بلاک.</span>
+        </div>
+        <div class="field">
+          <label>پروکسی اختصاصی (اختیاری)</label>
+          <input type="text" name="proxy_url" class="ops-input" placeholder="http://xray:8080 یا socks5://..." dir="ltr">
+          <span class="help">پشتیبانی از پروتکل‌های HTTP و SOCKS5</span>
+        </div>
+        <div>
+          <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت اسکرپر</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div>
+        <h2>لیست و وضعیت بلادرنگ اکانت‌های اسکرپر اینستاگرام</h2>
+        <span class="muted" style="font-size:0.8rem;">ساعات کاری مجاز: {{ ig_window_label }} به وقت تهران | در سایر ساعات اسکرپرها در وضعیت خواب شبانه قرار می‌گیرند</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span class="pill" style="background:#fae8ff; color:#a21caf; font-weight:700;">کل اکانت‌ها: {{ scrapers_total }}</span>
+        {% if is_ig_night_sleep %}
+          <span class="pill" style="background:#eff6ff; color:#1d4ed8; font-weight:700;">شیفت کاری: خواب شبانه</span>
+        {% else %}
+          <span class="pill" style="background:#dcfce7; color:#15803d; font-weight:700;">شیفت کاری: بیدار و فعال</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Instagram Lead Conversion Funnel Cards -->
+    <div class="grid g4" style="margin-bottom:20px;">
+      <div class="card stat" style="border-right:3px solid #d946ef;">
+        <div class="label">عملیات / سرچ‌های انجام‌شده</div>
+        <div class="value" style="color:#d946ef;">{{ ig_searches_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ ig_searches_24h }}</strong> اجرا</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #64748b;">
+        <div class="label">پست‌های بررسی‌شده (Posts)</div>
+        <div class="value" style="color:#0f172a;">{{ ig_posts_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ ig_posts_24h }}</strong> پست</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #10b981;">
+        <div class="label">لیدهای تأییدشده (Confirmed Leads)</div>
+        <div class="value" style="color:#10b981;">{{ ig_leads_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ ig_leads_24h }}</strong> لید خریدار</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #7c3aed;">
+        <div class="label">نرخ تبدیل پست به لید (Conversion Rate)</div>
+        <div class="value" style="color:#7c3aed;">{{ ig_conversion_rate_total }}٪</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ ig_conversion_rate_24h }}٪</strong></div>
+      </div>
+    </div>
+
+    {% if scrapers %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>اکانت اینستاگرام</th>
+            <th><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg> دیوایس شبیه‌سازی‌شده (Emulated Device)</th>
+            <th><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> کانفیگ و شبکه (Proxy & Network)</th>
+            <th>وضعیت اتصال و شیفت</th>
+            <th>عملیات (۲۴س / کل)</th>
+            <th>پست‌ها (۲۴س / کل)</th>
+            <th>لیدها (۲۴س / کل)</th>
+            <th>نرخ تبدیل (۲۴س / کل)</th>
+            <th>آخرین فعالیت</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in scrapers %}
+          <tr id="row-acc-{{ acc.id }}">
+            <td style="font-weight:700; color:var(--muted);">#{{ acc.id }}</td>
+            <td>
+              <div style="font-weight:800; font-size:1rem; color:var(--text);" dir="ltr">@{{ acc.username }}</div>
+              <div style="margin-top:4px;">
+                {% if acc.session_json %}
+                  <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">دارای سشن ذخیره‌شده</span>
+                {% else %}
+                  <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">نیازمند لاگین اولیه</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div style="display:flex; flex-direction:column; gap:3px;">
+                <div style="font-weight:700; color:{{ acc.device_info.color }}; display:flex; align-items:center; gap:5px;">
+                  <span style="font-size:1.1rem;"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span> <span>{{ acc.device_info.name }}</span>
+                </div>
+                <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                  <code>{{ acc.device_info.device|default:acc.device_info.model }}</code> &bull; Android {{ acc.device_info.android_release }}
+                </div>
+                {% if acc.device_info.resolution %}
+                <div class="muted" style="font-size:0.72rem;">
+                  رزولوشن: {{ acc.device_info.resolution }}{% if acc.device_info.dpi %} ({{ acc.device_info.dpi }}){% endif %}
+                </div>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div style="display:flex; flex-direction:column; gap:3px;">
+                {% if acc.proxy_config_id %}
+                  <div style="font-weight:700; color:#7c3aed; display:flex; align-items:center; gap:5px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>کانفیگ اختصاصی سیستم #{{ acc.proxy_config_id }}</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr"><code>{{ acc.proxy_url }}</code></div>
+                {% elif acc.proxy_url and 'xray' in acc.proxy_url %}
+                  <div style="font-weight:700; color:#7c3aed; display:flex; align-items:center; gap:5px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>xray (استخر / پورت قدیمی)</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr"><code>{{ acc.proxy_url }}</code></div>
+                {% elif acc.proxy_url %}
+                  <div style="font-weight:700; color:#0369a1; display:flex; align-items:center; gap:5px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>پروکسی سفارشی</span>
+                  </div>
+                  <div class="muted" style="font-size:0.76rem;" dir="ltr">
+                    <code title="{{ acc.proxy_url }}">{{ acc.proxy_url|truncatechars:32 }}</code>
+                  </div>
+                {% else %}
+                  <div style="font-weight:700; color:#64748b; display:flex; align-items:center; gap:5px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span> <span>استخر مشترک سیستم</span>
+                  </div>
+                {% endif %}
+                {% if acc.proxy_meta.last_ip %}<div class="muted" style="font-size:0.72rem;" dir="ltr">IP: <code>{{ acc.proxy_meta.last_ip }}</code> {{ acc.proxy_meta.country_code }}</div>{% endif %}
+                <a href="{% url 'manage:ig_account_config' acc.id %}" style="font-size:0.74rem;">کانفیگ / QR گوشی</a>
+              </div>
+            </td>
+            <td>
+              <div id="badge-container-{{ acc.id }}">
+                {% if acc.live_status_badge == 'night_sleep' %}
+                  <span class="badge-status night_sleep" id="badge-{{ acc.id }}"><i class="dot dot-sleep" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                  <div class="muted" style="font-size:0.75rem; margin-top:2px; color:#1d4ed8;">{{ acc.live_status_desc }}</div>
+                {% elif acc.live_status_badge == 'cooldown' %}
+                  <span class="badge-status cooldown" id="badge-{{ acc.id }}"><i class="dot dot-warn" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                  <div class="muted" style="font-size:0.75rem; margin-top:2px;">{{ acc.live_status_desc }}</div>
+                {% elif acc.live_status_badge == 'active' %}
+                  <span class="badge-status active" id="badge-{{ acc.id }}"><i class="dot dot-ok" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% elif acc.live_status_badge == 'challenged' %}
+                  <span class="badge-status challenged" id="badge-{{ acc.id }}"><i class="dot dot-alert" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% elif acc.live_status_badge == 'banned' %}
+                  <span class="badge-status banned" id="badge-{{ acc.id }}"><i class="dot dot-bad" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% else %}
+                  <span class="badge-status" style="background:#f1f5f9; color:#64748b;" id="badge-{{ acc.id }}"><i class="dot dot-idle" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% endif %}
+              </div>
+              <span class="test-feedback" id="feedback-{{ acc.id }}"></span>
+              {% if acc.status_message %}<div class="muted" style="font-size:0.78rem; margin-top:4px; color:var(--down); max-width:260px; white-space:normal;">{{ acc.status_message }}</div>{% endif %}
+            </td>
+            <td class="n">
+              <strong style="color:#d946ef;">{{ acc.searches_24h }}</strong> <span class="muted">/ {{ acc.searches_total }}</span>
+            </td>
+            <td class="n">
+              <strong style="color:#0f172a;">{{ acc.posts_24h }}</strong> <span class="muted">/ {{ acc.posts_total }}</span>
+            </td>
+            <td class="n">
+              <strong style="color:#10b981;">{{ acc.leads_24h }}</strong> <span class="muted">/ {{ acc.leads_total }}</span>
+            </td>
+            <td class="n" style="font-family:monospace; font-weight:700;">
+              <span style="color:#7c3aed;">{{ acc.conv_rate_24h }}٪</span> <span class="muted">/ {{ acc.conv_rate_total }}٪</span>
+            </td>
+            <td class="jalali-time-cell">
+              {% if acc.last_action_at %}
+                {{ acc.last_action_at|time_ago_fa }}
+              {% else %}
+                <span class="muted">در انتظار اسکن</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="btn sm" onclick="testAccountLive({{ acc.id }}, this)" id="btn-test-{{ acc.id }}" title="تست اتصال زنده و وضعیت سشن">
+                  <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست اتصال
+                </button>
+                <button class="btn sm" onclick="openSessionModal({{ acc.id }}, '{{ acc.username }}')" title="تنظیم یا به‌روزرسانی کوکی sessionid بدون پسورد">
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ثبت sessionid
+                </button>
+                <a class="btn sm" style="background:#ea580c; color:#fff; {% if acc.status != 'CHALLENGED' %}display:none;{% endif %}" href="{% url 'manage:ig_account_detail' acc.id %}#login" id="btn-challenge-{{ acc.id }}" title="ورود و ثبت کد تأیید در صفحه‌ی اکانت">
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ورود / ثبت کد
+                </a>
+                <a class="btn sm" href="{% url 'manage:ig_account_detail' acc.id %}" title="مدیریت کامل اکانت">مدیریت</a>
+                <form method="POST" action="{% url 'manage:account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟');" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn sm danger">حذف</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="text-align:center; padding:30px;" class="muted">
+      هیچ اکانت اسکرپری ثبت نشده است. از فرم بالا اولین اکانت اسکرپر را اضافه نمایید.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-top:24px;">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div><h2>بازده منبع‌های جست‌وجوی اینستاگرام</h2><span class="muted" style="font-size:.82rem">لیدهای واجد شرایط تقسیم بر تعداد درخواست، به تفکیک فروشگاه و خانواده</span></div>
+    </div>
+    {% if instagram_source_stats %}<div class="table-responsive"><table><thead><tr><th>منبع</th><th>خانواده</th><th>فروشگاه</th><th class="n">درخواست‌ها</th><th class="n">لیدها</th><th class="n">بازده</th><th>آخرین اجرا</th></tr></thead><tbody>
+      {% for stat in instagram_source_stats %}<tr>
+        <td>{{ stat.get_source_type_display }} · {{ stat.label }}</td><td>{{ stat.family_id }}</td><td>{{ stat.business.name }}</td>
+        <td class="n">{{ stat.requests }}</td><td class="n">{{ stat.leads }}</td>
+        <td class="n">{% if stat.requests %}{{ stat.leads|floatformat:2 }} / {{ stat.requests }}{% else %}—{% endif %}</td>
+        <td class="jalali-time-cell">{% if stat.last_run_at %}<span dir="ltr">{{ stat.last_run_at|jalali_dt }}</span>{% else %}—{% endif %}</td>
+      </tr>{% endfor %}
+    </tbody></table></div>{% else %}<p class="muted">هنوز برای منبع‌های جدید آمار اجرا ثبت نشده است.</p>{% endif %}
+  </div>
+
+  <!-- Live Instagram Crawl Audit Trail per Query & Account -->
+  <div class="card" style="margin-top:24px;">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg> تاریخچه و آخرین وضعیت کرول کوئری‌ها بر اساس اکانت‌های اینستاگرام</h2>
+        <span class="muted" style="font-size:0.82rem;">
+          ثبت دقیق تاریخ شمسی و ساعت تهران، اکانت اسکرپر مجری، تعداد پست‌های بررسی شده و لیدهای یافت‌شده به تفکیک کوئری و مستأجر
+        </span>
+      </div>
+      <span class="pill" style="font-weight:700;">{{ crawl_executions|length }} اجرای اخیر</span>
+    </div>
+
+    {% if crawl_executions %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>کوئری / هشتگ</th>
+            <th>نوع</th>
+            <th>اکانت اسکرپر</th>
+            <th>کسب‌وکار / مستأجر</th>
+            <th>زمان اجرا (ساعت تهران و شمسی)</th>
+            <th class="n">پست‌های بررسی‌شده</th>
+            <th class="n">پست حائز شرایط</th>
+            <th class="n">لیدهای جدید</th>
+            <th>وضعیت</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in crawl_executions %}
+          <tr>
+            <td>
+              <strong>{{ log.query_text }}</strong>
+            </td>
+            <td>
+              {% if log.target_type == 'HASHTAG' %}
+                <span class="pill" style="background:#e0e7ff; color:#4338ca; font-size:0.75rem;">#️⃣ هشتگ</span>
+              {% elif log.target_type == 'PAGE' %}
+                <span class="pill" style="background:#fef3c7; color:#92400e; font-size:0.75rem;"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> صفحه رقیب</span>
+              {% else %}
+                <span class="pill" style="background:#f1f5f9; color:#475569; font-size:0.75rem;"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg> کلمه کلیدی</span>
+              {% endif %}
+            </td>
+            <td>
+              <span style="font-weight:700; color:var(--accent);">@{{ log.account_username }}</span>
+            </td>
+            <td>
+              {% if log.business %}
+                <span>{{ log.business.name }}</span>
+                <div class="muted" style="font-size:0.72rem;">#{{ log.business.id }} ({{ log.tenant_id }})</div>
+              {% else %}
+                <span class="muted">{{ log.tenant_id }}</span>
+              {% endif %}
+            </td>
+            <td class="jalali-time-cell">
+              <strong>{{ log.crawled_at_jalali }}</strong>
+            </td>
+            <td class="n">{{ log.posts_inspected }}</td>
+            <td class="n">{{ log.qualifying_posts }}</td>
+            <td class="n" style="font-weight:700; color:var(--accent);">{{ log.leads_found }}</td>
+            <td>
+              {% if log.status == 'SUCCESS' %}
+                <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> موفق</span>
+              {% elif log.status == 'NO_POSTS' %}
+                <span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> بدون پست جدید</span>
+              {% elif log.status == 'THROTTLED' %}
+                <span class="badge-status challenged"><i class="dot dot-alert" aria-hidden="true"></i> محدودیت موقت</span>
+              {% else %}
+                <span class="badge-status banned" title="{{ log.message }}"><i class="dot dot-bad" aria-hidden="true"></i> خطا</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز لاگ کرولی ثبت نشده است. پس از اولین اجرای اسکرپر، تاریخ و ساعت دقیق تهران در اینجا نمایش داده خواهد شد.</p>
+    {% endif %}
+  </div>
+</div>

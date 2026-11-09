@@ -15,7 +15,7 @@ except ImportError:
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from apps.billing.manage_views import (
+from apps.billing.manage.x_session import (
     TWITTER_SETTINGS_ENDPOINT,
     XSessionValidationResult,
     _get_or_generate_ct0,
@@ -84,7 +84,7 @@ class SessionReplacementTests(TestCase):
         def fake_test(account):
             account.status_message = status_message
             return ok, "CHALLENGED" if not ok else "ACTIVE", status_message
-        with mock.patch("apps.billing.manage_views._test_twitter_account_connection", side_effect=fake_test):
+        with mock.patch("apps.billing.manage.x_accounts._test_twitter_account_connection", side_effect=fake_test):
             return self.client.post(f"/manage/twitter-accounts/{acc.pk}/session/", {"auth_token": "t" * 40, "ct0": "c" * 32}).json()
 
     def test_x_rejected_session_keeps_account_as_challenged(self):
@@ -123,7 +123,7 @@ class SessionReplacementTests(TestCase):
         acc = self._x_acc(username="x_http_200", status="CHALLENGED")
         resp = mock.MagicMock(status_code=200, text='{"screen_name": "x_http_200"}')
         resp.json.return_value = {"screen_name": "x_http_200"}
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertTrue(out["success"])
         self.assertEqual(out["status"], "ACTIVE")
@@ -138,7 +138,7 @@ class SessionReplacementTests(TestCase):
         acc = self._x_acc(username="x_http_401", status="ACTIVE")
         resp = mock.MagicMock(status_code=401, text='{"errors":[{"code":32,"message":"Could not authenticate you."}]}')
         resp.json.return_value = {"errors": [{"code": 32, "message": "Could not authenticate you."}]}
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "bad_auth_token_40_chars_long_12345678", "bad_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])
         self.assertFalse(out["deleted"])
@@ -151,7 +151,7 @@ class SessionReplacementTests(TestCase):
         acc = self._x_acc(username="x_http_403", status="ACTIVE")
         resp = mock.MagicMock(status_code=403, text='{"errors":[{"code":200,"message":"Forbidden"}]}')
         resp.json.return_value = {"errors": [{"code": 200, "message": "Forbidden"}]}
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])
         self.assertFalse(out["deleted"])
@@ -167,7 +167,7 @@ class SessionReplacementTests(TestCase):
         acc = self._x_acc(username="x_http_404", status="ACTIVE")
         resp = mock.MagicMock(status_code=404, text="404 Not Found")
         resp.json.side_effect = Exception("Not JSON")
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])
         self.assertFalse(out["deleted"])
@@ -181,7 +181,7 @@ class SessionReplacementTests(TestCase):
     def test_x_http_429_rate_limited_keeps_previous_state(self):
         acc = self._x_acc(username="x_http_429", status="ACTIVE")
         resp = mock.MagicMock(status_code=429, text="Rate limit exceeded")
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])
         self.assertFalse(out["deleted"])
@@ -194,7 +194,7 @@ class SessionReplacementTests(TestCase):
 
     def test_x_http_timeout_network_error_keeps_previous_state(self):
         acc = self._x_acc(username="x_http_timeout", status="ACTIVE")
-        with mock.patch("apps.billing.manage_views.requests.get", side_effect=Timeout("Read timed out")) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", side_effect=Timeout("Read timed out")) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])
         self.assertFalse(out["deleted"])
@@ -207,7 +207,7 @@ class SessionReplacementTests(TestCase):
 
     def test_x_http_ssl_error_network_error_keeps_previous_state(self):
         acc = self._x_acc(username="x_http_ssl", status="ACTIVE")
-        with mock.patch("apps.billing.manage_views.requests.get", side_effect=SSLError("SSL verification failed")) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", side_effect=SSLError("SSL verification failed")) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])
         self.assertFalse(out["deleted"])
@@ -223,7 +223,7 @@ class SessionReplacementTests(TestCase):
         acc = self._x_acc(username="x_gen_ct0", status="CHALLENGED", auth_token="old_t", ct0="")
         resp = mock.MagicMock(status_code=200, text='{"screen_name": "x_gen_ct0"}')
         resp.json.return_value = {"screen_name": "x_gen_ct0"}
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "")
         self.assertTrue(out["success"])
         mock_get.assert_called_once()
@@ -240,7 +240,7 @@ class SessionReplacementTests(TestCase):
 
     def test_x_missing_auth_token_makes_no_http_request(self):
         acc = self._x_acc(username="x_no_auth", status="ACTIVE", auth_token="old_t", ct0="old_c")
-        with mock.patch("apps.billing.manage_views.requests.get") as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get") as mock_get:
             out = self._post_x_session(acc.pk, "", "some_ct0")
             mock_get.assert_not_called()
         self.assertFalse(out["success"])
@@ -249,7 +249,7 @@ class SessionReplacementTests(TestCase):
 
         # Also direct call to _test_twitter_account_connection with empty auth_token
         acc.auth_token = ""
-        with mock.patch("apps.billing.manage_views.requests.get") as mock_get:
+        with mock.patch("apps.billing.manage.x_session.requests.get") as mock_get:
             ok, status, _ = _test_twitter_account_connection(acc)
             mock_get.assert_not_called()
         self.assertFalse(ok)
@@ -260,7 +260,7 @@ class SessionReplacementTests(TestCase):
         acc_valid = self._x_acc(username="x_val_ct0", status="CHALLENGED", auth_token="old_t", ct0="")
         resp_200 = mock.MagicMock(status_code=200, text='{"screen_name": "x_val_ct0"}')
         resp_200.json.return_value = {"screen_name": "x_val_ct0"}
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp_200):
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp_200):
             out = self._post_x_session(acc_valid.pk, "new_auth", "")
         self.assertTrue(out["success"])
         acc_valid.refresh_from_db()
@@ -270,7 +270,7 @@ class SessionReplacementTests(TestCase):
         # 2. INVALID (401) -> generated ct0 is NOT saved to DB
         acc_invalid = self._x_acc(username="x_inval_ct0", status="CHALLENGED", auth_token="old_t", ct0="")
         resp_401 = mock.MagicMock(status_code=401, text='{"errors":[{"code":32}]}')
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp_401):
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp_401):
             out = self._post_x_session(acc_invalid.pk, "new_auth", "")
         self.assertFalse(out["success"])
         acc_invalid.refresh_from_db()
@@ -280,7 +280,7 @@ class SessionReplacementTests(TestCase):
         # 3. FORBIDDEN (403) -> generated ct0 is NOT saved to DB
         acc_403 = self._x_acc(username="x_403_ct0", status="ACTIVE", auth_token="old_t", ct0="")
         resp_403 = mock.MagicMock(status_code=403, text='{"errors":[{"code":200}]}')
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp_403):
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp_403):
             out = self._post_x_session(acc_403.pk, "new_auth", "")
         self.assertFalse(out["success"])
         acc_403.refresh_from_db()
@@ -292,7 +292,7 @@ class SessionReplacementTests(TestCase):
         resp = mock.MagicMock(status_code=200, text='{"screen_name": "x_cookie_renew"}')
         resp.json.return_value = {"screen_name": "x_cookie_renew"}
         resp.cookies = {"ct0": "fresh_server_ct0_cookie_value"}
-        with mock.patch("apps.billing.manage_views.requests.get", return_value=resp):
+        with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp):
             out = self._post_x_session(acc.pk, "new_auth_token", "")
         self.assertTrue(out["success"])
         acc.refresh_from_db()
@@ -302,7 +302,7 @@ class SessionReplacementTests(TestCase):
         acc = self._x_acc(username="x_403_log", status="ACTIVE", auth_token="old_t", ct0="")
         resp = mock.MagicMock(status_code=403, text='{"errors":[{"code":200,"message":"Forbidden"}]}')
         with self.assertLogs("management", level="WARNING") as cm:
-            with mock.patch("apps.billing.manage_views.requests.get", return_value=resp):
+            with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp):
                 out = self._post_x_session(acc.pk, "new_auth", "")
         self.assertFalse(out["success"])
         self.assertTrue(out.get("inconclusive", False))
@@ -326,10 +326,10 @@ class SessionReplacementTests(TestCase):
         for uname, outcome in scenarios:
             acc = self._x_acc(username=uname, status="ACTIVE")
             if isinstance(outcome, Exception):
-                with mock.patch("apps.billing.manage_views.requests.get", side_effect=outcome):
+                with mock.patch("apps.billing.manage.x_session.requests.get", side_effect=outcome):
                     out = self._post_x_session(acc.pk, "auth_x", "ct0_x")
             else:
-                with mock.patch("apps.billing.manage_views.requests.get", return_value=outcome):
+                with mock.patch("apps.billing.manage.x_session.requests.get", return_value=outcome):
                     out = self._post_x_session(acc.pk, "auth_x", "ct0_x")
             self.assertFalse(out.get("deleted", False))
             self.assertTrue(
@@ -375,7 +375,7 @@ class SessionReplacementTests(TestCase):
         resp = mock.MagicMock(status_code=429, text="Rate limit exceeded")
         with mock.patch("shutil.which", return_value="/usr/local/bin/twitter"), \
              mock.patch("subprocess.run", side_effect=OSError("boom")), \
-             mock.patch("apps.billing.manage_views.requests.get", return_value=resp) as mock_get, \
+             mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get, \
              self.assertLogs("management", level="WARNING"):
             ok, st, msg = _test_twitter_account_connection(acc)
         self.assertFalse(ok)

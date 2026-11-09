@@ -9,7 +9,7 @@ django.setup()
 
 from django.test import RequestFactory, SimpleTestCase
 
-from apps.billing.manage_views import _ping_and_evaluate_proxy_config, manage_proxy_test
+from apps.billing.manage.proxies import _ping_and_evaluate_proxy_config, manage_proxy_test
 
 
 class ProxyLiveTestUnitTests(SimpleTestCase):
