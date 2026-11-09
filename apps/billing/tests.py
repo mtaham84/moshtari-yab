@@ -8,7 +8,7 @@ from unittest.mock import patch
 from apps.discovery.models import EngineSyncCursor, MonitoredCommunity
 from apps.discovery.tests import EngineSchemaMixin, seller
 
-from . import services
+from . import reports, services
 from .models import AIModel, BillingSettings, Provider, Wallet, WalletTransaction
 
 User = get_user_model()
@@ -66,8 +66,8 @@ class WalletTests(EngineSchemaMixin, TestCase):
 
         LLMUsageLog.objects.create(model="luna-test", purpose="taxonomy_tree", business_id=self.biz.pk,
                                    tokens_in=120, tokens_out=80, cost_usd=Decimal("0.01"))
-        with patch("apps.billing.services._table_exists", return_value=False):
-            usage, = services.model_usage(30)
+        with patch("apps.billing.engine_tables.engine_table_exists", return_value=False):
+            usage, = reports.model_usage(30)
         self.assertEqual((usage["key"], usage["calls"], usage["pt"], usage["ct"], usage["tokens"]),
                          ("luna-test", 1, 120, 80, 200))
         self.assertEqual(usage["toman"], 1500.0)

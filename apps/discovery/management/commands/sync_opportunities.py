@@ -12,7 +12,8 @@ import time
 from django.core.management.base import BaseCommand
 
 from apps.discovery.engine_bridge import import_opportunity, published_after, scrub_opportunity
-from apps.billing.services import charge_pending_usage, heartbeat
+from apps.billing.services import charge_pending_usage
+from apps.billing.ops_status import heartbeat
 from apps.discovery.models import EngineSyncCursor
 
 log = logging.getLogger(__name__)

@@ -355,7 +355,7 @@ class PanelViewTests(TestCase):
         self.mine.ai_analysis.suggested_reply = ""
         self.mine.ai_analysis.save(update_fields=["need", "suggested_reply"])
 
-        with patch("apps.discovery.views.opportunities.drafts_for", return_value={}):
+        with patch("apps.discovery.views.export.drafts_for", return_value={}):
             response = self.client.get(reverse("discovery:opportunity_export"))
         rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
 
@@ -382,7 +382,7 @@ class PanelViewTests(TestCase):
 
         self.mine.ai_analysis.suggested_reply = ""
         self.mine.ai_analysis.save(update_fields=["suggested_reply"])
-        with patch("apps.discovery.views.opportunities.drafts_for", side_effect=RuntimeError("offline")):
+        with patch("apps.discovery.views.export.drafts_for", side_effect=RuntimeError("offline")):
             with self.assertLogs("apps.discovery.views", level="WARNING") as logs:
                 response = self.client.get(reverse("discovery:opportunity_export"))
 
