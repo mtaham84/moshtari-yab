@@ -103,8 +103,6 @@
   "lines": {
     "apps/discovery/models/core.py": 848,
     "apps/discovery/outreach_service.py": 1364,
-    "static/css/panel.css": 2737,
-    "static/css/site.css": 3332,
     "workers/telegram_config_bot.py": 1167
   }
 }

@@ -1,0 +1,425 @@
+/* ==========================================================================
+   مشتری‌یاب | Moshtari-Yab Seller Panel Design System
+   Stone Neumorphism & Obsidian High-Tech Theme (buildX Competition Edition)
+   Inspired by Reference Console: Architectural Ribbed Canvas + Floating Chassis
+   ========================================================================== */
+
+:root {
+  /* Typography */
+  --font-vazir: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Stone Architecture Canvas (Ribbed background) */
+  --stone-canvas: #dbe2ea;
+  --stone-canvas-rib: rgba(255, 255, 255, 0.42);
+  --stone-chassis-bg: linear-gradient(135deg, #f4f8fc 0%, #e6edf5 100%);
+  --stone-chassis-border: rgba(255, 255, 255, 0.85);
+
+  /* Stone Surfaces & Neumorphism Tokens - Light Mode */
+  --panel-bg: #dbe2ea;
+  --panel-surface: #edf3f8;
+  --panel-surface-elevated: #f7fafe;
+  --panel-surface-sunken: #e2eaf2;
+  --panel-sidebar: #e8f0f7;
+  --panel-topbar: rgba(237, 243, 248, 0.94);
+  --panel-border: rgba(160, 175, 195, 0.35);
+  --panel-border-subtle: rgba(160, 175, 195, 0.2);
+  --panel-divider: #d9e3ed;
+
+  --panel-text-main: #141a24;
+  --panel-text-muted: #536479;
+  --panel-text-faint: #8a9bb0;
+  --panel-hover: rgba(160, 175, 195, 0.18);
+  --panel-active-bg: rgba(0, 242, 254, 0.12);
+
+  /* Dual Neumorphic Shadows (Tactile Embossed / Inset) */
+  --chassis-shadow: 24px 36px 70px rgba(150, 168, 190, 0.65), -18px -18px 45px rgba(255, 255, 255, 0.95);
+  --stone-shadow-raised: 8px 12px 24px rgba(160, 175, 195, 0.45), -6px -6px 18px rgba(255, 255, 255, 0.95);
+  --stone-shadow-hover: 12px 18px 30px rgba(160, 175, 195, 0.55), -8px -8px 22px rgba(255, 255, 255, 1);
+  --stone-shadow-inset: inset 3px 3px 6px rgba(160, 175, 195, 0.5), inset -3px -3px 6px rgba(255, 255, 255, 0.95);
+  --stone-shadow-sm: 4px 6px 14px rgba(160, 175, 195, 0.35), -3px -3px 10px rgba(255, 255, 255, 0.9);
+  --stone-shadow-pill: 5px 7px 14px rgba(160, 175, 195, 0.4), -4px -4px 10px rgba(255, 255, 255, 0.9);
+
+  /* High-Tech Obsidian Module Tokens */
+  --obsidian-bg: #111420;
+  --obsidian-surface: #171b29;
+  --obsidian-surface-soft: #1d2234;
+  --obsidian-border: rgba(255, 255, 255, 0.08);
+  --obsidian-text: #f3f6fc;
+  --obsidian-text-muted: #8b9bb4;
+  --obsidian-cyan: #00f2fe;
+  --obsidian-cyan-glow: 0 0 16px rgba(0, 242, 254, 0.45);
+  --obsidian-green: #00f59b;
+  --obsidian-purple: #9d4edd;
+
+  /* Brand Accents */
+  --brand-purple: #7928ca;
+  --brand-magenta: #e8268e;
+  --brand-gradient: linear-gradient(135deg, #00f2fe 0%, #4facfe 50%, #7928ca 100%);
+  --discovery-glow: 0 6px 20px rgba(0, 242, 254, 0.35);
+
+  /* Status Tokens */
+  --p-success: #10b981;
+  --p-success-bg: rgba(16, 185, 129, 0.12);
+  --p-warning: #f59e0b;
+  --p-info: #0284c7;
+  --p-danger: #ef4444;
+
+  /* Layout Sizing */
+  --sidebar-width: 256px;
+  --topbar-height: 72px;
+}
+
+:root[data-theme="dark"] {
+  --stone-canvas: #07090e;
+  --stone-canvas-rib: rgba(255, 255, 255, 0.02);
+  --stone-chassis-bg: linear-gradient(135deg, #151824 0%, #0c0e16 100%);
+  --stone-chassis-border: rgba(255, 255, 255, 0.08);
+
+  --panel-bg: #07090e;
+  --panel-surface: #131722;
+  --panel-surface-elevated: #1a1f2e;
+  --panel-surface-sunken: #0c0e15;
+  --panel-sidebar: #0f121d;
+  --panel-topbar: rgba(15, 18, 29, 0.94);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-border-subtle: rgba(255, 255, 255, 0.04);
+  --panel-divider: rgba(255, 255, 255, 0.07);
+
+  --panel-text-main: #f8fafc;
+  --panel-text-muted: #94a3b8;
+  --panel-text-faint: #64748b;
+  --panel-hover: rgba(255, 255, 255, 0.05);
+  --panel-active-bg: rgba(0, 242, 254, 0.15);
+
+  --chassis-shadow: 20px 28px 60px rgba(0, 0, 0, 0.75), -8px -8px 25px rgba(255, 255, 255, 0.02);
+  --stone-shadow-raised: 8px 12px 24px rgba(0, 0, 0, 0.5), -4px -4px 14px rgba(255, 255, 255, 0.03);
+  --stone-shadow-hover: 10px 16px 28px rgba(0, 0, 0, 0.6), -5px -5px 18px rgba(255, 255, 255, 0.05);
+  --stone-shadow-inset: inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -2px -2px 5px rgba(255, 255, 255, 0.04);
+  --stone-shadow-sm: 4px 6px 14px rgba(0, 0, 0, 0.4), -2px -2px 8px rgba(255, 255, 255, 0.02);
+  --stone-shadow-pill: 5px 7px 14px rgba(0, 0, 0, 0.45), -3px -3px 8px rgba(255, 255, 255, 0.03);
+
+  --discovery-glow: 0 6px 24px rgba(0, 242, 254, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --stone-canvas: #07090e;
+    --stone-canvas-rib: rgba(255, 255, 255, 0.02);
+    --stone-chassis-bg: linear-gradient(135deg, #151824 0%, #0c0e16 100%);
+    --stone-chassis-border: rgba(255, 255, 255, 0.08);
+
+    --panel-bg: #07090e;
+    --panel-surface: #131722;
+    --panel-surface-elevated: #1a1f2e;
+    --panel-surface-sunken: #0c0e15;
+    --panel-sidebar: #0f121d;
+    --panel-topbar: rgba(15, 18, 29, 0.94);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --panel-border-subtle: rgba(255, 255, 255, 0.04);
+    --panel-divider: rgba(255, 255, 255, 0.07);
+
+    --panel-text-main: #f8fafc;
+    --panel-text-muted: #94a3b8;
+    --panel-text-faint: #64748b;
+    --panel-hover: rgba(255, 255, 255, 0.05);
+    --panel-active-bg: rgba(0, 242, 254, 0.15);
+
+    --chassis-shadow: 20px 28px 60px rgba(0, 0, 0, 0.75), -8px -8px 25px rgba(255, 255, 255, 0.02);
+    --stone-shadow-raised: 8px 12px 24px rgba(0, 0, 0, 0.5), -4px -4px 14px rgba(255, 255, 255, 0.03);
+    --stone-shadow-hover: 10px 16px 28px rgba(0, 0, 0, 0.6), -5px -5px 18px rgba(255, 255, 255, 0.05);
+    --stone-shadow-inset: inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -2px -2px 5px rgba(255, 255, 255, 0.04);
+    --stone-shadow-sm: 4px 6px 14px rgba(0, 0, 0, 0.4), -2px -2px 8px rgba(255, 255, 255, 0.02);
+    --stone-shadow-pill: 5px 7px 14px rgba(0, 0, 0, 0.45), -3px -3px 8px rgba(255, 255, 255, 0.03);
+
+    --discovery-glow: 0 6px 24px rgba(0, 242, 254, 0.45);
+  }
+}
+
+/* ==========================================================================
+   Panel App Layout Shell: Architectural Ribbed Canvas + Floating Stone Chassis
+   ========================================================================== */
+.panel-app-container {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  background-color: var(--stone-canvas);
+  background-image: repeating-linear-gradient(45deg, var(--stone-canvas-rib) 0px, var(--stone-canvas-rib) 14px, transparent 14px, transparent 28px);
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  direction: rtl;
+  box-sizing: border-box;
+  font-family: var(--font-vazir);
+  transition: background-color 0.25s ease;
+  overflow-x: hidden;
+}
+
+/* Floating Stone Chassis (Inspired by reference console) */
+.stone-chassis {
+  width: 100%;
+  max-width: 1600px;
+  background: var(--stone-chassis-bg);
+  border-radius: 38px;
+  box-shadow: var(--chassis-shadow);
+  border: 1.5px solid var(--stone-chassis-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+/* ==========================================================================
+   Upper Stone Console Header (Brand, Pipeline Stepper, Status & Theme)
+   ========================================================================== */
+.stone-console-header {
+  height: var(--topbar-height);
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1.5px solid var(--panel-border-subtle);
+  background: var(--panel-topbar);
+  backdrop-filter: blur(16px);
+  z-index: 30;
+  gap: 16px;
+}
+
+/* Right Side: Brand Logo & Title */
+.console-brand-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.console-brand-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--panel-surface);
+  box-shadow: var(--stone-shadow-sm);
+  display: grid;
+  place-items: center;
+  color: var(--obsidian-cyan);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  font-weight: 900;
+  font-size: 1.25rem;
+}
+
+.console-brand-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.console-brand-name {
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  color: var(--panel-text-main);
+  line-height: 1.2;
+}
+
+.console-brand-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--stone-text-muted);
+}
+
+/* Center: Connected Pipeline Stepper Rail Track (Direct from Reference Image) */
+.pipeline-stepper-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.pipeline-stepper-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  position: relative;
+  padding: 6px 16px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  border-radius: 9999px;
+}
+
+.stepper-rail-line {
+  position: absolute;
+  top: 50%;
+  right: 32px;
+  left: 32px;
+  height: 3px;
+  background: rgba(160, 175, 195, 0.35);
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.stepper-node {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-pill);
+  color: var(--stone-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.stepper-node:hover {
+  color: var(--panel-text-main);
+  transform: translateY(-1px);
+}
+
+.stepper-node.active {
+  background: var(--obsidian-bg);
+  color: var(--obsidian-cyan);
+  box-shadow: 0 4px 14px rgba(0, 242, 254, 0.35);
+  border-color: rgba(0, 242, 254, 0.4);
+}
+
+.stepper-node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stone-text-faint);
+  transition: all 0.2s ease;
+}
+
+.stepper-node.active .stepper-node-dot {
+  background: var(--obsidian-cyan);
+  box-shadow: 0 0 8px var(--obsidian-cyan);
+}
+
+/* Left Side: System Status, Theme Switch & Profile Controls */
+.console-actions-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.console-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-pill);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--stone-text-main);
+}
+
+.console-pulse-beacon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--p-success);
+  box-shadow: 0 0 10px var(--p-success);
+  animation: pulse-beacon 2s infinite;
+}
+
+@keyframes pulse-beacon {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Minimal 3-state Theme Switcher */
+.theme-switch-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+  border-radius: 9999px;
+  padding: 4px 6px;
+}
+
+.theme-opt-btn {
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  color: var(--stone-text-muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.theme-opt-btn:hover {
+  color: var(--stone-text-main);
+}
+
+.theme-opt-btn.active {
+  background: var(--stone-surface-raised);
+  color: var(--panel-text-main);
+  box-shadow: var(--stone-shadow-sm);
+  font-weight: 800;
+}
+
+.console-profile-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 8px;
+  border-radius: 9999px;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-sm);
+  text-decoration: none;
+  color: var(--stone-text-main);
+  font-size: 0.8rem;
+  font-weight: 750;
+  transition: transform 0.15s ease;
+}
+
+.console-profile-btn:hover {
+  transform: translateY(-1px);
+}
+
+.console-avatar-ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--obsidian-bg);
+  color: var(--obsidian-cyan);
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 0.75rem;
+}
+
+.logout-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--stone-text-muted);
+  transition: all 0.18s ease;
+  text-decoration: none;
+}
+
+.logout-icon-btn:hover {
+  color: var(--p-danger);
+  transform: translateY(-1px);
+}
+
