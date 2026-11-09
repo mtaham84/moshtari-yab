@@ -10,9 +10,11 @@ except ImportError:
     httpx = None
 
 from instagram_engine.config import settings
+from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
+
 try:
     from apps.core.prompts import get_system_prompt
-except Exception:
+except (ImportError, ImproperlyConfigured, AppRegistryNotReady, RuntimeError):   # outside Django: code defaults
     def get_system_prompt(key, default):
         return default
 
@@ -137,7 +139,7 @@ def _call_llm_with_usage(payload: dict, timeout: float = 25.0) -> Dict[str, Any]
             elif raw_res and "error" in raw_res:
                 logger.warning("LLM model %s returned error: %s; failing over to next model...", model_name, raw_res.get("error"))
         except Exception as exc:
-            logger.warning("LLM call for model %s failed: %s; failing over to next candidate model...", model_name, exc)
+            logger.warning("LLM call for model %s failed: %s; failing over to next candidate model...", model_name, exc, exc_info=True)
 
     return {"content": None, "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
 
@@ -266,7 +268,7 @@ def analyze_post_caption_offer(
                 return out
         raise ValueError("Incomplete LLM output")
     except Exception as exc:
-        logger.warning("Caption offer analysis failed: %s", exc)
+        logger.warning("Caption offer analysis failed: %s", exc, exc_info=True)
         out = {
             "need": f"استعلام و درخواست اطلاعات پیرامون پیشنهاد مطرح‌شده در پست ({trigger_word or product_context})",
             "suggested_reply": f"سلام {{username}} عزیز، وقتتون بخیر. پیرامون پستی که مشاهده فرمودید، جزئیات کامل و شرایط ویژه خدمت شما تقدیم می‌شود.",
@@ -372,7 +374,7 @@ def llm_evaluate_family_batch(comments: List[Dict[str, Any]], *, business_id: in
                                     "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
         return out
     except Exception as exc:
-        logger.warning("Instagram family comment batch failed: %s", exc)
+        logger.warning("Instagram family comment batch failed: %s", exc, exc_info=True)
         return {}
 
 

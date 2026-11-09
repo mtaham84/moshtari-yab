@@ -47,7 +47,7 @@ def to_json(obj: Any) -> str | None:
     try:
         data = obj.to_dict() if hasattr(obj, "to_dict") else obj
         return json.dumps(data, ensure_ascii=False, default=_json_default).replace("\\u0000", "")
-    except Exception:
+    except (TypeError, ValueError):   # not serialisable: store nothing
         return None
 
 
@@ -57,7 +57,7 @@ def peer_id(peer: Any) -> int | None:
         return None
     try:
         return utils.get_peer_id(peer)
-    except Exception:
+    except (TypeError, ValueError, AttributeError):   # not a peer Telethon knows
         return None
 
 
@@ -148,7 +148,7 @@ def media_info(msg: Any) -> tuple[str | None, dict[str, Any] | None]:
         for key in ("mime_type", "size", "name", "duration", "width", "height", "title", "performer", "emoji"):
             try:
                 val = getattr(f, key, None)
-            except Exception:
+            except AttributeError:   # property not available on this media
                 val = None
             if isinstance(val, (str, int, float)) and not isinstance(val, bool):
                 info[key] = val

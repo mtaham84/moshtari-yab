@@ -73,7 +73,7 @@ def parse_created_at_utc(value: Any) -> datetime | None:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
-    except Exception:
+    except (TypeError, ValueError):   # unknown date format
         return None
 
 
@@ -292,7 +292,7 @@ class XCliClient:
                 return valid_records[:target_posts], stats
 
             except Exception as proc_err:
-                log.warning("In-process SearchTimeline failed, falling back to CLI: %s", proc_err)
+                log.warning("In-process SearchTimeline failed, falling back to CLI: %s", proc_err, exc_info=True)
 
         # Fallback via CLI runner
         try:
@@ -328,7 +328,7 @@ class XCliClient:
             return valid_records[:target_posts], stats
         except Exception as cli_exc:
             stats["stop_reason"] = f"SEARCH_FAILED: {cli_exc}"
-            log.warning("X search fallback failed for query '%s': %s", query, cli_exc)
+            log.warning("X search fallback failed for query '%s': %s", query, cli_exc, exc_info=True)
             return valid_records[:target_posts], stats
 
     def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:

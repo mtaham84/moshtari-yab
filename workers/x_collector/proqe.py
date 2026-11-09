@@ -24,9 +24,11 @@ import sqlite3
 from typing import Any
 
 from need_engine.text import tokens
+from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
+
 try:
     from apps.core.prompts import get_system_prompt
-except Exception:
+except (ImportError, ImproperlyConfigured, AppRegistryNotReady, RuntimeError):   # outside Django: code defaults
     def get_system_prompt(key, default):
         return default
 
@@ -366,6 +368,7 @@ def _family_map(conn) -> dict[str, str]:
         rows = conn.execute("""SELECT p.id, p.business_id, COALESCE(c.full_path, '') FROM public.products_product p
                                LEFT JOIN public.products_category c ON c.id = p.category_id""").fetchall()
     except Exception:
+        log.warning("Could not read the product families from the database", exc_info=True)
         return {}
     return {str(r[0]): family_id(r[1], path_head(r[2]), r[0]) for r in rows}
 
@@ -387,7 +390,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
         from x_ingest.__main__ import _dsn
         conn_dsn = dsn or _dsn()
     except Exception as exc:
-        log.debug("Database driver unavailable for bandit sync: %s", exc)
+        log.debug("Database driver unavailable for bandit sync: %s", exc, exc_info=True)
         return stats
 
     try:
@@ -461,7 +464,7 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                 exemplar_store.prune_expanded_queries(seen_store, pid)
 
     except Exception as exc:
-        log.warning("sync_bandit_feedback encountered an issue: %s", exc)
+        log.warning("sync_bandit_feedback encountered an issue: %s", exc, exc_info=True)
 
     if stats["rewarded"] or stats["penalized"]:
         log.info("ProQE Bandit Feedback Sync: +%d rewards, +%d penalties, +%d exemplars, +%d negatives | metrics=%s",
@@ -513,7 +516,7 @@ def expand_queries_with_proqe(
             ref=f"proqe:{pid}"
         )
     except Exception as exc:
-        log.warning("ProQE expansion with %s failed for product %s: %s", primary_model, pid, exc)
+        log.warning("ProQE expansion with %s failed for product %s: %s", primary_model, pid, exc, exc_info=True)
         return exemplar_store.get_expanded_queries(pid)
 
 
@@ -544,7 +547,7 @@ def load_proqe_queries(product_id: str, state_path: str | Path | None = None) ->
         store = ExemplarStore(state_path)
         return [q for q in store.get_expanded_queries(str(product_id)) if 1 <= len(q["query"].split()) <= 3]
     except Exception as exc:
-        log.debug("Could not load ProQE queries for product %s: %s", product_id, exc)
+        log.debug("Could not load ProQE queries for product %s: %s", product_id, exc, exc_info=True)
         return []
 
 

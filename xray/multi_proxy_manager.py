@@ -104,6 +104,7 @@ def probe_socks5_http(proxy_url: str, probe_url: str = PROBE_URL, timeout_sec: f
     except requests.exceptions.Timeout:
         return False, -1.0, f"تایم‌اوت اتصال (بیش از {timeout_sec:.1f} ثانیه)"
     except Exception as exc:
+        log.debug("Proxy probe through %s failed", proxy_url, exc_info=True)
         return False, -1.0, f"خطای ارتباط پروکسی: {exc}"
 
 
@@ -196,7 +197,7 @@ def validate_config_format(url: str) -> tuple[bool, str, str]:
             return False, scheme, "آدرس سرور یا هاست کانفیگ نامعتبر است."
 
         return True, scheme, ""
-    except Exception as exc:
+    except ValueError as exc:   # urlparse rejects the link
         return False, scheme, f"خطا در تجزیه فرمت کانفیگ: {exc}"
 
 
@@ -252,7 +253,7 @@ def parse_vless_url(url: str) -> dict[str, Any]:
         extra_raw = params.get("extra", ["{}"])[0]
         try:
             extra = json.loads(extra_raw)
-        except Exception:
+        except ValueError:   # extra is not JSON
             extra = {}
         stream_settings["xhttpSettings"] = {
             "mode": params.get("mode", ["stream-up"])[0],
@@ -375,7 +376,7 @@ def parse_ss_url(url: str) -> dict[str, Any]:
         userinfo += "=" * (4 - missing)
     try:
         decoded = base64.urlsafe_b64decode(userinfo).decode("utf-8")
-    except Exception:
+    except ValueError:   # not urlsafe base64 (binascii.Error is a ValueError): try standard
         decoded = base64.b64decode(userinfo).decode("utf-8")
     method, password = decoded.split(":", 1)
     tag = urllib.parse.unquote(parsed.fragment) if parsed.fragment else f"ss_{parsed.hostname}_{parsed.port}"
@@ -482,7 +483,7 @@ def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) 
     try:
         with open(test_cfg_path, "w", encoding="utf-8") as f:
             json.dump(test_cfg, f)
-    except Exception as e:
+    except OSError as e:   # cannot write the temporary config
         return False, -1.0, f"خطا در ایجاد کانفیگ موقت: {e}"
 
     proc = None
@@ -509,13 +510,14 @@ def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) 
         max_time = min(float(timeout_sec), 2.5)
         return probe_socks5_http(f"socks5h://127.0.0.1:{test_port}", probe_url=PROBE_URL, timeout_sec=max_time)
     except Exception as e:
+        log.warning("Temporary xray test failed", exc_info=True)
         return False, -1.0, str(e)
     finally:
         if proc:
             proc.terminate()
             try:
                 proc.wait(timeout=0.6)
-            except Exception:
+            except subprocess.TimeoutExpired:   # did not stop in time: kill it
                 proc.kill()
         if test_cfg_path.exists():
             try:
@@ -586,7 +588,7 @@ def rebuild_xray_config_file() -> bool:
                 "outboundTag": port_tag
             })
         except Exception as exc:
-            log.warning("Could not parse outbound for ProxyConfig #%s: %s", p.id, exc)
+            log.warning("Could not parse outbound for ProxyConfig #%s: %s", p.id, exc, exc_info=True)
 
     # No healthy proxy in the DB: never replace a hand-maintained config that still has a real upstream outbound
     # (doing so used to leave Xray with only "direct" and cut every scraper/Telegram connection).
@@ -597,7 +599,7 @@ def rebuild_xray_config_file() -> bool:
                 log.warning("No ACTIVE proxies in DB; keeping the existing Xray config (it has its own upstream outbound)")
                 return True
         except Exception as exc:
-            log.warning("Could not inspect existing Xray config: %s", exc)
+            log.warning("Could not inspect existing Xray config: %s", exc, exc_info=True)
 
     # Fallback default outbound
     if outbounds:
@@ -638,7 +640,7 @@ def rebuild_xray_config_file() -> bool:
         log.info("Regenerated Xray config with %d dedicated proxy ports", len(active_proxies))
         return True
     except Exception as exc:
-        log.error("Failed to write %s: %s", CONFIG_FILE, exc)
+        log.error("Failed to write %s: %s", CONFIG_FILE, exc, exc_info=True)
         return False
 
 
@@ -661,7 +663,7 @@ def reload_xray_service() -> bool:
         log.debug("no docker CLI here; the xray service picks up config.json changes by itself via watch.sh")
         return False
     except Exception as exc:
-        log.warning("Could not restart Xray container: %s", exc)
+        log.warning("Could not restart Xray container: %s", exc, exc_info=True)
         return False
 
 
@@ -694,6 +696,7 @@ def add_proxy_config(raw_link: str, tag_prefix: str = "") -> dict[str, Any]:
     try:
         ob = parse_link_to_outbound(raw_link)
     except Exception as exc:
+        log.warning("Could not parse proxy link", exc_info=True)
         return {"success": False, "ping_ms": -1.0, "message": f"خطا در تجزیه ساختار کانفیگ: {exc}"}
 
     # Live test ping (max 2.5s timeout; ping > 2000ms is treated as -1)

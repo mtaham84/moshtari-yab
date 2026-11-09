@@ -37,12 +37,12 @@ def parse_json(text: str | None) -> dict | None:
     try:
         v = json.loads(t)
         return v if isinstance(v, dict) else {"items": v}
-    except Exception:
+    except ValueError:   # not plain JSON: look for an object inside
         m = re.search(r"\{.*\}", t, re.S)
         if m:
             try:
                 return json.loads(m.group(0))
-            except Exception:
+            except ValueError:   # no JSON object inside either
                 return None
     return None
 
@@ -52,7 +52,7 @@ def _pacific_day() -> str:
         from zoneinfo import ZoneInfo
 
         return datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
-    except Exception:  # pragma: no cover
+    except (ImportError, KeyError):   # pragma: no cover  (no tz database; ZoneInfoNotFoundError is a KeyError)
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
@@ -275,7 +275,7 @@ class LLMClient:
                 except Exception as exc:
                     last_error = f"invalid response JSON: {exc}"
                     if has_fallback:
-                        log.warning("%s: candidate model %s invalid JSON body – failing over to next model...", stage, current_model)
+                        log.warning("%s: candidate model %s invalid JSON body – failing over to next model...", stage, current_model, exc_info=True)
                         model_failed = True
                         break
                     continue
