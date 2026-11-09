@@ -75,8 +75,11 @@ kept; the experimental JSONL pipeline (`workers/ig_collector/`, `instagram_disco
 
 - [x] `scripts/find_unreachable.py`: modules no entry point reaches (compose, entrypoint, Django/Celery autoload,
       `MANUAL_ROOTS` for systemd/manual tools), used as step 1 of the `removing-dead-code` skill.
-- [ ] Dead code: `scripts/legacy/`, `xray/proxy_switcher.py`, `instagram_engine/main.py` + `scraper_worker.py`,
-      `apps/accounts/emails.py`, `need_engine/x_query_scoring.py`.
+- [x] Dead code: `scripts/legacy/`, `xray/proxy_switcher.py`, the old standalone SQLAlchemy engine in
+      `instagram_engine/` (`main`, `scraper_worker`, `outreach_worker`, `session_manager`, `circuit_breaker`, `models`,
+      `requirements.txt`; it could not even import in the app image), `apps/accounts/emails.py`,
+      `need_engine/x_query_scoring.py`. `instagram_engine/` now holds only what the live scraper uses: `analyzer`,
+      `post_filters`, `config`.
 - [ ] Unused tools: one-off management commands, `workers/state_migrate.py`, `scripts/profile_*.py`.
 - [ ] Experimental Instagram pipeline, its post-review page and report APIs.
 - [ ] Unused `.env.example` variables and unused images.
