@@ -1589,7 +1589,7 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
     but automatically invalidates immediately if the account's proxy changes.
     """
     import time
-    from instagrapi import Client
+    from apps.discovery.ig_client import new_client
 
     now_ts = time.time()
     current_proxy = account.clean_proxy or ""
@@ -1606,10 +1606,8 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
     if not sessionid:
         return None, f"اکانت @{account.username} کوکی سشن معتبر ندارد."
 
-    cl = Client()
-    cl.delay_range = [0.3, 0.8]
-    if current_proxy:   # its own proxy / system config, else the shared pool (never the server's IP)
-        cl.set_proxy(current_proxy)
+    # its own proxy / system config, else the shared pool (never the server's IP)
+    cl = new_client(account, no_prompts=False, delay_range=[0.3, 0.8])
 
     try:
         connect_saved_session(cl, account)  # same phone + session as the workers, no fresh login per page view

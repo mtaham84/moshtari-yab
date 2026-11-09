@@ -48,14 +48,24 @@ def _no_new_password(username):
     raise ChallengeRequired("Instagram asks for a password change: do it in the Instagram app, then save it here")
 
 
-def new_client(account, *, code_handler: Callable | None = None):
-    """instagrapi Client bound to the account's proxy (never the server IP unless configured so)."""
+def new_client(account, *, code_handler: Callable | None = None, no_prompts: bool = True, with_proxy: bool = True,
+               **attrs):
+    """The one way to build an instagrapi Client for an account: bound to the account's proxy (its own, its system
+    config or the shared pool; never the server IP unless configured so).
+
+    attrs are set on the client (delay_range, request_timeout, ...). no_prompts=False keeps instagrapi's own
+    challenge/password handlers, which the outreach, scraper and cockpit clients have always used. with_proxy=False
+    is for a caller that checks the proxy first and sets it itself.
+    """
     cl = _client_class()()
-    proxy = effective_proxy_url(account)
+    for name, value in attrs.items():
+        setattr(cl, name, value)
+    proxy = effective_proxy_url(account) if with_proxy else ""
     if proxy:
         cl.set_proxy(proxy)
-    cl.challenge_code_handler = code_handler or _no_code
-    cl.change_password_handler = _no_new_password
+    if no_prompts:
+        cl.challenge_code_handler = code_handler or _no_code
+        cl.change_password_handler = _no_new_password
     return cl
 
 

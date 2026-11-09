@@ -23,12 +23,11 @@ def get_persistent_client(run, account):
 
 
 def build_client(run, account):
-    from instagrapi import Client
     import re
+    from apps.discovery.ig_client import new_client
 
-    cl = Client()
-    cl.delay_range = [3, 7]
-    cl.request_timeout = 15
+    # the proxy is checked below and set only when it is reachable
+    cl = new_client(account, no_prompts=False, with_proxy=False, delay_range=[3, 7], request_timeout=15)
 
     # Apply realistic unique device emulation profile (Pixel 8 Pro, S24 Ultra, Xiaomi 14, etc.)
     try:

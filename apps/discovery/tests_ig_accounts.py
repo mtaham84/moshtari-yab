@@ -593,3 +593,26 @@ class BackgroundLoginThreadTests(TransactionTestCase):
         self.assertEqual((acc.status, acc.status_reason, acc.pending_login["state"]),
                          ("CHALLENGED", "session_expired", "cancelled"))
         self.assertFalse(ig_login.submit_code(acc, CODE).ok)   # nobody waits for a code any more
+
+
+@override_settings(INSTAGRAM_DEFAULT_PROXY_URL="socks5h://xray:1080")
+class ClientFactoryTests(TestCase):
+    def setUp(self):
+        p = mock.patch("instagrapi.Client", FakeIG)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_client_uses_the_accounts_proxy_and_given_settings(self):
+        from apps.discovery.ig_client import new_client
+        own = InstagramEngineAccount.objects.create(username="own", proxy_url="socks5://1.2.3.4:9999#rotate=http://r")
+        pool = InstagramEngineAccount.objects.create(username="pool")
+        cl = new_client(own, delay_range=[1, 2])
+        self.assertEqual((cl.proxy, cl.delay_range), ("socks5://1.2.3.4:9999", [1, 2]))
+        self.assertEqual(new_client(pool).proxy, "socks5h://xray:1080")
+        self.assertIsNone(new_client(own, with_proxy=False).proxy)
+
+    def test_no_prompts_controls_the_challenge_handlers(self):
+        from apps.discovery.ig_client import new_client
+        acc = InstagramEngineAccount.objects.create(username="acc")
+        self.assertEqual(new_client(acc).challenge_code_handler("acc"), "")
+        self.assertIsNone(new_client(acc, no_prompts=False).challenge_code_handler)

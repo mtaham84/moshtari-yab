@@ -863,7 +863,7 @@ def send_chat_message(
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
     from apps.discovery.device_emulator import connect_saved_session
-    from instagrapi import Client
+    from apps.discovery.ig_client import new_client
 
     lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
     if not lead:
@@ -884,9 +884,7 @@ def send_chat_message(
     if not sess_id:
         return {"success": False, "error": f"کوکی sessionid برای @{sender_username} ثبت نشده است."}
 
-    cl = Client()
-    if sender.clean_proxy:   # its own proxy / config, else the shared pool (never the server IP)
-        cl.set_proxy(sender.clean_proxy)
+    cl = new_client(sender, no_prompts=False)   # its own proxy / config, else the shared pool (never the server IP)
 
     try:
         connect_saved_session(cl, sender)
@@ -1141,7 +1139,7 @@ def process_queued_outbox_message(
     organic navigation and account session.
     """
     from apps.discovery.device_emulator import connect_saved_session
-    from instagrapi import Client
+    from apps.discovery.ig_client import new_client
 
     history = list(getattr(lead, "conversation_history", []) or [])
     queued_idx = None
@@ -1201,9 +1199,7 @@ def process_queued_outbox_message(
     if client_cache is not None and sender.username in client_cache:
         cl = client_cache[sender.username]
     else:
-        cl = Client()
-        if sender.clean_proxy:
-            cl.set_proxy(sender.clean_proxy)
+        cl = new_client(sender, no_prompts=False)
         connect_saved_session(cl, sender)
         if client_cache is not None:
             client_cache[sender.username] = cl
@@ -1258,7 +1254,7 @@ def send_direct_message_to_lead(
     """
     from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
     from apps.discovery.device_emulator import connect_saved_session
-    from instagrapi import Client
+    from apps.discovery.ig_client import new_client
 
     lead = InstagramEngineLead.objects.filter(pk=lead_id).first()
     if not lead:
@@ -1298,9 +1294,7 @@ def send_direct_message_to_lead(
     if not sess_id:
         return {"success": False, "error": f"کوکی sessionid برای @{sender.username} ثبت نشده است."}
 
-    cl = Client()
-    if sender.clean_proxy:   # its own proxy / config, else the shared pool (never the server IP)
-        cl.set_proxy(sender.clean_proxy)
+    cl = new_client(sender, no_prompts=False)   # its own proxy / config, else the shared pool (never the server IP)
 
     try:
         connect_saved_session(cl, sender)
