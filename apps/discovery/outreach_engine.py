@@ -139,7 +139,7 @@ def get_sender_client(account):
 
     if not key[0]:
         raise RuntimeError("login_required: no sessionid saved for this sender")
-    cl = new_client(account, no_prompts=False, delay_range=[1.5, 3.5])
+    cl = new_client(account, delay_range=[1.5, 3.5])
     # The saved session on the phone that created it (set_settings, no extra login request); only rows holding a
     # bare sessionid get the account's device profile and one login_by_sessionid().
     connect_saved_session(cl, account)

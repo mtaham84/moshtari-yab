@@ -611,8 +611,29 @@ class ClientFactoryTests(TestCase):
         self.assertEqual(new_client(pool).proxy, "socks5h://xray:1080")
         self.assertIsNone(new_client(own, with_proxy=False).proxy)
 
-    def test_no_prompts_controls_the_challenge_handlers(self):
-        from apps.discovery.ig_client import new_client
-        acc = InstagramEngineAccount.objects.create(username="acc")
-        self.assertEqual(new_client(acc).challenge_code_handler("acc"), "")
-        self.assertIsNone(new_client(acc, no_prompts=False).challenge_code_handler)
+    def test_every_worker_client_answers_challenges_without_a_keyboard(self):
+        """instagrapi's default handler reads the code from stdin; in a container that is an EOFError, which the
+        workers took for an unknown error and kept using the challenged account. Every client must use ours."""
+        from apps.billing.manage.cockpit import _get_cockpit_client
+        from apps.discovery import ig_client
+        from apps.discovery.ig_scraper.clients import build_client
+        from apps.discovery.ig_scraper.context import Run
+        from apps.discovery.outreach_engine import get_sender_client
+        from io import StringIO
+
+        session = {"cookies": {"sessionid": "1%3Aabc"}}
+        scraper = InstagramEngineAccount.objects.create(username="scr", role="SCRAPER", session_json=session)
+        sender = InstagramEngineAccount.objects.create(username="snd", role="SENDER", session_json=session)
+        cockpit_acc = InstagramEngineAccount.objects.create(username="cock", role="SENDER", session_json=session)
+        with mock.patch("apps.discovery.proxies.health.port_open", return_value=True), \
+                mock.patch.object(FakeIG, "private", mock.MagicMock(), create=True), \
+                mock.patch("apps.discovery.outreach_engine.connect_saved_session"), \
+                mock.patch("apps.billing.manage.cockpit.connect_saved_session"):
+            clients = {
+                "scraper": build_client(Run(stdout=StringIO(), stderr=StringIO()), scraper),
+                "outreach": get_sender_client(sender),
+                "cockpit": _get_cockpit_client(cockpit_acc, force_fresh=True)[0],
+            }
+        for name, cl in clients.items():
+            self.assertIs(cl.challenge_code_handler, ig_client._no_code, name)
+            self.assertIs(cl.change_password_handler, ig_client._no_new_password, name)

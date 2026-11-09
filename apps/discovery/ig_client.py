@@ -40,7 +40,10 @@ def mount_timeouts(cl, connect: float = 10, read: float = 35) -> None:
 
 
 def _no_code(username, choice=None):
-    return ""   # instagrapi raises ChallengeRequired at once: nobody is there to type a code
+    """Nobody is there to type a code. Raise at once: for some challenge forms instagrapi would otherwise ask again
+    for minutes before giving up."""
+    from instagrapi.exceptions import ChallengeRequired
+    raise ChallengeRequired("Instagram asks for a verification code: log the account in from the panel")
 
 
 def _no_new_password(username):
@@ -48,14 +51,13 @@ def _no_new_password(username):
     raise ChallengeRequired("Instagram asks for a password change: do it in the Instagram app, then save it here")
 
 
-def new_client(account, *, code_handler: Callable | None = None, no_prompts: bool = True, with_proxy: bool = True,
-               **attrs):
+def new_client(account, *, code_handler: Callable | None = None, with_proxy: bool = True, **attrs):
     """The one way to build an instagrapi Client for an account: bound to the account's proxy (its own, its system
     config or the shared pool; never the server IP unless configured so).
 
-    attrs are set on the client (delay_range, request_timeout, ...). no_prompts=False keeps instagrapi's own
-    challenge/password handlers, which the outreach, scraper and cockpit clients have always used. with_proxy=False
-    is for a caller that checks the proxy first and sets it itself.
+    attrs are set on the client (delay_range, request_timeout, ...). with_proxy=False is for a caller that checks the
+    proxy first and sets it itself. A challenge never waits for a keyboard: without code_handler it raises
+    ChallengeRequired at once, so the account is marked CHALLENGED (the operator logs in from the panel with the code).
     """
     cl = _client_class()()
     for name, value in attrs.items():
@@ -63,9 +65,8 @@ def new_client(account, *, code_handler: Callable | None = None, no_prompts: boo
     proxy = effective_proxy_url(account) if with_proxy else ""
     if proxy:
         cl.set_proxy(proxy)
-    if no_prompts:
-        cl.challenge_code_handler = code_handler or _no_code
-        cl.change_password_handler = _no_new_password
+    cl.challenge_code_handler = code_handler or _no_code
+    cl.change_password_handler = _no_new_password
     return cl
 
 

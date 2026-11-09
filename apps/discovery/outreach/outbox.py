@@ -149,7 +149,7 @@ def process_queued_outbox_message(
     if client_cache is not None and sender.username in client_cache:
         cl = client_cache[sender.username]
     else:
-        cl = new_client(sender, no_prompts=False)
+        cl = new_client(sender)
         connect_saved_session(cl, sender)
         if client_cache is not None:
             client_cache[sender.username] = cl

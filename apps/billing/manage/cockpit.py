@@ -54,7 +54,7 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
         return None, f"اکانت @{account.username} کوکی سشن معتبر ندارد."
 
     # its own proxy / system config, else the shared pool (never the server's IP)
-    cl = new_client(account, no_prompts=False, delay_range=[0.3, 0.8])
+    cl = new_client(account, delay_range=[0.3, 0.8])
 
     try:
         connect_saved_session(cl, account)  # same phone + session as the workers, no fresh login per page view
