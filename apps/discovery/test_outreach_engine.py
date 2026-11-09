@@ -43,8 +43,9 @@ class OutreachEngineTests(TestCase):
             comment_created_at=comment_created_at or timezone.now(), **extra)
 
     def _queued_lead(self, sender_name, **extra):
+        extra.setdefault("has_replied", True)
         return InstagramEngineLead.objects.create(
-            tenant_id=TENANT, username="chatting", ig_user_pk="222", status="QUEUED", has_replied=True,
+            tenant_id=TENANT, username="chatting", ig_user_pk="222", status="QUEUED",
             conversation_history=[{"sender": sender_name, "direction": "out", "role": "operator_message",
                                    "text": "پاسخ اپراتور", "delivery_status": "QUEUED"}], **extra)
 
@@ -195,6 +196,43 @@ class OutreachEngineTests(TestCase):
         self.ig.direct_send.assert_not_called()
 
 
+    # DM guard: cold and first queued DMs never carry a link, an @mention or a phone number
+    def test_cold_dm_with_a_phone_number_is_not_sent(self):
+        lead = self._lead("buyer", "101")
+        with patch.object(engine, "build_bulletproof_message", return_value="سلام، برای قیمت با 09121234567 تماس بگیرید"):
+            res = self.step()
+        self.assertEqual(res["action"], "cold_blocked")
+        self.ig.direct_send.assert_not_called()
+        lead.refresh_from_db()
+        self.s1.refresh_from_db()
+        self.assertEqual(lead.status, "FAILED")
+        self.assertIn("phone number", lead.comment_text)
+        self.assertEqual(self.s1.daily_action_count, 0)
+
+    def test_first_queued_dm_with_a_link_is_not_sent(self):
+        lead = self._queued_lead("s_one", has_replied=False)
+        history = lead.conversation_history
+        history[0]["text"] = "سلام، کاتالوگ: https://shop.example.ir"
+        lead.conversation_history = history
+        lead.save(update_fields=["conversation_history"])
+        res = self.step()
+        self.assertEqual(res["action"], "queued_blocked")
+        self.ig.direct_send.assert_not_called()
+        lead.refresh_from_db()
+        self.assertEqual(lead.status, "FAILED")
+        self.assertEqual(lead.conversation_history[0]["delivery_status"], "FAILED")
+        self.assertIn("URL", lead.conversation_history[0]["last_error"])
+
+    def test_reply_to_a_customer_who_wrote_may_contain_a_phone_number(self):
+        lead = self._queued_lead("s_one")   # has_replied=True
+        history = lead.conversation_history
+        history[0]["text"] = "شماره ما 09121234567 است"
+        lead.conversation_history = history
+        lead.save(update_fields=["conversation_history"])
+        self.assertEqual(self.step()["action"], "queued_sent")
+        self.ig.direct_send.assert_called_once()
+
+
 class OrganicSendPathTests(TestCase):
     def test_send_path_works_without_heavy_organic_steps(self):
         """Verify pre-send journey only resolves PK and applies typing delay without heavy browsing."""
@@ -231,3 +269,13 @@ class SenderClientCacheTests(TestCase):
             acc.session_json = {"cookies": {"sessionid": "two"}}
             engine.get_sender_client(acc)
         self.assertEqual(client_cls.call_count, 2)
+
+
+class BuiltInPitchTests(TestCase):
+    def test_built_in_pitches_pass_the_dm_guard(self):
+        from apps.discovery.tenants import FALLBACK_TENANT_PITCHES
+        from instagram_engine.analyzer import validate_and_sanitize_dm
+        pitches = [p.get("pitch_template", "") for p in FALLBACK_TENANT_PITCHES.values()]
+        pitches += [p.get("template", "") for p in engine.DEFAULT_SENDER_PITCHES.values()]
+        for text in filter(None, pitches):
+            self.assertTrue(validate_and_sanitize_dm(text)[0], text[:80])
