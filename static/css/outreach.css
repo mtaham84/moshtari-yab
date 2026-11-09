@@ -1,0 +1,52 @@
+  .outreach-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .outreach-2col-compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .outreach-timeline-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .outreach-followup-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr 140px;
+    gap: 10px;
+    align-items: center;
+  }
+  .outreach-modal-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 992px) {
+    .outreach-main-grid {
+      grid-template-columns: 1fr !important;
+      gap: 18px;
+    }
+    .outreach-timeline-grid {
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+    .outreach-followup-grid {
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .outreach-2col-compact {
+      grid-template-columns: 1fr !important;
+      gap: 8px;
+    }
+    .outreach-modal-2col {
+      grid-template-columns: 1fr !important;
+      gap: 10px;
+    }
+  }

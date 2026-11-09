@@ -1,0 +1,253 @@
+{% load static %}<div class="responsive-table-desktop">
+  <div id="opps-list" class="p-card opp-list-card">
+    <div class="opp-list-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div class="opp-list-title" style="display:flex;align-items:center;gap:8px;">
+        <strong>فرصت‌های خرید</strong>
+        <span class="p-badge p-badge-purple">{{ stats.filtered_count }} فرصت</span>
+      </div>
+
+      <!-- Top Compact Pagination Controls -->
+      {% if page_obj and page_obj.paginator.num_pages > 1 %}
+      <div class="opp-top-pagination" style="display:flex;align-items:center;gap:6px;font-size:0.8rem;">
+        {% if page_obj.has_previous %}
+          <a class="p-btn p-btn-sm p-btn-secondary" href="{{ pagination_base_url }}{{ page_obj.previous_page_number }}#opps-list" style="padding:4px 10px;font-size:0.75rem;">« صفحه قبل</a>
+        {% else %}
+          <span class="p-btn p-btn-sm p-btn-ghost" style="opacity:.4;padding:4px 10px;font-size:0.75rem;">« صفحه قبل</span>
+        {% endif %}
+        <span style="color:var(--stone-text-muted);font-weight:600;padding:0 4px;">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+          <a class="p-btn p-btn-sm p-btn-secondary" href="{{ pagination_base_url }}{{ page_obj.next_page_number }}#opps-list" style="padding:4px 10px;font-size:0.75rem;">صفحه بعد »</a>
+        {% else %}
+          <span class="p-btn p-btn-sm p-btn-ghost" style="opacity:.4;padding:4px 10px;font-size:0.75rem;">صفحه بعد »</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="opp-list-sort" style="font-size:0.8rem;color:var(--stone-text-muted);">
+        ترتیب:
+        {% if selected_sort == 'intent_desc' %}بیشترین احتمال خرید
+        {% elif selected_sort == 'newest' %}جدیدترین
+        {% elif selected_sort == 'oldest' %}قدیمی‌ترین
+        {% elif selected_sort == 'fit_desc' %}بیشترین انطباق کالا
+        {% elif selected_sort == 'cost_desc' %}بیشترین هزینه AI
+        {% else %}پیش‌فرض{% endif %}
+      </div>
+    </div>
+
+    <div class="opp-list">
+      {% for opp in opportunities %}
+        <article class="opp-item">
+          <!-- header: who, when, scores, status -->
+          <div class="opp-item-head">
+            <div class="opp-who">
+              <!-- Desktop Checkbox -->
+              <input type="checkbox" class="card-select-checkbox item-select-checkbox" data-id="{{ opp.id }}" data-url="{% url 'discovery:opportunity_detail' opp.id %}" aria-label="انتخاب فرصت {{ opp.customer.display_identifier }}" style="margin-left: 6px;">
+              {% if opp.source_platform == 'telegram' %}<span class="opp-chip opp-chip-tg">تلگرام</span>
+              {% elif opp.source_platform == 'x' %}<span class="opp-chip">X</span>
+              {% elif opp.source_platform == 'instagram' %}
+                <span class="opp-chip">اینستاگرام</span>
+                {% if opp.is_private_account %}
+                  <span class="opp-chip" style="background: rgba(239, 68, 68, 0.14); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700;">خصوصی (Private)</span>
+                {% else %}
+                  <span class="opp-chip" style="background: rgba(16, 185, 129, 0.14); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700;">عمومی (Public)</span>
+                {% endif %}
+              {% elif opp.source_platform == 'divar' %}<span class="opp-chip">دیوار</span>
+              {% else %}<span class="opp-chip">سایر</span>{% endif %}
+              {% if opp.intent_type %}
+                {% if opp.intent_type == 'direct_intent' or opp.intent_type == 'buy_signal' %}
+                  <span class="opp-chip" style="background: rgba(16, 185, 129, 0.16); color: #059669; border: 1px solid rgba(16, 185, 129, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% elif opp.intent_type == 'comparison' %}
+                  <span class="opp-chip" style="background: rgba(6, 182, 212, 0.16); color: #0891b2; border: 1px solid rgba(6, 182, 212, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% elif opp.intent_type == 'advice_seeking' or opp.intent_type == 'recommendation_ask' %}
+                  <span class="opp-chip" style="background: rgba(99, 102, 241, 0.16); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% elif opp.intent_type == 'competitor_churn' or opp.intent_type == 'complaint' or opp.intent_type == 'switching' %}
+                  <span class="opp-chip" style="background: rgba(245, 158, 11, 0.16); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% else %}
+                  <span class="opp-chip" style="background: rgba(168, 85, 247, 0.16); color: #9333ea; border: 1px solid rgba(168, 85, 247, 0.45); font-weight: 700;">{{ opp.get_intent_type_display }}</span>
+                {% endif %}
+              {% endif %}
+              {% if opp.customer.source_username and opp.source_platform == 'x' %}
+                <a class="opp-handle" href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+              {% elif opp.customer.source_username and opp.source_platform == 'instagram' %}
+                <a class="opp-handle" href="{{ opp.customer_profile_url|default:opp.instagram_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" title="مشاهده پروفایل در اینستاگرام" style="color: #e1306c; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                  <span>@{{ opp.customer.source_username|cut:'@' }}</span>
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </a>
+              {% elif opp.customer.source_username %}
+                <a class="opp-handle" href="https://t.me/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer">@{{ opp.customer.source_username|cut:'@' }}</a>
+              {% endif %}
+              {% if opp.customer.phone_number %}<span class="opp-handle">{{ opp.customer.phone_number }}</span>{% endif %}
+              {% if opp.source_platform == 'instagram' %}
+                {% if opp.instagram_comment_created_at_jalali %}
+                  <span class="opp-date" style="color: #047857; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 9px; border-radius: 6px; font-size: 0.81rem; display: inline-flex; align-items: center; gap: 4px;" title="زمان دقیق ثبت کامنت در اینستاگرام">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <span>ثبت کامنت: <strong>{{ opp.instagram_comment_created_at_jalali }}</strong></span>
+                  </span>
+                {% elif opp.message_timestamp_jalali %}
+                  <span class="opp-date" style="color: #047857; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 9px; border-radius: 6px; font-size: 0.81rem; display: inline-flex; align-items: center; gap: 4px;" title="زمان پیام">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <span>زمان پیام: <strong>{{ opp.message_timestamp_jalali }}</strong></span>
+                  </span>
+                {% endif %}
+                {% if opp.instagram_post_created_at_jalali %}
+                  <span class="opp-date" style="color: #334155; font-size: 0.74rem; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 3px 7px; border-radius: 5px;" title="زمان انتشار پست مبدأ در اینستاگرام">
+                    انتشار پست: {{ opp.instagram_post_created_at_jalali }}
+                  </span>
+                {% endif %}
+                <span class="opp-date" style="color: #64748b; font-size: 0.74rem;" title="زمان استخراج و پردازش توسط سیستم">
+                  واکشی: {{ opp.created_at_jalali|default:"" }}
+                </span>
+              {% else %}
+                <span class="opp-date" style="color: #047857; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 9px; border-radius: 6px; font-size: 0.81rem; display: inline-flex; align-items: center; gap: 4px;">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                  <span>زمان پیام: <strong>{{ opp.message_timestamp_jalali|default:opp.created_at_jalali }}</strong></span>
+                </span>
+              {% endif %}
+              {% if opp.source_platform == 'x' and opp.source_age_label %}<span class="opp-chip" title="{{ opp.source_age_title }}{% if opp.source_posted_at_estimated %} (تقریبی){% endif %}">{{ opp.source_age_label }}</span>{% endif %}
+            </div>
+            <div class="opp-metrics">
+              {% if opp.intent_score_percentage >= 90 %}
+                <span class="opp-chip" style="background: rgba(234, 179, 8, 0.18); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.4); font-weight: 700;"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> فرصت طلایی</span>
+              {% endif %}
+              {% if opp.source_platform == 'instagram' %}
+                <span class="opp-metric is-high" style="background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.35); font-weight: 700;" title="درصد احتمال موفقیت">
+                  احتمال خرید: <b>{{ opp.intent_score_percentage }}٪</b>
+                </span>
+                <span class="opp-metric" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-weight: 700;" title="امتیاز اولویت از ۴۵">
+                  امتیاز اولویت: <b>{{ opp.outreach_score_val|default:0 }}</b>/۴۵
+                </span>
+              {% else %}
+                <span class="opp-metric {% if opp.intent_score_percentage >= 80 %}is-high{% elif opp.intent_score_percentage >= 60 %}is-mid{% else %}is-low{% endif %}" title="احتمال خرید">
+                  احتمال خرید <b>{{ opp.intent_score_percentage }}٪</b>
+                </span>
+              {% endif %}
+              <span class="opp-metric is-fit" title="انطباق کالا">انطباق <b>{{ opp.product_fit_score_percentage }}٪</b></span>
+              {% if opp.status == 'QUALIFIED' %}<span class="opp-status s-blue">تأیید شده</span>
+              {% elif opp.status == 'NEW' %}<span class="opp-status s-purple">جدید</span>
+              {% elif opp.status == 'REVIEWED' %}<span class="opp-status s-yellow">بررسی شده</span>
+              {% elif opp.status == 'CONTACTED' %}<span class="opp-status s-green">تماس گرفته</span>
+              {% elif opp.status == 'CONVERTED' %}<span class="opp-status s-green">مشتری نهایی</span>
+              {% elif opp.status == 'REJECTED' %}<span class="opp-status s-red">رد شده</span>
+              {% elif opp.status == 'RESOLVED' %}<span class="opp-status s-blue">نیاز برطرف شد</span>
+              {% elif opp.status == 'EXPIRED' %}<span class="opp-status s-gray">منقضی شده</span>{% endif %}
+            </div>
+          </div>
+
+          <!-- body: message & need | product & reason -->
+          <div class="opp-item-body">
+            <div class="opp-col">
+              <blockquote class="opp-quote"><div class="js-clamp" data-lines="4">{{ opp.source_raw_message|default:opp.ai_analysis.need }}</div></blockquote>
+            {% if opp.source_platform == 'instagram' %}
+              <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                {% if opp.instagram_source_page_username %}
+                  <a href="{{ opp.instagram_source_page_url|default:'#' }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #4f46e5; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <span>پیج مبدأ: {{ opp.instagram_source_page_title|default:opp.instagram_source_page_username }} (@{{ opp.instagram_source_page_username }})</span> ↗
+                  </a>
+                {% endif %}
+                {% if opp.instagram_post_url %}
+                  <a href="{{ opp.instagram_post_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #0284c7; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده پست مبدأ</span> ↗
+                  </a>
+                {% endif %}
+                {% if opp.instagram_post_created_at_jalali %}
+                  <span style="color: #475569; font-size: 0.76rem; background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 5px;">
+                    انتشار پست: {{ opp.instagram_post_created_at_jalali }}
+                  </span>
+                {% endif %}
+                {% if opp.customer_profile_url %}
+                  <a href="{{ opp.customer_profile_url }}" target="_blank" rel="noopener noreferrer nofollow" style="color: #e1306c; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> پروفایل خریدار (ارسال دایرکت)</span> ↗
+                  </a>
+                {% endif %}
+              </div>
+              {% if opp.instagram_post_caption %}
+                <div style="margin-top: 6px; font-size: 0.77rem; background: var(--stone-surface-sunken); border-right: 2px solid #0284c7; padding: 6px 10px; border-radius: 4px; line-height: 1.45; color: var(--panel-text-main);">
+                  <span style="font-weight: 700; color: #0284c7;"><svg class="ico" aria-hidden="true" style="width: 12px; height: 12px;"><use href="#i-doc"/></svg> کپشن پست:</span> {{ opp.instagram_post_caption|truncatechars:200 }}
+                </div>
+              {% endif %}
+            {% elif opp.source_platform == 'x' %}
+              <div style="margin-top: 8px; font-size: 0.8rem; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                {% if opp.x_post_url %}
+                  <a href="{{ opp.x_post_url }}" target="_blank" rel="noopener noreferrer" style="color: #1DA1F2; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> مشاهده توییت اصلی در X</span> ↗
+                  </a>
+                {% endif %}
+                {% if opp.customer.source_username %}
+                  <a href="https://x.com/{{ opp.customer.source_username|cut:'@' }}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    <span><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg> پروفایل نویسنده (@{{ opp.customer.source_username|cut:'@' }})</span> ↗
+                  </a>
+                {% endif %}
+              </div>
+            {% endif %}
+            {% if opp.instagram_comment_detail_url %}<a href="{{ opp.instagram_comment_detail_url }}">جزئیات کامنت</a>{% endif %}
+              {% if opp.ai_analysis.need %}
+                <div class="opp-need"><span>نیاز:</span> {{ opp.ai_analysis.need }}</div>
+              {% endif %}
+            </div>
+            <div class="opp-col">
+              <div class="opp-label">کالای پیشنهادی</div>
+              {% with match=opp.primary_product_match %}
+                {% if match %}
+                  <div class="opp-product">
+                    <strong>{{ match.product.name }}</strong>
+                    {% if match.product.price %}<span class="opp-price">{{ match.product.formatted_price }}</span>{% endif %}
+                  </div>
+                {% else %}
+                  <div class="opp-muted">بدون تطابق مشخص کالا</div>
+                {% endif %}
+              {% endwith %}
+              <div class="opp-label" style="margin-top: 12px;">چرا این فرصت</div>
+              <p class="opp-reason js-clamp" data-lines="3">{{ opp.ai_analysis.why_selected|default:"انطباق با ویژگی‌های کاتالوگ" }}</p>
+            </div>
+          </div>
+
+          <!-- draft + actions -->
+          <div class="opp-item-foot">
+            {% if opp.ai_analysis.suggested_reply %}
+              <div class="opp-draft">
+                <div class="opp-label">پیش‌نویس پاسخ</div>
+                <div class="opp-draft-text js-clamp" data-lines="3" id="reply-text-{{ opp.id }}">{{ opp.ai_analysis.suggested_reply }}</div>
+              </div>
+            {% else %}
+              <div class="opp-draft opp-muted">پیش‌نویسی برای این فرصت ساخته نشده است.</div>
+            {% endif %}
+            <div class="opp-actions">
+              {% if opp.ai_analysis.suggested_reply %}
+                <button type="button" class="p-btn p-btn-sm p-btn-secondary copy-reply-btn" data-target="reply-text-{{ opp.id }}">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <span>کپی پاسخ</span>
+                </button>
+              {% endif %}
+              <a href="{% url 'discovery:opportunity_detail' opp.id %}" class="p-btn p-btn-sm p-btn-primary">
+                <span>جزئیات</span>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </a>
+              {% if opp.feedback %}
+                <span class="p-badge" style="background: {% if opp.feedback == 'relevant' %}rgba(16, 185, 129, 0.15); color: #047857{% else %}rgba(239, 68, 68, 0.15); color: #DC2626{% endif %}; font-size: 0.78rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;">
+                  ثبت‌شده: {% if opp.feedback == 'relevant' %}مرتبط{% else %}نامرتبط{% endif %}
+                </span>
+              {% else %}
+                <div class="feedback-actions" style="display: inline-flex; align-items: center; gap: 6px;">
+                  <select class="feedback-reason p-input" aria-label="دلیل بازخورد (اختیاری)" style="max-width: 145px; padding: 5px;">
+                    <option value="">دلیل</option><option value="not_a_buyer">قصد خرید نداشت</option><option value="wrong_product">محصول اشتباه</option><option value="already_bought">قبلاً خریده</option><option value="spam">هرزنامه یا تبلیغ</option>
+                  </select>
+                  <button type="button" class="p-btn p-btn-sm p-btn-primary list-feedback-button" data-feedback="relevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">مرتبط</button>
+                  <button type="button" class="p-btn p-btn-sm p-btn-secondary list-feedback-button" data-feedback="irrelevant" data-endpoint="{% url 'discovery:opportunity_feedback' opp.id %}" data-csrf="{{ csrf_token }}">نامرتبط</button>
+                </div>
+              {% endif %}
+              <span class="opp-cost" title="هزینه‌ی هوش مصنوعی برای این فرصت">هزینه‌ی هوش مصنوعی: {{ opp.cost_toman_display }} تومان</span>
+            </div>
+          </div>
+          {% if opp.reply_card %}{% include "discovery/partials/reply_suggestion_card.html" with opportunity=opp card=opp.reply_card %}{% endif %}
+        </article>
+      {% empty %}
+        <div class="opp-empty">
+          <h4>هیچ فرصتی با فیلترهای جاری پیدا نشد</h4>
+          <p>فیلتر کالا، بازه‌ی زمانی یا حداقل امتیاز را تغییر دهید تا نتایج بیشتری ببینید.</p>
+          <a href="{% url 'discovery:opportunity_list' %}{% if all_businesses and selected_business %}?business_id={{ selected_business.id }}{% endif %}" class="p-btn p-btn-secondary p-btn-sm">پاک کردن فیلترها و نمایش همه</a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

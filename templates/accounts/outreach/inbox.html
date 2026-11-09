@@ -1,0 +1,254 @@
+{% load ops static %}<div id="inbox-section" class="p-card" style="padding:22px; border-radius:14px; border:1px solid var(--panel-border); margin-bottom:28px; background:var(--panel-card);">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--panel-border);">
+    <div>
+      <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px; color:var(--panel-text-main);">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#2563eb" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        روم گفتگو و پیام‌رسانی دایرکت اینستاگرام (Direct Chat Room)
+      </h2>
+      <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
+        مشاهده پیام اولیه، پاسخ دریافتی خریدار و ارسال پیام دوم، سوم و پیگیری بدون محدودیت با امکان جابجایی اکانت‌های فرستنده.
+      </p>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:10px;">
+      <button type="button" id="syncRepliesBtn" onclick="syncChatReplies()" class="p-btn"
+              style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; padding:8px 14px; border-radius:8px; font-weight:700; font-size:0.84rem; display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+        بررسی و همگام‌سازی فوری دایرکت‌ها
+      </button>
+      <span class="p-badge" style="background:#ede9fe; color:#6d28d9; font-weight:700; padding:6px 12px; border-radius:6px; font-size:0.84rem;">
+        مجموع پاسخ‌ها: {{ replied_count }}
+      </span>
+    </div>
+  </div>
+
+  <!-- Chat Room 2-Column Responsive Layout -->
+  <div class="chat-room-container" style="display:grid; grid-template-columns:320px 1fr; gap:16px; border:1px solid #cbd5e1; border-radius:12px; overflow:hidden; background:#fff; min-height:560px;">
+
+    <!-- Right Sidebar: Conversations List -->
+    <div id="chatSidebarCol" style="border-left:1px solid #e2e8f0; display:flex; flex-direction:column; background:#f8fafc;">
+      <div style="padding:12px 14px; border-bottom:1px solid #e2e8f0; background:#f1f5f9;">
+        <div style="position:relative;">
+          <input type="text" id="chatSearchInput" oninput="filterChatLeads(this.value)" placeholder="جستجوی خریدار یا اکانت..."
+                 style="width:100%; padding:8px 12px; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">
+        </div>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button type="button" onclick="setChatFilter('all')" id="chatFilterAll"
+                  style="flex:1; padding:4px 6px; font-size:0.74rem; font-weight:700; border:1px solid #2563eb; background:#2563eb; color:#fff; border-radius:6px; cursor:pointer;">
+            همه گفتگوها
+          </button>
+          <button type="button" onclick="setChatFilter('replied')" id="chatFilterReplied"
+                  style="flex:1; padding:4px 6px; font-size:0.74rem; font-weight:700; border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:6px; cursor:pointer;">
+            پاسخ‌داده‌ها ({{ replied_count }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Leads Scrollable List -->
+      <div id="chatLeadsList" style="flex:1; overflow-y:auto; max-height:480px;">
+        {% with active_leads=conversation_leads|default:replied_leads %}
+        {% if active_leads %}
+          {% for lead in active_leads %}
+          <div class="chat-lead-item {% if forloop.first %}active{% endif %}"
+               id="lead-item-{{ lead.id }}"
+               data-lead-id="{{ lead.id }}"
+               data-username="{{ lead.username|lower }}"
+               data-has-replied="{% if lead.has_replied %}1{% else %}0{% endif %}"
+               onclick="selectChatLead({{ lead.id }})"
+               style="padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.15s; background:{% if forloop.first %}#eff6ff{% else %}transparent{% endif %}; border-right:{% if forloop.first %}4px solid #2563eb{% else %}4px solid transparent{% endif %};">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="width:32px; height:32px; border-radius:50%; background:#e0e7ff; color:#3730a3; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.8rem; font-family:monospace;">
+                  {{ lead.username|slice:":2"|upper }}
+                </div>
+                <div>
+                  <div style="font-weight:700; font-size:0.85rem; color:#1e293b; font-family:monospace;">@{{ lead.username }}</div>
+                  <div style="font-size:0.7rem; color:#64748b;">امتیاز نیت: <strong style="color:#15803d;">{{ lead.intent_score|floatformat:2 }}</strong></div>
+                  {% if lead.captured_phone %}
+                    <div style="font-size:0.7rem; color:#92400e; margin-top:2px;">📞 <strong style="direction:ltr; unicode-bidi:embed; font-family:monospace;">{{ lead.captured_phone }}</strong></div>
+                  {% endif %}
+                </div>
+              </div>
+              <div>
+                {% if lead.status == 'QUEUED' %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#fef3c7; color:#92400e;">⏳ در صف ارسال</span>
+                {% elif lead.has_replied %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#dcfce7; color:#15803d;">پاسخ داده</span>
+                {% elif lead.status == 'FOLLOWUP_SENT' %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#e0e7ff; color:#4338ca;">پیام ارسال شد</span>
+                {% else %}
+                  <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#f1f5f9; color:#64748b;">ارسال اولیه</span>
+                {% endif %}
+              </div>
+            </div>
+            <div style="font-size:0.75rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:4px;">
+              {{ lead.reply_text|default:lead.second_message_text|default:lead.initial_dm_text|default:"(شروع مکالمه)"|truncatechars:42 }}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <!-- Fallback to top_leads if no conversation leads yet -->
+          {% for lead in top_leads|slice:":25" %}
+          <div class="chat-lead-item {% if forloop.first %}active{% endif %}"
+               id="lead-item-{{ lead.id }}"
+               data-lead-id="{{ lead.id }}"
+               data-username="{{ lead.username|lower }}"
+               data-has-replied="{% if lead.has_replied %}1{% else %}0{% endif %}"
+               onclick="selectChatLead({{ lead.id }})"
+               style="padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.15s; background:{% if forloop.first %}#eff6ff{% else %}transparent{% endif %}; border-right:{% if forloop.first %}4px solid #2563eb{% else %}4px solid transparent{% endif %};">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="width:32px; height:32px; border-radius:50%; background:#e0e7ff; color:#3730a3; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.8rem; font-family:monospace;">
+                  {{ lead.username|slice:":2"|upper }}
+                </div>
+                <div>
+                  <div style="font-weight:700; font-size:0.85rem; color:#1e293b; font-family:monospace;">@{{ lead.username }}</div>
+                  <div style="font-size:0.7rem; color:#64748b;">امتیاز نیت: <strong style="color:#15803d;">{{ lead.intent_score|floatformat:2 }}</strong></div>
+                </div>
+              </div>
+              <div>
+                <span style="font-size:0.68rem; padding:2px 6px; border-radius:4px; font-weight:700; background:#f1f5f9; color:#64748b;">لید خریدار</span>
+              </div>
+            </div>
+            <div style="font-size:0.75rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:4px;">
+              {{ lead.comment_text|truncatechars:42 }}
+            </div>
+          </div>
+          {% endfor %}
+        {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+
+    <!-- Left Main Column: Active Chat Room -->
+    <div id="chatMainCol" style="display:flex; flex-direction:column; background:#ffffff;">
+      <!-- Active Lead Header -->
+      <div id="chatActiveHeader" style="padding:14px 18px; border-bottom:1px solid #e2e8f0; background:#f8fafc; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div id="chatLeadAvatar" style="width:40px; height:40px; border-radius:50%; background:#2563eb; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1rem; font-family:monospace;">
+            --
+          </div>
+          <div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span id="chatLeadUsername" style="font-weight:800; font-size:1rem; color:#0f172a; font-family:monospace;">انتخاب خریدار...</span>
+              <a id="chatLeadProfileUrl" href="#" target="_blank" rel="noopener"
+                 style="font-size:0.76rem; color:#2563eb; text-decoration:none; background:#eff6ff; padding:2px 8px; border-radius:4px; font-weight:600;">
+                پروفایل اینستاگرام ↗
+              </a>
+              <span id="chatLeadSenderAccountBadge" style="font-size:0.75rem; background:#ede9fe; color:#6d28d9; padding:2px 8px; border-radius:4px; font-weight:700; font-family:monospace;">
+                اکانت فرستنده پیام: --
+              </span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:3px;">
+              <span id="chatLeadIntentBadge" style="font-size:0.72rem; color:#15803d; font-weight:700;">احتمال خرید: --</span>
+              <span style="color:#cbd5e1;">|</span>
+              <span id="chatLeadStatusBadge" style="font-size:0.72rem; color:#64748b; font-weight:600;">وضعیت: --</span>
+              <span id="chatLeadPhoneBadge" style="display:none; font-size:0.72rem; background:#fef3c7; color:#92400e; border:1px solid #fde68a; padding:1px 8px; border-radius:4px; font-weight:700;"></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="toggleLeadSourceBtn" onclick="toggleLeadSourceInfo()" class="p-btn"
+                  style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; padding:6px 12px; border-radius:6px; font-size:0.78rem; font-weight:700; cursor:pointer;">
+            نمایش اطلاعات مشتری و منبع کامنت
+          </button>
+          <button type="button" onclick="refreshCurrentChatLead()" class="p-btn"
+                  style="background:#fff; border:1px solid #cbd5e1; padding:6px 12px; border-radius:6px; font-size:0.78rem; font-weight:600; color:#475569; cursor:pointer;">
+            بروزرسانی پیام‌ها
+          </button>
+        </div>
+      </div>
+
+      <!-- Collapsible Lead & Comment Source Details Box -->
+      <div id="leadSourceInfoBox" style="display:none; padding:14px 18px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:0.83rem; line-height:1.6;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong style="color:#0369a1; font-size:0.88rem;">مشخصات کامل مشتری و منبع کامنت / پست</strong>
+          <button type="button" onclick="toggleLeadSourceInfo()" style="background:none; border:none; color:#0284c7; cursor:pointer; font-size:0.78rem; font-weight:700;">بستن کادر</button>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px;">
+          <div style="background:#fff; border:1px solid #e0f2fe; border-radius:8px; padding:10px;">
+            <div style="font-size:0.73rem; color:#64748b; font-weight:700; margin-bottom:4px;">متن کامنت ثبت‌شده توسط مشتری:</div>
+            <div id="leadSourceCommentText" style="color:#0f172a; font-weight:600; white-space:pre-wrap;">--</div>
+            <div id="leadSourceCommentTime" style="font-size:0.7rem; color:#0284c7; margin-top:4px;">--</div>
+          </div>
+
+          <div style="background:#fff; border:1px solid #e0f2fe; border-radius:8px; padding:10px;">
+            <div style="font-size:0.73rem; color:#64748b; font-weight:700; margin-bottom:4px;">اطلاعات پست و پیج مقصد:</div>
+            <div style="margin-bottom:4px;">
+              <span style="color:#64748b; font-size:0.75rem;">پیج اینستاگرام (رقیب/هدف):</span>
+              <a id="leadSourcePageLink" href="#" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb; text-decoration:none; font-family:monospace;">@--</a>
+            </div>
+            <div style="margin-bottom:4px;">
+              <span style="color:#64748b; font-size:0.75rem;">پست منبع کامنت:</span>
+              <a id="leadSourcePostLink" href="#" target="_blank" rel="noopener" style="font-weight:700; color:#0284c7; text-decoration:underline;">مشاهده پست در اینستاگرام ↗</a>
+            </div>
+            <div id="leadSourcePostSnippet" style="color:#64748b; font-size:0.74rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">--</div>
+          </div>
+        </div>
+
+        <div id="leadSourceSenderNotice" style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:6px; padding:6px 12px; font-size:0.78rem; color:#5b21b6;">
+          اکانت فرستنده پیام اولیه به این مشتری: <strong id="leadSourceSenderName" style="font-family:monospace;">@--</strong>
+        </div>
+      </div>
+
+      <!-- Messages Thread Body -->
+      <div id="chatMessagesThread" style="flex:1; padding:18px; overflow-y:auto; height:340px; background:#f8fafc; display:flex; flex-direction:column; gap:12px;">
+        <div style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:0.86rem;">
+          در حال بارگذاری مکالمه خریدار...
+        </div>
+      </div>
+
+      <!-- Quick Preset Suggestions -->
+      <div style="padding:8px 18px; background:#f1f5f9; border-top:1px solid #e2e8f0; display:flex; gap:8px; overflow-x:auto;">
+        <span style="font-size:0.72rem; color:#64748b; align-self:center; white-space:nowrap; font-weight:700;">پاسخ‌های سریع:</span>
+        <button type="button" onclick="applyChatPreset('سلام وقت بخیر، برای اینکه مشاور ارشد کلینیک زمان ویزیت و معاینه رایگان رو باهاتون هماهنگ کنه، لطفاً شماره تماستون رو بفرستید.')"
+                style="background:#fff; border:1px solid #cbd5e1; border-radius:14px; padding:3px 10px; font-size:0.74rem; color:#334155; white-space:nowrap; cursor:pointer;">
+          درخواست شماره تماس جهت ویزیت
+        </button>
+        <button type="button" onclick="applyChatPreset('سلام، کلینیک سرو شرایط پرداخت اقساطی منعطف بدون ضامن هم در نظر گرفته. تمایل دارید شرایط دقیق اقساط رو براتون بفرستم؟')"
+                style="background:#fff; border:1px solid #cbd5e1; border-radius:14px; padding:3px 10px; font-size:0.74rem; color:#334155; white-space:nowrap; cursor:pointer;">
+          توضیح شرایط اقساط و قیمت
+        </button>
+        <button type="button" onclick="applyChatPreset('سلام، مطب کلینیک تخصصی سرو در سعادت‌آباد است و روزهای شنبه تا پنجشنبه از ۱۰ تا ۲۰ فعاله. چه روزی برای مراجعه شما مناسب‌تره؟')"
+                style="background:#fff; border:1px solid #cbd5e1; border-radius:14px; padding:3px 10px; font-size:0.74rem; color:#334155; white-space:nowrap; cursor:pointer;">
+          ارسال لوکیشن و ساعات ویزیت
+        </button>
+      </div>
+
+      <!-- Composer Area -->
+      <div style="padding:14px 18px; border-top:1px solid #e2e8f0; background:#ffffff;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <label style="font-size:0.78rem; font-weight:700; color:#334155;">ارسال از طرف اکانت:</label>
+            <select id="chatSenderSelect" onchange="onChatSenderChanged()" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.8rem; font-weight:700; background:#fff; color:#1e293b;">
+              {% for acc in accounts %}
+              <option value="{{ acc.obj.username }}">
+                @{{ acc.obj.username }} ({{ acc.consultant_name }})
+              </option>
+              {% endfor %}
+            </select>
+            <span id="chatSameSenderBadge" style="display:none; font-size:0.72rem; color:#15803d; font-weight:700; background:#dcfce7; padding:2px 8px; border-radius:4px;">
+              پاسخ با همان اکانت فرستنده قبلی
+            </span>
+            <span id="chatDifferentSenderNotice" style="display:none; font-size:0.72rem; color:#b45309; font-weight:700; background:#fef3c7; padding:2px 8px; border-radius:4px;">
+              اکانت تغییر یافته است
+            </span>
+          </div>
+          <div id="chatSendingAlert" style="display:none; font-size:0.76rem; font-weight:700; padding:2px 8px; border-radius:4px;"></div>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:flex-end;">
+          <textarea id="chatComposerInput" rows="2" placeholder="متن پیام جدید را تایپ کنید (پیام دوم، پیام سوم، پاسخ به سوال خریدار و...)..."
+                    style="flex:1; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.86rem; line-height:1.5; resize:none;"></textarea>
+          <button type="button" id="chatSendButton" onclick="submitChatMessage()"
+                  style="background:#2563eb; color:#fff; border:none; padding:10px 18px; border-radius:8px; font-weight:700; font-size:0.86rem; cursor:pointer; min-height:44px; display:inline-flex; align-items:center; gap:6px;">
+            ارسال دایرکت
+          </button>
+        </div>
+      </div>
+      </div>
+
+    </div>
+  </div>
