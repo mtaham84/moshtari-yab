@@ -20,7 +20,8 @@ green, before the next one starts. Behavior must not change unless the step says
   over 800 lines only `apps/discovery/models/core.py` (848) is left, on purpose.
 - Phase 5 is done (#40 bugs, #41 silent excepts, #42 boundaries, #43 helpers): broad excepts in the baseline
   328 → 70, no `except Exception: pass` left, every remaining broad catch at a boundary logs its traceback.
-- **Next step:** none planned. Candidates: the known issues below and the remaining 70 broad excepts (small files).
+- **Next step:** Phase 6, step 1: run the audit below and write its report into this file. No code changes until the
+  report is reviewed.
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -154,6 +155,82 @@ staff and seller on fixed data, compared with main) and, for JS and CSS, in head
 - Rule used throughout: keep each log call's level and add `exc_info=True`. Telegram alerts take ERROR and above, so
   their number did not change. `log.exception` (ERROR) would have flooded the ops chat.
 - Left: 70 broad catches in small files (`scripts/guardrail_baseline.json`), to narrow when those files are touched.
+
+## Phase 6: Audit, then plan
+
+Phases 0-5 removed what was dead, duplicated or too big by file. What is left is harder to see: functions nobody
+can follow, a data model that will be expensive to change later, and paths with no tests. This phase first finds
+and ranks those problems (the audit), then turns the ranked list into phases 7+ (the plan). The audit changes no code.
+
+- [ ] Step 1: audit, one track per session, results written under "Audit report" below.
+- [ ] Step 2: the user reviews the report and answers its open decisions.
+- [ ] Step 3: phases 7+ are written from the accepted findings; guardrails for them are added first.
+
+### Rules for the audit
+
+- Read-only: no fixes, no renames, no "while I am here". A bug found on the way is a finding.
+- Every finding has evidence someone else can reproduce: `file:line`, the command that found it, the number.
+  "This looks complex" is not a finding; "`import_opportunity` has 82 branches in 151 lines" is.
+- Verify before reporting: read the code, grep the callers, check that the path runs in production (the table in
+  `AGENTS.md`). Mark each finding CONFIRMED (read and traced) or SUSPECTED (seen, not traced).
+- Every finding says what goes wrong later if it stays (wrong data, a blocked feature, a change nobody dares make).
+  No future cost means no finding. Style and naming are out of scope.
+- Say what was not checked. A track that was only sampled says which part.
+- Database findings need production numbers (row counts, violations of the rule to be added). The agent writes the
+  read-only queries; the user runs them on the server and pastes the result.
+
+### What to look for
+
+Critical paths, where a mistake costs money, an account or a customer's data. Findings on them rank higher:
+opportunity import (`engine_bridge`), wallet charging (`billing/services`), DM dispatch and limits
+(`outreach_engine`, `outreach/`), the Instagram scraper cycle, tenant scoping in views and exports, retention.
+
+| Track | Look for | How to find it |
+|---|---|---|
+| A. Complex functions | More than 15 branches, 50 lines or 4 levels of nesting; more than 7 parameters; a function that does several stages in one body; `if platform == ...` chains repeated across files | `ruff check --select C901,PLR0912,PLR0913,PLR0915 --statistics .`, then read the top 40 |
+| B. Data model | Links kept as strings or inside JSON instead of a foreign key (`tenant_id`, `trace_metadata` ids, account usernames); JSON keys that code filters or branches on; one table holding several things; missing unique or check constraints behind "find, else create" code; the same fact in two tables; tables that only grow; redundant indexes | Read every model and both raw schemas (`telegram_crawler/schema.sql`, `need_engine/store.py`); grep `get_or_create`, `.filter(...).first()` followed by a create, `trace_metadata`, `__contains` |
+| C. Migrations | Schema changes outside Django migrations; migrations that lock or rewrite a large table; data migrations without a reverse; model changes with no migration | `python manage.py makemigrations --check --dry-run`; read the migrations of the last 3 months |
+| D. Tenant isolation | A view, export or API that loads an object by id without filtering by the user's business; operator-only pages reachable by sellers | List every URL with its view and decorators; for each view taking an id, trace the query |
+| E. Duplication | Two implementations of one concept (LLM client, cost ledger, crawl de-duplication, account models, proxy lists); copied blocks | Grep by concept, not by name; compare modules with similar names across `apps/`, `need_engine/`, `workers/`, `shared/` |
+| F. Coupling | The `ALLOWED` list in `tests/test_architecture.py`; imports inside functions that exist to avoid a cycle; modules imported by most of the codebase; views with business logic; models with presentation code | `python scripts/import_graph.py`; grep indented `from apps` imports |
+| G. Tests | Critical paths with low or mock-only coverage; tests that mock the function they test; no test for cross-tenant access | `python -m pytest --cov` (ask before adding `pytest-cov`); read the tests of each critical path |
+| H. Panel queries | Queries inside loops or model properties used in templates; counts over whole tables on every page load; lists without pagination | Read each list view and its template; confirm with `assertNumQueries` or the query log on fixed data |
+| I. Config and deploy | Environment reads outside `config.py`/settings; state kept in process memory or local files that breaks with two processes; anything deployed that is not in git | `python scripts/config_inventory.py`; grep module-level dicts, `threading.Thread`, `cache.` |
+
+### Ranking
+
+Each finding gets three scores from 1 to 3, with one line of reasoning each:
+
+- Impact: what breaks and for whom (3 = money, bans, customer data or a critical path).
+- Growth: does it get more expensive to fix with time (3 = every new row or feature adds cost, as with data model
+  problems; 1 = it stays the same size).
+- Effort: 1 = one small PR, 2 = several PRs, 3 = needs a design decision or a data backfill.
+
+Priority: P0 = impact 3 and growth 3; P1 = impact 3 or growth 3; P2 = the rest worth doing; drop anything else.
+Also record churn for code findings (`git log --since="3 months ago" --format= --name-only | sort | uniq -c`): complex
+code that changes often comes before complex code nobody touches.
+
+### Audit report (filled in by step 1)
+
+Keep it in this file, short enough to read in one sitting: one table row per finding, and a detail block only for
+P0 and P1. More than about 40 rows means the bar is too low.
+
+1. Summary: five lines at most. The three problems that matter most, and what was not checked.
+2. Findings table, sorted by priority:
+
+   | ID | Track | Finding | Where | Evidence | Impact / Growth / Effort | Priority | Status |
+   |---|---|---|---|---|---|---|---|
+   | B-1 | Data model | Leads link to a business by string | `models/instagram.py:409` | 3 tables, N rows, M unknown tenant strings | 3 / 3 / 3 | P0 | CONFIRMED |
+
+3. Detail for each P0 and P1 finding:
+   - What it is today, with the code reference.
+   - What goes wrong later if it stays.
+   - Proposed fix, as a list of small PRs in order, each with the test that pins behavior first.
+   - Guardrail that keeps it fixed (a ratchet in `guardrail_baseline.json`, a constraint, an architecture test).
+   - Risk and rollback, and for data changes the backfill and the query that proves it is complete.
+4. Decisions for the user: questions only they can answer, each with the options and a recommendation.
+5. Proposed phases 7+: findings grouped into phases, guardrails before fixes, data model before code that depends on
+   it, each phase a list of PRs of one logical change.
 
 ## Running the checks locally (Docker)
 
