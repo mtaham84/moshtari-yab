@@ -115,7 +115,10 @@ class PanelAgentTests(EngineSchemaMixin, TestCase):
         self.assertEqual(self.client.get(url, {"after": opp.pk}).json()["count"], 0)
         page = self.client.get(reverse("discovery:opportunity_list")).content.decode()
         self.assertIn(f'data-after="{opp.pk}"', page)
-        self.assertIn("20000", page)
+        self.assertIn("js/opportunities_list.js", page)   # the script that polls for new opportunities
+        from django.contrib.staticfiles import finders
+        with open(finders.find("js/opportunities_list.js"), encoding="utf-8") as f:
+            self.assertIn("setInterval(check, 20000)", f.read())
 
     # ── /r/ click link ────────────────────────────────────────────────────
     def test_click_link_counts_and_goes_to_the_sellers_page(self):
