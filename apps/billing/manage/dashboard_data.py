@@ -243,7 +243,7 @@ def twitter_accounts() -> dict:
         twitter_scrapers_challenged = sum(1 for a in twitter_scrapers if a.status == "CHALLENGED")
         twitter_scrapers_banned = sum(1 for a in twitter_scrapers if a.status == "BANNED")
     except Exception as exc:
-        logger.warning("Could not query TwitterEngineAccount: %s", exc)
+        logger.warning("Could not query TwitterEngineAccount: %s", exc, exc_info=True)
         twitter_scrapers = []
         twitter_scrapers_total = twitter_scrapers_active = twitter_scrapers_cooldown = twitter_scrapers_challenged = twitter_scrapers_banned = 0
     return {"twitter_scrapers": twitter_scrapers, "twitter_scrapers_total": twitter_scrapers_total,
@@ -266,7 +266,7 @@ def twitter_crawl_runs() -> list:
                 LIMIT 60
             """)
     except Exception as exc:
-        logger.warning("Could not query x_search_runs: %s", exc)
+        logger.warning("Could not query x_search_runs: %s", exc, exc_info=True)
     return twitter_crawl_runs
 
 
@@ -276,6 +276,7 @@ def proxy_pool() -> dict:
         proxy_configs_total = proxy_configs.count()
         proxy_configs_active = proxy_configs.filter(status="ACTIVE").count()
     except Exception:
+        logger.warning("proxy_pool failed", exc_info=True)
         proxy_configs = []
         proxy_configs_total = proxy_configs_active = 0
     return {"proxy_configs": proxy_configs, "proxy_configs_total": proxy_configs_total,

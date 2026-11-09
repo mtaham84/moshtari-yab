@@ -378,6 +378,7 @@ def opportunity_detail_view(request, pk):
     try:
         analysis = opportunity.ai_analysis
     except Exception:
+        logger.warning("opportunity_detail_view failed", exc_info=True)
         analysis = None
 
     drafts = drafts_for(opportunity)
@@ -497,6 +498,7 @@ def opportunity_reply_suggestions_view(request, pk):
                 force=True,
             )
         except Exception as exc:
+            logger.warning("opportunity_reply_suggestions_view failed", exc_info=True)
             return JsonResponse({"status": "error", "message": str(exc)[:240]}, status=503)
         if result is None:
             return JsonResponse({"status": "error", "message": "اعتبار این کسب‌وکار برای تولید پیام کافی نیست."}, status=402)

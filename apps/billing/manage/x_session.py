@@ -109,6 +109,7 @@ def _call_twitter_settings_endpoint(
             )
         return r, None
     except Exception as exc:
+        logger.warning("_call_twitter_settings_endpoint failed", exc_info=True)
         return None, exc
 
 
@@ -157,6 +158,7 @@ def _interpret_twitter_response(
             try:
                 data = response.json()
             except Exception:
+                logger.warning("_interpret_twitter_response failed", exc_info=True)
                 data = None
 
     if code == 200:
@@ -262,6 +264,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             try:
                 payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
             except Exception:
+                logger.warning("_test_twitter_account_connection failed", exc_info=True)
                 payload = {}
 
             if completed.returncode == 0 and payload.get("ok") is True:

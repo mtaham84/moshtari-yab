@@ -31,7 +31,7 @@ def _ping_and_evaluate_proxy_config(proxy: ProxyConfig, timeout_sec: float = 3.5
     try:
         proxy.save(update_fields=["ping_ms", "status", "last_checked_at"])
     except Exception as exc:
-        logger.warning("Could not save proxy #%s test result: %s", proxy.id, exc)
+        logger.warning("Could not save proxy #%s test result: %s", proxy.id, exc, exc_info=True)
 
     return {
         "id": proxy.id,
@@ -115,6 +115,7 @@ def manage_channel_proxy_sync(request):
         res = sync_channel_configs(channel_username=channel, force_all=force_all, max_add_per_run=10)
         return JsonResponse(res)
     except Exception as exc:
+        logger.warning("manage_channel_proxy_sync failed", exc_info=True)
         return JsonResponse({"success": False, "message": f"خطا در بررسی کانال: {exc}"}, status=400)
 
 
@@ -165,6 +166,7 @@ def manage_proxy_channel_delete(request, pk):
             "id": pk,
         })
     except Exception as exc:
+        logger.warning("manage_proxy_channel_delete failed", exc_info=True)
         return JsonResponse({"success": False, "message": f"خطا در حذف کانال: {exc}"}, status=500)
 
 
@@ -186,6 +188,7 @@ def manage_proxy_channel_toggle(request, pk):
             "id": pk,
         })
     except Exception as exc:
+        logger.warning("manage_proxy_channel_toggle failed", exc_info=True)
         return JsonResponse({"success": False, "message": f"خطا در تغییر وضعیت: {exc}"}, status=500)
 
 

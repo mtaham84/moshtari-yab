@@ -324,7 +324,7 @@ def request_activation_view(request):
         try:
             notify_new_activation_request(req)
         except Exception as e:
-            logger.warning("Failed sending Telegram alert for activation request #%s: %s", req.id, e)
+            logger.warning("Failed sending Telegram alert for activation request #%s: %s", req.id, e, exc_info=True)
 
         return render(request, "accounts/request_demo.html", {
             "success": True,

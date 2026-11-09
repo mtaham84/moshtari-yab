@@ -182,7 +182,7 @@ def opportunity_export_view(request):
                 if drafts:
                     suggested_reply = next((v for v in drafts.values() if v), "").strip()
             except Exception:
-                logger.warning("Could not load reply drafts for opportunity %s", opp.id)
+                logger.warning("Could not load reply drafts for opportunity %s", opp.id, exc_info=True)
 
         if not suggested_reply:
             first_prod = matches[0].product.name.strip() if (matches and matches[0].product) else ""
