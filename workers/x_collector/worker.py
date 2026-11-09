@@ -81,7 +81,7 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
             if max_age_days > 0 and created_dt < datetime.now(timezone.utc) - timedelta(days=max_age_days):
                 log.info("Skipping X post %s older than %s days (%s)", clean_id, int(max_age_days), created_at)
                 return None
-        except Exception:
+        except (TypeError, ValueError):   # unparseable date or setting: keep the post
             pass
 
     return SourceRecord.from_dict({
@@ -533,7 +533,7 @@ class XCollector:
                     from x_ingest.__main__ import _dsn
                     dsn = _dsn()
                 except Exception:
-                    pass
+                    log.debug("No engine DSN from x_ingest", exc_info=True)
             if not dsn:
                 return
             with psycopg.connect(dsn, connect_timeout=3) as conn:

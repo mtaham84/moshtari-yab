@@ -98,7 +98,7 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
     try:
         store.close()
     except Exception:
-        pass
+        log.debug("Could not close the query store", exc_info=True)
     return terms, cards
 
 
@@ -184,7 +184,7 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
         try:
             source.db.conn.close()
         except Exception:
-            pass
+            log.debug("Could not close the engine connection", exc_info=True)
 
 
 def _load_intent_queries(config, source, products, x_mode, mode):

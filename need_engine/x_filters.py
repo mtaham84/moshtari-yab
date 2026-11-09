@@ -70,7 +70,7 @@ def get_catalog_bm25(catalog) -> BM25 | None:
     bm25 = BM25(docs) if docs else None
     try:
         catalog._x_bm25_cache = (cache_key, bm25)
-    except Exception:
+    except AttributeError:   # catalog object without attribute support: no cache
         pass
     return bm25
 

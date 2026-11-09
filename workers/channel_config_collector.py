@@ -32,7 +32,7 @@ for env_candidate in [ROOT_DIR / ".env"]:
                     if line and not line.startswith("#") and "=" in line:
                         k, v = line.split("=", 1)
                         os.environ.setdefault(k.strip(), v.strip())
-        except Exception:
+        except (OSError, ValueError):   # unreadable .env: use the real environment
             pass
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
