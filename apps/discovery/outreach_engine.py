@@ -39,6 +39,7 @@ from apps.discovery.outreach.limits import get_effective_sender_limits
 from apps.discovery.outreach.messages import build_bulletproof_message
 from apps.discovery.outreach.outbox import process_queued_outbox_message, resolve_queued_sender
 from apps.discovery.outreach.recipients import qualify_recipient_profile, select_and_reserve_candidate
+from instagram_engine.analyzer import validate_and_sanitize_dm
 
 logger = logging.getLogger("instagram_outreach")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
@@ -139,7 +140,7 @@ def get_sender_client(account):
 
     if not key[0]:
         raise RuntimeError("login_required: no sessionid saved for this sender")
-    cl = new_client(account, no_prompts=False, delay_range=[1.5, 3.5])
+    cl = new_client(account, delay_range=[1.5, 3.5])
     # The saved session on the phone that created it (set_settings, no extra login request); only rows holding a
     # bare sessionid get the account's device profile and one login_by_sessionid().
     connect_saved_session(cl, account)
@@ -405,6 +406,11 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         res = {"success": False, "error": str(exc)}
 
+    if res.get("blocked"):
+        ctx.log(f"   🚫 [گاردریل پیام]: پیام صف @{lead_to_process.username} ارسال نشد: {res.get('error')}")
+        return {"action": "queued_blocked", "sent": False, "lead": lead_to_process.username, "sender": sender.username,
+                "reason": res.get("error")}
+
     if res.get("success"):
         if not ctx.dry_run:
             persist_sender_session(sender)
@@ -496,6 +502,16 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
     )
     ctx.log(f"   📌 اکانت فرستنده: @{sender.username} (مشاور: {consultant_name}) | "
             f"کوتای امروز: {sender.daily_action_count + 1}/{limit_daily}")
+
+    # A first DM to a stranger never carries a link, an @mention or a phone number (spam filters flag them).
+    valid, reason = validate_and_sanitize_dm(pitch_text)
+    if not valid:
+        ctx.log(f"   🚫 [گاردریل پیام]: دایرکت به @{lead.username} ارسال نشد: {reason}")
+        lead.status = "FAILED"
+        lead.comment_text = (lead.comment_text or "") + f"\n[گاردریل پیام]: {reason}"
+        lead.save(update_fields=["status", "comment_text", "updated_at"])
+        return {"action": "cold_blocked", "sent": False, "lead": lead.username, "sender": sender.username,
+                "reason": reason}
 
     if ctx.dry_run:
         ctx.log(f"   [DRY-RUN] شبیه‌سازی ارسال به @{lead.username}: {pitch_text[:120]}...")

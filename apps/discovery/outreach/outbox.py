@@ -107,6 +107,18 @@ def process_queued_outbox_message(
     if sender is None:
         sender = resolve_queued_sender(lead, queued_item)
 
+    if not lead.has_replied:   # still a first contact: same rule as cold DMs (no link, @mention or phone number)
+        from instagram_engine.analyzer import validate_and_sanitize_dm
+        valid, reason = validate_and_sanitize_dm(queued_item.get("text") or "")
+        if not valid:
+            queued_item["delivery_status"] = "FAILED"
+            queued_item["last_error"] = reason[:200]
+            history[queued_idx] = queued_item
+            lead.conversation_history = history
+            lead.status = "DM_SENT" if lead.initial_dm_at else "FAILED"
+            lead.save(update_fields=["status", "conversation_history", "updated_at"])
+            return {"success": False, "blocked": True, "error": reason}
+
     if dry_run:
         now = timezone.now()
         chosen_sender = sender.username if sender else (sender_username or "مشاور")
@@ -149,7 +161,7 @@ def process_queued_outbox_message(
     if client_cache is not None and sender.username in client_cache:
         cl = client_cache[sender.username]
     else:
-        cl = new_client(sender, no_prompts=False)
+        cl = new_client(sender)
         connect_saved_session(cl, sender)
         if client_cache is not None:
             client_cache[sender.username] = cl

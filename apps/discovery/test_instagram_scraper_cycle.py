@@ -71,6 +71,36 @@ class FamilyTargetOrderTests(TestCase):
         self.assertTrue(a.pk)
 
 
+class BusinessOrderTests(TestCase):
+    def _cycle_businesses(self):
+        """Businesses build_targets asks for families, in order (each business gets one family)."""
+        asked = []
+
+        def families(biz):
+            asked.append(biz.name)
+            return [SimpleNamespace(product_id=f"f{biz.pk}", category_path="x", title="x")]
+        with patch("apps.discovery.instagram_families.families_for_business", side_effect=families), \
+                patch("apps.discovery.instagram_families.ensure_family_plan", return_value=(None, False)), \
+                patch("apps.discovery.instagram_families.sample_sources", return_value=[]):
+            _targets()
+        return asked
+
+    def _with_product(self, name, domain="پوشاک"):
+        b = _business(name, domain)
+        Product.objects.create(business=b, name="کالا", price=1)
+        return b
+
+    def test_priority_business_goes_first_and_the_others_still_get_scraped(self):
+        clothes = self._with_product("پوشاک")
+        dental = self._with_product("کلینیک", "دندانپزشکی")
+        books = self._with_product("کتاب")
+        with self.settings(INSTAGRAM_PRIORITY_BUSINESS_IDS=[dental.pk]):
+            self.assertEqual(self._cycle_businesses(), ["کلینیک", "پوشاک", "کتاب"])
+        with self.settings(INSTAGRAM_PRIORITY_BUSINESS_IDS=[]):
+            self.assertEqual(self._cycle_businesses(), ["پوشاک", "کلینیک", "کتاب"])   # no name matching
+        self.assertTrue(clothes.pk < dental.pk < books.pk)
+
+
 class RetireSourceTests(TestCase):
     def setUp(self):
         self.business = _business()
@@ -106,15 +136,18 @@ class RetireSourceTests(TestCase):
         self.assertEqual(self.plan.page_search_terms, ["دندانپزشکی"])
         self.assertEqual(self.product.instagram_terms, [])
 
-    def test_watched_and_own_pages_stay_active(self):
-        watched = InstagramPage.objects.create(business=self.business, handle="my_watch", kind="watched",
-                                               discovered_family_id="f1")
-        own = InstagramPage.objects.create(business=self.business, handle="my_own", kind="own")
-        _retire(self.business, "page", "@my_watch")
-        _retire(self.business, "page", "@my_own")
-        watched.refresh_from_db()
-        own.refresh_from_db()
-        self.assertTrue(watched.is_active and own.is_active)
+    def test_discovered_pages_are_deactivated_but_seller_pages_stay(self):
+        discovered = InstagramPage.objects.create(business=self.business, handle="found_page", kind="watched",
+                                                  discovered_family_id="f1", last_status="candidate")
+        hand_added = InstagramPage.objects.create(business=self.business, handle="my_watch", kind="watched")
+        own = InstagramPage.objects.create(business=self.business, handle="my_own", kind="own",
+                                           discovered_family_id="f1")
+        for handle in ("found_page", "my_watch", "my_own"):
+            _retire(self.business, "page", f"@{handle}")
+        for page in (discovered, hand_added, own):
+            page.refresh_from_db()
+        self.assertEqual((discovered.is_active, discovered.last_status), (False, "unqualified_retired"))
+        self.assertTrue(hand_added.is_active and own.is_active)
 
 
 class FetchSourceMediasTests(TestCase):

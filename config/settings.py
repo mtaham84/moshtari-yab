@@ -256,6 +256,10 @@ INSTAGRAM_PROXY_ROTATE_EACH_DM = os.environ.get("INSTAGRAM_PROXY_ROTATE_EACH_DM"
 # Instagram accounts (apps/discovery/ig_accounts.py). An account without its own proxy or system config talks
 # through this proxy (the shared xray pool), never from the server's IP; "direct" = server IP (not recommended).
 INSTAGRAM_DEFAULT_PROXY_URL = os.environ.get("INSTAGRAM_DEFAULT_PROXY_URL", "socks5h://xray:1080").strip()
+# Businesses the Instagram scraper takes first each cycle (comma-separated ids); every other business with active
+# products follows.
+INSTAGRAM_PRIORITY_BUSINESS_IDS = [int(x) for x in os.environ.get("INSTAGRAM_PRIORITY_BUSINESS_IDS", "4").split(",")
+                                   if x.strip().isdigit()]
 # How many Instagram accounts may share one system V2Ray config (1 = every account has its own IP).
 INSTAGRAM_ACCOUNTS_PER_CONFIG = max(1, int(os.environ.get("INSTAGRAM_ACCOUNTS_PER_CONFIG", "1")))
 # A login started in the panel runs in a background thread of the web process and waits there for the code.

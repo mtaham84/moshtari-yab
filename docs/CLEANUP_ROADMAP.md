@@ -18,7 +18,8 @@ green, before the next one starts. Behavior must not change unless the step says
   proxy handling has one owner (`apps/discovery/proxies/`), and every instagrapi client comes from one factory.
 - Phase 4 is done as four PRs (#36 views/services, #37 templates, #38 CSS, #39 outreach/ops bot): of the 15 files
   over 800 lines only `apps/discovery/models/core.py` (848) is left, on purpose.
-- **Next step:** Phase 5, error handling and the bugs listed under "Known issues".
+- **Next step:** Phase 5 (in progress): 5.1 known bugs; 5.2 silent `except Exception: pass`; 5.3 tracebacks at
+  process boundaries and views; 5.4 narrow excepts in the biggest helper files.
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -167,16 +168,13 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
   never saw that `api.telegram.org` answers 302). Prefer real local servers/databases in tests.
 - A deploy that changes the `Dockerfile` needs `docker compose build` on the server (the app image ships the xray
   binary since PR #21).
-- Found in Phase 3, not fixed (behavior changes, Phase 5 candidates):
-  - Retiring an unqualified page source never deactivates the page: discovered candidates are created with
-    `kind="watched"`, and `retire_and_delete_source` keeps every watched page active.
-  - The outreach, scraper and cockpit clients keep instagrapi's default challenge handlers (they read a code from
-    stdin, which fails in a container), so a challenge there surfaces as a generic error rather than `CHALLENGE`.
-    `new_client(..., no_prompts=False)` marks these callers.
-  - `instagram_engine.analyzer.validate_and_sanitize_dm` (no links, @mentions or phone numbers in a cold DM) is not
-    called anywhere; outreach DMs rely on the prompt alone.
-  - The scraper hardcodes priority for business id 4 / "دندان" (`ig_scraper/cycle.build_targets`).
-  - Telegram's own egress proxy candidates exist in three slightly different lists (`workers/telegram_config_bot.py`,
+- Fixed in Phase 5 (PR 5.1, each with a test that failed before): retired auto-discovered pages are deactivated;
+  every worker client answers Instagram challenges without a keyboard (the account becomes CHALLENGED instead of
+  being reused after an EOFError); cold DMs and first queued DMs are checked by `validate_and_sanitize_dm`; the
+  scraper takes `INSTAGRAM_PRIORITY_BUSINESS_IDS` first and then every business (before, while a dental business
+  existed no other business was scraped).
+- Found in Phase 3, not fixed:
+  - Telegram's own egress proxy candidates exist in three slightly different lists (`apps/core/ops_bot/telegram_api.py`,
     `shared/telegram_alerts.py`, `channel_config_automation.get_http_request_with_proxy`).
   - `apps/discovery/ig_login.py` is 429 lines, over the 400-line guideline for new files.
 - Found in Phase 4, not fixed:
