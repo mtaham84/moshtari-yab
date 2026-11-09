@@ -16,7 +16,7 @@ from apps.discovery.management.commands.run_instagram_outreach import (
     _error_matches,
 )
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-from apps.discovery.outreach_service import get_effective_sender_limits, select_outreach_candidates
+from apps.discovery.outreach_service import get_effective_sender_limits, select_and_reserve_candidate
 
 
 class RoleAndLimitTests(SimpleTestCase):
@@ -113,8 +113,9 @@ class CandidateSelectionTests(TestCase):
         self._lead("week_old", hours_ago=24 * 6, is_private=False, text="قیمت لمینت؟", intent=0.99)
         self._lead("too_old", hours_ago=24 * 32, is_private=False, text="قیمت ایمپلنت؟", intent=0.99)
 
-        picked = select_outreach_candidates(["tenant_4"], 5)
+        picked = [select_and_reserve_candidate(["tenant_4"]) for _ in range(4)]   # each call reserves the best one
 
+        self.assertIsNone(picked.pop())
         self.assertEqual([lead.username for lead in picked], ["hot", "week_old", "cold"])
         self.assertGreater(picked[0].outreach_score, picked[1].outreach_score)
         self.assertGreater(picked[1].outreach_score, picked[2].outreach_score)

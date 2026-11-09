@@ -1,4 +1,3 @@
-from unittest.mock import MagicMock, patch
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -7,8 +6,6 @@ from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, C
 from apps.discovery.outreach_service import (
     extract_iranian_phone_number,
     get_lead_conversation_thread,
-    send_direct_message_to_lead,
-    send_second_followup_message,
 )
 
 User = get_user_model()
@@ -101,46 +98,6 @@ class DirectChatInfrastructureTestCase(TestCase):
         self.assertEqual(thread[0]["direction"], "out")
         self.assertEqual(thread[1]["direction"], "in")
         self.assertEqual(thread[2]["direction"], "out")
-
-    @patch("apps.discovery.device_emulator.apply_device_profile_to_client")
-    @patch("instagrapi.Client")
-    def test_send_direct_message_to_lead(self, mock_client_cls, mock_apply_profile):
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_client.user_id_from_username.return_value = 12345678
-
-        res = send_direct_message_to_lead(
-            lead_id=self.lead.id,
-            message_text="سلام، شرایط اقساط کامپوزیت ۱۰ ماهه بدون پیش‌پرداخت است.",
-            sender_username="raha.test",
-        )
-
-        self.assertTrue(res["success"])
-        self.assertEqual(res["lead"], "buyer_test")
-        self.assertEqual(res["sender"], "raha.test")
-
-        # Verify client dispatched DM
-        mock_client.direct_send.assert_called_once_with(
-            "سلام، شرایط اقساط کامپوزیت ۱۰ ماهه بدون پیش‌پرداخت است.",
-            user_ids=[12345678],
-        )
-
-        # Verify database update
-        self.lead.refresh_from_db()
-        self.assertEqual(self.lead.status, "FOLLOWUP_SENT")
-        self.assertEqual(self.lead.second_message_text, "سلام، شرایط اقساط کامپوزیت ۱۰ ماهه بدون پیش‌پرداخت است.")
-        self.assertEqual(len(self.lead.conversation_history), 1)
-        self.assertEqual(self.lead.conversation_history[0]["sender"], "raha.test")
-
-        # Second message backward-compatible alias test
-        res2 = send_second_followup_message(
-            lead_id=self.lead.id,
-            sender_username="raha.test",
-            message_text="پیام پیگیری دوم",
-        )
-        self.assertTrue(res2["success"])
-        self.lead.refresh_from_db()
-        self.assertEqual(len(self.lead.conversation_history), 2)
 
     def test_update_lead_phone_view(self):
         client = Client()

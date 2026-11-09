@@ -33,12 +33,10 @@ class OutreachHubSafeQueueTests(TestCase):
         self.ajax = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
 
     def test_manual_dm_goes_to_safe_queue_not_direct_send(self):
-        with patch("apps.discovery.outreach_service.send_chat_message") as direct_send:
-            r = self.client.post(self.url, {"lead_id": self.lead.id, "sender_username": "our_sender",
-                                            "message_text": "سلام، در خدمتم"}, **self.ajax)
+        r = self.client.post(self.url, {"lead_id": self.lead.id, "sender_username": "our_sender",
+                                        "message_text": "سلام، در خدمتم"}, **self.ajax)
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["queued"])
-        direct_send.assert_not_called()
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.status, "QUEUED")
         self.assertEqual(self.lead.conversation_history[-1]["delivery_status"], "QUEUED")

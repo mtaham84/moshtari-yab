@@ -91,10 +91,10 @@
   },
   "lines": {
     "apps/accounts/views.py": 991,
-    "apps/billing/manage_views.py": 2153,
+    "apps/billing/manage_views.py": 2151,
     "apps/billing/services.py": 820,
     "apps/discovery/models/core.py": 848,
-    "apps/discovery/outreach_service.py": 1370,
+    "apps/discovery/outreach_service.py": 1135,
     "apps/discovery/views/opportunities.py": 944,
     "static/css/panel.css": 2737,
     "static/css/site.css": 3332,
