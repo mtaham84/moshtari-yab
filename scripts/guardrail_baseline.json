@@ -11,8 +11,11 @@
     "apps/billing/manage/live_logs.py": 1,
     "apps/billing/manage/proxies.py": 4,
     "apps/billing/manage/x_session.py": 5,
-    "apps/billing/services.py": 6,
+    "apps/billing/ops_status.py": 2,
+    "apps/billing/reports.py": 2,
+    "apps/billing/services.py": 1,
     "apps/billing/templatetags/ops.py": 2,
+    "apps/billing/x_stats.py": 1,
     "apps/core/context_processors.py": 2,
     "apps/core/jalali.py": 5,
     "apps/core/llm.py": 1,
@@ -98,7 +101,6 @@
     "xray/multi_proxy_manager.py": 16
   },
   "lines": {
-    "apps/billing/services.py": 820,
     "apps/discovery/models/core.py": 848,
     "apps/discovery/outreach_service.py": 1364,
     "static/css/panel.css": 2737,
