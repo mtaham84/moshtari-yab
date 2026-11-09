@@ -9,45 +9,31 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.businesses.models import Business
+from apps.discovery.ig_scraper.context import Run
+from apps.discovery.ig_scraper.sources import fetch_source_medias, retire_and_delete_source
 from apps.discovery.instagram_families import DiscoverySource
-from apps.discovery.models import InstagramEngineAccount, InstagramFamilyPlan, InstagramPage, InstagramSourceStat
+from apps.discovery.models import InstagramFamilyPlan, InstagramPage, InstagramSourceStat
 from apps.products.models import Product
 
 
-def _command():
-    from apps.discovery.management.commands.run_instagram_scraper import Command
-    return Command(stdout=StringIO(), stderr=StringIO())
-
-
 def _targets() -> list[dict]:
-    """Targets of one non-loop cycle, in the order they are scraped."""
-    from apps.discovery.management.commands import run_instagram_scraper as mod
-
-    seen = []
-    account = InstagramEngineAccount.objects.create(username="scr", password="x", role="SCRAPER",
-                                                    tenant_id="tenant_default", session_json={})
-    with patch.object(mod.Command, "_available_scraper_accounts", return_value=[account]), \
-            patch.object(mod.Command, "_is_usable", return_value=True), \
-            patch.object(mod.Command, "_client_or_rest", return_value=object()), \
-            patch.object(mod.Command, "_persist_session"), \
-            patch.object(mod.Command, "_scrape_family_target",
-                         side_effect=lambda cl, acc, target, min_comments: seen.append(target) or 0), \
-            patch("apps.discovery.anti_ban.InstagramAntiBanManager.sleep_after_business"):
-        _command().handle(min_comments=10, loop=False, interval=5, force_hours=True)
-    return seen
+    """Targets of one cycle, in the order they are scraped."""
+    from apps.discovery.ig_scraper.cycle import build_targets
+    return build_targets(Run(stdout=StringIO(), stderr=StringIO()))
 
 
 def _retire(business, source_type, label, family=None, plan=None):
-    _command()._retire_and_delete_source(business=business, source_type=source_type, label=label,
-                                         family=family, plan=plan)
+    retire_and_delete_source(Run(stdout=StringIO(), stderr=StringIO()), business=business, source_type=source_type,
+                             label=label, family=family, plan=plan)
 
 
 def _fetch(cl, account, source_type, label, **kw):
-    command = _command()
-    command._instagram_api_call = lambda _account, method, *a, **k: method(*a, **k)
-    command._request_budget_available = lambda _account: True
-    command._note_account_error = Mock()
-    return command._fetch_source_medias(cl=cl, account=account, source_type=source_type, source_label=label, **kw)
+    with patch("apps.discovery.ig_scraper.accounts.instagram_api_call",
+               side_effect=lambda _run, _account, method, *a, **k: method(*a, **k)), \
+            patch("apps.discovery.ig_scraper.accounts.request_budget_available", return_value=True), \
+            patch("apps.discovery.ig_scraper.accounts.note_account_error"):
+        return fetch_source_medias(Run(stdout=StringIO(), stderr=StringIO()), cl=cl, account=account,
+                                   source_type=source_type, source_label=label, **kw)
 
 
 def _business(name="کلینیک", domain="دندانپزشکی"):

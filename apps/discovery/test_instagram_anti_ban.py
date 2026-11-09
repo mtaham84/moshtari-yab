@@ -247,13 +247,14 @@ class ProxyRotationTests(SimpleTestCase):
 
 class ScraperProxyTests(TestCase):
     def test_unreachable_proxy_rests_the_account_instead_of_going_direct(self):
-        from apps.discovery.management.commands.run_instagram_scraper import Command
+        from apps.discovery.ig_scraper.clients import client_or_rest
+        from apps.discovery.ig_scraper.context import Run
 
         acc = _account("scr", role="SCRAPER", proxy_url="socks5h://xray:1081")
-        cmd = Command(stdout=StringIO(), stderr=StringIO())
+        run = Run(stdout=StringIO(), stderr=StringIO())
         with patch("apps.discovery.ig_accounts.proxy_reachable", return_value=(False, "refused")), \
                 patch("instagrapi.Client") as client_cls:
-            self.assertIsNone(cmd._client_or_rest(acc))
+            self.assertIsNone(client_or_rest(run, acc))
         client_cls.return_value.set_proxy.assert_not_called()
         acc.refresh_from_db()
         self.assertEqual(acc.status, "COOLDOWN")

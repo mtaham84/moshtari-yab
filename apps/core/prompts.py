@@ -123,7 +123,7 @@ PROMPT_CATALOG: Dict[str, Dict[str, Any]] = {
     "ig_caption_reply_template": {
         "title": "الگوی پیام دایرکت به کامنت‌های استعلام اینستاگرام",
         "category": "ارتباط با مشتری و دایرکت",
-        "module_path": "apps/discovery/management/commands/run_instagram_scraper.py:_get_caption_reply_template",
+        "module_path": "apps/discovery/ig_scraper/comments.py:reply_template_for_post",
         "description": "نگارش خودکار متن پیش‌نویس پاسخ دایرکت محترمانه و ترغیب‌کننده متناسب با کپشن پست و مشخصات فروشگاه برای پاسخ به کامنت استعلام قیمت بدون ایموجی.",
         "default": (
             "شما متخصص فروش حرفه‌ای در دایرکت اینستاگرام هستید. "

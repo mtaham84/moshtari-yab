@@ -156,13 +156,14 @@ class InstagramFamilyDatabaseTests(TestCase):
         llm.assert_not_called()
 
     def test_zero_balance_skips_instagram_scraping_before_api_calls(self):
-        from apps.discovery.management.commands.run_instagram_scraper import Command
-        command = Command()
-        command._instagram_api_call = Mock(side_effect=AssertionError("Instagram API called"))
+        from apps.discovery.ig_scraper.context import Run
+        from apps.discovery.ig_scraper.cycle import scrape_family_target
         target = {"business": self.business, "family": self.family, "plan": None, "sources": []}
-        with patch("apps.billing.services.is_blocked", return_value=True):
-            self.assertEqual(command._scrape_family_target(object(), object(), target, 20), 0)
-        command._instagram_api_call.assert_not_called()
+        with patch("apps.billing.services.is_blocked", return_value=True), \
+                patch("apps.discovery.ig_scraper.accounts.instagram_api_call",
+                      side_effect=AssertionError("Instagram API called")) as api_call:
+            self.assertEqual(scrape_family_target(Run(), object(), object(), target, 20), 0)
+        api_call.assert_not_called()
 
     def test_daily_plan_cap(self):
         for i in range(8):
@@ -210,7 +211,8 @@ class InstagramFamilyDatabaseTests(TestCase):
         self.assertEqual(InstagramSourceStat.objects.count(), 1)
 
     def test_crawled_comments_are_reused_across_businesses(self):
-        from apps.discovery.management.commands.run_instagram_scraper import Command
+        from apps.discovery.ig_scraper.comments import inspect_family_medias
+        from apps.discovery.ig_scraper.context import Run
         from apps.discovery.instagram_families import DiscoverySource
 
         now = timezone.now()
@@ -225,11 +227,9 @@ class InstagramFamilyDatabaseTests(TestCase):
         source = DiscoverySource("f1", "keyword", "پیراهن مردانه")
         family = SimpleNamespace(product_id="f1", category_path="پوشاک > مردانه > پیراهن",
                                  titles=["پیراهن مردانه"], notes="فروش عمده")
-        command = Command()
-        command._request_budget_available = lambda _account: True
-        command._current_api_requests = 0
+        run = Run()
         with patch("apps.discovery.services.sync_instagram_lead_to_opportunity") as sync:
-            command._inspect_family_medias(client, account, {"business": self.business, "family": family,
+            inspect_family_medias(run, client, account, {"business": self.business, "family": family,
                                       "plan": plan, "tenant_id": f"tenant_{self.business.pk}"}, source, [media], 20)
             second_user = get_user_model().objects.create_user(username="ig-family-test-2", password="x")
             second_business = Business.objects.create(user=second_user, name="پوشاک دوم", business_type="PHYSICAL",
@@ -237,14 +237,15 @@ class InstagramFamilyDatabaseTests(TestCase):
             second_family = SimpleNamespace(product_id=f"f{second_business.pk}-def", category_path=family.category_path,
                                             titles=family.titles, notes="")
             source2 = DiscoverySource(second_family.product_id, "keyword", "پیراهن مردانه")
-            command._inspect_family_medias(client, account, {"business": second_business, "family": second_family,
+            inspect_family_medias(run, client, account, {"business": second_business, "family": second_family,
                                       "plan": plan, "tenant_id": f"tenant_{second_business.pk}"}, source2, [media], 20)
         client.media_comments.assert_called_once()
         self.assertEqual(InstagramCrawledPost.objects.count(), 1)
         self.assertEqual(sync.call_count, 2)
 
     def _inspect_single(self, comment_count, min_comments):
-        from apps.discovery.management.commands.run_instagram_scraper import Command
+        from apps.discovery.ig_scraper.comments import inspect_family_medias
+        from apps.discovery.ig_scraper.context import Run
         from apps.discovery.instagram_families import DiscoverySource
 
         now = timezone.now()
@@ -256,12 +257,10 @@ class InstagramFamilyDatabaseTests(TestCase):
         source = DiscoverySource(self.family.product_id, "keyword", "پیراهن مردانه")
         family = SimpleNamespace(product_id=self.family.product_id, category_path="پوشاک > مردانه > پیراهن",
                                  titles=["پیراهن مردانه"], notes="")
-        command = Command()
-        command._request_budget_available = lambda _account: True
-        command._current_api_requests = 0
+        run = Run()
         target = {"business": self.business, "family": family, "plan": plan, "tenant_id": f"tenant_{self.business.pk}"}
         with patch("apps.discovery.services.sync_instagram_lead_to_opportunity"):
-            command._inspect_family_medias(client, account, target, source, [media], min_comments)
+            inspect_family_medias(run, client, account, target, source, [media], min_comments)
         return client.media_comments.call_count
 
     def test_family_path_respects_min_comments(self):

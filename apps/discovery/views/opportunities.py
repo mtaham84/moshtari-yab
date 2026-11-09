@@ -897,9 +897,9 @@ def opportunity_feedback_view(request, pk):
                     stat.save(update_fields=["beta"])
                     # Auto-retire defective query if seller repeatedly rejects leads from it
                     if stat.beta >= 8.0 and stat.alpha <= 1.5:
-                        from apps.discovery.management.commands.run_instagram_scraper import Command as ScraperCommand
-                        ScraperCommand()._retire_and_delete_source(
-                            business=business,
+                        from apps.discovery.ig_scraper import context, sources
+                        sources.retire_and_delete_source(
+                            context.Run(), business=business,
                             source_type=s_type,
                             label=s_label
                         )
