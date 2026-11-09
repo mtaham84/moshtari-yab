@@ -218,7 +218,7 @@ def generate_ai_outreach_pitches(
         if isinstance(res, dict) and "pitches" in res and isinstance(res["pitches"], list) and len(res["pitches"]) > 0:
             return res["pitches"]
     except Exception as exc:
-        logger.warning(f"LLM pitch generation failed, using tailored smart templates: {exc}")
+        logger.warning(f"LLM pitch generation failed, using tailored smart templates: {exc}", exc_info=True)
 
     # High-quality smart template fallbacks
     biz = business_name or "مجموعه تخصصی"

@@ -65,7 +65,7 @@ def build_client(run, account):
                         "sessionid": sess_id,
                         "should_use_header_over_cookies": True,
                     }
-        except Exception as e:
+        except Exception as e:   # no traceback: session data could end up in the log
             run.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
     from apps.discovery.proxies.health import proxy_reachable

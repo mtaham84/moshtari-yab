@@ -195,6 +195,7 @@ def _two_factor_info(cl, exc) -> dict:
             try:
                 value = finder(data, key) if callable(finder) else data.get(key)
             except Exception:
+                log.debug("Login info lookup for %s failed", key, exc_info=True)
                 value = data.get(key) if isinstance(data, dict) else None
             if value:
                 return value
@@ -239,7 +240,7 @@ def _submit_two_factor(cl, account, tf: dict, code: str, exc) -> None:
     try:
         cl.login_flow()   # what the app requests right after logging in; the login itself already succeeded
     except Exception as flow_exc:
-        log.info("login_flow after two-factor failed for @%s: %s", account.username, redact(flow_exc, 120))
+        log.info("login_flow after two-factor failed for @%s: %s", account.username, redact(flow_exc, 120), exc_info=True)
     cl.last_login = time.time()
 
 
@@ -272,7 +273,7 @@ def _run_login(pk: int, token: str, actor: str = "", *, interactive: bool = True
                     waiter.error = "کد قبلی پذیرفته نشد؛ کد تازه را وارد کنید."
     except LoginAborted:
         return Result(False, "ورود لغو شد.", state="cancelled")
-    except Exception as exc:
+    except Exception as exc:   # no traceback: Instagram errors can carry cookies; record_login_failure stores a redacted reason
         account.refresh_from_db()
         res = record_login_failure(account, exc, actor=actor, code_used=waiter.used or two_factor_used,
                                    timed_out=waiter.timed_out)
@@ -411,7 +412,7 @@ def login_with_sessionid(account, raw_sessionid, *, actor: str = "") -> Result:
     ig_client.mount_timeouts(cl)
     try:
         cl.login_by_sessionid(sid)
-    except Exception as exc:
+    except Exception as exc:   # no traceback: Instagram errors can carry cookies; the reason below is redacted
         kind = classify(exc)
         if kind == ErrorKind.NETWORK:
             message = f"اتصال برقرار نشد ({redact(exc, 120)}); وضعیت اکانت تغییری نکرد."

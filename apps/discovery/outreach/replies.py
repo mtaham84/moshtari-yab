@@ -229,7 +229,7 @@ def check_and_sync_lead_replies(tenant_ids: List[str]) -> Dict[str, Any]:
                         logger.info(f"✅ New reply detected from @{lead.username} to @{sender.username}: {msg_text[:50]}")
 
         except Exception as exc:
-            logger.warning(f"Error checking replies on sender @{sender.username}: {exc}")
+            logger.warning(f"Error checking replies on sender @{sender.username}: {exc}", exc_info=True)
 
     return {
         "status": "success",
