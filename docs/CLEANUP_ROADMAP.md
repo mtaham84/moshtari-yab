@@ -12,8 +12,9 @@ green, before the next one starts. Behavior must not change unless the step says
 
 - Phase 0 is done: AGENTS.md, skills, git conventions (PR #22), and CI guardrails (`ci/guardrail-checks`): file size
   and broad-except baseline, import-boundary test, commit message check, pinned ruff, pre-commit.
-- Phase 1 in review: stale docs removed (#26), one test command (#27), CI push builds only on `main` (#28).
-- **Next step:** Phase 2 easy deletions (`scripts/legacy/`, `xray/proxy_switcher.py`).
+- Phase 1 is done (#26, #27, #28, plus the outreach tie-break fix #29 it uncovered).
+- Phase 2 in progress: reachability tool (`scripts/find_unreachable.py`), then deletions in this order: dead code,
+  unused tools, experimental Instagram pipeline, unused settings and images.
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -67,15 +68,20 @@ The mess came from the process, not from one bad decision. Fix the process first
 
 ## Phase 2: Live map and dead code removal
 
-- [ ] For every docker-compose service, list the modules it really imports (`scripts/import_graph.py` can help).
-- [ ] Confirm with the team what runs by hand on the server (`workers/telegram_config_bot.py`,
-      `xray/proxy_switcher.py`, ...).
-- [ ] Remove, one PR per unit, following the `removing-dead-code` skill:
-  - [ ] `scripts/legacy/`
-  - [ ] `xray/proxy_switcher.py`
-  - [ ] `instagram_discovery/` and `workers/ig_collector/` (first move the few pieces `apps/` imports:
-        `apps/discovery/views/instagram.py`, `purge_retained_data`, `ig_sync_seeds`)
-  - [ ] unused settings in `.env.example`, unused templates and static files
+Decisions (2026-11-09): the Telegram ops bot and `workers/channel_config_collector.py` run under systemd and stay.
+The live Instagram stack (`run_instagram_scraper` + `instagram_engine/analyzer.py`, LLM judging, leads in the DB) is
+kept; the experimental JSONL pipeline (`workers/ig_collector/`, `instagram_discovery/`) is removed. Starting point:
+267 modules, 42 unreachable (8,006 lines).
+
+- [x] `scripts/find_unreachable.py`: modules no entry point reaches (compose, entrypoint, Django/Celery autoload,
+      `MANUAL_ROOTS` for systemd/manual tools), used as step 1 of the `removing-dead-code` skill.
+- [ ] Dead code: `scripts/legacy/`, `xray/proxy_switcher.py`, `instagram_engine/main.py` + `scraper_worker.py`,
+      `apps/accounts/emails.py`, `need_engine/x_query_scoring.py`.
+- [ ] Unused tools: one-off management commands, `workers/state_migrate.py`, `scripts/profile_*.py`.
+- [ ] Experimental Instagram pipeline, its post-review page and report APIs.
+- [ ] Unused `.env.example` variables and unused images.
+- Later (Phase 5 candidate): lead-quality measurement (human labels, precision) rebuilt on the live DB data; only the
+  removed experimental pipeline had it.
 
 ## Phase 3: One Instagram stack
 
