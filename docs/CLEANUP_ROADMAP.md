@@ -8,14 +8,15 @@ Goal: make the codebase small, understandable and safe to change, without a rewr
 Each step ships as a small PR to `main` from a short-lived `<type>/<description>` branch (see `AGENTS.md`), with CI
 green, before the next one starts. Behavior must not change unless the step says so.
 
-## Current status (2026-11-08)
+## Current status (2026-11-09)
 
 - Phase 0 is done: AGENTS.md, skills, git conventions (PR #22), and CI guardrails (`ci/guardrail-checks`): file size
   and broad-except baseline, import-boundary test, commit message check, pinned ruff, pre-commit.
 - Phase 1 is done (#26, #27, #28, plus the outreach tie-break fix #29 it uncovered).
 - Phase 2 is done (#30-#34): 0 unreachable modules remain; one Instagram stack.
-- **Next step:** Phase 3, splitting `run_instagram_scraper.py` and `apps/discovery/ig_accounts.py`, and one proxy
-  module.
+- Phase 3 is done (`refactor/one-instagram-stack`): the scraper and `ig_accounts.py` are split into focused modules,
+  proxy handling has one owner (`apps/discovery/proxies/`), and every instagrapi client comes from one factory.
+- **Next step:** Phase 4, splitting the largest files.
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -101,9 +102,21 @@ kept; the experimental JSONL pipeline (`workers/ig_collector/`, `instagram_disco
 
 - [x] Owner: `instagram_engine/` plus the Instagram code in `apps/discovery/` (the experimental pipeline was removed in
       Phase 2).
-- [ ] Break up `run_instagram_scraper.py` and `apps/discovery/ig_accounts.py` into focused modules.
-- [ ] Proxy handling (about 15 files: `ig_accounts.py`, `proxy_service.py`, `manage_views.py`, `xray/`, ...) behind
-      one module.
+- [x] Removed the scraper's manual one-off mode (`--query`, `--hashtags`, `--tenant`, about 750 lines): production only
+      runs the family path. `--all-businesses` and `--max-posts` had no effect and were dropped from the command and
+      `docker-compose.yml`. Helpers only it used went too (`ig_query_scoring`, LLM CTA extraction, ...).
+- [x] `run_instagram_scraper.py` (2,034 lines) is a 93-line command over `apps/discovery/ig_scraper/` (`clients`,
+      `session`, `accounts`, `sources`, `comments`, `cycle`, sharing one `Run` object). The opportunities view no
+      longer instantiates the management command.
+- [x] `apps/discovery/ig_accounts.py` (1,441 lines) keeps only add/edit/pause/delete/check (234 lines). Login with
+      codes: `ig_login`; clients: `ig_client`; status and timeline: `ig_state`; outreach tenants: `tenants`.
+- [x] One proxy owner, `apps/discovery/proxies/`: `urls` (which proxy, display, validation), `health` (reachability,
+      `measure_config`, egress IP), `rotation` (mobile IP rotation, was `proxy_service.py`), `assignment` (sticky
+      configs, healing, pruning; moved out of `ig_accounts` and `xray/`), `export` (link/QR, IP check). The manage
+      panel's own TCP check and config ping were duplicates and now use `health`. `xray/` keeps only xray work.
+- [x] Every instagrapi client is built by `ig_client.new_client` (6 hand-built copies replaced; their delays and
+      timeouts unchanged). `tests/test_architecture.py` fails when code outside `ig_client` imports `instagrapi.Client`.
+- [x] `check_baseline.py --update --moved-from <file>`: moved code takes its broad-except entries along, never more.
 
 ## Phase 4: Split the largest files
 
@@ -139,3 +152,15 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
   never saw that `api.telegram.org` answers 302). Prefer real local servers/databases in tests.
 - A deploy that changes the `Dockerfile` needs `docker compose build` on the server (the app image ships the xray
   binary since PR #21).
+- Found in Phase 3, not fixed (behavior changes, Phase 5 candidates):
+  - Retiring an unqualified page source never deactivates the page: discovered candidates are created with
+    `kind="watched"`, and `retire_and_delete_source` keeps every watched page active.
+  - The outreach, scraper and cockpit clients keep instagrapi's default challenge handlers (they read a code from
+    stdin, which fails in a container), so a challenge there surfaces as a generic error rather than `CHALLENGE`.
+    `new_client(..., no_prompts=False)` marks these callers.
+  - `instagram_engine.analyzer.validate_and_sanitize_dm` (no links, @mentions or phone numbers in a cold DM) is not
+    called anywhere; outreach DMs rely on the prompt alone.
+  - The scraper hardcodes priority for business id 4 / "دندان" (`ig_scraper/cycle.build_targets`).
+  - Telegram's own egress proxy candidates exist in three slightly different lists (`workers/telegram_config_bot.py`,
+    `shared/telegram_alerts.py`, `channel_config_automation.get_http_request_with_proxy`).
+  - `apps/discovery/ig_login.py` is 429 lines, over the 400-line guideline for new files.
