@@ -19,7 +19,7 @@ class OutreachEngineTests(TestCase):
         self.addCleanup(engine._CLIENTS.clear)
         for target in (
             patch.object(engine, "get_sender_client", side_effect=self._client_for),
-            patch("apps.discovery.proxy_service.prepare_sender_proxy_before_dm", return_value={}),
+            patch("apps.discovery.proxies.rotation.prepare_sender_proxy_before_dm", return_value={}),
             patch.object(engine, "qualify_recipient_profile", return_value={"eligible": True, "target_pk": 111, "reason": ""}),
             patch.object(engine, "execute_organic_journey", return_value={"target_pk": 111, "actions": {}}),
             patch("apps.discovery.outreach_service.execute_organic_journey", return_value={"target_pk": 111, "actions": {}}),

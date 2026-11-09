@@ -85,7 +85,7 @@ class Command(BaseCommand):
                 "Stop/remove the ig-outreach service (or use --dry-run) to avoid double-sending."
             )
 
-        from apps.discovery.ig_accounts import outreach_tenants, tenant_ids as ig_tenant_ids
+        from apps.discovery.tenants import outreach_tenants, tenant_ids as ig_tenant_ids
         def tenant_groups():
             # re-resolved every tick without --tenant: senders activated later are picked up without a restart
             tenants = [options["tenant"]] if options["tenant"] else outreach_tenants()

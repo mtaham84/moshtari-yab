@@ -49,7 +49,7 @@ def task_dispatch_instagram_outreach(
     `tenant` limits the tick to one tenant; by default every tenant of `outreach_tenants()` is served.
     `min_intent` is accepted for old beat entries only; ranking uses the 45-point outreach score.
     """
-    from apps.discovery.ig_accounts import outreach_tenants, tenant_ids as ig_tenant_ids
+    from apps.discovery.tenants import outreach_tenants, tenant_ids as ig_tenant_ids
 
     # Single-dispatcher guard: never send in parallel with the ig-outreach command loop
     dispatcher = getattr(settings, "INSTAGRAM_OUTREACH_DISPATCHER", "command")
@@ -95,7 +95,7 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
     skipped so the checks are not evenly spaced.
     """
     if not tenant_ids:
-        from apps.discovery.ig_accounts import outreach_tenant_ids
+        from apps.discovery.tenants import outreach_tenant_ids
 
         tenant_ids = outreach_tenant_ids()
         if not tenant_ids:
@@ -139,14 +139,16 @@ def task_sync_telegram_channel_configs(max_posts: int = 15, max_add: int = 10) -
 )
 def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
     """
-    Proxy healthcheck & healing for every Instagram account without its own proxy (ig_accounts.ensure_system_configs):
+    Proxy healthcheck & healing for every Instagram account without its own proxy (proxies.assignment.ensure_system_configs):
     a config that is still ACTIVE and listening stays with its account (same IP); a dead one is replaced by a free
     config (else the shared pool) and the move is logged on the account's timeline. Accounts with their own
     (custom) proxy are never touched; nothing moves while xray itself is down.
     """
-    from apps.discovery.ig_accounts import ensure_system_configs, port_open, XRAY_HOST, POOL_PORT
+    from apps.discovery.proxies.assignment import ensure_system_configs
+    from apps.discovery.proxies import health
+    from apps.discovery.proxies.urls import POOL_PORT, XRAY_HOST
 
-    if not port_open(XRAY_HOST, POOL_PORT):
+    if not health.port_open(XRAY_HOST, POOL_PORT):
         return {"success": False, "skipped": "xray_down", "healed_count": 0, "details": []}
 
     result = ensure_system_configs(actor="system")
@@ -167,7 +169,7 @@ def task_warmup_sender_account(username: Optional[str] = None, tenant_ids: Optio
     """
     from apps.discovery.outreach_engine import get_available_senders, get_sender_client
     from apps.discovery.outreach_service import execute_background_organic_warmup
-    from apps.discovery.ig_accounts import outreach_tenant_ids
+    from apps.discovery.tenants import outreach_tenant_ids
 
     tenants = tenant_ids or outreach_tenant_ids()
     senders = get_available_senders(tenants)

@@ -74,3 +74,22 @@ class TestCheckBaseline:
         check_baseline.main(["--root", str(repo), "--update"])
         assert baseline_of(repo) == {"lines": {"big.py": 850}, "broad_excepts": {"app.py": 1}}
         assert check_baseline.main(["--root", str(repo)]) == 1
+
+    def test_moved_code_takes_its_entries_but_never_more(self, repo, write):
+        write(repo, "old.py", BROAD * 3)
+        check_baseline.main(["--root", str(repo), "--update"])
+
+        write(repo, "old.py", lines(1))
+        write(repo, "a.py", BROAD * 2)
+        write(repo, "b.py", BROAD * 2)        # one more than old.py gave up
+        check_baseline.main(["--root", str(repo), "--update", "--moved-from", "old.py"])
+        assert baseline_of(repo) == {"lines": {}, "broad_excepts": {"a.py": 2, "b.py": 1}}
+        assert check_baseline.main(["--root", str(repo)]) == 1
+
+    def test_update_without_moved_from_never_adds_entries(self, repo, write):
+        write(repo, "old.py", BROAD)
+        check_baseline.main(["--root", str(repo), "--update"])
+        write(repo, "old.py", lines(1))
+        write(repo, "a.py", BROAD)
+        check_baseline.main(["--root", str(repo), "--update"])
+        assert baseline_of(repo) == {"lines": {}, "broad_excepts": {}}

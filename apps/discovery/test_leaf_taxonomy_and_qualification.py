@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -347,15 +347,3 @@ class LeafTaxonomyAndQualificationTestCase(TestCase):
         for q in t2_queries:
             self.assertNotIn(q.id, t1_queries.values_list("id", flat=True))
 
-    def test_20_no_automated_engagement_in_scraper(self):
-        """20. Ensure automated liking is removed/disabled in Instagram scraper."""
-        from apps.discovery.management.commands.run_instagram_scraper import Command as ScraperCommand
-        cmd = ScraperCommand()
-        mock_client = MagicMock()
-        mock_account = MagicMock()
-        mock_account.daily_action_count = 0
-
-        # Calling _maybe_human_like should NOT call media_like
-        cmd._maybe_human_like(mock_client, "123456", mock_account)
-        mock_client.media_like.assert_not_called()
-        self.assertEqual(mock_account.daily_action_count, 0)

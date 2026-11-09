@@ -18,7 +18,10 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from apps.billing.manage_views import manage_access_required
 from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
+from apps.discovery import ig_login, tenants
+from apps.discovery import ig_state
 from apps.discovery.models import InstagramEngineAccount, ProxyConfig
+from apps.discovery.proxies import assignment, export, health, urls as proxy_urls
 
 log = logging.getLogger("instagram.accounts")
 
@@ -59,18 +62,18 @@ def _respond(request, res, pk=None, anchor: str = ""):
 def _config_choices():
     """ACTIVE system configs with how many Instagram accounts use them (for the connection selects)."""
     return list(ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False)
-                .exclude(local_port__in=svc.RESERVED_PORTS)
+                .exclude(local_port__in=proxy_urls.RESERVED_PORTS)
                 .annotate(n_ig=Count("instagram_accounts")).order_by("n_ig", "ping_ms", "pk")[:200])
 
 
 def _row(acc, names):
     meta = acc.proxy_meta
     pending = acc.pending_login or {}
-    return {"a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": svc.proxy_mode(acc), "label": svc.proxy_label(acc),
-            "tenant": svc.tenant_label(acc.tenant_id, names), "ip": meta.get("last_ip") or "",
+    return {"a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": proxy_urls.proxy_mode(acc), "label": proxy_urls.proxy_label(acc),
+            "tenant": tenants.tenant_label(acc.tenant_id, names), "ip": meta.get("last_ip") or "",
             "country": meta.get("country_code") or meta.get("country") or "",
-            "login": pending.get("state", "") if svc._is_live(pending) else "",
-            "has_session": svc.has_session(acc)}
+            "login": pending.get("state", "") if ig_login._is_live(pending) else "",
+            "has_session": ig_state.has_session(acc)}
 
 
 @manage_access_required
@@ -83,14 +86,14 @@ def ig_accounts_list(request):
     if f["role"]:
         qs = qs.filter(role=f["role"])
     if f["tenant"]:
-        qs = qs.filter(tenant_id__in=svc._tenant_ids(f["tenant"]))
+        qs = qs.filter(tenant_id__in=tenants._tenant_ids(f["tenant"]))
     if f["q"]:
         qs = qs.filter(username__icontains=f["q"].lstrip("@"))
-    names = svc.tenant_names()
+    names = tenants.tenant_names()
     rows = [r for r in (_row(acc, names) for acc in qs) if not f["mode"] or r["mode"] == f["mode"]]
 
     by_status = dict(InstagramEngineAccount.objects.values_list("status").annotate(n=Count("id")))
-    configs = ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False).exclude(local_port__in=svc.RESERVED_PORTS)
+    configs = ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False).exclude(local_port__in=proxy_urls.RESERVED_PORTS)
     stats = {
         "total": sum(by_status.values()), "active": by_status.get("ACTIVE", 0),
         "challenged": by_status.get("CHALLENGED", 0), "cooldown": by_status.get("COOLDOWN", 0),
@@ -98,14 +101,14 @@ def ig_accounts_list(request):
         "on_config": InstagramEngineAccount.objects.filter(proxy_config__isnull=False).count(),
         "configs": configs.count(),
         "free_configs": configs.annotate(n_ig=Count("instagram_accounts")).filter(n_ig=0).count(),
-        "xray_up": svc.port_open(svc.XRAY_HOST, svc.POOL_PORT),
-        "pool_url": svc.default_proxy_url(),
+        "xray_up": health.port_open(proxy_urls.XRAY_HOST, proxy_urls.POOL_PORT),
+        "pool_url": proxy_urls.default_proxy_url(),
     }
     return render(request, "ops/ig_accounts/list.html", {
         "nav": "ig_accounts", "rows": rows, "f": f, "stats": stats,
         "statuses": InstagramEngineAccount.STATUS_CHOICES, "roles": InstagramEngineAccount.ROLE_CHOICES,
-        "tiers": InstagramEngineAccount.TIER_CHOICES, "modes": PROXY_MODES, "tenants": svc.tenant_choices(),
-        "configs": _config_choices(), "per_config": svc._per_config(),
+        "tiers": InstagramEngineAccount.TIER_CHOICES, "modes": PROXY_MODES, "tenants": tenants.tenant_choices(),
+        "configs": _config_choices(), "per_config": assignment.per_config(),
     })
 
 
@@ -132,7 +135,7 @@ def ig_account_add(request):
 @manage_access_required
 @require_POST
 def ig_accounts_heal(request):
-    out = svc.ensure_system_configs(actor=_actor(request))
+    out = assignment.ensure_system_configs(actor=_actor(request))
     if out.get("skipped") == "xray_down":
         messages.error(request, "xray در دسترس نیست (پورت استخر 1080 بسته است)؛ تا بالا نیاید اتصال‌ها جابه‌جا نمی‌شوند.")
     elif out["healed_count"]:
@@ -148,13 +151,13 @@ def ig_accounts_heal(request):
 def ig_accounts_configs_txt(request):
     qs = InstagramEngineAccount.objects.select_related("proxy_config").order_by("tenant_id", "username")
     if request.GET.get("tenant"):
-        qs = qs.filter(tenant_id__in=svc._tenant_ids(request.GET["tenant"]))
+        qs = qs.filter(tenant_id__in=tenants._tenant_ids(request.GET["tenant"]))
     if request.GET.get("role"):
         qs = qs.filter(role=request.GET["role"])
     accounts = list(qs)
     for acc in accounts:
-        svc.log_event(acc, "config_exported", "خروجی گروهی کانفیگ‌ها (configs.txt)", None, _actor(request))
-    resp = HttpResponse(svc.export_text(accounts), content_type="text/plain; charset=utf-8")
+        ig_state.log_event(acc, "config_exported", "خروجی گروهی کانفیگ‌ها (configs.txt)", None, _actor(request))
+    resp = HttpResponse(export.export_text(accounts), content_type="text/plain; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="instagram-configs.txt"'
     return resp
 
@@ -165,24 +168,24 @@ def ig_account_detail(request, pk):
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     ds = acc.device_settings if isinstance(acc.device_settings, dict) else {}
     dev = ds.get("device_settings") if isinstance(ds.get("device_settings"), dict) else {}
-    mode = svc.proxy_mode(acc)
+    mode = proxy_urls.proxy_mode(acc)
     now = timezone.now()
     return render(request, "ops/ig_accounts/detail.html", {
-        "nav": "ig_accounts", "a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": mode, "label": svc.proxy_label(acc),
+        "nav": "ig_accounts", "a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": mode, "label": proxy_urls.proxy_label(acc),
         "meta": acc.proxy_meta,
-        "login": svc.login_state(acc), "events": list(acc.events.all()[:80]), "configs": _config_choices(),
-        "tenants": svc.tenant_choices(), "tenant": svc.tenant_label(acc.tenant_id),
-        "has_session": svc.has_session(acc), "tiers": InstagramEngineAccount.TIER_CHOICES,
+        "login": ig_login.login_state(acc), "events": list(acc.events.all()[:80]), "configs": _config_choices(),
+        "tenants": tenants.tenant_choices(), "tenant": tenants.tenant_label(acc.tenant_id),
+        "has_session": ig_state.has_session(acc), "tiers": InstagramEngineAccount.TIER_CHOICES,
         "roles": InstagramEngineAccount.ROLE_CHOICES,
         "device": {"name": ds.get("device_name") or "", "model": dev.get("model") or "",
                    "manufacturer": dev.get("manufacturer") or "", "android": dev.get("android_release") or "",
                    "app": dev.get("app_version") or ""},
-        "custom_url": svc._strip_fragment(acc.proxy_url) if mode == "custom" else "",
+        "custom_url": proxy_urls.clean_proxy_url(acc.proxy_url) if mode == "custom" else "",
         "settling": acc.next_outreach_at if acc.next_outreach_at and acc.next_outreach_at > now else None,
         "resting": acc.cooldown_until if acc.cooldown_until and acc.cooldown_until > now else None,
         "has_password": bool(acc.password and acc.password != "session_only"),
-        "pitch": svc.tenant_pitch(acc.tenant_id) if acc.role == "SENDER" else None,
-        "settle_minutes": svc.SETTLE_MINUTES,
+        "pitch": tenants.tenant_pitch(acc.tenant_id) if acc.role == "SENDER" else None,
+        "settle_minutes": assignment.SETTLE_MINUTES,
     })
 
 
@@ -190,7 +193,7 @@ def ig_account_detail(request, pk):
 @require_GET
 def ig_account_login_state(request, pk):
     acc = get_object_or_404(InstagramEngineAccount, pk=pk)
-    st = svc.login_state(acc)
+    st = ig_login.login_state(acc)
     st["status_display"] = dict(InstagramEngineAccount.STATUS_CHOICES).get(st["status"], st["status"])
     st["reason_display"] = dict(InstagramEngineAccount.REASON_CHOICES).get(st["reason"], st["reason"])
     return JsonResponse(st)
@@ -201,18 +204,18 @@ def ig_account_login_state(request, pk):
 def ig_account_config(request, pk):
     """The account's connection to open it on a phone from the same IP: V2Ray link + QR (or its own proxy)."""
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
-    exp = svc.export_config(acc)
-    svc.log_event(acc, "config_exported", f"خروجی کانفیگ ({exp['label']})", {"mode": exp["mode"]}, _actor(request))
+    exp = export.export_config(acc)
+    ig_state.log_event(acc, "config_exported", f"خروجی کانفیگ ({exp['label']})", {"mode": exp["mode"]}, _actor(request))
     return render(request, "ops/ig_accounts/config.html", {
-        "nav": "ig_accounts", "a": acc, "exp": exp, "qr": svc.qr_svg(exp.get("link") or "")})
+        "nav": "ig_accounts", "a": acc, "exp": exp, "qr": export.qr_svg(exp.get("link") or "")})
 
 
 @manage_access_required
 @require_GET
 def ig_account_config_txt(request, pk):
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
-    svc.log_event(acc, "config_exported", "دانلود فایل کانفیگ", None, _actor(request))
-    resp = HttpResponse(svc.export_text([acc]), content_type="text/plain; charset=utf-8")
+    ig_state.log_event(acc, "config_exported", "دانلود فایل کانفیگ", None, _actor(request))
+    resp = HttpResponse(export.export_text([acc]), content_type="text/plain; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{acc.username}-config.txt"'
     return resp
 
@@ -224,20 +227,20 @@ def _do_proxy(acc, p, actor):
         cid = str(p.get("config_id") or "")
         config = ProxyConfig.objects.filter(pk=int(cid)).first() if cid.isdigit() else None
         if config is None:
-            return svc._result(acc, False, "کانفیگ را انتخاب کنید.")
-    return svc.set_proxy(acc, mode, url=p.get("proxy_url", ""), config=config, actor=actor)
+            return ig_state.result_for(acc, False, "کانفیگ را انتخاب کنید.")
+    return assignment.set_proxy(acc, mode, url=p.get("proxy_url", ""), config=config, actor=actor)
 
 
 ACTIONS = {
-    "login": lambda acc, p, actor: svc.start_login(acc, actor=actor),
-    "code": lambda acc, p, actor: svc.submit_code(acc, p.get("code", ""), actor=actor),
-    "cancel": lambda acc, p, actor: svc.cancel_login(acc, actor=actor),
+    "login": lambda acc, p, actor: ig_login.start_login(acc, actor=actor),
+    "code": lambda acc, p, actor: ig_login.submit_code(acc, p.get("code", ""), actor=actor),
+    "cancel": lambda acc, p, actor: ig_login.cancel_login(acc, actor=actor),
     "check": lambda acc, p, actor: svc.check(acc, actor=actor),
-    "check_ip": lambda acc, p, actor: svc.check_ip(acc, actor=actor),
+    "check_ip": lambda acc, p, actor: export.check_ip(acc, actor=actor),
     "pause": lambda acc, p, actor: svc.pause(acc, actor=actor, note=str(p.get("note") or "").strip()),
     "resume": lambda acc, p, actor: svc.resume(acc, actor=actor),
     "clear_cooldown": lambda acc, p, actor: svc.clear_cooldown(acc, actor=actor),
-    "session": lambda acc, p, actor: svc.login_with_sessionid(acc, p.get("sessionid", ""), actor=actor),
+    "session": lambda acc, p, actor: ig_login.login_with_sessionid(acc, p.get("sessionid", ""), actor=actor),
     "proxy": _do_proxy,
     "settings": lambda acc, p, actor: svc.update_settings(
         acc, actor=actor, **{k: p.get(k, "") for k in ("username", "role", "tenant_id", "account_tier", "daily_limit",
@@ -264,7 +267,7 @@ def ig_account_action(request, pk, action):
         res = handler(acc, _post(request), _actor(request))
     except Exception as exc:   # never a 500 page for an account action; the reason goes to the operator
         log.exception("instagram account action %s failed for @%s", action, acc.username)
-        res = svc.Result(False, f"خطای غیرمنتظره: {svc.redact(exc, 200)}", status=acc.status)
+        res = ig_state.Result(False, f"خطای غیرمنتظره: {svc.redact(exc, 200)}", status=acc.status)
     return _respond(request, res, acc.pk, ANCHORS.get(action, ""))
 
 
@@ -277,22 +280,22 @@ def ig_tenants(request):
         if not tid:
             messages.error(request, "مشتری را انتخاب کنید.")
         else:
-            svc.save_tenant_profile(tid, consultant_name=request.POST.get("consultant_name", ""),
+            tenants.save_tenant_profile(tid, consultant_name=request.POST.get("consultant_name", ""),
                                     consultant_role=request.POST.get("consultant_role", ""),
                                     pitch_template=request.POST.get("pitch_template", ""))
-            messages.success(request, f"پیام و نام مشاور «{svc.tenant_label(tid)}» ذخیره شد.")
-        return redirect(reverse("manage:ig_tenants") + (f"#t-{svc.canonical_tenant(tid)}" if tid else ""))
+            messages.success(request, f"پیام و نام مشاور «{tenants.tenant_label(tid)}» ذخیره شد.")
+        return redirect(reverse("manage:ig_tenants") + (f"#t-{tenants.canonical_tenant(tid)}" if tid else ""))
     counts = {}
     for tid, n in (InstagramEngineAccount.objects.filter(role="SENDER").values_list("tenant_id")
                    .annotate(n=Count("id"))):
-        counts[svc.canonical_tenant(tid)] = counts.get(svc.canonical_tenant(tid), 0) + n
+        counts[tenants.canonical_tenant(tid)] = counts.get(tenants.canonical_tenant(tid), 0) + n
     rows, seen = [], set()
-    for tid, label in svc.tenant_choices():
-        ctid = svc.canonical_tenant(tid)
+    for tid, label in tenants.tenant_choices():
+        ctid = tenants.canonical_tenant(tid)
         if ctid in seen:
             continue
         seen.add(ctid)
-        rows.append({"tenant_id": ctid, "label": label, "senders": counts.get(ctid, 0), "pitch": svc.tenant_pitch(ctid)})
+        rows.append({"tenant_id": ctid, "label": label, "senders": counts.get(ctid, 0), "pitch": tenants.tenant_pitch(ctid)})
     rows.sort(key=lambda r: (-r["senders"], r["tenant_id"]))
     return render(request, "ops/ig_accounts/tenants.html", {"nav": "ig_tenants", "rows": rows})
 

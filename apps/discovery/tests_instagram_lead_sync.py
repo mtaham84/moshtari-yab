@@ -51,10 +51,10 @@ class TenantResolutionTests(TestCase):
     def test_legacy_alias_maps_to_its_business(self):
         from unittest.mock import patch
 
-        from apps.discovery.ig_accounts import canonical_tenant
+        from apps.discovery.tenants import canonical_tenant
 
         self.assertEqual(canonical_tenant("sarv"), "tenant_4")
-        with patch.dict("apps.discovery.ig_accounts.TENANT_ALIASES", {"legacy": f"tenant_{self.other.pk}"}):
+        with patch.dict("apps.discovery.tenants.TENANT_ALIASES", {"legacy": f"tenant_{self.other.pk}"}):
             self.assertEqual(business_for_tenant("legacy"), self.other)
         self.assertIsNone(business_for_tenant(""))
         self.assertIsNone(business_for_tenant("tenant_abc"))

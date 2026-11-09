@@ -104,7 +104,7 @@ class OutreachExportTenantTests(TestCase):
 
     def test_export_includes_legacy_alias_leads(self):
         aliases = {"legacy_alias": f"tenant_{self.business.id}"}
-        with patch.dict("apps.discovery.ig_accounts.TENANT_ALIASES", aliases, clear=True):
+        with patch.dict("apps.discovery.tenants.TENANT_ALIASES", aliases, clear=True):
             res = self.client.get(reverse("accounts:outreach_export"), {"five_days": "0"})
         body = res.content.decode("utf-8-sig")
         self.assertEqual(res.status_code, 200)
@@ -113,7 +113,7 @@ class OutreachExportTenantTests(TestCase):
         self.assertNotIn("foreign_buyer", body)
 
     def test_tenant_keys_for_business(self):
-        from apps.discovery.ig_accounts import tenant_keys_for_business
+        from apps.discovery.tenants import tenant_keys_for_business
 
         self.assertEqual(tenant_keys_for_business(4), ["tenant_4", "sarv"])
         self.assertEqual(tenant_keys_for_business(self.business), [f"tenant_{self.business.id}"])

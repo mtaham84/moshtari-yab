@@ -153,9 +153,9 @@ class PromptSourceOfTruthTests(TestCase):
     def test_caller_default_beats_catalog_but_override_beats_both(self):
         from apps.core import prompts
 
-        self.assertEqual(prompts.get_system_prompt("ig_cta_extraction", "code default text"), "code default text")
-        prompts._PROMPTS_CACHE = {"ig_cta_extraction": "admin override text"}
-        self.assertEqual(prompts.get_system_prompt("ig_cta_extraction", "code default text"), "admin override text")
+        self.assertEqual(prompts.get_system_prompt("ig_caption_reply_template", "code default text"), "code default text")
+        prompts._PROMPTS_CACHE = {"ig_caption_reply_template": "admin override text"}
+        self.assertEqual(prompts.get_system_prompt("ig_caption_reply_template", "code default text"), "admin override text")
 
 
 class OperatorPermissionTests(TestCase):

@@ -1,12 +1,10 @@
 import json
 import logging
 from collections import defaultdict
-import socket
 from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from urllib.parse import urlparse
 
 try:
     from curl_cffi import requests
@@ -36,36 +34,16 @@ from apps.core.http import wants_json
 from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
 from apps.discovery.channel_config_automation import get_monitored_channels
-from apps.discovery.ig_accounts import canonical_tenant, default_proxy_url, tenant_key, tenant_keys_for_business
+from apps.discovery.tenants import canonical_tenant, tenant_key, tenant_keys_for_business
+from apps.discovery.proxies import assignment, health, urls as proxy_urls
 from apps.discovery.device_emulator import connect_saved_session
+from apps.discovery import ig_login, tenants
 
 logger = logging.getLogger("management")
 
 
 # Kept as a name because ig_accounts_views and many decorators use it.
 manage_access_required = operator_required
-
-
-def _test_proxy_connection(proxy_url: str, timeout: float = 4.0) -> tuple[bool, str]:
-    """Tests TCP connection to proxy host and port."""
-    if not proxy_url or not proxy_url.strip():
-        return True, "بدون پروکسی (اتصال مستقیم)"
-    try:
-        parsed = urlparse(proxy_url)
-        host = parsed.hostname
-        port = parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
-        if not host:
-            return False, "فرمت پروکسی نامعتبر است"
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        if result == 0:
-            return True, f"پروکسی {host}:{port} متصل و در دسترس است"
-        else:
-            return False, f"خطای اتصال به پروکسی {host}:{port} (کد خطا: {result})"
-    except Exception as exc:
-        return False, f"خطای تست پروکسی: {exc}"
 
 
 @manage_access_required
@@ -575,7 +553,7 @@ def manage_dashboard(request):
             senders_active = senders.filter(status="ACTIVE").count()
 
     # One consultant name / pitch per customer (tenant), as the outreach engine resolves it
-    from apps.discovery.ig_accounts import tenant_pitch
+    from apps.discovery.tenants import tenant_pitch
     pitch_by_tenant = {}
     accounts_with_pitches = []
     for s in senders:
@@ -594,7 +572,7 @@ def manage_dashboard(request):
         default_pitch = accounts_with_pitches[0]["template"]
         default_consultant = accounts_with_pitches[0]["consultant_name"]
     # No hard-coded industry pitch here: per-tenant pitches (and the old
-    # tenant_4 fallback) come from ig_accounts.tenant_pitch().
+    # tenant_4 fallback) come from tenants.tenant_pitch().
 
     outreach_replied_qs = InstagramEngineLead.objects.filter(has_replied=True)
     if selected_outreach_biz:
@@ -742,15 +720,13 @@ def _ig_actor(request) -> str:
 def _ig_proxy_choice(raw):
     """(mode, url, config) of a proxy typed in the old forms: empty or xray's shared ports = the system's choice,
     another xray port = that system config, anything else = the account's own proxy."""
-    from apps.discovery import ig_accounts as svc
-
-    url = svc.normalize_proxy_url(raw) if (raw or "").strip() else ""
+    url = proxy_urls.normalize_proxy_url(raw) if (raw or "").strip() else ""
     if not url:
         return "system", "", None
-    port = svc.xray_port(url)
+    port = proxy_urls.xray_port(url)
     if port is None:
         return "custom", url, None
-    cfg = None if port in svc.RESERVED_PORTS else ProxyConfig.objects.filter(local_port=port).first()
+    cfg = None if port in proxy_urls.RESERVED_PORTS else ProxyConfig.objects.filter(local_port=port).first()
     return ("config", "", cfg) if cfg is not None else ("system", "", None)
 
 
@@ -762,7 +738,7 @@ def manage_account_add(request):
     When Instagram asks for a code the login keeps waiting for it: the reply says requires_code and the code goes
     to the same login (account page /manage/instagram/accounts/<id>/settings/ or accounts/<id>/code/).
     """
-    from apps.discovery import ig_accounts as svc
+    from apps.discovery import ig_accounts as svc, ig_state
 
     p = request.POST
     mode, url, cfg = _ig_proxy_choice(p.get("proxy_url"))
@@ -772,13 +748,13 @@ def manage_account_add(request):
         account_tier=p.get("account_tier") or "NEW", daily_limit=p.get("daily_limit"), proxy=mode, proxy_url=url,
         config=cfg, actor=_ig_actor(request), login=True, login_wait=25)
     if acc is not None and acc.role == "SENDER" and (p.get("consultant_name") or "").strip():
-        svc.save_tenant_profile(acc.tenant_id, consultant_name=p["consultant_name"], only_empty=True)
+        tenants.save_tenant_profile(acc.tenant_id, consultant_name=p["consultant_name"], only_empty=True)
     out = res.as_dict()
     out.update(account_id=acc.pk if acc else None,
-               username=acc.username if acc else svc.normalize_username(p.get("username")))
+               username=acc.username if acc else ig_state.normalize_username(p.get("username")))
     if wants_json(request):
         return JsonResponse(out)
-    if acc is not None and res.state in svc.LIVE_STATES:
+    if acc is not None and res.state in ig_login.LIVE_STATES:
         messages.warning(request, res.message)
         return redirect(reverse("manage:ig_account_detail", args=[acc.pk]) + "#login")
     (messages.success if res.ok else messages.error)(request, res.message)
@@ -801,12 +777,11 @@ def manage_account_delete(request, pk):
 @require_POST
 def manage_account_set_session(request, pk):
     """Connects the account with a sessionid copied from a browser that is logged in (no password, no code)."""
-    from apps.discovery import ig_accounts as svc
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     if not (request.POST.get("sessionid") or "").strip():
         return JsonResponse({"success": False, "message": "لطفاً مقدار کوکی sessionid را وارد نمایید."})
-    out = svc.login_with_sessionid(account, request.POST["sessionid"], actor=_ig_actor(request)).as_dict()
+    out = ig_login.login_with_sessionid(account, request.POST["sessionid"], actor=_ig_actor(request)).as_dict()
     out.setdefault("deleted", False)
     return JsonResponse(out)
 
@@ -814,7 +789,7 @@ def manage_account_set_session(request, pk):
 def ig_edit_sender(account, data, actor: str = "") -> dict:
     """The old sender editor's fields (username, customer, password, sessionid, consultant name, tier, daily limit,
     proxy, status, clear_cooldown) applied through apps.discovery.ig_accounts; the dashboard's JSON reply."""
-    from apps.discovery import ig_accounts as svc
+    from apps.discovery import ig_accounts as svc, ig_state
 
     ok, notes, session_updated = True, [], False
     res = svc.update_settings(account, actor=actor, **{k: data.get(k, "") for k in (
@@ -826,20 +801,20 @@ def ig_edit_sender(account, data, actor: str = "") -> dict:
         notes.append(res.message)
 
     consultant = (data.get("consultant_name") or "").strip()
-    if consultant and consultant != svc.tenant_pitch(account.tenant_id).get("consultant_name"):
-        svc.save_tenant_profile(account.tenant_id, consultant_name=consultant)
-        notes.append(f"نام مشاور مشتری «{svc.tenant_label(account.tenant_id)}»: {consultant}")
+    if consultant and consultant != tenants.tenant_pitch(account.tenant_id).get("consultant_name"):
+        tenants.save_tenant_profile(account.tenant_id, consultant_name=consultant)
+        notes.append(f"نام مشاور مشتری «{tenants.tenant_label(account.tenant_id)}»: {consultant}")
 
     if "proxy_url" in data and (data.get("proxy_url") or "").strip() != (account.proxy_url or "").strip():
         mode, url, cfg = _ig_proxy_choice(data.get("proxy_url"))
-        res = svc.set_proxy(account, mode, url=url, config=cfg, actor=actor)
+        res = assignment.set_proxy(account, mode, url=url, config=cfg, actor=actor)
         ok = ok and res.ok
         if not res.ok or res.extra.get("changed"):
             notes.append(res.message)
 
     sessionid = (data.get("sessionid") or "").strip()
     if sessionid:
-        res = svc.login_with_sessionid(account, sessionid, actor=actor)
+        res = ig_login.login_with_sessionid(account, sessionid, actor=actor)
         session_updated = res.ok
         ok = ok and res.ok
         notes.append(res.message)
@@ -851,10 +826,10 @@ def ig_edit_sender(account, data, actor: str = "") -> dict:
         elif status == "ACTIVE":
             res = svc.resume(account, actor=actor)
         else:
-            svc.set_state(account, status, "", "وضعیت به‌صورت دستی تغییر کرد", force=True)
-            svc.log_event(account, "status_changed", f"وضعیت دستی: {account.get_status_display()}", {"status": status},
+            ig_state.set_state(account, status, "", "وضعیت به‌صورت دستی تغییر کرد", force=True)
+            ig_state.log_event(account, "status_changed", f"وضعیت دستی: {account.get_status_display()}", {"status": status},
                           actor)
-            res = svc.Result(True, f"وضعیت: {account.get_status_display()}")
+            res = ig_state.Result(True, f"وضعیت: {account.get_status_display()}")
         notes.append(res.message)
     if data.get("clear_cooldown") in ("1", "true", "True", "on"):
         notes.append(svc.clear_cooldown(account, actor=actor).message)
@@ -903,9 +878,9 @@ def manage_account_test(request, pk):
     account.refresh_from_db()
     if (not res.ok and account.status == "CHALLENGED" and account.status_reason == "session_expired"
             and account.password and account.password != "session_only"):
-        res = svc.start_login(account, actor=actor, wait=25)
-    elif res.state in svc.LIVE_STATES:
-        res = svc.wait_for_login(account, timeout=25)
+        res = ig_login.start_login(account, actor=actor, wait=25)
+    elif res.state in ig_login.LIVE_STATES:
+        res = ig_login.wait_for_login(account, timeout=25)
     account.refresh_from_db()
     out = res.as_dict()
     out.update(success=res.ok and account.status != "CHALLENGED", status=account.status,
@@ -917,7 +892,6 @@ def manage_account_test(request, pk):
 @require_POST
 def manage_account_submit_code(request, pk):
     """Hands Instagram's code to the login that is waiting for it (the same login that asked for it)."""
-    from apps.discovery import ig_accounts as svc
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     raw_code = ""
@@ -931,7 +905,7 @@ def manage_account_submit_code(request, pk):
         raw_code = (request.POST.get("code") or "").strip()
     if not raw_code:
         return JsonResponse({"success": False, "message": "لطفاً کد تایید را وارد کنید."})
-    res = svc.submit_code(account, raw_code, actor=_ig_actor(request), wait=25)
+    res = ig_login.submit_code(account, raw_code, actor=_ig_actor(request), wait=25)
     account.refresh_from_db()
     out = res.as_dict()
     out["status"] = account.status
@@ -1226,7 +1200,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         return False, "CHALLENGED", "کوکی auth_token تنظیم نشده است و بدون آن سشن نامعتبر است."
 
     if account.proxy_url:
-        proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url)
+        proxy_ok, proxy_msg = health.proxy_reachable(account.proxy_url)
         if not proxy_ok:
             account._validation_result = XSessionValidationResult.NETWORK_ERROR
             return False, account.status, f"خطای پروکسی: {proxy_msg}"
@@ -1339,7 +1313,7 @@ def manage_twitter_account_add(request):
     password = request.POST.get("password", "").strip()
     auth_token = request.POST.get("auth_token", "").strip()
     ct0 = request.POST.get("ct0", "").strip()
-    proxy_url = request.POST.get("proxy_url", "").strip() or default_proxy_url() or "socks5h://xray:1080"
+    proxy_url = request.POST.get("proxy_url", "").strip() or proxy_urls.default_proxy_url() or "socks5h://xray:1080"
 
     if not username:
         err = "نام کاربری توییتر الزامی است."
@@ -1511,43 +1485,9 @@ def manage_twitter_account_toggle(request, pk):
 
 
 def _ping_and_evaluate_proxy_config(proxy: ProxyConfig, timeout_sec: float = 3.5) -> dict[str, Any]:
-    """
-    Live ping test for a single ProxyConfig instance.
-    Evaluates real reachability and latency via an end-to-end HTTP GET probe through
-    the proxy's dedicated SOCKS5 port (socks5h://xray:{proxy.local_port}).
-    Only HTTP 200/204 within latency <= 2000ms is accepted as ACTIVE.
-    Updates the proxy's ping_ms, status ('ACTIVE' or 'DEAD'), and last_checked_at.
-    """
-    from xray.multi_proxy_manager import probe_proxy_port, test_outbound_ping, parse_link_to_outbound, XRAY_BIN
-
-    is_ok = False
-    ping_ms = -1.0
-    err_msg = ""
-
-    # Strategy 1: Real end-to-end HTTP GET probe through dedicated SOCKS5 port
-    if proxy.local_port:
-        ok, p_ms, p_err = probe_proxy_port(proxy.local_port, timeout_sec=min(2.5, timeout_sec))
-        if ok and 0 < p_ms <= 2000.0:
-            is_ok = True
-            ping_ms = round(p_ms, 1)
-        elif p_err:
-            err_msg = p_err
-
-    # Strategy 2: If no local port yet but XRAY_BIN is available and raw_url exists
-    if not is_ok and not proxy.local_port and proxy.raw_url and XRAY_BIN and XRAY_BIN.exists():
-        try:
-            ob = parse_link_to_outbound(proxy.raw_url)
-            ok, p_ms, p_err = test_outbound_ping(ob, timeout_sec=min(2.5, timeout_sec))
-            if ok and 0 < p_ms <= 2000.0:
-                is_ok = True
-                ping_ms = round(p_ms, 1)
-            elif p_err:
-                err_msg = p_err
-        except Exception as exc:
-            logger.debug("Ephemeral probe error: %s", exc)
-
-    # Save evaluated status to database
-    if is_ok and 0 < ping_ms <= 2000.0:
+    """Live test of one ProxyConfig (health.measure_config); saves its ping_ms, status and last_checked_at."""
+    is_ok, ping_ms, err_msg = health.measure_config(proxy, timeout_sec=min(2.5, timeout_sec))
+    if is_ok:
         proxy.ping_ms = ping_ms
         proxy.status = "ACTIVE"
     else:
@@ -1649,7 +1589,7 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
     but automatically invalidates immediately if the account's proxy changes.
     """
     import time
-    from instagrapi import Client
+    from apps.discovery.ig_client import new_client
 
     now_ts = time.time()
     current_proxy = account.clean_proxy or ""
@@ -1666,10 +1606,8 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
     if not sessionid:
         return None, f"اکانت @{account.username} کوکی سشن معتبر ندارد."
 
-    cl = Client()
-    cl.delay_range = [0.3, 0.8]
-    if current_proxy:   # its own proxy / system config, else the shared pool (never the server's IP)
-        cl.set_proxy(current_proxy)
+    # its own proxy / system config, else the shared pool (never the server's IP)
+    cl = new_client(account, no_prompts=False, delay_range=[0.3, 0.8])
 
     try:
         connect_saved_session(cl, account)  # same phone + session as the workers, no fresh login per page view

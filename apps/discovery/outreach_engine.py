@@ -132,7 +132,7 @@ def get_sender_client(account):
         return _CLIENTS[account.username]
     drop_sender_client(account.username)
 
-    from instagrapi import Client
+    from apps.discovery.ig_client import new_client
     from requests.adapters import HTTPAdapter
 
     class TimeoutHTTPAdapter(HTTPAdapter):
@@ -143,10 +143,7 @@ def get_sender_client(account):
 
     if not key[0]:
         raise RuntimeError("login_required: no sessionid saved for this sender")
-    cl = Client()
-    cl.delay_range = [1.5, 3.5]
-    if account.clean_proxy:
-        cl.set_proxy(account.clean_proxy)
+    cl = new_client(account, no_prompts=False, delay_range=[1.5, 3.5])
     # The saved session on the phone that created it (set_settings, no extra login request); only rows holding a
     # bare sessionid get the account's device profile and one login_by_sessionid().
     connect_saved_session(cl, account)
@@ -270,7 +267,7 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
     """Take a failing sender out of rotation for the right amount of time; the other senders keep working."""
     now = timezone.now()
     short = (error_text or "")[:50]
-    from apps.discovery.ig_accounts import log_event
+    from apps.discovery.ig_state import log_event
 
     if kind in ("challenge", "session"):
         sender.status = "CHALLENGED"
@@ -286,7 +283,7 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
     elif kind == "proxy":
         if getattr(sender, "proxy_rotation_url", None):
             try:
-                from apps.discovery.proxy_service import rotate_account_proxy_ip
+                from apps.discovery.proxies.rotation import rotate_account_proxy_ip
                 log("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
                 rotate_account_proxy_ip(sender)
             except Exception as rot_err:
@@ -405,7 +402,7 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
     ctx.log(f"⚡ [اولویت ۱ - صف ارسال مستقیم]: ارسال پیام صف برای @{lead_to_process.username} توسط @{sender.username}...")
     try:
         if not ctx.dry_run:
-            from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+            from apps.discovery.proxies.rotation import prepare_sender_proxy_before_dm
             prepare_sender_proxy_before_dm(sender, stdout=ctx.stdout)
             get_sender_client(sender)  # cached; process_queued_outbox_message reuses it
         res = process_queued_outbox_message(lead_to_process, client_cache=_CLIENTS, dry_run=ctx.dry_run, sender=sender)
@@ -443,7 +440,7 @@ def _pitch_for(cfg: dict, sender) -> Tuple[str, str]:
     profile = {}
     tenant = None if isinstance(sender, str) else getattr(sender, "tenant_id", None)
     if tenant:
-        from apps.discovery.ig_accounts import tenant_profile
+        from apps.discovery.tenants import tenant_profile
         profile = tenant_profile(tenant)
     pitches = cfg.get("sender_pitches", {})
     info = (
@@ -510,7 +507,7 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         return {"action": "cold_sent", "sent": True, "dry_run": True, "lead": lead.username, "sender": sender.username}
 
     try:
-        from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+        from apps.discovery.proxies.rotation import prepare_sender_proxy_before_dm
         prepare_sender_proxy_before_dm(sender, stdout=ctx.stdout)
         cl = get_sender_client(sender)
 

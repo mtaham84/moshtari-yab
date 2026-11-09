@@ -24,11 +24,14 @@ in English.
 | `engine` | `python -m need_engine run` | `need_engine/` |
 | `crawler` | `python -m telegram_crawler.main` | `telegram_crawler/` |
 | `x` (profile `x`) | `python -m workers.x_collector` | `workers/x_collector/`, `x_ingest/` |
-| `ig` | `manage.py run_instagram_scraper` | `apps/discovery/` (Instagram parts), `instagram_engine/` |
+| `ig` | `manage.py run_instagram_scraper` | `apps/discovery/ig_scraper/`, `instagram_engine/` |
 | `ig-outreach` | `manage.py run_instagram_outreach` | `apps/discovery/outreach_service.py` |
 | `channel-config-sync` | `manage.py run_channel_config_automation` | `apps/discovery/channel_config_automation.py`, `xray/multi_proxy_manager.py` |
 | `celery-worker`, `celery-beat` | `celery -A config` | `config/celery.py`, `apps/discovery/tasks.py` |
 | `retention`, `retention-report` (profile `maintenance`) | `purge_retained_data`, `scripts/retention_report.py` | |
+
+Instagram accounts (login, clients, status, tenants) live in `apps/discovery/ig_accounts.py`, `ig_login.py`,
+`ig_client.py`, `ig_state.py` and `tenants.py`; every proxy decision lives in `apps/discovery/proxies/`.
 
 Run outside docker-compose by systemd on the server (keep them): `workers/telegram_config_bot.py` (ops bot) and
 `workers/channel_config_collector.py`. `python scripts/find_unreachable.py` lists code no entry point reaches; do not
@@ -54,7 +57,8 @@ pip install pre-commit && pre-commit install   # runs both before every commit
 Existing violations are recorded in `scripts/guardrail_baseline.json` (file size, broad excepts) and in `ALLOWED` in
 `tests/test_architecture.py` (import boundaries). Both may only shrink: after you shrink a file or remove an except,
 run `python scripts/check_baseline.py --update`; after you remove a forbidden import, delete its `ALLOWED` entry. Never
-add entries. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
+add entries. When you only move code to new files, run `--update --moved-from <old file>`: the moved broad excepts
+take the old file's entries with them, never more. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
 
 Test files are named `test_*.py`, `tests.py` or `tests_*.py` and live under a `testpaths` directory of `pytest.ini`;
 anything else never runs in CI.
@@ -68,7 +72,7 @@ This code was built fast with AI help, and the same mistakes kept piling up. Eac
    write a second implementation next to the first.
 2. **No parallel implementations.** Do not create a new package, worker, "v2", "new_", "_old" or "engine" folder for
    something that already has an owner in the table above. There is one Instagram stack (`run_instagram_scraper` +
-   `instagram_engine/`); do not start a second one. A new top-level package needs explicit approval from the user.
+   `instagram_engine/`) and one proxy owner (`apps/discovery/proxies/`); do not start a second one. A new top-level package needs explicit approval from the user.
 3. **Replace means delete.** When new code replaces old code, delete the old code, its tests, its settings and its docs
    in the same change. Don't keep anything "for reference", "for compatibility" or "just in case". Git history is the
    backup.

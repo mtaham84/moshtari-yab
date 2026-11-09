@@ -9,8 +9,11 @@ from django.utils import timezone
 from instagrapi.exceptions import ChallengeRequired
 
 from apps.businesses.models import Business
-from apps.discovery import ig_accounts as ig
+from apps.discovery import ig_login
+from apps.discovery import ig_state
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.proxies import health
+from apps.discovery.proxies.urls import proxy_mode
 from apps.discovery.tests_ig_accounts import CODE, FakeIG
 
 XHR = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
@@ -18,7 +21,7 @@ XHR = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
 
 def _waiting(acc, state="needs_code"):
     """A login that waits for the operator's code right now (as the login thread leaves it)."""
-    now = ig._now_iso()
+    now = ig_state.now_iso()
     InstagramEngineAccount.objects.filter(pk=acc.pk).update(
         status="CHALLENGED", status_reason="needs_code",
         pending_login={"state": state, "token": "t1", "started_at": now, "heartbeat": now, "kind": "challenge",
@@ -28,7 +31,7 @@ def _waiting(acc, state="needs_code"):
 def _login_thread(pk):
     """Stands in for the login thread while a request waits: takes the typed code and finishes the login."""
     def sleep(seconds):
-        p = ig._read_pending(pk)
+        p = ig_login._read_pending(pk)
         if p.get("state") == "verifying" and p.get("code") == CODE:
             InstagramEngineAccount.objects.filter(pk=pk).update(
                 status="ACTIVE", status_reason="", pending_login={**p, "state": "ok", "code": None,
@@ -40,7 +43,7 @@ def _login_thread(pk):
 class IgAccountsPanelTests(TestCase):
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {}
-        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(ig, "port_open", return_value=True)):
+        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(health, "port_open", return_value=True)):
             p.start()
             self.addCleanup(p.stop)
         self.staff = get_user_model().objects.create_user("boss", "b@x.ir", "pw", is_staff=True)
@@ -60,7 +63,7 @@ class IgAccountsPanelTests(TestCase):
     def test_pages_render(self):
         a = self.acc(proxy_config=self.cfg, proxy_url="socks5h://xray:1091", status="CHALLENGED",
                      status_reason="needs_code")
-        ig.log_event(a, "code_requested", "کد خواست")
+        ig_state.log_event(a, "code_requested", "کد خواست")
         for url in (reverse("manage:ig_accounts"), reverse("manage:ig_accounts") + "?status=CHALLENGED&mode=config&q=acc",
                     reverse("manage:ig_account_detail", args=[a.pk]), reverse("manage:ig_tenants")):
             res = self.client.get(url)
@@ -113,7 +116,7 @@ class IgAccountsPanelTests(TestCase):
         _waiting(a)
         old = (timezone.now() - timezone.timedelta(minutes=10)).isoformat()
         InstagramEngineAccount.objects.filter(pk=a.pk).update(
-            pending_login={**ig._read_pending(a.pk), "heartbeat": old, "started_at": old})
+            pending_login={**ig_login._read_pending(a.pk), "heartbeat": old, "started_at": old})
         out = self.do(a, "code", {"code": CODE}, **XHR).json()
         self.assertFalse(out["success"])
         self.assertEqual(self.client.get(reverse("manage:ig_account_login_state", args=[a.pk])).json()["state"], "stale")
@@ -124,7 +127,7 @@ class IgAccountsPanelTests(TestCase):
         self.assertRedirects(res, reverse("manage:ig_account_detail", args=[a.pk]) + "#connection",
                              fetch_redirect_response=False)
         a.refresh_from_db()
-        self.assertEqual(ig.proxy_mode(a), "custom")
+        self.assertEqual(proxy_mode(a), "custom")
         out = self.do(a, "proxy", {"mode": "config", "config_id": str(self.cfg.pk)}, **XHR).json()
         self.assertTrue(out["success"], out)
         self.assertFalse(self.do(a, "proxy", {"mode": "config", "config_id": ""}, **XHR).json()["success"])
@@ -184,7 +187,7 @@ class OldDashboardEndpointTests(TestCase):
 
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {}
-        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(ig, "port_open", return_value=True)):
+        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(health, "port_open", return_value=True)):
             p.start()
             self.addCleanup(p.stop)
         self.client.force_login(get_user_model().objects.create_user("boss", "b@x.ir", "pw", is_superuser=True,
@@ -203,7 +206,7 @@ class OldDashboardEndpointTests(TestCase):
     def test_old_code_endpoint_feeds_the_waiting_login(self):
         acc = InstagramEngineAccount.objects.create(username="c1", password="pw", role="SENDER")
         _waiting(acc)
-        with mock.patch.object(ig, "_sleep", _login_thread(acc.pk)):
+        with mock.patch.object(ig_login, "_sleep", _login_thread(acc.pk)):
             out = self.client.post(f"/manage/accounts/{acc.pk}/code/", {"code": CODE}, content_type="application/json",
                                    **XHR).json()
         self.assertTrue(out["success"], out)

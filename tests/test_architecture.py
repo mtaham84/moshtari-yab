@@ -79,3 +79,19 @@ def test_allow_list_only_contains_existing_violations():
     stale = sorted(ALLOWED - boundary_violations())
     assert not stale, ("These imports are gone; remove them from ALLOWED in tests/test_architecture.py:\n"
                        + "\n".join(f"  {rel} -> {top}" for rel, top in stale))
+
+
+def test_instagram_clients_are_built_only_by_ig_client():
+    """Every instagrapi Client must come from apps.discovery.ig_client.new_client, which binds the account's proxy.
+    A hand-built Client() is how an account ends up talking to Instagram from the server's own IP."""
+    offenders = []
+    for path in sorted((ROOT / "apps").rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if _is_test_or_migration(rel) or rel == "apps/discovery/ig_client.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "instagrapi" and any(
+                    alias.name == "Client" for alias in node.names):
+                offenders.append(rel)
+    assert not offenders, "Build instagrapi clients with apps.discovery.ig_client.new_client:\n  " + "\n  ".join(offenders)
