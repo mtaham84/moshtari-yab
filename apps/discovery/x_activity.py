@@ -29,13 +29,13 @@ SKIP_REASONS = {"stale": "قدیمی‌تر از بازه‌ی مجاز بود",
 
 
 def _engine_schema() -> str:
-    from apps.billing.services import _schema
+    from apps.billing.engine_tables import engine_schema as _schema
 
     return _schema()
 
 
 def _crawler_schema() -> str:
-    from apps.billing.services import _crawler_schema
+    from apps.billing.ops_status import _crawler_schema
 
     return _crawler_schema()
 
@@ -120,7 +120,7 @@ def product_stats(business, products, days: float = 30) -> dict[str, dict]:
 
 def billed_toman(business, pids: list[str], since_ts: float) -> dict[str, float]:
     """What the seller was billed per product for X search: analysis + search fee + reply drafting."""
-    from apps.billing.services import _billed
+    from apps.billing.engine_tables import billed_usd_expr as _billed
 
     es = _engine_schema()
     rate, cached = billing_rate()
@@ -229,7 +229,7 @@ def _group_runs(runs: list[dict], gap_minutes: int = 15) -> list[dict]:
 
 def collector_line() -> dict:
     """Plain-language state of the shared X searcher for sellers."""
-    from apps.billing.services import x_collector_status
+    from apps.billing.x_stats import x_collector_status
 
     st = x_collector_status()
     interval = float(os.getenv("X_COLLECT_INTERVAL_SECONDS", "300") or 300)

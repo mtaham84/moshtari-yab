@@ -16,9 +16,9 @@ from .instagram import (
     instagram_comment_detail_view,
     instagram_pages_view,
 )
+from .export import opportunity_export_view
 from .opportunities import (
     opportunity_detail_view,
-    opportunity_export_view,
     opportunity_feedback_view,
     opportunity_list_view,
     opportunity_new_count_view,

@@ -1,0 +1,311 @@
+/* ==========================================================================
+   Lower Obsidian Controller Bar (Direct from Reference: ELECTRIC CAR Console)
+   ========================================================================== */
+.obsidian-control-bar {
+  background: var(--obsidian-bg);
+  border: 1.5px solid var(--obsidian-border);
+  border-radius: 26px;
+  padding: 16px 24px;
+  color: var(--obsidian-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  margin-top: 10px;
+}
+
+.ctrl-brand-title {
+  font-size: 0.92rem;
+  font-weight: 850;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--obsidian-surface);
+  border-radius: 9999px;
+  padding: 4px;
+  border: 1px solid var(--obsidian-border);
+}
+
+.ctrl-mode-btn {
+  padding: 5px 14px;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  color: var(--obsidian-text-muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.ctrl-mode-btn.active {
+  background: var(--obsidian-cyan);
+  color: #0b0e16;
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.45);
+}
+
+.ctrl-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ctrl-slider-label {
+  font-size: 0.72rem;
+  color: var(--obsidian-text-muted);
+  font-weight: 700;
+}
+
+.ctrl-slider-track {
+  width: 120px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.ctrl-slider-fill {
+  height: 100%;
+  width: 72%;
+  background: linear-gradient(90deg, #00f2fe, #00f59b);
+  border-radius: 9999px;
+}
+
+.ctrl-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--obsidian-surface);
+  border: 1px solid var(--obsidian-border);
+  color: var(--obsidian-text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 0.85rem;
+}
+
+.ctrl-action-btn:hover {
+  background: var(--obsidian-surface-soft);
+  color: var(--obsidian-cyan);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+}
+
+/* ==========================================================================
+   Panel Form Control Styles: Tactile Debossed Inset Finish
+   ========================================================================== */
+.panel-app-container .form-label {
+  color: var(--panel-text-main);
+  font-weight: 800;
+  font-size: 0.88rem;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.panel-app-container .form-label .req {
+  color: var(--brand-magenta);
+}
+
+.panel-app-container .form-input,
+.panel-app-container select.form-input,
+.panel-app-container textarea.form-input {
+  background-color: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border: 1px solid rgba(160, 175, 195, 0.25);
+  color: var(--panel-text-main);
+  border-radius: 16px;
+  padding: 12px 18px;
+  font-family: var(--font-vazir);
+  font-size: 0.92rem;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.panel-app-container .form-input:focus,
+.panel-app-container select.form-input:focus,
+.panel-app-container textarea.form-input:focus {
+  border-color: var(--obsidian-cyan);
+  box-shadow: var(--stone-shadow-inset), 0 0 0 3px rgba(0, 242, 254, 0.25);
+  outline: none;
+}
+
+.panel-app-container .type-radio-card {
+  background: var(--stone-surface);
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  box-shadow: var(--stone-shadow-sm);
+  color: var(--panel-text-main);
+  border-radius: 18px;
+  transition: all 0.2s ease;
+  display: block;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.panel-app-container .type-radio-label input:checked + .type-radio-card {
+  border-color: var(--obsidian-cyan);
+  background: var(--stone-surface);
+  box-shadow: var(--stone-shadow-inset);
+}
+
+.panel-app-container .ai-suggestion-box {
+  background: var(--stone-surface-sunken);
+  box-shadow: var(--stone-shadow-inset);
+  border: 1.5px solid rgba(0, 242, 254, 0.4);
+  border-radius: 20px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+
+/* Empty State */
+.p-empty-state {
+  background: var(--panel-surface);
+  box-shadow: var(--stone-shadow-raised);
+  border: 1.5px dashed rgba(160, 175, 195, 0.4);
+  border-radius: 26px;
+  padding: 60px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.p-empty-icon {
+  font-size: 2.8rem;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.p-empty-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--panel-text-main);
+}
+
+.p-empty-desc {
+  font-size: 0.88rem;
+  color: var(--panel-text-muted);
+  max-width: 420px;
+  line-height: 1.65;
+}
+
+/* Two-Column Lead Discovery & Inspector Split */
+.dashboard-leads-split {
+  display: grid;
+  grid-template-columns: 0.95fr 1.35fr;
+  gap: 24px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+#leads-list-container,
+#lead-inspector-card {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.inspector-card {
+  padding: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.factors-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.inspector-action-buttons {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+/* Mobile Bottom Navigation Bar (Uniform Native App Feel - Thumb Zone) */
+.panel-mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  height: 60px;
+  background-color: var(--panel-topbar);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1.5px solid var(--panel-border-subtle);
+  z-index: 9999;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 4px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--stone-text-muted, #94a3b8);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  flex: 1;
+  height: 100%;
+  padding: 6px 0;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.bottom-nav-item svg {
+  transition: transform 0.2s ease, stroke 0.2s ease;
+}
+
+.bottom-nav-item.active {
+  color: var(--obsidian-cyan, #00f2fe) !important;
+  font-weight: 800 !important;
+}
+
+.bottom-nav-item.active svg {
+  stroke: var(--obsidian-cyan, #00f2fe) !important;
+  transform: translateY(-1px);
+}
+
+.bottom-nav-item.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--obsidian-cyan, #00f2fe);
+  box-shadow: 0 2px 8px rgba(0, 242, 254, 0.6);
+}
+

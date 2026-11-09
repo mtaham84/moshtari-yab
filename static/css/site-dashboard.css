@@ -1,0 +1,351 @@
+/* ==========================================================================
+   Dashboard Styles
+   ========================================================================== */
+.dashboard-wrapper {
+  min-height: 100vh;
+  background-color: var(--bg-page);
+}
+
+.dash-navbar {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-light);
+  padding: 16px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.dash-nav-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dash-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.dash-user-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.user-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name {
+  font-size: 0.92rem;
+  font-weight: 750;
+  color: var(--text-main);
+}
+
+.user-email {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.dash-logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.dash-logout-btn:hover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.dash-main-container {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+/* Welcome Card */
+.dash-welcome-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 24px;
+  padding: 36px 32px;
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr;
+  align-items: center;
+  gap: 32px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dash-welcome-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  background: var(--brand-gradient);
+}
+
+.welcome-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--success);
+  margin-bottom: 12px;
+}
+
+.welcome-title {
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 850;
+  color: var(--text-main);
+  line-height: 1.35;
+  margin-bottom: 12px;
+}
+
+.welcome-desc {
+  font-size: 0.98rem;
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+
+.welcome-action-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  padding: 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-guide-tag {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.badge-status-active {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+  font-size: 0.78rem;
+  font-weight: 750;
+  margin-top: 6px;
+}
+
+/* Metrics Grid */
+.dash-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+.dash-metric-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dash-metric-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.metric-icon-pill {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
+  margin-bottom: 8px;
+}
+
+.metric-label {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.metric-value {
+  font-size: 1.25rem;
+  font-weight: 850;
+  color: var(--text-main);
+}
+
+.metric-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Roadmap Card */
+.onboarding-roadmap-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: var(--shadow-sm);
+}
+
+.roadmap-card-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 24px;
+}
+
+.roadmap-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.roadmap-step {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  transition: all 0.2s ease;
+}
+
+.roadmap-step.done {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.roadmap-step.current {
+  border-color: rgba(121, 40, 202, 0.4);
+  background: rgba(121, 40, 202, 0.04);
+}
+
+.step-marker {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.roadmap-step.done .step-marker {
+  background: var(--success);
+  color: #fff;
+}
+
+.roadmap-step.current .step-marker {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.roadmap-step.pending .step-marker {
+  background: var(--divider);
+  color: var(--text-faint);
+}
+
+.step-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-info strong {
+  font-size: 0.98rem;
+  color: var(--text-main);
+}
+
+.step-info span {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.step-pill-done {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.step-pill-current {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: rgba(121, 40, 202, 0.12);
+  color: var(--brand-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.step-pill-pending {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: var(--divider);
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .dash-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dash-welcome-card {
+    grid-template-columns: 1fr;
+  }
+  .form-row-2 {
+    grid-template-columns: 1fr;
+  }
+  .business-type-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
