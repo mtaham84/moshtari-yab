@@ -16,4 +16,3 @@ Before the rewrite, check whether any config lines were copied into worktrees or
     python scripts/check_proxy_leaks.py
     python scripts/check_proxy_leaks.py --source <private-backup-path>
 
-The proxy switcher still reads /root/moshtari-yab/xray/config.json (xray/proxy_switcher.py:26-27); the ignored text file is not its runtime config.
