@@ -1,5 +1,6 @@
 """Cached per-family Instagram plans, source sampling and the cheap comment funnel."""
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -13,6 +14,8 @@ from django.utils import timezone
 from need_engine.text import norm
 
 from workers.x_collector.families import build_families
+
+log = logging.getLogger("instagram.families")
 
 INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT = max(1, int(os.getenv("INSTAGRAM_PLAN_MAX_FAMILIES_PER_TENANT", "8")))
 INSTAGRAM_PAGE_MIN_COMMENTS = max(1, int(os.getenv("INSTAGRAM_PAGE_MIN_COMMENTS", "10")))
@@ -583,8 +586,8 @@ def expand_queries_from_top_sources(business, plan, family=None, retired_label: 
             text = (l.comment_text or l.lead_text or "").strip()
             if text:
                 exemplars.append(text[:120])
-    except Exception:
-        pass
+    except Exception:   # see docs/CLEANUP_ROADMAP.md known issues: this query uses fields the model lacks
+        log.debug("Buyer exemplars unavailable", exc_info=True)
 
     # 3. Top winning queries (alpha >= 1.5)
     top_stats = [s for s in current_stats if s.alpha >= 1.5 and s.label != retired_label][:6]

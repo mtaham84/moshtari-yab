@@ -55,7 +55,7 @@ def get_proxy_candidates() -> list[str]:
             for p in active_ports:
                 candidates.append(f"socks5h://{host}:{p}")
         except Exception:
-            pass
+            log.debug("Could not read proxy config ports from the database", exc_info=True)
 
         candidates = list(dict.fromkeys(candidates))
         _proxy_cache = (now, candidates)

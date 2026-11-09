@@ -1,7 +1,10 @@
 """Instagram clients for scraper accounts: one warm client per account, always behind the account's proxy."""
+import logging
 from apps.discovery.ig_scraper import session
 from apps.discovery.ig_scraper.context import PROXY_DOWN_REST_HOURS
 from apps.discovery.ig_session import redact
+
+log = logging.getLogger("instagram.scraper")
 
 
 class ProxyUnavailable(RuntimeError):
@@ -38,7 +41,7 @@ def build_client(run, account):
             try:
                 cl.set_device(account.device_settings, reset=False)
             except Exception:
-                pass
+                log.debug("Could not set the saved device of @%s", account.username, exc_info=True)
 
     session.restore_from_mirror(run, account)
     if account.session_json:
@@ -51,7 +54,7 @@ def build_client(run, account):
                     cl.public.cookies.set(k, v, domain=".instagram.com")
                     cl.private.cookies.set(k, v, domain=".instagram.com")
                 except Exception:
-                    pass
+                    log.debug("Could not restore cookie %s of @%s", k, account.username, exc_info=True)
             sess_id = cookies.get("sessionid")
             if sess_id:
                 m = re.search(r"^\d+", sess_id)
@@ -138,7 +141,7 @@ def client_or_rest(run, account):
             try:
                 return get_persistent_client(run, account)
             except Exception:
-                pass
+                log.warning("Client for @%s failed again after the proxy failover", account.username, exc_info=True)
         session.set_state(account, "COOLDOWN", f"پروکسی در دسترس نیست؛ بدون پروکسی وصل نمی‌شویم: {redact(exc, 150)}",
                         hours=PROXY_DOWN_REST_HOURS)
         run.stderr.write(f"    proxy_unavailable: account {account.id} rests {PROXY_DOWN_REST_HOURS}h (no direct fallback)")

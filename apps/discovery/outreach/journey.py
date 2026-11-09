@@ -38,7 +38,7 @@ def perform_organic_warmup(cl: Any, target_pk: int, username: str, *, story_chan
                         worker_active=True,
                     )
                 except Exception:
-                    pass
+                    logger.debug("Live activity report failed", exc_info=True)
                 time.sleep(random.uniform(2.0, 4.5))
     except Exception as story_err:
         logger.debug("Organic story view skipped for @%s: %s", username, story_err)

@@ -269,7 +269,7 @@ def apply_device_profile_to_client(cl, account) -> None:
         cl.set_user_agent()
         cl.private.headers.update(cl.base_headers)
     except Exception:
-        pass
+        log.debug("Could not refresh the user agent headers", exc_info=True)
 
 
 def connect_saved_session(cl, account) -> bool:

@@ -570,7 +570,7 @@ def opportunity_status_update_view(request, pk):
         try:
             body_data = json.loads(request.body.decode("utf-8"))
             new_status = body_data.get("status")
-        except Exception:
+        except (ValueError, AttributeError):   # not JSON, or not a JSON object
             pass
 
     valid_statuses = dict(Opportunity._meta.get_field("status").choices)
