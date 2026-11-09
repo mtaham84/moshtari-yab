@@ -40,7 +40,7 @@ def persist_session(run, cl, account) -> None:
             account.save(update_fields=["session_json", "last_action_at"])
             if not save_atomic(session_path(account.id, run.policy), fresh):
                 run.stderr.write(f"    session_save_failed (file mirror) for account {account.id}")
-    except Exception as exc:
+    except Exception as exc:   # no traceback: the message is redacted because it can carry session data
         run.stderr.write(f"Notice: could not persist session for account {account.id}: {redact(exc)}")
 
 
@@ -88,7 +88,7 @@ def auto_renew_session(run, cl, account) -> bool:
             set_state(account, "CHALLENGED", "لاگین ناموفق بود: رمز عبور رد شد. رمز را بررسی کنید.")
             run.stderr.write(f"    recovery_failed: account {account.id} bad credentials")
             return False
-        except Exception as exc:
+        except Exception as exc:   # no traceback: the message is redacted because it can carry session data
             err_str = str(exc).lower()
             is_net_err = any(k in err_str for k in ["connection", "timeout", "timed out", "reset", "transport", "proxy", "eof", "ssl", "56", "connection closed"])
             if is_net_err:

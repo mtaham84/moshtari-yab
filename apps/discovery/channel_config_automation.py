@@ -58,7 +58,7 @@ def _load_channels_json() -> List[Dict[str, Any]]:
                 if isinstance(data, list):
                     return data
         except Exception as e:
-            logger.warning("Error reading proxy channels JSON: %s", e)
+            logger.warning("Error reading proxy channels JSON: %s", e, exc_info=True)
     # Default seed channel
     return [
         {
@@ -78,7 +78,7 @@ def _save_channels_json(channels: List[Dict[str, Any]]) -> None:
         with open(CHANNELS_JSON_FILE, "w", encoding="utf-8") as f:
             json.dump(channels, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error("Error writing proxy channels JSON: %s", e)
+        logger.error("Error writing proxy channels JSON: %s", e, exc_info=True)
 
 
 def get_monitored_channels() -> List[Dict[str, Any]]:
@@ -104,7 +104,7 @@ def get_monitored_channels() -> List[Dict[str, Any]]:
             _save_channels_json(results)
             return results
     except Exception as exc:
-        logger.debug("Database ConfigChannelSource query unavailable, using JSON: %s", exc)
+        logger.debug("Database ConfigChannelSource query unavailable, using JSON: %s", exc, exc_info=True)
 
     json_channels = _load_channels_json()
     for item in json_channels:
@@ -143,7 +143,7 @@ def add_monitored_channel(channel_str: str, title: str = "") -> Dict[str, Any]:
             _save_channels_json(channels)
         return channel_dict
     except Exception as exc:
-        logger.debug("Using JSON file fallback for add_monitored_channel: %s", exc)
+        logger.debug("Using JSON file fallback for add_monitored_channel: %s", exc, exc_info=True)
 
     channels = _load_channels_json()
     for ch in channels:
@@ -186,7 +186,7 @@ def delete_monitored_channel(channel_id_or_username: Any) -> bool:
         elif target_username:
             ConfigChannelSource.objects.filter(channel_username__iexact=target_username).delete()
     except Exception as exc:
-        logger.debug("DB channel deletion skipped: %s", exc)
+        logger.debug("DB channel deletion skipped: %s", exc, exc_info=True)
 
     channels = _load_channels_json()
     filtered = []
@@ -214,7 +214,7 @@ def toggle_monitored_channel(channel_id: int) -> Dict[str, Any]:
         ch.save(update_fields=["is_active"])
         return {"id": ch.id, "channel_username": ch.channel_username, "is_active": ch.is_active}
     except Exception as exc:
-        logger.debug("DB channel toggle skipped: %s", exc)
+        logger.debug("DB channel toggle skipped: %s", exc, exc_info=True)
 
     channels = _load_channels_json()
     for ch in channels:
@@ -258,6 +258,7 @@ def get_http_request_with_proxy(url: str, timeout: float = 12.0) -> str:
             with opener.open(req, timeout=timeout) as resp:
                 return resp.read().decode("utf-8", errors="ignore")
         except Exception as exc:
+            logger.debug("Fetching %s through %s failed", url, proxy_choice, exc_info=True)
             last_exc = exc
             continue
 
@@ -273,7 +274,7 @@ def load_channel_state(channel_username: str) -> Dict[str, Any]:
                 data = json.load(f)
                 return data.get(channel_username, {"last_post_id": 0, "total_imported": 0})
         except Exception as e:
-            logger.warning("Error reading channel state file: %s", e)
+            logger.warning("Error reading channel state file: %s", e, exc_info=True)
     return {"last_post_id": 0, "total_imported": 0}
 
 
@@ -285,14 +286,15 @@ def save_channel_state(channel_username: str, state_data: Dict[str, Any]) -> Non
         try:
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 all_data = json.load(f)
-        except Exception:
+        except (OSError, ValueError):
+            logger.warning("Channel state file %s is unreadable; starting fresh", STATE_FILE, exc_info=True)
             all_data = {}
     all_data[channel_username] = state_data
     try:
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(all_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error("Error writing channel state file: %s", e)
+        logger.error("Error writing channel state file: %s", e, exc_info=True)
 
 
 def fetch_channel_messages(channel_username: str) -> List[Dict[str, Any]]:
@@ -360,7 +362,7 @@ def sync_channel_configs(
     try:
         messages = fetch_channel_messages(clean_channel)
     except Exception as exc:
-        logger.error("Failed to fetch messages for %s: %s", clean_channel, exc)
+        logger.error("Failed to fetch messages for %s: %s", clean_channel, exc, exc_info=True)
         return {
             "success": False,
             "channel": clean_channel,
@@ -437,7 +439,7 @@ def sync_channel_configs(
                     "reason": res.get("message"),
                 })
         except Exception as exc:
-            logger.warning("Error importing config from post #%s: %s", pid, exc)
+            logger.warning("Error importing config from post #%s: %s", pid, exc, exc_info=True)
             failed_results.append({"post_id": pid, "reason": str(exc)})
 
     # Update crawl state

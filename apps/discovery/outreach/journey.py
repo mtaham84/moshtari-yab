@@ -41,7 +41,7 @@ def perform_organic_warmup(cl: Any, target_pk: int, username: str, *, story_chan
                     logger.debug("Live activity report failed", exc_info=True)
                 time.sleep(random.uniform(2.0, 4.5))
     except Exception as story_err:
-        logger.debug("Organic story view skipped for @%s: %s", username, story_err)
+        logger.debug("Organic story view skipped for @%s: %s", username, story_err, exc_info=True)
 
     # 2. Like recent post
     try:
@@ -54,7 +54,7 @@ def perform_organic_warmup(cl: Any, target_pk: int, username: str, *, story_chan
                 actions["liked_post"] = True
                 time.sleep(random.uniform(1.5, 3.0))
     except Exception as like_err:
-        logger.debug(f"Organic like warmup skipped for @{username}: {like_err}")
+        logger.debug(f"Organic like warmup skipped for @{username}: {like_err}", exc_info=True)
 
     return actions
 
@@ -99,13 +99,13 @@ def execute_organic_journey(
                         resolved_pk = int(u_pk)
                         break
             except Exception as search_err:
-                logger.debug("search_users fallback failed for @%s: %s", target_username, search_err)
+                logger.debug("search_users fallback failed for @%s: %s", target_username, search_err, exc_info=True)
 
         if not resolved_pk and hasattr(cl, "user_id_from_username"):
             try:
                 resolved_pk = int(cl.user_id_from_username(target_username))
             except Exception as uid_err:
-                logger.debug("user_id_from_username skipped for @%s: %s", target_username, uid_err)
+                logger.debug("user_id_from_username skipped for @%s: %s", target_username, uid_err, exc_info=True)
 
     # Short randomized typing jitter (6 to 10 seconds)
     typing_sec = random.uniform(6.0, 10.0)
@@ -158,7 +158,7 @@ def execute_background_organic_warmup(
                     logger.info("Organic feed post like executed during casual scroll (media: %s)", m_id)
                     time.sleep(random.uniform(1.5, 3.0))
     except Exception as feed_err:
-        logger.debug("Organic timeline feed scroll skipped: %s", feed_err)
+        logger.debug("Organic timeline feed scroll skipped: %s", feed_err, exc_info=True)
 
     # Step 2: Browse target user profile and warmup if target specified
     if target_pk:
@@ -169,7 +169,7 @@ def execute_background_organic_warmup(
                 medias = cl.user_medias(target_pk, amount=random.randint(3, 6))
                 actions_taken["profile_viewed"] = True
         except Exception as profile_err:
-            logger.debug("Organic profile inspection skipped for @%s: %s", target_username, profile_err)
+            logger.debug("Organic profile inspection skipped for @%s: %s", target_username, profile_err, exc_info=True)
 
         warmup_res = perform_organic_warmup(
             cl, target_pk, target_username or "",

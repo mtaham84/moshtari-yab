@@ -101,7 +101,7 @@ def load_outreach_config() -> dict:
                 if isinstance(p, dict):
                     pitches[str(u).lower()] = p
         except Exception as exc:
-            logger.warning(f"Could not load {CONFIG_FILE}: {exc}")
+            logger.warning(f"Could not load {CONFIG_FILE}: {exc}", exc_info=True)
             cfg = {}
     return {**cfg, "sender_pitches": pitches}
 
@@ -163,6 +163,7 @@ def persist_sender_session(sender) -> None:
     try:
         fresh = cl.get_settings()
     except Exception:
+        logger.debug("Could not read the session of @%s", sender.username, exc_info=True)
         return
     if not has_device_profile(fresh) or fresh == sender.session_json:
         return
@@ -284,6 +285,7 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
                 log("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
                 rotate_account_proxy_ip(sender)
             except Exception as rot_err:
+                logger.warning("IP rotation failed for @%s", sender.username, exc_info=True)
                 log(f"   ⚠️ چرخش IP ناموفق بود: {rot_err}")
         sender.cooldown_until = now + timedelta(minutes=15)
         sender.status = "COOLDOWN"
@@ -404,6 +406,7 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
             get_sender_client(sender)  # cached; process_queued_outbox_message reuses it
         res = process_queued_outbox_message(lead_to_process, client_cache=_CLIENTS, dry_run=ctx.dry_run, sender=sender)
     except Exception as exc:
+        logger.warning("Queued DM to @%s failed", lead_to_process.username, exc_info=True)
         res = {"success": False, "error": str(exc)}
 
     if res.get("blocked"):
@@ -551,6 +554,7 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         ctx.log(f"   [۳/۳] ✉️ ارسال دایرکت از طرف {consultant_name} (@{sender.username})...")
         cl.direct_send(pitch_text, user_ids=[final_pk])
     except Exception as exc:
+        logger.warning("Cold DM to @%s from @%s failed", lead.username, sender.username, exc_info=True)
         error = str(exc)
         kind = classify_send_error(error)
         ctx.log(f"   ❌ خطا در ارسال دایرکت به @{lead.username} ({kind}): {error[:120]}")

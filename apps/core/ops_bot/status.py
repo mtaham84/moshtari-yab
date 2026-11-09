@@ -81,7 +81,7 @@ def check_luna_api_status() -> dict[str, Any]:
             try:
                 err_data = r.json()
                 err_msg = err_data.get("error", {}).get("message") or r.text[:200]
-            except Exception:
+            except ValueError:   # error body is not JSON
                 err_msg = r.text[:200]
             is_insufficient = any(w in err_msg.lower() for w in ("insufficient", "credit", "quota", "اعتبار"))
             return {
@@ -95,6 +95,7 @@ def check_luna_api_status() -> dict[str, Any]:
                 "base_url": provider.base_url,
             }
     except Exception as exc:
+        log.warning("Luna API status check failed", exc_info=True)
         latency = round((time.time() - t0) * 1000, 1)
         return {
             "ok": False,

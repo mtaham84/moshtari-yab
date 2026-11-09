@@ -92,6 +92,7 @@ def tg_request(method: str, payload: dict[str, Any] | None = None, timeout: int 
             _last_working_proxy = proxy_url
             return data
         except Exception as exc:
+            log.debug("Telegram %s through %s failed", method, proxy_url, exc_info=True)
             last_exc = exc
             if _last_working_proxy == proxy_url:
                 _last_working_proxy = None
@@ -163,7 +164,7 @@ def register_subscriber(chat_id: int | str) -> None:
             current.add(cid)
             save_subscribers(current)
     except Exception as e:
-        log.warning("Could not register subscriber %s: %s", chat_id, e)
+        log.warning("Could not register subscriber %s: %s", chat_id, e, exc_info=True)
 
 
 def broadcast_message(text: str, reply_markup: dict[str, Any] | None = None) -> None:
@@ -172,4 +173,4 @@ def broadcast_message(text: str, reply_markup: dict[str, Any] | None = None) -> 
             send_message(cid, text, reply_markup=reply_markup)
             time.sleep(0.05)
         except Exception as e:
-            log.warning("Failed sending broadcast to %s: %s", cid, e)
+            log.warning("Failed sending broadcast to %s: %s", cid, e, exc_info=True)

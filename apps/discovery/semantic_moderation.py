@@ -112,7 +112,7 @@ def _get_embedder():
         _CACHED_EMBEDDER = Embedder(cfg, llm)
         return _CACHED_EMBEDDER
     except Exception as e:
-        log.warning('Could not initialize primary Embedder: %s', e)
+        log.warning('Could not initialize primary Embedder: %s', e, exc_info=True)
         _CACHED_EMBEDDER = False
         return None
 
@@ -142,7 +142,7 @@ def _init_anchor_vectors():
             _CACHED_POSITIVE_VECTORS = None
             log.warning("Ignoring unusable anchor cache %s", cache_path)
         except Exception as e:
-            log.warning("Could not load anchor cache: %s", e)
+            log.warning("Could not load anchor cache: %s", e, exc_info=True)
 
     emb = _get_embedder()
     if not emb:
@@ -174,12 +174,12 @@ def _init_anchor_vectors():
             np.savez(cache_path, **save_dict)
             log.info("Saved anchor embeddings to disk cache: %s", cache_path)
         except Exception as e:
-            log.debug("Failed to save anchor cache: %s", e)
+            log.debug("Failed to save anchor cache: %s", e, exc_info=True)
 
         log.info('Semantic moderation anchors initialized successfully.')
         return True
     except Exception as exc:
-        log.error('Failed to compute anchor embeddings: %s', exc)
+        log.error('Failed to compute anchor embeddings: %s', exc, exc_info=True)
         return False
 
 
@@ -206,7 +206,7 @@ def _embedding_moderation(comment_text: str) -> Optional[Dict[str, Any]]:
     try:
         comment_vec = emb.encode([comment_text])[0]
     except Exception as exc:
-        log.warning('Failed to encode comment: %s', exc)
+        log.warning('Failed to encode comment: %s', exc, exc_info=True)
         return None
 
     # Check against negative clusters

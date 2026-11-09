@@ -119,7 +119,7 @@ def save_atomic(path: Path, data: dict) -> bool:
         os.replace(tmp, path)
         return True
     except Exception as exc:
-        log.error("session_save_failed account_file=%s error=%s", path.name, redact(exc))
+        log.error("session_save_failed account_file=%s error=%s", path.name, redact(exc), exc_info=True)
         if tmp:
             try:
                 os.unlink(tmp)
@@ -135,7 +135,8 @@ def load_file(path: Path) -> tuple[dict | None, str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return (data, "found") if isinstance(data, dict) and data else (None, "corrupt")
-    except Exception:
+    except (OSError, ValueError):
+        log.warning("Session mirror %s is unreadable", path, exc_info=True)
         return None, "corrupt"
 
 

@@ -25,9 +25,11 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("need_engine.post_qualification")
+from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
+
 try:
     from apps.core.prompts import get_system_prompt
-except Exception:
+except (ImportError, ImproperlyConfigured, AppRegistryNotReady, RuntimeError):   # outside Django: code defaults
     def get_system_prompt(key, default):
         return default
 
@@ -361,7 +363,7 @@ def qualify_post_with_luna(
     if llm_func is None:
         try:
             from apps.core.llm import chat_json as llm_func
-        except Exception:
+        except (ImportError, ImproperlyConfigured, AppRegistryNotReady, RuntimeError):   # outside Django: no LLM
             llm_func = None
 
     if not llm_func:
@@ -432,5 +434,5 @@ def qualify_post_with_luna(
             reason=str(raw_res.get("reason") or "ارزیابی چندبُعدی لونا"),
         )
     except Exception as exc:
-        logger.warning("Luna LLM qualification failed for post %s, using deterministic fallback: %s", post_id, exc)
+        logger.warning("Luna LLM qualification failed for post %s, using deterministic fallback: %s", post_id, exc, exc_info=True)
         return qualify_post_deterministic(post_id, text, leaf_category_path, prod_names)

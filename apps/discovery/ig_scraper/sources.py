@@ -25,6 +25,7 @@ def discover_candidate_pages(run, cl, account, business, family, plan, source):
     try:
         candidates = accounts.instagram_api_call(run, account, cl.search_users, term) or []
     except Exception as exc:
+        log.warning("Page search for %r failed", term, exc_info=True)
         run.page_search_error = str(exc)
         accounts.note_account_error(run, account, str(exc), cl, exc)
         run.stderr.write(f"Page search failed for {term}: {exc}")
@@ -47,6 +48,7 @@ def discover_candidate_pages(run, cl, account, business, family, plan, source):
         try:
             media = accounts.instagram_api_call(run, account, cl.user_medias, uid, amount=6) or []
         except Exception:
+            log.debug("Could not read the posts of candidate page %s", handle, exc_info=True)
             continue
         recent_comments = []
         cutoff = dj_timezone.now() - timedelta(days=14)
@@ -182,6 +184,7 @@ def retire_and_delete_source(run, business, source_type: str, label: str, family
                     f"  ✨ [گسترش خودکار کوئری]: کوئری‌های جدید الهام‌گرفته از کوئری‌های برتر اضافه شدند: {expanded}"
                 ))
         except Exception as e:
+            log.warning("Query expansion after retiring %r failed", clean_label, exc_info=True)
             run.stderr.write(f"Query expansion warning: {e}")
 
 
@@ -234,6 +237,7 @@ def fetch_source_medias(
                 recent = accounts.instagram_api_call(run, account, cl.hashtag_medias_recent, tag, amount=amount) or []
                 _add(recent)
             except Exception as e:
+                log.warning("hashtag_medias_recent for #%s failed", tag, exc_info=True)
                 run.stderr.write(f"Notice: hashtag_medias_recent for #{tag}: {e}")
                 accounts.note_account_error(run, account, str(e), cl, e)
 
@@ -256,6 +260,7 @@ def fetch_source_medias(
         try:
             uid = accounts.instagram_api_call(run, account, cl.user_id_from_username, target_handle)
         except Exception as e:
+            log.warning("User id lookup for @%s failed", target_handle, exc_info=True)
             run.stderr.write(f"User ID lookup failed for @{target_handle}: {e}")
             accounts.note_account_error(run, account, str(e), cl, e)
             return []
@@ -267,6 +272,7 @@ def fetch_source_medias(
                 batch = accounts.instagram_api_call(run, account, cl.user_medias, uid, amount=amount) or []
                 _add(batch)
             except Exception as e:
+                log.warning("Posts of @%s could not be fetched", target_handle, exc_info=True)
                 run.stderr.write(f"User medias fetch failed for @{target_handle}: {e}")
                 accounts.note_account_error(run, account, str(e), cl, e)
                 break
@@ -287,6 +293,7 @@ def fetch_source_medias(
                 batch = accounts.instagram_api_call(run, account, cl.media_search, source_label, amount=amount) or []
                 _add(batch)
             except Exception as e:
+                log.warning("Media search for %r failed", source_label, exc_info=True)
                 run.stderr.write(f"Media search failed for '{source_label}': {e}")
                 break
             if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:

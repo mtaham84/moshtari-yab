@@ -1,9 +1,12 @@
 """Reading a post's comments once, judging them for one tenant's product family, and saving the leads."""
+import logging
 from datetime import timezone
 
 from django.utils import timezone as dj_timezone
 
 from apps.discovery.ig_scraper import accounts
+
+log = logging.getLogger("instagram.scraper")
 
 
 def reply_template_for_post(run, post_hash: str, caption: str, cta_word: str, family_context: dict, business_id: int) -> str:
@@ -47,6 +50,7 @@ def reply_template_for_post(run, post_hash: str, caption: str, cta_word: str, fa
             prod = (family_context.get("product_titles") or ["کالای انتخابی"])[0]
             tpl = f"سلام {{username}} عزیز، وقتتون بخیر. در خصوص «{prod}» که در این پست استعلام فرمودید، قیمت و مشخصات خدمت شما ارسال شد."
     except Exception as exc:
+        log.warning("Reply template LLM call failed; using the default template", exc_info=True)
         run.stderr.write(f"Notice: reply template LLM error: {exc}")
         prod = (family_context.get("product_titles") or ["کالای انتخابی"])[0]
         tpl = f"سلام {{username}} عزیز، وقتتون بخیر. در پاسخ به استعلام شما در خصوص «{prod}»، جزئیات کامل خدمت شما تقدیم می‌شود."
@@ -134,11 +138,13 @@ def inspect_family_medias(run, cl, account, target, source, medias, min_comments
                 raw = accounts.instagram_api_call(run, account, cl.media_comments, media_id, amount=min(comment_count, INSTAGRAM_MAX_COMMENTS_PER_POST))
                 InstagramAntiBanManager.sleep_after_comment_fetch()
             except Exception:
+                log.debug("media_comments for %s failed; trying the GraphQL endpoint", media_id, exc_info=True)
                 try:
                     from apps.discovery.anti_ban import INSTAGRAM_MAX_COMMENTS_PER_POST, InstagramAntiBanManager
                     raw = accounts.instagram_api_call(run, account, cl.media_comments_gql, media_id, amount=min(comment_count, INSTAGRAM_MAX_COMMENTS_PER_POST))
                     InstagramAntiBanManager.sleep_after_comment_fetch()
                 except Exception as exc:
+                    log.warning("Comments of %s could not be fetched", code or media_id, exc_info=True)
                     run.stderr.write(f"Comment fetch failed for {code or media_id}: {exc}")
                     continue
             raw_comments = []
@@ -172,6 +178,7 @@ def inspect_family_medias(run, cl, account, target, source, medias, min_comments
                         comments=raw_comments, comment_count=comment_count, comments_cached=True,
                     )
                 except Exception:
+                    log.debug("Crawled post %s already stored by another worker", media_id, exc_info=True)
                     cached = InstagramCrawledPost.objects.filter(post_hash=digest).first()
             else:
                 cached.caption, cached.comments, cached.comment_count, cached.comments_cached, cached.crawled_at = (

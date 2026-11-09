@@ -78,7 +78,7 @@ class TwitterAccountPool:
             from x_ingest.__main__ import _dsn
             return psycopg.connect(self.dsn or _dsn(), connect_timeout=4)
         except Exception as exc:
-            log.debug("Database connection failed in TwitterAccountPool: %s", exc)
+            log.debug("Database connection failed in TwitterAccountPool: %s", exc, exc_info=True)
             return None
 
     def refresh(self) -> None:
@@ -115,7 +115,7 @@ class TwitterAccountPool:
                                 is_active=bool(r[12]) if r[12] is not None else True
                             ))
             except Exception as exc:
-                log.warning("Could not read x_accounts from database: %s", exc)
+                log.warning("Could not read x_accounts from database: %s", exc, exc_info=True)
 
         if not loaded:
             # Fallback: a single account from the environment. Credentials never live in source.
@@ -147,7 +147,7 @@ class TwitterAccountPool:
                     log.info("Seeded Twitter scraper account from environment into database")
                     self.refresh()
         except Exception as exc:
-            log.warning("Failed to seed initial Twitter accounts: %s", exc)
+            log.warning("Failed to seed initial Twitter accounts: %s", exc, exc_info=True)
 
     def get_next_account(self) -> TwitterAccount | None:
         """Selects the next available healthy account, balancing daily load equally across accounts."""
@@ -194,7 +194,7 @@ class TwitterAccountPool:
                         WHERE id = %s
                     """, (until, account.id))
             except Exception as exc:
-                log.debug("Failed to persist rate limit in DB for account %s: %s", account.id, exc)
+                log.debug("Failed to persist rate limit in DB for account %s: %s", account.id, exc, exc_info=True)
 
     def record_auth_error(self, account: TwitterAccount, error_msg: str) -> None:
         account.status = "CHALLENGED"
@@ -210,7 +210,7 @@ class TwitterAccountPool:
                         WHERE id = %s
                     """, (error_msg[:250], account.id))
             except Exception as exc:
-                log.debug("Failed to persist auth error in DB for account %s: %s", account.id, exc)
+                log.debug("Failed to persist auth error in DB for account %s: %s", account.id, exc, exc_info=True)
 
     def record_success(self, account: TwitterAccount, posts_count: int = 0) -> None:
         now = datetime.now(timezone.utc)
@@ -239,7 +239,7 @@ class TwitterAccountPool:
                         WHERE id = %s
                     """, (posts_count, now, account.id))
             except Exception as exc:
-                log.debug("Failed to persist success in DB for account %s: %s", account.id, exc)
+                log.debug("Failed to persist success in DB for account %s: %s", account.id, exc, exc_info=True)
 
     def get_pool_status(self) -> dict[str, Any]:
         available = [acc for acc in self.accounts if acc.is_available()]

@@ -78,7 +78,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
             if isinstance(res, dict) and res.get("status") == "ok" and "user" in res:
                 user_data = res["user"]
         except Exception as pk_err:
-            logger.debug(f"Private user info by PK {numeric_pk} failed: {pk_err}")
+            logger.debug(f"Private user info by PK {numeric_pk} failed: {pk_err}", exc_info=True)
 
     # 2. If no data, try private usernameinfo
     if not user_data and username:
@@ -87,7 +87,7 @@ def qualify_recipient_profile(cl: Any, username: str, target_pk: Optional[int] =
             if isinstance(res, dict) and res.get("status") == "ok" and "user" in res:
                 user_data = res["user"]
         except Exception as un_err:
-            logger.debug(f"Private usernameinfo for {username} failed: {un_err}")
+            logger.debug(f"Private usernameinfo for {username} failed: {un_err}", exc_info=True)
 
     if user_data:
         is_private = bool(user_data.get("is_private", False))

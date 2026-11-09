@@ -56,12 +56,12 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
 
         store = Store(config.database_url, config.state_schema)
     except Exception as exc:  # engine schema not created yet: deterministic queries from products only
-        log.warning("X queries without product cards: %s", exc)
+        log.warning("X queries without product cards: %s", exc, exc_info=True)
         return {}, {}
     try:
         cards = store.product_cards()
     except Exception as exc:
-        log.warning("Could not read product cards: %s", exc)
+        log.warning("Could not read product cards: %s", exc, exc_info=True)
         cards = {}
     if products and hasattr(products[0], "member_product_ids"):
         from workers.x_collector.families import family_cards
@@ -83,7 +83,7 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
             try:
                 dropped_queries = SeenStore(state_file, platform="x").dropped_queries()
             except Exception as drop_exc:
-                log.debug("Could not read weak X phrases: %s", drop_exc)
+                log.debug("Could not read weak X phrases: %s", drop_exc, exc_info=True)
                 dropped_queries = []
             for product in products:
                 pid = str(getattr(product, "product_id", ""))
@@ -92,9 +92,9 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
                         expand_queries_with_proqe(product, exemplar_store, llm=llm_inst, model=config.extract_model,
                                                   dropped_queries=dropped_queries)
                     except Exception as p_exc:
-                        log.debug("ProQE expansion skipped for product %s: %s", pid, p_exc)
+                        log.debug("ProQE expansion skipped for product %s: %s", pid, p_exc, exc_info=True)
         except Exception as exc:
-            log.warning("LLM X query terms unavailable, using deterministic queries: %s", exc)
+            log.warning("LLM X query terms unavailable, using deterministic queries: %s", exc, exc_info=True)
     try:
         store.close()
     except Exception:
@@ -193,7 +193,7 @@ def _load_intent_queries(config, source, products, x_mode, mode):
         from need_engine.registry import ModelRegistry
         blocked = ModelRegistry(config).blocked(force=True)
     except Exception as exc:
-        log.error("Seller balances unavailable; refusing to generate X queries: %s", exc)
+        log.error("Seller balances unavailable; refusing to generate X queries: %s", exc, exc_info=True)
         return []
     skipped = [p.product_id for p in products_on if p.business_id and str(p.business_id) in blocked]
     if skipped:

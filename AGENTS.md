@@ -81,7 +81,9 @@ This code was built fast with AI help, and the same mistakes kept piling up. Eac
    the file first in a separate change. New files should stay under 400 lines.
 5. **No silent failures.** Don't write `except Exception: pass` or a broad `except` that only logs and continues. Catch
    the specific exception you expect. A broad catch is allowed only at a process boundary (worker loop, management
-   command) and must call `log.exception(...)`.
+   command, view) and must log the traceback: `log.warning(..., exc_info=True)` at the level that fits. ERROR and
+   above go to the Telegram ops chat, so use `log.exception` only for errors someone must act on. Never log
+   unredacted Instagram errors from login/session code (they can carry cookies).
 6. **Config.** A new environment variable must be read in one place (the module's `config.py` / settings) and added to
    `.env.example` with a comment in the same change. Don't scatter `os.environ.get` calls.
 7. **Dependency direction.** `shared/` imports none of the project packages. `need_engine/`, `telegram_crawler/` and

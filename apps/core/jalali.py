@@ -84,7 +84,7 @@ def format_jalali_date(d, persian_digits=True) -> str:
                 d = parsed
             else:
                 d = datetime.fromisoformat(d)
-        except Exception:
+        except (TypeError, ValueError):   # not a date: show it as is
             return d
     if isinstance(d, datetime):
         d = d.date()
@@ -109,7 +109,7 @@ def format_jalali_datetime(dt, persian_digits=True) -> str:
                 dt = parsed
             else:
                 dt = datetime.fromisoformat(dt)
-        except Exception:
+        except (TypeError, ValueError):   # not a datetime: show it as is
             return dt
     if hasattr(dt, "tzinfo") and dt.tzinfo:
         try:
@@ -142,5 +142,5 @@ def parse_jalali_date(s: str) -> date | None:
         jd = int(parts[2])
         gy, gm, gd = jalali_to_gregorian(jy, jm, jd)
         return date(gy, gm, gd)
-    except Exception:
+    except (TypeError, ValueError, IndexError):   # not a Jalali date
         return None

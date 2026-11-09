@@ -1,4 +1,5 @@
 """One discovery cycle: which family targets to scrape, in what order, and scraping each target's sources."""
+import logging
 import os
 import random
 import time
@@ -7,6 +8,8 @@ from datetime import timedelta
 from django.utils import timezone as dj_timezone
 
 from apps.discovery.ig_scraper import accounts, clients, comments, session, sources
+
+log = logging.getLogger("instagram.scraper")
 
 
 def build_targets(run) -> list[dict]:
@@ -31,6 +34,7 @@ def build_targets(run) -> list[dict]:
             try:
                 plan, built = ensure_family_plan(b, family)
             except Exception as plan_exc:
+                log.warning("Family plan failed for business %s / %s", b.pk, family.product_id, exc_info=True)
                 run.stderr.write(f"Plan failed for {b.pk}/{family.product_id}: {plan_exc}")
                 continue
             if plan is None:
@@ -68,6 +72,7 @@ def purge_old_post_hashes(run) -> None:
         if purged_count > 0:
             run.stdout.write(run.style.NOTICE(f"🧹 [30-Day TTL Cache]: Purged {purged_count} post hashes older than 30 days."))
     except Exception as ttl_exc:
+        log.warning("Could not purge old crawled-post hashes", exc_info=True)
         run.stderr.write(f"Notice: 30-day TTL hash cleanup notice: {ttl_exc}")
 
 
@@ -97,6 +102,7 @@ def scrape_targets(run, scraper_accounts, targets, min_comments) -> int:
             cycle_leads += leads_found
             session.persist_session(run, cl, account)
         except Exception as exc:
+            log.warning("Scraping target %s with @%s failed", target["name"], account.username, exc_info=True)
             accounts.note_account_error(run, account, str(exc), cl, exc)
             run.stderr.write(f"Error while scraping target {target['name']}: {exc}")
         finally:
@@ -119,6 +125,7 @@ def scrape_family_target(run, cl, account, target, min_comments):
             ))
             return 0
     except Exception as exc:
+        log.warning("Wallet status of business %s unavailable", target["business"].pk, exc_info=True)
         run.stderr.write(f"Skipping Instagram family: wallet status unavailable ({type(exc).__name__})")
         return 0
     page_searches = 0
@@ -183,6 +190,7 @@ def scrape_family_target(run, cl, account, target, min_comments):
                 target_qualifying=3, min_inspect=15, max_total=30
             )
         except Exception as exc:
+            log.warning("Fetching source %s (%s) failed", source.label, source.source_type, exc_info=True)
             error = str(exc)
             accounts.note_account_error(run, account, error, cl, exc)
             execution_type = {"keyword": "KEYWORD", "hashtag": "HASHTAG", "page": "PAGE"}[source.source_type]
