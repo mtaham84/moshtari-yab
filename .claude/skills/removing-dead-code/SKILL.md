@@ -12,7 +12,15 @@ Delete only what you have proven is unused, then delete all of it. A half-remove
 
 ## Step 1: Prove it is unused
 
-Static imports are not enough in this repo. Check every way code can be reached:
+Start with the reachability map. It follows imports from every docker-compose/entrypoint command, Django's
+auto-loaded modules, prompt `module_path` strings and the tools in `MANUAL_ROOTS` (run outside compose, e.g. systemd):
+
+```bash
+python scripts/find_unreachable.py            # unreachable modules per package
+```
+
+A module it lists is a candidate, not proven dead. Static imports are not enough in this repo. Check every way code
+can be reached:
 
 ```bash
 NAME=instagram_discovery        # module path, function name, template name, setting name, ...

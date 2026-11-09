@@ -30,9 +30,9 @@ in English.
 | `celery-worker`, `celery-beat` | `celery -A config` | `config/celery.py`, `apps/discovery/tasks.py` |
 | `retention`, `retention-report` (profile `maintenance`) | `purge_retained_data`, `scripts/retention_report.py` | |
 
-**Not wired into any service. Do not extend these. They are deletion or merge candidates (see `docs/CLEANUP_ROADMAP.md`):**
-`instagram_discovery/`, `workers/ig_collector/` (both experimental), `xray/proxy_switcher.py`,
-`workers/telegram_config_bot.py`, `scripts/legacy/`.
+Run outside docker-compose by systemd on the server (keep them): `workers/telegram_config_bot.py` (ops bot) and
+`workers/channel_config_collector.py`. `python scripts/find_unreachable.py` lists code no entry point reaches; do not
+extend anything it lists (see `docs/CLEANUP_ROADMAP.md`).
 
 ## Commands
 
