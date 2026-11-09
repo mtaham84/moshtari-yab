@@ -95,7 +95,7 @@ class ProxyHealTaskTestCase(TestCase):
         own = InstagramEngineAccount.objects.create(username="own.proxy", password="x", role="SENDER",
                                                     proxy_url="http://u:p@5.5.5.5:8000")
         live_ports = {1080, 1088, 1090}   # 1095 does not answer any more
-        with patch("apps.discovery.ig_accounts.port_open", side_effect=lambda host, port, timeout=1.5: port in live_ports):
+        with patch("apps.discovery.proxies.health.port_open", side_effect=lambda host, port, timeout=1.5: port in live_ports):
             res = task_healthcheck_and_heal_proxies()
 
         self.assertTrue(res["success"])
@@ -109,6 +109,6 @@ class ProxyHealTaskTestCase(TestCase):
         self.assertFalse(InstagramAccountEvent.objects.filter(account=steady).exists())
 
     def test_task_does_nothing_while_xray_is_down(self):
-        with patch("apps.discovery.ig_accounts.port_open", return_value=False):
+        with patch("apps.discovery.proxies.health.port_open", return_value=False):
             res = task_healthcheck_and_heal_proxies()
         self.assertEqual((res["success"], res.get("skipped")), (False, "xray_down"))

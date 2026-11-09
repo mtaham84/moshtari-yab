@@ -13,9 +13,7 @@ Views, workers and commands call this module; nothing else should log an account
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import re
-import socket
 import threading
 import time
 import uuid
@@ -32,12 +30,13 @@ from django.utils import timezone
 from apps.discovery.device_emulator import account_device_settings, apply_device_profile_to_client, connect_saved_session
 from apps.discovery.ig_session import ErrorKind, classify, redact
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.proxies import health
+from apps.discovery.proxies.urls import (POOL_PORT, RESERVED_PORTS, XRAY_HOST, clean_proxy_url, config_url,
+                                         effective_proxy_url, normalize_proxy_url, proxy_label, proxy_mode,
+                                         validate_proxy_url, xray_port)
 
 log = logging.getLogger("instagram.accounts")
 
-XRAY_HOST = "xray"
-POOL_PORT = 1080
-RESERVED_PORTS = (1080, 8080)          # xray's shared pool inbounds, never a dedicated config
 LOGIN_WAIT_SECONDS = 600               # a started login waits this long for the operator's code
 CODE_POLL_SECONDS = 2.0
 HEARTBEAT_SECONDS = 10.0
@@ -50,7 +49,6 @@ LIVE_STATES = ("running", "needs_code", "verifying")
 TENANT_ALIASES = {"sarv": "tenant_4"}  # legacy tenant id of business 4
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 CODE_RE = re.compile(r"^\d{4,8}$")
-PROXY_SCHEMES = ("http", "https", "socks5", "socks5h", "socks4", "socks4a")
 _DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 _SECRET_KEYS = ("password", "sessionid", "code", "cookie", "authorization", "token")
 
@@ -168,129 +166,6 @@ def set_state(account, status: str, reason: str = "", message: str = "", *, cool
 # ---------------------------------------------------------------------------
 # proxy / config
 # ---------------------------------------------------------------------------
-def default_proxy_url() -> str:
-    """Proxy for accounts without their own proxy or config ("direct"/"none" = server IP, not recommended)."""
-    raw = str(getattr(settings, "INSTAGRAM_DEFAULT_PROXY_URL", f"socks5h://{XRAY_HOST}:{POOL_PORT}") or "").strip()
-    return "" if raw.lower() in ("", "direct", "none", "off") else raw
-
-
-def _strip_fragment(url) -> str:
-    from apps.discovery.proxy_service import clean_proxy_url
-    return clean_proxy_url(url or "")
-
-
-def effective_proxy_url(account) -> str:
-    """The proxy every Instagram client of `account` must use (its own/config, else the shared pool)."""
-    return _strip_fragment(getattr(account, "proxy_url", "") or "") or default_proxy_url()
-
-
-def xray_port(url) -> int | None:
-    """Port of an xray inbound URL (socks5h://xray:1083), None for any other proxy."""
-    try:
-        parsed = urlparse(_strip_fragment(url))
-        host = (parsed.hostname or "").lower()
-        if host not in (XRAY_HOST, "127.0.0.1", "localhost"):
-            return None
-        return parsed.port
-    except ValueError:
-        return None
-
-
-def config_url(config) -> str:
-    return f"socks5h://{XRAY_HOST}:{config.local_port}"
-
-
-def proxy_mode(account) -> str:
-    """config (system V2Ray config) | custom (its own proxy) | legacy (xray port without config link) | pool."""
-    if account.proxy_config_id:
-        return "config"
-    url = _strip_fragment(account.proxy_url)
-    if not url:
-        return "pool"
-    port = xray_port(url)
-    if port is None:
-        return "custom"
-    return "pool" if port in RESERVED_PORTS else "legacy"
-
-
-def proxy_label(account) -> str:
-    mode = proxy_mode(account)
-    if mode == "config":
-        cfg = account.proxy_config
-        return f"کانفیگ سیستم #{cfg.pk} ({cfg.tag or cfg.server}) · پورت {cfg.local_port}"
-    if mode == "custom":
-        parsed = urlparse(_strip_fragment(account.proxy_url))
-        return f"پروکسی اختصاصی {parsed.scheme}://{parsed.hostname}:{parsed.port or ''}"
-    if mode == "legacy":
-        return f"پورت xray {xray_port(account.proxy_url)} (کانفیگش پیدا نشد)"
-    return "استخر مشترک سیستم" if default_proxy_url() else "بدون پروکسی (IP سرور)"
-
-
-def normalize_proxy_url(raw) -> str:
-    """http/socks URL; also accepts host:port and host:port:user:pass (as sold by most proxy providers)."""
-    url = str(raw or "").strip()
-    if not url:
-        return ""
-    if "://" not in url:
-        parts = url.split(":")
-        if len(parts) == 2:
-            url = f"http://{parts[0]}:{parts[1]}"
-        elif len(parts) == 4:
-            url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
-    return url
-
-
-def validate_proxy_url(url) -> str:
-    """Error text, or "" when `url` is a usable http/socks proxy URL."""
-    try:
-        parsed = urlparse(_strip_fragment(url))
-        port = parsed.port
-    except ValueError:
-        return "فرمت پروکسی نامعتبر است."
-    if parsed.scheme.lower() not in PROXY_SCHEMES:
-        return "پروکسی باید با http:// یا socks5:// شروع شود (لینک vless/vmess را در «کانفیگ V2Ray» وارد کنید)."
-    if not parsed.hostname or not port:
-        return "آدرس و پورت پروکسی کامل نیست."
-    return ""
-
-
-def port_open(host: str, port: int, timeout: float = 1.5) -> bool:
-    try:
-        with socket.create_connection((host, int(port)), timeout=timeout):
-            return True
-    except (OSError, ValueError):
-        if host == "xray" and not Path("/.dockerenv").exists():
-            try:
-                with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
-                    return True
-            except (OSError, ValueError):
-                pass
-        return False
-
-
-def proxy_reachable(url, timeout: float = 4.0) -> tuple[bool, str]:
-    """TCP check of the proxy host:port (the Instagram check itself tells whether the upstream works)."""
-    url = _strip_fragment(url)
-    if not url:
-        return True, "بدون پروکسی (IP سرور)"
-    try:
-        parsed = urlparse(url)
-        host, port = parsed.hostname, parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
-    except ValueError:
-        return False, "فرمت پروکسی نامعتبر است"
-    if not host:
-        return False, "فرمت پروکسی نامعتبر است"
-    if port_open(host, port, timeout):
-        return True, f"پروکسی {host}:{port} در دسترس است"
-    return False, f"پروکسی {host}:{port} در دسترس نیست"
-
-
-def _config_live(config) -> bool:
-    """The config is ACTIVE and xray really listens on its port (new configs only go live after xray reloads)."""
-    return bool(config and config.status == "ACTIVE" and config.local_port
-                and config.local_port not in RESERVED_PORTS and port_open(XRAY_HOST, config.local_port))
-
-
 def _per_config() -> int:
     try:
         return max(1, int(getattr(settings, "INSTAGRAM_ACCOUNTS_PER_CONFIG", 1) or 1))
@@ -311,7 +186,7 @@ def pick_free_config(exclude_ids=(), max_accounts: int | None = None):
                                   output_field=FloatField()))
           .filter(n_ig__lt=limit).order_by("n_ig", "is_tw", "ping_key", "pk"))
     for cfg in qs[:25]:
-        if _config_live(cfg):
+        if health.config_live(cfg):
             return cfg
     return None
 
@@ -350,7 +225,7 @@ def set_proxy(account, mode: str, *, url: str = "", config=None, actor: str = ""
             return _result(account, False, "کانفیگ انتخاب‌شده پورت اختصاصی ندارد.")
         if config.status != "ACTIVE":
             return _result(account, False, "کانفیگ انتخاب‌شده فعال نیست.")
-        if (before_cfg is None or before_cfg.pk != config.pk) and not _config_live(config):
+        if (before_cfg is None or before_cfg.pk != config.pk) and not health.config_live(config):
             return _result(account, False, f"پورت {config.local_port} این کانفیگ هنوز در xray باز نیست (کانفیگ تازه چند دقیقه "
                                            "بعد از ثبت فعال می‌شود)؛ کمی بعد دوباره امتحان کنید.")
         new_url, new_cfg = config_url(config), config
@@ -419,7 +294,7 @@ def release_config(config, *, actor: str = "system", note: str = "") -> list[str
     if port_url:
         qs = qs | InstagramEngineAccount.objects.filter(proxy_config__isnull=True, proxy_url=port_url)
     accounts = list(qs.distinct())
-    xray_up = bool(accounts) and port_open(XRAY_HOST, POOL_PORT)
+    xray_up = bool(accounts) and health.port_open(XRAY_HOST, POOL_PORT)
     for acc in accounts:
         log_event(acc, "proxy_down", note or f"کانفیگ #{config.pk} ({config.tag or config.server}) از کار افتاد",
                   {"config_id": config.pk}, actor)
@@ -465,7 +340,7 @@ def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed
     if mode == "config":
         cfg = acc.proxy_config
         is_current_failed = force_rotate or (failed_config_id is not None and cfg and cfg.pk == failed_config_id)
-        live = _config_live(cfg)
+        live = health.config_live(cfg)
         if live and not is_current_failed:
             if acc.proxy_url != config_url(cfg):   # mirror drifted: same config, same IP
                 acc.proxy_url = config_url(cfg)
@@ -531,7 +406,7 @@ def ensure_system_configs(*, actor: str = "system", accounts=None) -> dict:
     Nothing happens when xray itself is down (pool port closed): moving every account would not help.
     """
     details: list[dict] = []
-    if not port_open(XRAY_HOST, POOL_PORT):
+    if not health.port_open(XRAY_HOST, POOL_PORT):
         return {"success": False, "skipped": "xray_down", "healed_count": 0, "details": details}
     if accounts is None:
         accounts = (InstagramEngineAccount.objects.select_related("proxy_config")
@@ -569,7 +444,7 @@ def export_config(account) -> dict:
                         "همان IP که سیستم با آن به این اکانت وصل می‌شود.")
         return out
     if mode == "custom":
-        url = _strip_fragment(account.proxy_url)
+        url = clean_proxy_url(account.proxy_url)
         parsed = urlparse(url)
         out.update(kind="proxy", link=url, scheme=parsed.scheme, host=parsed.hostname, port=parsed.port,
                    username=parsed.username or "",
@@ -619,9 +494,8 @@ def qr_svg(text: str, scale: int = 4) -> str | None:
 
 def check_ip(account, *, actor: str = "") -> Result:
     """Public IP / ISP / country seen through the account's connection (stored in proxy_meta, logged)."""
-    from apps.discovery.proxy_service import inspect_proxy_egress
 
-    info = inspect_proxy_egress(effective_proxy_url(account))
+    info = health.inspect_proxy_egress(effective_proxy_url(account))
     ds = dict(account.device_settings or {})
     meta = dict(ds.get("proxy_meta") or {})
     prev = meta.get("last_ip")
@@ -1105,12 +979,12 @@ def check(account, *, actor: str = "", allow_login: bool = True) -> Result:
     """Connection test on the account's own phone and session (what the workers use): never replaces a working
     session, never logs in again while the session works; logs in (background) only when there is no session."""
     proxy = effective_proxy_url(account)
-    ok, proxy_msg = proxy_reachable(proxy)
-    if not ok and proxy_mode(account) != "custom" and port_open(XRAY_HOST, POOL_PORT):
+    ok, proxy_msg = health.proxy_reachable(proxy)
+    if not ok and proxy_mode(account) != "custom" and health.port_open(XRAY_HOST, POOL_PORT):
         _heal_account(account, actor or "system")   # its config died: the next free one (or the pool)
         account.refresh_from_db()
         proxy = effective_proxy_url(account)
-        ok, proxy_msg = proxy_reachable(proxy)
+        ok, proxy_msg = health.proxy_reachable(proxy)
     if not ok:
         message = f"پروکسی/کانفیگ در دسترس نیست: {proxy_msg}"
         set_state(account, "COOLDOWN", "proxy_down", message, cooldown_minutes=15)
@@ -1288,7 +1162,7 @@ def add_account(*, username, password: str = "", role: str = "SENDER", tenant_id
     elif proxy_mode(account) != "custom":   # system: keep a live config, else a free one, else the pool
         _heal_account(account, actor or "system")
 
-    ok, proxy_msg = proxy_reachable(effective_proxy_url(account))
+    ok, proxy_msg = health.proxy_reachable(effective_proxy_url(account))
     if not ok:
         message = f"اکانت ثبت شد ولی پروکسی/کانفیگش در دسترس نیست ({proxy_msg})؛ اتصال را درست کنید و «ورود» بزنید."
         set_state(account, "CHALLENGED", "proxy_down", message)

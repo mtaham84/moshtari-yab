@@ -1,12 +1,10 @@
 import json
 import logging
 from collections import defaultdict
-import socket
 from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from urllib.parse import urlparse
 
 try:
     from curl_cffi import requests
@@ -36,7 +34,8 @@ from apps.core.http import wants_json
 from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
 from apps.discovery.channel_config_automation import get_monitored_channels
-from apps.discovery.ig_accounts import canonical_tenant, default_proxy_url, tenant_key, tenant_keys_for_business
+from apps.discovery.ig_accounts import canonical_tenant, tenant_key, tenant_keys_for_business
+from apps.discovery.proxies import health, urls as proxy_urls
 from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
@@ -44,28 +43,6 @@ logger = logging.getLogger("management")
 
 # Kept as a name because ig_accounts_views and many decorators use it.
 manage_access_required = operator_required
-
-
-def _test_proxy_connection(proxy_url: str, timeout: float = 4.0) -> tuple[bool, str]:
-    """Tests TCP connection to proxy host and port."""
-    if not proxy_url or not proxy_url.strip():
-        return True, "بدون پروکسی (اتصال مستقیم)"
-    try:
-        parsed = urlparse(proxy_url)
-        host = parsed.hostname
-        port = parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
-        if not host:
-            return False, "فرمت پروکسی نامعتبر است"
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        if result == 0:
-            return True, f"پروکسی {host}:{port} متصل و در دسترس است"
-        else:
-            return False, f"خطای اتصال به پروکسی {host}:{port} (کد خطا: {result})"
-    except Exception as exc:
-        return False, f"خطای تست پروکسی: {exc}"
 
 
 @manage_access_required
@@ -742,15 +719,13 @@ def _ig_actor(request) -> str:
 def _ig_proxy_choice(raw):
     """(mode, url, config) of a proxy typed in the old forms: empty or xray's shared ports = the system's choice,
     another xray port = that system config, anything else = the account's own proxy."""
-    from apps.discovery import ig_accounts as svc
-
-    url = svc.normalize_proxy_url(raw) if (raw or "").strip() else ""
+    url = proxy_urls.normalize_proxy_url(raw) if (raw or "").strip() else ""
     if not url:
         return "system", "", None
-    port = svc.xray_port(url)
+    port = proxy_urls.xray_port(url)
     if port is None:
         return "custom", url, None
-    cfg = None if port in svc.RESERVED_PORTS else ProxyConfig.objects.filter(local_port=port).first()
+    cfg = None if port in proxy_urls.RESERVED_PORTS else ProxyConfig.objects.filter(local_port=port).first()
     return ("config", "", cfg) if cfg is not None else ("system", "", None)
 
 
@@ -1226,7 +1201,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
         return False, "CHALLENGED", "کوکی auth_token تنظیم نشده است و بدون آن سشن نامعتبر است."
 
     if account.proxy_url:
-        proxy_ok, proxy_msg = _test_proxy_connection(account.proxy_url)
+        proxy_ok, proxy_msg = health.proxy_reachable(account.proxy_url)
         if not proxy_ok:
             account._validation_result = XSessionValidationResult.NETWORK_ERROR
             return False, account.status, f"خطای پروکسی: {proxy_msg}"
@@ -1339,7 +1314,7 @@ def manage_twitter_account_add(request):
     password = request.POST.get("password", "").strip()
     auth_token = request.POST.get("auth_token", "").strip()
     ct0 = request.POST.get("ct0", "").strip()
-    proxy_url = request.POST.get("proxy_url", "").strip() or default_proxy_url() or "socks5h://xray:1080"
+    proxy_url = request.POST.get("proxy_url", "").strip() or proxy_urls.default_proxy_url() or "socks5h://xray:1080"
 
     if not username:
         err = "نام کاربری توییتر الزامی است."
@@ -1511,43 +1486,9 @@ def manage_twitter_account_toggle(request, pk):
 
 
 def _ping_and_evaluate_proxy_config(proxy: ProxyConfig, timeout_sec: float = 3.5) -> dict[str, Any]:
-    """
-    Live ping test for a single ProxyConfig instance.
-    Evaluates real reachability and latency via an end-to-end HTTP GET probe through
-    the proxy's dedicated SOCKS5 port (socks5h://xray:{proxy.local_port}).
-    Only HTTP 200/204 within latency <= 2000ms is accepted as ACTIVE.
-    Updates the proxy's ping_ms, status ('ACTIVE' or 'DEAD'), and last_checked_at.
-    """
-    from xray.multi_proxy_manager import probe_proxy_port, test_outbound_ping, parse_link_to_outbound, XRAY_BIN
-
-    is_ok = False
-    ping_ms = -1.0
-    err_msg = ""
-
-    # Strategy 1: Real end-to-end HTTP GET probe through dedicated SOCKS5 port
-    if proxy.local_port:
-        ok, p_ms, p_err = probe_proxy_port(proxy.local_port, timeout_sec=min(2.5, timeout_sec))
-        if ok and 0 < p_ms <= 2000.0:
-            is_ok = True
-            ping_ms = round(p_ms, 1)
-        elif p_err:
-            err_msg = p_err
-
-    # Strategy 2: If no local port yet but XRAY_BIN is available and raw_url exists
-    if not is_ok and not proxy.local_port and proxy.raw_url and XRAY_BIN and XRAY_BIN.exists():
-        try:
-            ob = parse_link_to_outbound(proxy.raw_url)
-            ok, p_ms, p_err = test_outbound_ping(ob, timeout_sec=min(2.5, timeout_sec))
-            if ok and 0 < p_ms <= 2000.0:
-                is_ok = True
-                ping_ms = round(p_ms, 1)
-            elif p_err:
-                err_msg = p_err
-        except Exception as exc:
-            logger.debug("Ephemeral probe error: %s", exc)
-
-    # Save evaluated status to database
-    if is_ok and 0 < ping_ms <= 2000.0:
+    """Live test of one ProxyConfig (health.measure_config); saves its ping_ms, status and last_checked_at."""
+    is_ok, ping_ms, err_msg = health.measure_config(proxy, timeout_sec=min(2.5, timeout_sec))
+    if is_ok:
         proxy.ping_ms = ping_ms
         proxy.status = "ACTIVE"
     else:

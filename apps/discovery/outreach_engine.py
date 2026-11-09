@@ -286,7 +286,7 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
     elif kind == "proxy":
         if getattr(sender, "proxy_rotation_url", None):
             try:
-                from apps.discovery.proxy_service import rotate_account_proxy_ip
+                from apps.discovery.proxies.rotation import rotate_account_proxy_ip
                 log("   🔄 چرخش خودکار IP پروکسی موبایل جهت رفع خطای اتصال...")
                 rotate_account_proxy_ip(sender)
             except Exception as rot_err:
@@ -405,7 +405,7 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
     ctx.log(f"⚡ [اولویت ۱ - صف ارسال مستقیم]: ارسال پیام صف برای @{lead_to_process.username} توسط @{sender.username}...")
     try:
         if not ctx.dry_run:
-            from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+            from apps.discovery.proxies.rotation import prepare_sender_proxy_before_dm
             prepare_sender_proxy_before_dm(sender, stdout=ctx.stdout)
             get_sender_client(sender)  # cached; process_queued_outbox_message reuses it
         res = process_queued_outbox_message(lead_to_process, client_cache=_CLIENTS, dry_run=ctx.dry_run, sender=sender)
@@ -510,7 +510,7 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         return {"action": "cold_sent", "sent": True, "dry_run": True, "lead": lead.username, "sender": sender.username}
 
     try:
-        from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+        from apps.discovery.proxies.rotation import prepare_sender_proxy_before_dm
         prepare_sender_proxy_before_dm(sender, stdout=ctx.stdout)
         cl = get_sender_client(sender)
 

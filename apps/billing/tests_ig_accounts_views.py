@@ -11,6 +11,8 @@ from instagrapi.exceptions import ChallengeRequired
 from apps.businesses.models import Business
 from apps.discovery import ig_accounts as ig
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.proxies import health
+from apps.discovery.proxies.urls import proxy_mode
 from apps.discovery.tests_ig_accounts import CODE, FakeIG
 
 XHR = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
@@ -40,7 +42,7 @@ def _login_thread(pk):
 class IgAccountsPanelTests(TestCase):
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {}
-        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(ig, "port_open", return_value=True)):
+        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(health, "port_open", return_value=True)):
             p.start()
             self.addCleanup(p.stop)
         self.staff = get_user_model().objects.create_user("boss", "b@x.ir", "pw", is_staff=True)
@@ -124,7 +126,7 @@ class IgAccountsPanelTests(TestCase):
         self.assertRedirects(res, reverse("manage:ig_account_detail", args=[a.pk]) + "#connection",
                              fetch_redirect_response=False)
         a.refresh_from_db()
-        self.assertEqual(ig.proxy_mode(a), "custom")
+        self.assertEqual(proxy_mode(a), "custom")
         out = self.do(a, "proxy", {"mode": "config", "config_id": str(self.cfg.pk)}, **XHR).json()
         self.assertTrue(out["success"], out)
         self.assertFalse(self.do(a, "proxy", {"mode": "config", "config_id": ""}, **XHR).json()["success"])
@@ -184,7 +186,7 @@ class OldDashboardEndpointTests(TestCase):
 
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {}
-        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(ig, "port_open", return_value=True)):
+        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(health, "port_open", return_value=True)):
             p.start()
             self.addCleanup(p.stop)
         self.client.force_login(get_user_model().objects.create_user("boss", "b@x.ir", "pw", is_superuser=True,

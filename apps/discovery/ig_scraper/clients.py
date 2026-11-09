@@ -66,7 +66,7 @@ def build_client(run, account):
         except Exception as e:
             run.stderr.write(f"Warning restoring session settings for @{account.username}: {e}")
 
-    from apps.discovery.ig_accounts import proxy_reachable
+    from apps.discovery.proxies.health import proxy_reachable
     proxy = account.clean_proxy   # its own proxy / system config, else the shared pool (never the server IP)
     if not proxy:
         run.stdout.write(run.style.WARNING(
@@ -100,7 +100,8 @@ def rotate_or_heal_proxy(run, account, cl=None) -> bool:
     Automatically heals/failovers account connection when proxy drops or dies.
     Finds the next free healthy config (or pool) and updates client proxy immediately.
     """
-    from apps.discovery.ig_accounts import _heal_account, proxy_reachable
+    from apps.discovery.ig_accounts import _heal_account
+    from apps.discovery.proxies.health import proxy_reachable
     old_proxy = account.clean_proxy
     curr_cfg_id = account.proxy_config_id
 

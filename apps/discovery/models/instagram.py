@@ -211,7 +211,7 @@ class InstagramEngineAccount(models.Model):
         Its own proxy or system config; an account without one goes through the shared system pool
         (INSTAGRAM_DEFAULT_PROXY_URL), never silently from the server's own IP.
         """
-        from apps.discovery.ig_accounts import effective_proxy_url
+        from apps.discovery.proxies.urls import effective_proxy_url
         return effective_proxy_url(self)
 
     @property
@@ -224,7 +224,7 @@ class InstagramEngineAccount(models.Model):
 
     @property
     def proxy_rotation_url(self) -> str:
-        from apps.discovery.proxy_service import extract_rotation_url
+        from apps.discovery.proxies.urls import extract_rotation_url
         return extract_rotation_url(self)
 
     @property

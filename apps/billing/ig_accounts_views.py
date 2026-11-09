@@ -19,6 +19,7 @@ from apps.billing.manage_views import manage_access_required
 from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
 from apps.discovery.models import InstagramEngineAccount, ProxyConfig
+from apps.discovery.proxies import health, urls as proxy_urls
 
 log = logging.getLogger("instagram.accounts")
 
@@ -59,14 +60,14 @@ def _respond(request, res, pk=None, anchor: str = ""):
 def _config_choices():
     """ACTIVE system configs with how many Instagram accounts use them (for the connection selects)."""
     return list(ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False)
-                .exclude(local_port__in=svc.RESERVED_PORTS)
+                .exclude(local_port__in=proxy_urls.RESERVED_PORTS)
                 .annotate(n_ig=Count("instagram_accounts")).order_by("n_ig", "ping_ms", "pk")[:200])
 
 
 def _row(acc, names):
     meta = acc.proxy_meta
     pending = acc.pending_login or {}
-    return {"a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": svc.proxy_mode(acc), "label": svc.proxy_label(acc),
+    return {"a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": proxy_urls.proxy_mode(acc), "label": proxy_urls.proxy_label(acc),
             "tenant": svc.tenant_label(acc.tenant_id, names), "ip": meta.get("last_ip") or "",
             "country": meta.get("country_code") or meta.get("country") or "",
             "login": pending.get("state", "") if svc._is_live(pending) else "",
@@ -90,7 +91,7 @@ def ig_accounts_list(request):
     rows = [r for r in (_row(acc, names) for acc in qs) if not f["mode"] or r["mode"] == f["mode"]]
 
     by_status = dict(InstagramEngineAccount.objects.values_list("status").annotate(n=Count("id")))
-    configs = ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False).exclude(local_port__in=svc.RESERVED_PORTS)
+    configs = ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False).exclude(local_port__in=proxy_urls.RESERVED_PORTS)
     stats = {
         "total": sum(by_status.values()), "active": by_status.get("ACTIVE", 0),
         "challenged": by_status.get("CHALLENGED", 0), "cooldown": by_status.get("COOLDOWN", 0),
@@ -98,8 +99,8 @@ def ig_accounts_list(request):
         "on_config": InstagramEngineAccount.objects.filter(proxy_config__isnull=False).count(),
         "configs": configs.count(),
         "free_configs": configs.annotate(n_ig=Count("instagram_accounts")).filter(n_ig=0).count(),
-        "xray_up": svc.port_open(svc.XRAY_HOST, svc.POOL_PORT),
-        "pool_url": svc.default_proxy_url(),
+        "xray_up": health.port_open(proxy_urls.XRAY_HOST, proxy_urls.POOL_PORT),
+        "pool_url": proxy_urls.default_proxy_url(),
     }
     return render(request, "ops/ig_accounts/list.html", {
         "nav": "ig_accounts", "rows": rows, "f": f, "stats": stats,
@@ -165,10 +166,10 @@ def ig_account_detail(request, pk):
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     ds = acc.device_settings if isinstance(acc.device_settings, dict) else {}
     dev = ds.get("device_settings") if isinstance(ds.get("device_settings"), dict) else {}
-    mode = svc.proxy_mode(acc)
+    mode = proxy_urls.proxy_mode(acc)
     now = timezone.now()
     return render(request, "ops/ig_accounts/detail.html", {
-        "nav": "ig_accounts", "a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": mode, "label": svc.proxy_label(acc),
+        "nav": "ig_accounts", "a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": mode, "label": proxy_urls.proxy_label(acc),
         "meta": acc.proxy_meta,
         "login": svc.login_state(acc), "events": list(acc.events.all()[:80]), "configs": _config_choices(),
         "tenants": svc.tenant_choices(), "tenant": svc.tenant_label(acc.tenant_id),
@@ -177,7 +178,7 @@ def ig_account_detail(request, pk):
         "device": {"name": ds.get("device_name") or "", "model": dev.get("model") or "",
                    "manufacturer": dev.get("manufacturer") or "", "android": dev.get("android_release") or "",
                    "app": dev.get("app_version") or ""},
-        "custom_url": svc._strip_fragment(acc.proxy_url) if mode == "custom" else "",
+        "custom_url": proxy_urls.clean_proxy_url(acc.proxy_url) if mode == "custom" else "",
         "settling": acc.next_outreach_at if acc.next_outreach_at and acc.next_outreach_at > now else None,
         "resting": acc.cooldown_until if acc.cooldown_until and acc.cooldown_until > now else None,
         "has_password": bool(acc.password and acc.password != "session_only"),

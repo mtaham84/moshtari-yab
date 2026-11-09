@@ -13,6 +13,8 @@ from instagrapi.exceptions import BadPassword, ChallengeRequired, ClientConnecti
 
 from apps.discovery import ig_accounts as ig
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.proxies import health
+from apps.discovery.proxies.urls import proxy_mode
 
 CODE = "123456"
 
@@ -127,7 +129,7 @@ class IgAccountsTestBase(TestCase):
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {}
         patches = [mock.patch("instagrapi.Client", FakeIG),
-                   mock.patch.object(ig, "port_open", side_effect=lambda host, port, timeout=1.5: port not in self.closed)]
+                   mock.patch.object(health, "port_open", side_effect=lambda host, port, timeout=1.5: port not in self.closed)]
         self.closed = set()
         for p in patches:
             p.start()
@@ -340,7 +342,7 @@ class ConnectionTests(IgAccountsTestBase):
         res = ig.set_proxy(a, "custom", url="1.2.3.4:8000:user:pass")
         a.refresh_from_db()
         self.assertTrue(res.ok, res)
-        self.assertEqual(ig.proxy_mode(a), "custom")
+        self.assertEqual(proxy_mode(a), "custom")
         self.assertEqual(a.clean_proxy, "http://user:pass@1.2.3.4:8000")
         self.assertGreater(a.next_outreach_at, timezone.now())   # a new IP rests before cold DMs
         self.assertIn("proxy_changed", self.kinds(a))
@@ -531,7 +533,7 @@ class BackgroundLoginThreadTests(TransactionTestCase):
 
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {"mode": "challenge"}
-        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(ig, "port_open", return_value=True),
+        for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(health, "port_open", return_value=True),
                   mock.patch.object(ig, "CODE_POLL_SECONDS", 0.05)):
             p.start()
             self.addCleanup(p.stop)

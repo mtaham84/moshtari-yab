@@ -14,7 +14,7 @@ from apps.discovery import device_emulator as dev
 from apps.discovery import outreach_engine as engine
 from apps.discovery import outreach_service
 from apps.discovery.models import InstagramEngineAccount
-from apps.discovery.proxy_service import prepare_sender_proxy_before_dm
+from apps.discovery.proxies.rotation import prepare_sender_proxy_before_dm
 
 TENANT = "tenant_ab"
 SESSIONID = "123:" + "a" * 40
@@ -139,7 +139,7 @@ class SavedSessionClientTests(TestCase):
         saved = _saved_session(self.cl, acc)
         with patch.object(type(self.cl), "login_by_sessionid", side_effect=AssertionError("no new login")), \
                 patch.object(type(self.cl), "get_timeline_feed", return_value={}) as feed, \
-                patch("apps.discovery.ig_accounts.port_open", return_value=True):   # xray's pool port, as in docker
+                patch("apps.discovery.proxies.health.port_open", return_value=True):   # xray's pool port, as in docker
             res = self.client.post(f"/manage/accounts/{acc.pk}/test/").json()
         self.assertTrue(res["success"], res)
         feed.assert_called_once()
@@ -230,16 +230,16 @@ class ProxyRotationTests(SimpleTestCase):
         return SimpleNamespace(username="a", proxy_url="socks5h://xray:1095#rotate=http://r", device_settings={})
 
     def test_no_ip_rotation_before_a_normal_dm(self):
-        with patch("apps.discovery.proxy_service.rotate_account_proxy_ip") as rotate, \
-                patch("apps.discovery.proxy_service.inspect_proxy_egress", return_value={"ip": "5.6.7.8"}):
+        with patch("apps.discovery.proxies.rotation.rotate_account_proxy_ip") as rotate, \
+                patch("apps.discovery.proxies.health.inspect_proxy_egress", return_value={"ip": "5.6.7.8"}):
             res = prepare_sender_proxy_before_dm(self._acc())
         rotate.assert_not_called()
         self.assertFalse(res["rotated"])
         self.assertEqual(res["egress_ip"], "5.6.7.8")
 
     def test_rotation_when_explicitly_asked(self):
-        with patch("apps.discovery.proxy_service.rotate_account_proxy_ip", return_value={"rotated": True, "new_ip": "9.9.9.9"}) as rotate, \
-                patch("apps.discovery.proxy_service.inspect_proxy_egress"):
+        with patch("apps.discovery.proxies.rotation.rotate_account_proxy_ip", return_value={"rotated": True, "new_ip": "9.9.9.9"}) as rotate, \
+                patch("apps.discovery.proxies.health.inspect_proxy_egress"):
             res = prepare_sender_proxy_before_dm(self._acc(), rotate=True)
         rotate.assert_called_once()
         self.assertTrue(res["rotated"])
@@ -252,7 +252,7 @@ class ScraperProxyTests(TestCase):
 
         acc = _account("scr", role="SCRAPER", proxy_url="socks5h://xray:1081")
         run = Run(stdout=StringIO(), stderr=StringIO())
-        with patch("apps.discovery.ig_accounts.proxy_reachable", return_value=(False, "refused")), \
+        with patch("apps.discovery.proxies.health.proxy_reachable", return_value=(False, "refused")), \
                 patch("instagrapi.Client") as client_cls:
             self.assertIsNone(client_or_rest(run, acc))
         client_cls.return_value.set_proxy.assert_not_called()
