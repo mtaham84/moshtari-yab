@@ -71,6 +71,36 @@ class FamilyTargetOrderTests(TestCase):
         self.assertTrue(a.pk)
 
 
+class BusinessOrderTests(TestCase):
+    def _cycle_businesses(self):
+        """Businesses build_targets asks for families, in order (each business gets one family)."""
+        asked = []
+
+        def families(biz):
+            asked.append(biz.name)
+            return [SimpleNamespace(product_id=f"f{biz.pk}", category_path="x", title="x")]
+        with patch("apps.discovery.instagram_families.families_for_business", side_effect=families), \
+                patch("apps.discovery.instagram_families.ensure_family_plan", return_value=(None, False)), \
+                patch("apps.discovery.instagram_families.sample_sources", return_value=[]):
+            _targets()
+        return asked
+
+    def _with_product(self, name, domain="پوشاک"):
+        b = _business(name, domain)
+        Product.objects.create(business=b, name="کالا", price=1)
+        return b
+
+    def test_priority_business_goes_first_and_the_others_still_get_scraped(self):
+        clothes = self._with_product("پوشاک")
+        dental = self._with_product("کلینیک", "دندانپزشکی")
+        books = self._with_product("کتاب")
+        with self.settings(INSTAGRAM_PRIORITY_BUSINESS_IDS=[dental.pk]):
+            self.assertEqual(self._cycle_businesses(), ["کلینیک", "پوشاک", "کتاب"])
+        with self.settings(INSTAGRAM_PRIORITY_BUSINESS_IDS=[]):
+            self.assertEqual(self._cycle_businesses(), ["پوشاک", "کلینیک", "کتاب"])   # no name matching
+        self.assertTrue(clothes.pk < dental.pk < books.pk)
+
+
 class RetireSourceTests(TestCase):
     def setUp(self):
         self.business = _business()

@@ -11,16 +11,18 @@ from apps.discovery.ig_scraper import accounts, clients, comments, session, sour
 
 def build_targets(run) -> list[dict]:
     """One target per (business, family) with this cycle's sampled sources. Tenants take turns."""
-    from django.db.models import Q
+    from django.conf import settings
     from apps.businesses.models import Business
     from apps.discovery.instagram_families import families_for_business, ensure_family_plan, discover_sources, sample_sources
     by_tenant = []
-    # Prioritize dental business if configured; fallback to businesses with active products
-    biz_qs = Business.objects.filter(Q(id=4) | Q(name__icontains="دندان") | Q(business_domain__icontains="دندان")).order_by("id")
-    if not biz_qs.exists():
-        biz_qs = Business.objects.filter(products__status="ACTIVE", products__is_discovery_active=True).distinct().order_by("id")
-    if not biz_qs.exists():
-        biz_qs = Business.objects.all().order_by("id")
+    # INSTAGRAM_PRIORITY_BUSINESS_IDS first, then every business with active products; without any, all businesses.
+    priority_ids = list(settings.INSTAGRAM_PRIORITY_BUSINESS_IDS)
+    priority = {b.pk: b for b in Business.objects.filter(pk__in=priority_ids)}
+    biz_qs = [priority[pk] for pk in priority_ids if pk in priority]
+    biz_qs += [b for b in Business.objects.filter(products__status="ACTIVE", products__is_discovery_active=True)
+               .distinct().order_by("id") if b.pk not in priority]
+    if not biz_qs:
+        biz_qs = list(Business.objects.all().order_by("id"))
 
     for b in biz_qs:
         family_rows = {}
