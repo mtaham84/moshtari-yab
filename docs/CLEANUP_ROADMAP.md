@@ -13,8 +13,9 @@ green, before the next one starts. Behavior must not change unless the step says
 - Phase 0 is done: AGENTS.md, skills, git conventions (PR #22), and CI guardrails (`ci/guardrail-checks`): file size
   and broad-except baseline, import-boundary test, commit message check, pinned ruff, pre-commit.
 - Phase 1 is done (#26, #27, #28, plus the outreach tie-break fix #29 it uncovered).
-- Phase 2 in progress: reachability tool (`scripts/find_unreachable.py`), then deletions in this order: dead code,
-  unused tools, experimental Instagram pipeline, unused settings and images.
+- Phase 2 is done (#30-#34): 0 unreachable modules remain; one Instagram stack.
+- **Next step:** Phase 3, splitting `run_instagram_scraper.py` and `apps/discovery/ig_accounts.py`, and one proxy
+  module.
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -89,7 +90,10 @@ kept; the experimental JSONL pipeline (`workers/ig_collector/`, `instagram_disco
       comment/post report APIs, the unused report loading in the pages view, its JSONL retention step, its always-down
       "Instagram collector" status row, `IG_*` collector settings and data files. `find_unreachable.py` now reports 0
       unreachable modules.
-- [ ] Unused `.env.example` variables and unused images.
+- [x] Unused `.env.example` variables (16) and unused images (7). `scripts/config_inventory.py` still reports
+      `INSTAGRAM_SESSION_*`/`INSTAGRAM_NETWORK_*` (read through an `os.environ.get` alias), `HTTPS_PROXY`/`NO_PROXY`
+      (read by libraries) and `XRAY_RELOAD_MIN_SECONDS`/`XRAY_WATCH_POLL_SECONDS` (read by `xray/watch.sh`) as
+      unused; they are false alarms and stay.
 - Later (Phase 5 candidate): lead-quality measurement (human labels, precision) rebuilt on the live DB data; only the
   removed experimental pipeline had it.
 
