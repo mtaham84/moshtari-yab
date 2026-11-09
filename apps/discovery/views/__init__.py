@@ -14,10 +14,7 @@ from .community import (
 )
 from .instagram import (
     instagram_comment_detail_view,
-    instagram_comment_report_api_view,
     instagram_pages_view,
-    instagram_post_report_api_view,
-    instagram_post_review_view,
 )
 from .opportunities import (
     opportunity_detail_view,
@@ -42,10 +39,7 @@ __all__ = [
     "community_delete_view",
     "community_toggle_status_view",
     "instagram_comment_detail_view",
-    "instagram_comment_report_api_view",
     "instagram_pages_view",
-    "instagram_post_report_api_view",
-    "instagram_post_review_view",
     "opportunity_detail_view",
     "opportunity_export_view",
     "opportunity_feedback_view",

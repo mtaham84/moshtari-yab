@@ -13,7 +13,6 @@ telegram_crawler ──(write)──► crawler.tg_users / tg_chats / tg_message
 Django products ──(read-only)──► need_engine ──► need_engine.* (state، بردارها با pgvector، هزینه‌ها)
                                         ▲
 workers/x_collector → JSONL → x_ingest → crawler.x_posts ─┘ (NE_X_ENABLED=true)
-workers/ig_collector → JSONL (experimental; separate Flow A leads and Flow B requests)
                                         │
                                         └──► need_engine.opportunities
                                                    │
@@ -29,7 +28,7 @@ workers/ig_collector → JSONL (experimental; separate Flow A leads and Flow B r
 | پل به پنل | `apps/discovery/engine_bridge.py` + `sync_opportunities` | فرصت‌های منتشرشده را idempotent در مدل‌های Django می‌نویسد (به تفکیک کسب‌وکار) |
 | پنل | `apps/` + `templates/` | ثبت‌نام/ورود، محصولات، فرصت‌ها، داشبورد با اعداد واقعی |
 | جمع‌آوری X | `workers/x_collector/` + `x_ingest/` | worker فقط‌خواندنی، JSONL و upsert idempotent در `crawler.x_posts` |
-| جمع‌آوری Instagram | `workers/ig_collector/` + `instagram_discovery/` | فروشنده صفحه ثبت می‌کند؛ کامنت‌های دارای intent به فرصت پنل تبدیل می‌شوند، هنوز به موتور نیاز وصل نیست |
+| جمع‌آوری Instagram | `manage.py run_instagram_scraper` + `instagram_engine/` | صفحه‌ها و دسته‌های ثبت‌شده در پنل را پایش می‌کند، کامنت‌ها را با LLM ارزیابی می‌کند و لیدها را در پایگاه داده می‌نویسد؛ `ig-outreach` به آن‌ها پیام می‌دهد |
 
 ## امنیت، کلیدها و نگهداری داده
 
@@ -129,17 +128,12 @@ docker compose logs -f crawler engine sync
 - اتصال X به‌صورت پیش‌فرض خاموش است (`NE_X_ENABLED=false`). رعایت شرایط استفادهٔ X الزامی است؛ از حساب اختصاصی کم‌ریسک استفاده کنید. این pipeline فقط می‌خواند و هرگز پست، پاسخ، لایک، فالو یا DM نمی‌فرستد.
 - فیلتر X برای کم‌کردن مشتری/دادهٔ ساختگی محافظه‌کار است: پست باید شناسهٔ پایدار نویسنده داشته باشد، متن خودش قصد خرید صریح را نشان دهد، شواهد از همان نویسنده باشد و محصول از مرحلهٔ تطبیق مستقل با حداقل امتیاز (`NE_X_MIN_MATCH_SCORE=65`) عبور کند. این کار خطای مثبت را کم می‌کند اما تضمین مشتری قطعی نمی‌دهد؛ نتیجه را پیش از تماس انسانی بررسی کنید.
 - X collector آزمایشی است: `docker compose --profile x up -d x`. آرشیو و فایل SQLite آن در volume مشترک `/app/output` است؛ اجرای محلی باید `X_COLLECT_STATE_FILE` را در همین volume/مسیر خروجی تنظیم کند.
-- **Instagram** در وضعیت آزمایشی است، هنوز به `need_engine` وصل نیست و صحت نتایجش در میدان بررسی نشده است. ماژول `instagram_discovery/` ابزار تشخیص کامنت و برچسب‌گذاری برای سنجش را دارد؛ `workers/ig_collector/` جمع‌آوری read-only را انجام می‌دهد. هیچ پیام، لایک، فالو یا DM خودکاری ارسال نمی‌شود.
-  - **جریان A — پست فروشنده ← کامنت‌گذارها:** با `comments.policy=seller_post` کامنت‌های دارای نشانه‌ی علاقه، پرسش قیمت یا درخواست تماس به فایل جداگانه‌ی `data/ig_collected/seller_leads.jsonl` می‌روند. این خروجی صرفاً لیدِ نیازمند بازبینی انسانی است.
-  - **جریان B — پست درخواست خرید:** سیاست پیش‌فرض `comments.policy=buyer_request` رفتار قبلی را نگه می‌دارد: کامنت باید امتیاز intent را بگذراند، به‌جز عدد تنها زیر پست درخواست که به‌عنوان درخواست نگه داشته می‌شود. پست‌ها و کامنت‌های B در JSONL معمولی collector ذخیره می‌شوند.
-  - کامنت‌ها پیش‌فرض خاموش‌اند. پس از تنظیم seed و سقف‌های محدود، برای A از `comments.mode=all` استفاده کنید. `data/ig_lexicon_fa.json` cueهای طبقه‌بند A و `workers/ig_collector/policies.py` دو سیاست را نگه می‌دارند. برای ساخت batch برچسب‌گذاری و گزارش precision: `python -m instagram_discovery label-export --in data/ig_collected/seller_leads.jsonl --out data/ig_label/batch.csv --sample 200` و سپس `python -m instagram_discovery label-report --in data/ig_label/batch.csv`. فایل برچسب‌ها نادیده گرفته می‌شود چون ممکن است handle واقعی داشته باشد.
-  - اجرای backendهای واقعی هنوز نیازمند بازبینی مجوز داده و قرارداد provider است؛ در این تغییر هیچ جمع‌آوری زنده یا بررسی میدانی انجام نشده است.
 - پشت دامنه و HTTPS: `DJANGO_DEBUG=False`، `DJANGO_ALLOWED_HOSTS`، `DJANGO_CSRF_TRUSTED_ORIGINS` و `DJANGO_BEHIND_HTTPS_PROXY=true`.
 
 ## Instagram pages
 - از «صفحه‌های اینستاگرام» در پنل، لینک یا آیدی صفحهٔ خودتان یا رقیب را ثبت کنید؛ برای هر صفحه می‌توان محصول پیش‌فرض گذاشت و پایش را متوقف یا حذف کرد.
-- سرویس اختیاری با `docker compose --profile ig up ig` هر چرخه seedها را می‌سازد، collector را اجرا و کامنت‌های دارای intent را به فرصت‌های پنل وارد می‌کند؛ backend را صریحاً در `IG_BACKEND` تنظیم کنید.
-- داده‌های خوانده‌شده شامل کپشن، متن کامنت و شناسه/نام کاربری عمومی است و در JSONL و فرصت پنل می‌ماند؛ درخواست‌ها فقط در worker انجام می‌شوند.
+- سرویس `ig` (`manage.py run_instagram_scraper`) این صفحه‌ها و دسته‌ها را پایش می‌کند، کامنت‌ها را با LLM ارزیابی می‌کند و لیدها را در پایگاه داده ذخیره می‌کند.
+- داده‌های خوانده‌شده شامل کپشن، متن کامنت و شناسه/نام کاربری عمومی است و در پایگاه داده و فرصت پنل می‌ماند؛ درخواست‌ها فقط در worker انجام می‌شوند.
 - روش‌های scraping ممکن است شرایط Instagram را نقض کنند؛ مسیر پشتیبانی‌شدهٔ تولیدی Graph API است و در این کد پیاده‌سازی نشده است.
 
 Query generation supports X_QUERY_MODE=product|intent|both (default both), a per-cycle budget, query length/count caps, and an optional suffix. Use --print-queries to review generated queries and --dry-run to inspect the next cycle without invoking the CLI. LLM-generated problem phrases are not implemented yet (X_QUERY_LLM=false).

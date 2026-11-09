@@ -23,7 +23,7 @@ A module it lists is a candidate, not proven dead. Static imports are not enough
 can be reached:
 
 ```bash
-NAME=instagram_discovery        # module path, function name, template name, setting name, ...
+NAME=xray.multi_proxy_manager   # module path, function name, template name, setting name, ...
 
 # 1. Python imports and string references (dynamic imports, Celery task names, settings)
 grep -rn "$NAME" --include=*.py . | grep -v "/migrations/"

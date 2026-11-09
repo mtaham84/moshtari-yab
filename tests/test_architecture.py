@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_PACKAGES = {"apps", "config", "need_engine", "telegram_crawler", "workers", "x_ingest", "instagram_engine",
-                    "instagram_discovery", "xray", "shared"}
+                    "xray", "shared"}
 
 # package -> top-level packages its production code must not import
 FORBIDDEN = {

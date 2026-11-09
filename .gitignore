@@ -9,16 +9,10 @@ __pycache__/
 telegram_crawler/.env
 telegram_crawler/data/
 data/x_collected/
-data/ig_collected/
-data/ig_collected_mock/
-data/ig_label/
-data/ig_seeds.json
 **/needs-review.jsonl
 **/needs-review.jsonl.lock
 **/human-post-labels.jsonl
 **/human-post-labels.jsonl.lock
-output/ig_collector*.sqlite3*
-instagram_discovery/output/
 data/x_queries.txt
 output/x_collector_state.sqlite3
 output/x_collector_state.sqlite3-shm
