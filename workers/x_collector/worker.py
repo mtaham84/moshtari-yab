@@ -126,7 +126,7 @@ def filter_uncrawled_tweets(records: list[dict[str, Any]], dsn: str | None = Non
                 log.info("Skipping %d duplicate tweet(s) already recorded in XCrawledPost", len(seen_hashes))
             return [r for r in records if compute_tweet_hash(r["id"]) not in seen_hashes]
     except Exception as exc:
-        log.debug("Database hash dedup check skipped: %s", exc)
+        log.debug("Database hash dedup check skipped: %s", exc, exc_info=True)
         return records
 
 
@@ -218,7 +218,7 @@ class XCollector:
                 self.account_pool = TwitterAccountPool()
                 self.account_pool.seed_initial_accounts_if_empty()
             except Exception as pool_exc:
-                log.debug("TwitterAccountPool initialization skipped: %s", pool_exc)
+                log.debug("TwitterAccountPool initialization skipped: %s", pool_exc, exc_info=True)
 
     @staticmethod
     def load_queries(query_file: str | Path | None = None) -> list[str]:
@@ -275,7 +275,7 @@ class XCollector:
             try:
                 self.account_pool.refresh()
             except Exception as pool_exc:
-                log.debug("Account pool refresh failed: %s", pool_exc)
+                log.debug("Account pool refresh failed: %s", pool_exc, exc_info=True)
         is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
         enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "false").lower() in {"1", "true", "yes", "on"}
         scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily)
@@ -376,7 +376,7 @@ class XCollector:
                                             continue
                                         candidates.append(record)
                                 except Exception as expand_exc:
-                                    log.warning("Expanding search to %d failed: %s", expand_limit, expand_exc)
+                                    log.warning("Expanding search to %d failed: %s", expand_limit, expand_exc, exc_info=True)
 
                         if candidates:
                             new_before = len(collected)
@@ -562,7 +562,7 @@ class XCollector:
                         alpha_inc, beta_inc
                     ))
         except Exception as exc:
-            log.debug("Could not update X source stat: %s", exc)
+            log.debug("Could not update X source stat: %s", exc, exc_info=True)
 
     def _write_status(self, result: dict[str, Any]) -> None:
         target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)
@@ -616,7 +616,7 @@ def ingest_new(collector: XCollector, offset: int, loader: Callable[[Path], int]
         log.info("Auto-ingest: upserted %s X posts into the database", count)
         return count
     except Exception as exc:
-        log.error("Auto-ingest failed (run `python -m x_ingest` later): %s", exc)
+        log.error("Auto-ingest failed (run `python -m x_ingest` later): %s", exc, exc_info=True)
         return 0
 
 
@@ -651,7 +651,7 @@ def charge_searches(searches: list[dict[str, Any]], store: Any = None) -> int:
                 store.close()
         return rows
     except Exception as exc:
-        log.error("X search fee not recorded: %s", exc)
+        log.error("X search fee not recorded: %s", exc, exc_info=True)
         return 0
 
 
@@ -665,7 +665,7 @@ def record_searches(searches: list[dict[str, Any]], dsn: str | None = None) -> i
 
         return record_search_runs(searches, dsn)
     except Exception as exc:
-        log.error("X search log not recorded: %s", exc)
+        log.error("X search log not recorded: %s", exc, exc_info=True)
         return 0
 
 
@@ -687,7 +687,7 @@ def collect_forever(collector: XCollector, queries: list[str] | Callable[[], lis
                     if collector.state:
                         sync_bandit_feedback(collector.state)
                 except Exception as exc:
-                    log.error("Bandit feedback sync failed: %s", exc)
+                    log.error("Bandit feedback sync failed: %s", exc, exc_info=True)
         if result["status"] == "RATE_LIMITED":
             log.warning("X rate limited; sleeping for 15 minutes before retry...")
             time.sleep(900)

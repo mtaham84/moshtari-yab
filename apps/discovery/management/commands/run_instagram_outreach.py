@@ -171,13 +171,13 @@ class Command(BaseCommand):
             if unblocked:
                 self.stdout.write(self.style.SUCCESS(f"♻️ [بازیابی خودکار]: {unblocked} لید پرایوت به چرخه ارسال برگشت."))
         except Exception as exc:
-            logger.debug("Failed unblocking private leads: %s", exc)
+            logger.debug("Failed unblocking private leads: %s", exc, exc_info=True)
         # Sync and restore sender accounts from the pool file
         try:
             from apps.discovery import accounts_pool_file
             logger.info("Accounts pool checked at startup: %s", accounts_pool_file.import_pool(force=False))
         except Exception as exc:
-            logger.debug("Pool file sync skipped: %s", exc)
+            logger.debug("Pool file sync skipped: %s", exc, exc_info=True)
 
     def _report(self, last):
         action = last.get("action")
@@ -205,4 +205,5 @@ class Command(BaseCommand):
                 for d in res.get("details", []):
                     self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
         except Exception as exc:
+            logger.warning("_sync_replies failed", exc_info=True)
             self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {exc}")
