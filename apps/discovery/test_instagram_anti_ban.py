@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TestCase
 
 from apps.discovery import device_emulator as dev
 from apps.discovery import outreach_engine as engine
-from apps.discovery import outreach_service
+from apps.discovery.outreach import journey
 from apps.discovery.models import InstagramEngineAccount
 from apps.discovery.proxies.rotation import prepare_sender_proxy_before_dm
 
@@ -192,12 +192,12 @@ class ReplySyncScheduleTests(TestCase):
         self.assertNotIn("--ignore-shift", line)
 
 
-@patch("apps.discovery.outreach_service.time.sleep")
+@patch("apps.discovery.outreach.journey.time.sleep")
 class OrganicJourneyTests(SimpleTestCase):
     def test_quiet_journey_skips_optional_steps_but_keeps_the_target(self, _sleep):
         cl = MagicMock()
-        with patch("apps.discovery.outreach_service.random.random", return_value=0.99):
-            res = outreach_service.execute_organic_journey(cl, "buyer", target_pk=42)
+        with patch("apps.discovery.outreach.journey.random.random", return_value=0.99):
+            res = journey.execute_organic_journey(cl, "buyer", target_pk=42)
         self.assertEqual(res["target_pk"], 42)
         for call in (cl.get_timeline_feed, cl.search_users, cl.user_medias, cl.user_stories, cl.media_like):
             call.assert_not_called()
@@ -205,8 +205,8 @@ class OrganicJourneyTests(SimpleTestCase):
     def test_unknown_pk_is_always_searched(self, _sleep):
         cl = MagicMock()
         cl.search_users.return_value = [SimpleNamespace(username="buyer", pk="77")]
-        with patch("apps.discovery.outreach_service.random.random", return_value=0.99):
-            res = outreach_service.execute_organic_journey(cl, "buyer", target_pk=None)
+        with patch("apps.discovery.outreach.journey.random.random", return_value=0.99):
+            res = journey.execute_organic_journey(cl, "buyer", target_pk=None)
         self.assertEqual(res["target_pk"], 77)
 
     def test_a_like_only_goes_to_a_post_seen_on_the_profile(self, _sleep):
@@ -214,15 +214,15 @@ class OrganicJourneyTests(SimpleTestCase):
         cl.get_timeline_feed.return_value = {"feed_items": []}
         cl.user_stories.return_value = []
         cl.user_medias.return_value = [SimpleNamespace(id="m1")]
-        with patch("apps.discovery.outreach_service.random.random", return_value=0.0):
-            res = outreach_service.execute_background_organic_warmup(cl, "buyer", target_pk=42)
+        with patch("apps.discovery.outreach.journey.random.random", return_value=0.0):
+            res = journey.execute_background_organic_warmup(cl, "buyer", target_pk=42)
         cl.user_medias.assert_called_once()  # the profile view's posts are reused, no second request
         cl.media_like.assert_called_once_with("m1")
         self.assertTrue(res["target_post_liked"])
 
     def test_likes_and_story_views_are_occasional(self, _sleep):
-        self.assertLessEqual(outreach_service.ORGANIC_JOURNEY_ODDS["like"], 0.25)
-        self.assertLess(outreach_service.ORGANIC_JOURNEY_ODDS["story"], 1.0)
+        self.assertLessEqual(journey.ORGANIC_JOURNEY_ODDS["like"], 0.25)
+        self.assertLess(journey.ORGANIC_JOURNEY_ODDS["story"], 1.0)
 
 
 class ProxyRotationTests(SimpleTestCase):

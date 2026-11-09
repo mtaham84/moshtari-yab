@@ -16,7 +16,8 @@ from apps.discovery.management.commands.run_instagram_outreach import (
     _error_matches,
 )
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-from apps.discovery.outreach_service import get_effective_sender_limits, select_and_reserve_candidate
+from apps.discovery.outreach.limits import get_effective_sender_limits
+from apps.discovery.outreach.recipients import select_and_reserve_candidate
 
 
 class RoleAndLimitTests(SimpleTestCase):

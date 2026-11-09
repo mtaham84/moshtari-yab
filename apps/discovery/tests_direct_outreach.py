@@ -3,10 +3,8 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from apps.businesses.models import Business
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead, Customer
-from apps.discovery.outreach_service import (
-    extract_iranian_phone_number,
-    get_lead_conversation_thread,
-)
+from apps.discovery.outreach.messages import extract_iranian_phone_number
+from apps.discovery.outreach.replies import get_lead_conversation_thread
 
 User = get_user_model()
 

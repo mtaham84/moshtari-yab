@@ -118,7 +118,7 @@ class InstagramCockpitSendCounterTests(TestCase):
 
         fake = MagicMock()
         with patch("apps.billing.manage_views._get_cockpit_client", return_value=(fake, None)), \
-                patch("apps.discovery.outreach_service.execute_organic_journey", return_value={"target_pk": 1}):
+                patch("apps.discovery.outreach.journey.execute_organic_journey", return_value={"target_pk": 1}):
             res = self.client.post(
                 reverse("manage:instagram_cockpit_organic_dm", args=[self.account.pk]),
                 {"target_username": "someone", "message_text": "سلام"},
@@ -137,7 +137,7 @@ class InstagramCockpitSendCounterTests(TestCase):
         return res, fake
 
     def test_daily_cap_reached_blocks_send(self):
-        from apps.discovery.outreach_service import get_effective_sender_limits
+        from apps.discovery.outreach.limits import get_effective_sender_limits
 
         cap, _ = get_effective_sender_limits(self.account)
         self.account.daily_action_count = cap

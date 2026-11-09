@@ -1747,7 +1747,7 @@ def instagram_cockpit_thread_detail(request, pk: int, thread_id: str):
 def instagram_cockpit_send_direct(request, pk: int):
     """AJAX endpoint: Send direct message from cockpit (same limits as automated outreach)."""
     from django.shortcuts import get_object_or_404
-    from apps.discovery.outreach_service import manual_dm_block_reason, record_manual_dm
+    from apps.discovery.outreach.limits import manual_dm_block_reason, record_manual_dm
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
 
     thread_id = request.POST.get("thread_id", "").strip()
@@ -1935,7 +1935,7 @@ def instagram_cockpit_search(request, pk: int):
 def instagram_cockpit_organic_dm(request, pk: int):
     """AJAX endpoint: Execute full organic journey to target user and dispatch DM."""
     from django.shortcuts import get_object_or_404
-    from apps.discovery.outreach_service import execute_organic_journey, manual_dm_block_reason, record_manual_dm
+    from apps.discovery.outreach import journey, limits
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     target_username = request.POST.get("target_username", "").strip().lstrip("@")
@@ -1944,7 +1944,7 @@ def instagram_cockpit_organic_dm(request, pk: int):
     if not target_username or not message_text:
         return JsonResponse({"success": False, "error": "نام کاربری مقصد و متن پیام الزامی است."}, status=400)
 
-    blocked = manual_dm_block_reason(account)
+    blocked = limits.manual_dm_block_reason(account)
     if blocked:
         return JsonResponse({"success": False, "error": blocked, "blocked": True}, status=429)
 
@@ -1953,14 +1953,14 @@ def instagram_cockpit_organic_dm(request, pk: int):
         return JsonResponse({"success": False, "error": err or "اتصال برقرار نشد."}, status=400)
 
     try:
-        journey_res = execute_organic_journey(cl, target_username)
+        journey_res = journey.execute_organic_journey(cl, target_username)
         target_pk = journey_res.get("target_pk")
         if not target_pk:
             target_pk = int(cl.user_id_from_username(target_username))
 
         cl.direct_send(message_text, user_ids=[target_pk])
 
-        record_manual_dm(account, user_pk=target_pk, text=message_text, actor=_ig_actor(request))
+        limits.record_manual_dm(account, user_pk=target_pk, text=message_text, actor=_ig_actor(request))
 
         return JsonResponse({
             "success": True,
