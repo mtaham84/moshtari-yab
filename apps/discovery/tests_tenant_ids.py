@@ -58,7 +58,7 @@ class OutreachTenantsTests(TestCase):
     def test_operator_outreach_business_has_no_hardcoded_ids(self):
         from types import SimpleNamespace
 
-        from apps.accounts.views import _operator_outreach_business
+        from apps.accounts.outreach_views import _operator_outreach_business
 
         b1, b7, b9 = (SimpleNamespace(id=i) for i in (1, 7, 9))
         all_b = [b1, b7, b9]

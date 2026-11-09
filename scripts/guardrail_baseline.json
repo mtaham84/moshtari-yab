@@ -2,7 +2,8 @@
   "broad_excepts": {
     "apps/accounts/admin.py": 2,
     "apps/accounts/onboarding.py": 1,
-    "apps/accounts/views.py": 3,
+    "apps/accounts/outreach_views.py": 2,
+    "apps/accounts/views.py": 1,
     "apps/billing/manage/cockpit.py": 3,
     "apps/billing/manage/dashboard.py": 1,
     "apps/billing/manage/dashboard_data.py": 3,
@@ -49,7 +50,8 @@
     "apps/discovery/services.py": 1,
     "apps/discovery/tasks.py": 3,
     "apps/discovery/test_instagram_anti_ban.py": 1,
-    "apps/discovery/views/opportunities.py": 5,
+    "apps/discovery/views/export.py": 1,
+    "apps/discovery/views/opportunities.py": 4,
     "apps/discovery/views/x_twitter.py": 1,
     "apps/products/autofill.py": 3,
     "apps/products/models.py": 2,
@@ -96,11 +98,9 @@
     "xray/multi_proxy_manager.py": 16
   },
   "lines": {
-    "apps/accounts/views.py": 991,
     "apps/billing/services.py": 820,
     "apps/discovery/models/core.py": 848,
     "apps/discovery/outreach_service.py": 1364,
-    "apps/discovery/views/opportunities.py": 944,
     "static/css/panel.css": 2737,
     "static/css/site.css": 3332,
     "templates/accounts/outreach.html": 1714,
