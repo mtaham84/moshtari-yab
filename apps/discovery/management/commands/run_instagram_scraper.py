@@ -24,34 +24,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--query",
-            type=str,
-            default="",
-            help="Primary search query used in one-off manual mode.",
-        )
-        parser.add_argument(
-            "--hashtags",
-            type=str,
-            default="",
-            help="Comma-separated list of explicit hashtags to scrape in one-off manual mode.",
-        )
-        parser.add_argument(
             "--min-comments",
             type=int,
             default=django_settings.INSTAGRAM_MIN_COMMENTS,
             help="Minimum comments required on a post (configurable through INSTAGRAM_MIN_COMMENTS).",
-        )
-        parser.add_argument(
-            "--max-posts",
-            type=int,
-            default=20,
-            help="Maximum posts to inspect per hashtag (default: 20).",
-        )
-        parser.add_argument(
-            "--tenant",
-            type=str,
-            default="",
-            help="Tenant identifier to tag collected leads with in one-off manual mode (e.g. 'tenant_3').",
         )
         parser.add_argument(
             "--loop",
@@ -65,29 +41,18 @@ class Command(BaseCommand):
             help="Delay in minutes between discovery cycles in loop mode (default: 5).",
         )
         parser.add_argument(
-            "--all-businesses",
-            action="store_true",
-            help="Automatically collect and scrape hashtags for all active businesses in database.",
-        )
-        parser.add_argument(
             "--force-hours",
             action="store_true",
             help="Bypass operating hours window check (09:00 - 23:00 Tehran time) for debugging.",
         )
 
     def handle(self, *args, **options):
-        query = options["query"]
-        explicit_tags = [t.strip().lstrip("#") for t in options["hashtags"].split(",") if t.strip()]
         min_comments = options["min_comments"]
-        max_posts = options["max_posts"]
-        tenant_id = options["tenant"]
-
         loop_mode = options["loop"]
         interval_minutes = options["interval"]
-        all_businesses = options["all_businesses"] or (not explicit_tags and not query and not tenant_id)
 
         self.stdout.write(self.style.MIGRATE_HEADING("=== Instagram Lead Discovery & Dataset Collector ==="))
-        self.stdout.write(f"Loop Mode: {loop_mode} (Interval: {interval_minutes}m) | All Businesses: {all_businesses}")
+        self.stdout.write(f"Loop Mode: {loop_mode} (Interval: {interval_minutes}m)")
         self.stdout.write(f"Min Comments Threshold: >= {min_comments} comments")
 
         # 2. Initialize Client Library
@@ -128,63 +93,51 @@ class Command(BaseCommand):
 
 
             # Determine targets
-            if all_businesses:
-                from django.db.models import Q
-                from apps.businesses.models import Business
-                from apps.discovery.instagram_families import families_for_business, ensure_family_plan, discover_sources, sample_sources
-                targets = []
-                by_tenant = []
-                # Prioritize dental business if configured; fallback to businesses with active products
-                biz_qs = Business.objects.filter(Q(id=4) | Q(name__icontains="دندان") | Q(business_domain__icontains="دندان")).order_by("id")
-                if not biz_qs.exists():
-                    biz_qs = Business.objects.filter(products__status="ACTIVE", products__is_discovery_active=True).distinct().order_by("id")
-                if not biz_qs.exists():
-                    biz_qs = Business.objects.all().order_by("id")
+            from django.db.models import Q
+            from apps.businesses.models import Business
+            from apps.discovery.instagram_families import families_for_business, ensure_family_plan, discover_sources, sample_sources
+            targets = []
+            by_tenant = []
+            # Prioritize dental business if configured; fallback to businesses with active products
+            biz_qs = Business.objects.filter(Q(id=4) | Q(name__icontains="دندان") | Q(business_domain__icontains="دندان")).order_by("id")
+            if not biz_qs.exists():
+                biz_qs = Business.objects.filter(products__status="ACTIVE", products__is_discovery_active=True).distinct().order_by("id")
+            if not biz_qs.exists():
+                biz_qs = Business.objects.all().order_by("id")
 
-                for b in biz_qs:
-                    family_rows = {}
-                    tenant_sources = []
-                    for family in families_for_business(b):
-                        try:
-                            plan, built = ensure_family_plan(b, family)
-                        except Exception as plan_exc:
-                            self.stderr.write(f"Plan failed for {b.pk}/{family.product_id}: {plan_exc}")
-                            continue
-                        if plan is None:
-                            continue
-                        self.stdout.write(f"Instagram family plan {family.product_id}: {plan.__dict__}")
-                        sources = discover_sources(b, family, plan)
-                        family_rows[family.product_id] = (family, plan, sources)
-                        tenant_sources.extend(sources)
-                    selected = sample_sources(
-                        b, tenant_sources,
-                        min(4, int(os.getenv("INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE", "4"))),
-                    )
-                    selected_by_family = {}
-                    for source in selected:
-                        selected_by_family.setdefault(source.family_id, []).append(source)
-                    targets_for_business = []
-                    for family_id, sources in selected_by_family.items():
-                        family, plan, _ = family_rows[family_id]
-                        targets_for_business.append({
-                            "tenant_id": f"tenant_{b.id}", "business": b, "name": b.name,
-                            "family": family, "plan": plan, "sources": sources,
-                            "hashtags": [], "terms": [], "query": family.category_path or family.title,
-                        })
-                    by_tenant.append(targets_for_business)
-                # Tenants take turns first; each tenant then advances one family before the next tenant round.
-                targets = [group[offset] for offset in range(max((len(group) for group in by_tenant), default=0))
-                           for group in by_tenant if offset < len(group)]
-            else:
-                default_tenant = tenant_id or "tenant_default"
-                targets = [{
-                    "tenant_id": default_tenant,
-                    "business": None,
-                    "name": default_tenant,
-                    "hashtags": explicit_tags,
-                    "terms": [query] if query else [],
-                    "query": query or "محصولات",
-                }]
+            for b in biz_qs:
+                family_rows = {}
+                tenant_sources = []
+                for family in families_for_business(b):
+                    try:
+                        plan, built = ensure_family_plan(b, family)
+                    except Exception as plan_exc:
+                        self.stderr.write(f"Plan failed for {b.pk}/{family.product_id}: {plan_exc}")
+                        continue
+                    if plan is None:
+                        continue
+                    self.stdout.write(f"Instagram family plan {family.product_id}: {plan.__dict__}")
+                    sources = discover_sources(b, family, plan)
+                    family_rows[family.product_id] = (family, plan, sources)
+                    tenant_sources.extend(sources)
+                selected = sample_sources(
+                    b, tenant_sources,
+                    min(4, int(os.getenv("INSTAGRAM_MAX_SOURCES_PER_TENANT_CYCLE", "4"))),
+                )
+                selected_by_family = {}
+                for source in selected:
+                    selected_by_family.setdefault(source.family_id, []).append(source)
+                targets_for_business = []
+                for family_id, sources in selected_by_family.items():
+                    family, plan, _ = family_rows[family_id]
+                    targets_for_business.append({
+                        "tenant_id": f"tenant_{b.id}", "business": b, "name": b.name,
+                        "family": family, "plan": plan, "sources": sources,
+                    })
+                by_tenant.append(targets_for_business)
+            # Tenants take turns first; each tenant then advances one family before the next tenant round.
+            targets = [group[offset] for offset in range(max((len(group) for group in by_tenant), default=0))
+                       for group in by_tenant if offset < len(group)]
 
             self.stdout.write(f"\nProcessing {len(targets)} business discovery targets...")
 
@@ -217,10 +170,7 @@ class Command(BaseCommand):
                 if cl is None:
                     continue
                 try:
-                    if target.get("family"):
-                        leads_found = self._scrape_family_target(cl, account, target, min_comments, max_posts)
-                    else:
-                        leads_found = self._scrape_target(cl, account, target, min_comments, max_posts)
+                    leads_found = self._scrape_family_target(cl, account, target, min_comments)
                     cycle_leads += leads_found
                     self._persist_session(cl, account)
                 except Exception as exc:
@@ -570,337 +520,6 @@ class Command(BaseCommand):
             if self._rotate_or_heal_proxy(account, cl=cl):
                 return False  # successfully failed over to a new proxy, keep account in rotation!
         return False  # network / unclassified: no state change, never a login
-
-    def _inspect_and_process_medias(
-        self,
-        cl,
-        account,
-        target,
-        medias,
-        min_comments,
-        seen_media_ids,
-        query_label: str = "",
-        check_domain_relevance: bool = True,
-    ) -> tuple:
-        tenant_id = target["tenant_id"]
-        business_name = target["name"]
-        posts_inspected = 0
-        qualifying_posts = 0
-        leads_saved = 0
-
-        from datetime import timedelta
-        import hashlib
-        from apps.discovery.models import InstagramCrawledPost, InstagramEngineLead
-        from instagram_engine.analyzer import get_effective_caption_cta, evaluate_comment_smart, detect_repeated_comment_triggers
-        from instagram_engine.post_filters import is_irrelevant_post_for_business
-
-        max_age_days = 30
-        age_cutoff = dj_timezone.now() - timedelta(days=max_age_days)
-        comment_cutoff = dj_timezone.now() - timedelta(days=5)
-
-        for media in medias:
-            if posts_inspected >= 30:
-                break
-            m_id = str(getattr(media, "id", "") or getattr(media, "pk", ""))
-            if not m_id:
-                continue
-            if m_id in seen_media_ids:
-                continue
-            seen_media_ids.add(m_id)
-
-            posts_inspected += 1
-            code = getattr(media, "code", "")
-            source_post_url = f"https://www.instagram.com/p/{code}/" if code else None
-            caption_text = getattr(media, "caption_text", "") or ""
-            comment_count = getattr(media, "comment_count", 0) or 0
-
-            # 1. Age Pre-Filter: Strictly reject posts older than allowed window (30 days)
-            taken_at = getattr(media, "taken_at", None)
-            if taken_at:
-                if dj_timezone.is_naive(taken_at):
-                    taken_at = dj_timezone.make_aware(taken_at, timezone.utc)
-                if taken_at < age_cutoff:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    ⏭️ [SKIPPED POST > {max_age_days} DAYS OLD]: {source_post_url} (Published: {taken_at.strftime('%Y-%m-%d')})"
-                        )
-                    )
-                    continue
-
-            # 2. Multi-Account Post Hash Deduplication & Re-inspection
-            post_hash = hashlib.sha256(f"ig_post:{m_id}".encode("utf-8")).hexdigest()
-            existing_crawled = InstagramCrawledPost.objects.filter(post_hash=post_hash).first()
-            if existing_crawled:
-                # Re-inspection allowed if crawled more than 6 hours ago to catch new comments
-                if existing_crawled.crawled_at > dj_timezone.now() - timedelta(hours=6):
-                    continue
-                else:
-                    self.stdout.write(
-                        self.style.NOTICE(
-                            f"    🔄 [RE-INSPECTING POST FOR NEW COMMENTS (Past 5 Days)]: {source_post_url}"
-                        )
-                    )
-                    existing_crawled.crawled_at = dj_timezone.now()
-                    existing_crawled.save(update_fields=["crawled_at"])
-            else:
-                try:
-                    InstagramCrawledPost.objects.create(
-                        post_hash=post_hash,
-                        media_id=m_id,
-                        media_code=code,
-                        account_username=account.username,
-                        posted_at=taken_at or dj_timezone.now(),
-                    )
-                except Exception:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    ⏭️ [SKIPPED CONCURRENTLY CLAIMED POST]: {source_post_url}"
-                        )
-                    )
-                    continue
-
-            # Strict Filter: Must have at least --min-comments comments
-            effective_min = min_comments
-            if comment_count < effective_min:
-                continue
-
-            # Domain Relevance Filter: Skip posts outside the business domain
-            if check_domain_relevance:
-                is_irrel, irrel_reason = is_irrelevant_post_for_business(caption_text, business_name)
-                if is_irrel:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    ⏭️ [SKIPPED UNRELATED POST: {irrel_reason}] {source_post_url}"
-                        )
-                    )
-                    continue
-
-            qualifying_posts += 1
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"    🎯 [QUALIFYING POST for {query_label}] {source_post_url} | Comments: {comment_count} (>= {min_comments}) | Hash: {post_hash[:10]}"
-                )
-            )
-
-            # --- Live Activity & Video Watching Simulation ---
-            from apps.discovery.live_logger import report_live_activity
-            m_type = getattr(media, "media_type", 1)
-            p_type = getattr(media, "product_type", "")
-            v_dur = getattr(media, "video_duration", 0.0) or 0.0
-            is_video = m_type == 2 or v_dur > 0 or p_type in ("clips", "igtv")
-            is_reel = p_type == "clips" or (source_post_url and "reel" in source_post_url.lower())
-
-            if is_video:
-                watch_sec = round(random.uniform(3.5, 6.5), 1)
-                self.stdout.write(
-                    self.style.NOTICE(f"    🎥 [تماشای زنده {'ریلز' if is_reel else 'ویدیو'}]: {watch_sec}s -> {source_post_url}")
-                )
-                report_live_activity(
-                    account_username=account.username,
-                    action_type="WATCH_VIDEO",
-                    title=f"تماشای {'ریلز' if is_reel else 'ویدیو'} پست {code}",
-                    description=f"اکانت @{account.username} در حال تماشای ویدیوی پست instagram.com/p/{code} است ({watch_sec} ثانیه مشاهده طبیعی).",
-                    media_type="REEL" if is_reel else "VIDEO",
-                    media_code=code,
-                    media_url=source_post_url or "",
-                    duration_seconds=watch_sec,
-                    level="INFO",
-                    update_worker="scraper",
-                    worker_active=True,
-                )
-                time.sleep(watch_sec)
-            else:
-                report_live_activity(
-                    account_username=account.username,
-                    action_type="SCRAPE",
-                    title=f"بررسی پست {code} ({comment_count} کامنت)",
-                    description=f"اکانت @{account.username} در حال بررسی پست {source_post_url}",
-                    media_type="CAROUSEL" if m_type == 8 else "POST",
-                    media_code=code,
-                    media_url=source_post_url or "",
-                    duration_seconds=1.5,
-                    level="INFO",
-                    update_worker="scraper",
-                    worker_active=True,
-                )
-
-            cta_trigger = get_effective_caption_cta(caption_text)
-            fetch_amount = min(comment_count, 100)
-            comments = []
-            try:
-                report_live_activity(
-                    account_username=account.username,
-                    action_type="COMMENTS",
-                    title=f"واکشی کامنت‌های پست {code}",
-                    description=f"در حال دریافت و ارزیابی {fetch_amount} کامنت از {source_post_url}",
-                    media_code=code,
-                    media_url=source_post_url or "",
-                    level="INFO",
-                    update_worker="scraper",
-                    worker_active=True,
-                )
-                comments = cl.media_comments(m_id, amount=fetch_amount)
-            except Exception as exc:
-                try:
-                    comments = cl.media_comments_gql(m_id, amount=fetch_amount)
-                except Exception:
-                    self.stderr.write(f"    Failed to fetch comments for {source_post_url}: {exc}")
-                    continue
-
-            all_comment_texts = [getattr(c, "text", "") for c in comments if getattr(c, "text", "")]
-            repeated_triggers = detect_repeated_comment_triggers(all_comment_texts, min_count=2)
-            if repeated_triggers:
-                self.stdout.write(
-                    self.style.NOTICE(f"    🔄 [DETECTED REPEATED DM TRIGGERS]: {repeated_triggers}")
-                )
-
-            for c in comments:
-                c_time = getattr(c, "created_at_utc", None) or getattr(c, "created_at", None)
-                if c_time:
-                    if dj_timezone.is_naive(c_time):
-                        c_time = dj_timezone.make_aware(c_time, timezone.utc)
-                    if c_time < comment_cutoff:
-                        continue  # strictly reject comments older than 5 days
-
-                user_obj = getattr(c, "user", None)
-                if not user_obj:
-                    continue
-
-                user_pk = str(getattr(user_obj, "pk", "") or getattr(user_obj, "id", ""))
-                username = getattr(user_obj, "username", "")
-                full_name = getattr(user_obj, "full_name", "") or username
-                comment_text = getattr(c, "text", "")
-                is_priv = bool(getattr(user_obj, "is_private", False))
-
-                if not user_pk or not username or not comment_text:
-                    continue
-
-                eval_res = evaluate_comment_smart(
-                    comment_text=comment_text,
-                    caption=caption_text,
-                    cta_word=cta_trigger,
-                    product_context=business_name,
-                    repeated_triggers=repeated_triggers,
-                )
-
-                if eval_res.get("is_emoji"):
-                    continue
-
-                if eval_res.get("is_toxic"):
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"      🚫 [REJECTED TOXIC/DISS] @{username}: {eval_res.get('reason')} | '{comment_text[:45]}'"
-                        )
-                    )
-                    continue
-
-                if not eval_res.get("is_lead"):
-                    continue
-
-                from apps.discovery.instagram_scoring import calculate_lead_outreach_score
-                calc = calculate_lead_outreach_score(
-                    comment_text=comment_text,
-                    comment_time=c_time,
-                    is_private=is_priv,
-                    cta_word=cta_trigger or "",
-                )
-
-                # Strictly reject comments older than 5 days
-                if not calc.get("is_eligible", True):
-                    continue
-
-                score = float(eval_res.get("intent_score") or 0.90)
-                match_reason = eval_res.get("matched_cta") or "direct"
-                profile_url = f"https://www.instagram.com/{username}/"
-                post_snippet = caption_text[:600] if caption_text else None
-
-                media_user = getattr(media, "user", None)
-                src_user = str(getattr(media_user, "username", "") or getattr(account, "username", "") or "")
-                src_title = str(getattr(media_user, "full_name", "") or src_user)
-                post_time = taken_at
-
-                lead, created = InstagramEngineLead.objects.get_or_create(
-                    tenant_id=tenant_id,
-                    ig_user_pk=user_pk,
-                    defaults={
-                        "username": username,
-                        "full_name": full_name,
-                        "profile_url": profile_url,
-                        "comment_text": comment_text,
-                        "source_post_url": source_post_url,
-                        "post_caption_snippet": post_snippet,
-                        "matched_cta": match_reason,
-                        "intent_score": score,
-                        "status": "NEW",
-                        "comment_created_at": c_time,
-                        "is_private": is_priv,
-                        "comment_intent_type": calc["intent_type"],
-                        "outreach_score": calc["total_score"],
-                        "success_probability": calc.get("success_probability", 0),
-                        "source_page_username": src_user,
-                        "source_page_title": src_title,
-                        "post_created_at": post_time,
-                        "score_breakdown": calc,
-                    },
-                )
-
-                if not created:
-                    # Update lead with newer comment data if applicable
-                    lead.outreach_score = calc["total_score"]
-                    lead.success_probability = calc.get("success_probability", 0)
-                    lead.comment_intent_type = calc["intent_type"]
-                    lead.score_breakdown = calc
-                    if not lead.source_page_username and src_user:
-                        lead.source_page_username = src_user
-                    if not lead.post_created_at and post_time:
-                        lead.post_created_at = post_time
-                    if c_time and (not lead.comment_created_at or c_time > lead.comment_created_at):
-                        lead.comment_text = comment_text
-                        lead.comment_created_at = c_time
-                        lead.is_private = is_priv
-                    lead.save(update_fields=[
-                        "comment_text", "comment_created_at", "is_private",
-                        "outreach_score", "success_probability", "comment_intent_type",
-                        "score_breakdown", "source_page_username", "post_created_at", "updated_at"
-                    ])
-
-                if created:
-                    leads_saved += 1
-                    lead_type_label = "⚡ مستقیم (Zero Cost)" if eval_res.get("is_direct_cta") else "🤖 هوش مصنوعی (Luna GPT-6)"
-                    self.stdout.write(
-                        self.style.SUCCESS(
-                            f"      ⭐ Lead Discovered ({lead_type_label}): @{username} (score: {calc['total_score']}/45 - {calc['intent_type']}) | '{comment_text[:50]}'"
-                        )
-                    )
-                    report_live_activity(
-                        account_username=account.username,
-                        action_type="LEAD_FOUND",
-                        title=f"کشف خریدار جدید: @{username}",
-                        description=f"ثبت لید خریدار @{username} با امتیاز {calc.get('total_score')} از کامنت «{comment_text[:60]}»",
-                        media_code=code,
-                        media_url=source_post_url or "",
-                        level="SUCCESS",
-                        metadata={"username": username, "score": calc.get("total_score")},
-                        update_worker="scraper",
-                        worker_active=True,
-                    )
-
-                try:
-                    from apps.discovery.services import sync_instagram_lead_to_opportunity
-                    sync_instagram_lead_to_opportunity(lead, business=target.get("business"), ai_meta=eval_res)
-                except Exception as sync_exc:
-                    self.stderr.write(f"Notice: Opportunity sync skipped: {sync_exc}")
-
-            from apps.discovery.anti_ban import InstagramAntiBanManager
-            InstagramAntiBanManager.sleep_after_post(self.stdout)
-            if qualifying_posts >= 3 and posts_inspected >= 15:
-                break
-
-        retired = False
-        if qualifying_posts < 3:
-            retired = True
-
-        return posts_inspected, qualifying_posts, leads_saved, retired
 
     def _request_budget_available(self, account) -> bool:
         from apps.discovery.anti_ban import InstagramAntiBanManager
@@ -1553,7 +1172,7 @@ class Command(BaseCommand):
 
         return posts_inspected, qualifying_posts, leads_saved, retired
 
-    def _scrape_family_target(self, cl, account, target, min_comments, max_posts):
+    def _scrape_family_target(self, cl, account, target, min_comments):
         from apps.discovery.models import InstagramCrawlExecution, InstagramSourceStat
         from apps.discovery.instagram_families import (record_source_result)
 
@@ -1671,364 +1290,3 @@ class Command(BaseCommand):
             InstagramAntiBanManager.record_query_action(account, self.stdout)
             InstagramAntiBanManager.sleep_after_query(self.stdout)
         return total_leads
-
-    def _scrape_target(self, cl, account, target, min_comments, max_posts) -> int:
-        tenant_id = target["tenant_id"]
-        business_name = target["name"]
-        tags_to_scrape = list(target.get("hashtags") or [])
-        terms_to_scrape = list(target.get("terms") or [])
-        query = target.get("query") or ""
-
-        self.stdout.write(self.style.HTTP_INFO(f"\n--- Target: {business_name} ({tenant_id}) ---"))
-
-        if not tags_to_scrape and query:
-            normalized_query_tag = query.strip().replace(" ", "_")
-            tags_to_scrape.append(normalized_query_tag)
-            try:
-                self.stdout.write(f"Searching related hashtags on Instagram for '{query}'...")
-                search_results = cl.search_hashtags(query)
-                for h in search_results:
-                    name = getattr(h, "name", None) or getattr(h, "id", None)
-                    if name and name not in tags_to_scrape:
-                        tags_to_scrape.append(name)
-                    if len(tags_to_scrape) >= 3:
-                        break
-            except Exception as e:
-                self.stdout.write(f"Hashtag search fallback warning: {e}")
-
-        total_posts_inspected = 0
-        total_qualifying_posts = 0
-        total_leads_saved = 0
-        seen_media_ids = set()
-
-        from shared.mmr import select_by_mmr
-        from apps.discovery.models import InstagramCrawlExecution
-
-        # ==========================================
-        # 1. KEYWORD SEARCH (Media Search SERP - No Hashtag)
-        # ==========================================
-        if terms_to_scrape:
-            from apps.discovery.ig_query_scoring import select_scored
-            selected_terms = select_scored(
-                terms_to_scrape, 3, "KEYWORD",
-                lambda items, k: select_by_mmr(items, lambda t: t, reference_context=f"{business_name} {query}",
-                                               top_k=k, lambda_param=0.65),
-            )
-        else:
-            selected_terms = [query] if query else []
-
-        self.stdout.write(f"Keywords to search: {terms_to_scrape}")
-        self.stdout.write(f"History-scored keywords for this cycle: {selected_terms}")
-
-        for term in selected_terms:
-            if account.status != "ACTIVE":
-                break
-            self.stdout.write(self.style.WARNING(f"\n  [🔍] Keyword Search: '{term}'"))
-            from apps.discovery.live_logger import report_live_activity
-            report_live_activity(
-                account_username=account.username,
-                action_type="SCRAPE",
-                title=f"جستجوی کلیدواژه '{term}'",
-                description=f"اکانت @{account.username} در حال جستجو و استخراج پست‌های مرتبط با '{term}' برای کسب‌وکار {business_name} است.",
-                level="INFO",
-                update_worker="scraper",
-                worker_active=True,
-            )
-            term_err = ""
-            term_medias = []
-            try:
-                term_medias = self._fetch_source_medias(
-                    cl=cl, account=account, source_type="keyword", source_label=term,
-                    business=target.get("business"), target_qualifying=3, min_inspect=15, max_total=30
-                )
-            except Exception as exc:
-                term_err = str(exc)
-                self._note_account_error(account, term_err, cl, exc)
-                if term_err:
-                    self.stderr.write(f"    Notice: media_search error for '{term}': {term_err}")
-
-            p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
-                cl=cl,
-                account=account,
-                target=target,
-                medias=term_medias,
-                min_comments=min_comments,
-                seen_media_ids=seen_media_ids,
-                query_label=f"keyword '{term}'",
-                check_domain_relevance=True,
-            )
-            total_posts_inspected += p_insp
-            total_qualifying_posts += p_qual
-            total_leads_saved += l_saved
-
-            if not term_err and p_retired:
-                self._retire_and_delete_source(
-                    business=target.get("business"),
-                    source_type="keyword",
-                    label=term,
-                )
-                self.stdout.write(self.style.ERROR(
-                    f"  ❌ [حذف دائمی کلیدواژه]: '{term}' به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {p_insp} پست حذف شد."
-                ))
-                try:
-                    InstagramCrawlExecution.objects.create(
-                        business=target.get("business"),
-                        tenant_id=tenant_id,
-                        query_text=term,
-                        target_type="KEYWORD",
-                        account_username=account.username,
-                        account=account,
-                        status="REMOVED_UNQUALIFIED",
-                        posts_inspected=p_insp,
-                        qualifying_posts=p_qual,
-                        leads_found=l_saved,
-                        message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. کلیدواژه حذف شد.",
-                        crawled_at=dj_timezone.now(),
-                    )
-                except Exception as log_exc:
-                    self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for '{term}': {log_exc}")
-                time.sleep(random.uniform(2.0, 4.0))
-                continue
-
-            exec_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
-            if term_err and not term_medias:
-                exec_status = "FAILED"
-            msg_val = (
-                f"جستجوی متنی '{term}': بررسی {p_insp} پست، {p_qual} پست حائز شرایط (کامنت >= {min_comments})، {l_saved} لید جدید کشف شد."
-                if not (term_err and not term_medias)
-                else f"خطا در جستجوی کلیدواژه '{term}': {term_err}"
-            )
-            try:
-                InstagramCrawlExecution.objects.create(
-                    business=target.get("business"),
-                    tenant_id=tenant_id,
-                    query_text=term,
-                    target_type="KEYWORD",
-                    account_username=account.username,
-                    account=account,
-                    status=exec_status,
-                    posts_inspected=p_insp,
-                    qualifying_posts=p_qual,
-                    leads_found=l_saved,
-                    message=msg_val,
-                    crawled_at=dj_timezone.now(),
-                )
-                self.stdout.write(self.style.SUCCESS(f"    📝 [Crawl Log Saved]: Keyword '{term}' by @{account.username} ({exec_status})"))
-            except Exception as log_exc:
-                self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for keyword '{term}': {log_exc}")
-
-            from apps.discovery.anti_ban import InstagramAntiBanManager
-            InstagramAntiBanManager.record_query_action(account, self.stdout)
-            InstagramAntiBanManager.sleep_after_query(self.stdout)
-
-        # ==========================================
-        # 2. HASHTAG SEARCH (Top & Recent Posts)
-        # ==========================================
-        self.stdout.write(f"Hashtags to inspect: {tags_to_scrape}")
-        from apps.discovery.ig_query_scoring import select_scored
-        selected_tags = select_scored(
-            tags_to_scrape, 4, "HASHTAG",
-            lambda items, k: select_by_mmr(items, lambda t: t.replace("_", " "), reference_context=f"{business_name} {query}",
-                                           top_k=k, lambda_param=0.65),
-            label_of=lambda t: t if t.startswith("#") else f"#{t}",
-        )
-        self.stdout.write(f"History-scored hashtags for this cycle: {selected_tags}")
-
-        for tag in selected_tags:
-            if account.status != "ACTIVE":
-                break
-            self.stdout.write(self.style.WARNING(f"\n  [#] Hashtag: #{tag}"))
-            from apps.discovery.live_logger import report_live_activity
-            report_live_activity(
-                account_username=account.username,
-                action_type="SCRAPE",
-                title=f"اسکرپ هشتگ #{tag}",
-                description=f"اکانت @{account.username} در حال استخراج و تحلیل پست‌های هشتگ #{tag} برای {business_name} است.",
-                level="INFO",
-                update_worker="scraper",
-                worker_active=True,
-            )
-            tag_err = ""
-            tag_medias = []
-
-            try:
-                tag_medias = self._fetch_source_medias(
-                    cl=cl, account=account, source_type="hashtag", source_label=tag,
-                    business=target.get("business"), target_qualifying=3, min_inspect=15, max_total=30
-                )
-            except Exception as exc:
-                tag_err = str(exc)
-                self._note_account_error(account, tag_err, cl, exc)
-                if tag_err:
-                    self.stderr.write(f"    Notice: hashtag fetch error for #{tag}: {tag_err}")
-
-            p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
-                cl=cl,
-                account=account,
-                target=target,
-                medias=tag_medias,
-                min_comments=min_comments,
-                seen_media_ids=seen_media_ids,
-                query_label=f"hashtag #{tag}",
-                check_domain_relevance=True,
-            )
-            total_posts_inspected += p_insp
-            total_qualifying_posts += p_qual
-            total_leads_saved += l_saved
-
-            if not tag_err and p_retired:
-                self._retire_and_delete_source(
-                    business=target.get("business"),
-                    source_type="hashtag",
-                    label=tag,
-                )
-                self.stdout.write(self.style.ERROR(
-                    f"  ❌ [حذف دائمی هشتگ]: #{tag} به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {p_insp} پست حذف شد."
-                ))
-                try:
-                    InstagramCrawlExecution.objects.create(
-                        business=target.get("business"),
-                        tenant_id=tenant_id,
-                        query_text=f"#{tag}" if not tag.startswith("#") else tag,
-                        target_type="HASHTAG",
-                        account_username=account.username,
-                        account=account,
-                        status="REMOVED_UNQUALIFIED",
-                        posts_inspected=p_insp,
-                        qualifying_posts=p_qual,
-                        leads_found=l_saved,
-                        message=f"حذف دائمی: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. هشتگ حذف شد.",
-                        crawled_at=dj_timezone.now(),
-                    )
-                except Exception as log_exc:
-                    self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for #{tag}: {log_exc}")
-                time.sleep(random.uniform(2.0, 4.0))
-                continue
-
-            exec_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
-            if tag_err and not tag_medias:
-                exec_status = "FAILED"
-            msg_val = (
-                f"بررسی {p_insp} پست، {p_qual} پست حائز شرایط (کامنت >= {min_comments})، {l_saved} لید جدید کشف شد."
-                if not (tag_err and not tag_medias)
-                else f"خطا در اسکن هشتگ #{tag}: {tag_err}"
-            )
-            try:
-                InstagramCrawlExecution.objects.create(
-                    business=target.get("business"),
-                    tenant_id=tenant_id,
-                    query_text=f"#{tag}" if not tag.startswith("#") else tag,
-                    target_type="HASHTAG",
-                    account_username=account.username,
-                    account=account,
-                    status=exec_status,
-                    posts_inspected=p_insp,
-                    qualifying_posts=p_qual,
-                    leads_found=l_saved,
-                    message=msg_val,
-                    crawled_at=dj_timezone.now(),
-                )
-                self.stdout.write(self.style.SUCCESS(f"    📝 [Crawl Log Saved]: #{tag} by @{account.username} ({exec_status})"))
-            except Exception as log_exc:
-                self.stderr.write(f"Notice: Failed to save InstagramCrawlExecution for #{tag}: {log_exc}")
-
-            from apps.discovery.anti_ban import InstagramAntiBanManager
-            InstagramAntiBanManager.record_query_action(account, self.stdout)
-            InstagramAntiBanManager.sleep_after_query(self.stdout)
-
-        # ==========================================
-        # 3. COMPETITOR & TARGET PAGES
-        # ==========================================
-        if target.get("business"):
-            from apps.discovery.models import InstagramPage
-            comp_pages = InstagramPage.objects.filter(business=target["business"], is_active=True)
-            for page in comp_pages:
-                if account.status != "ACTIVE":
-                    break
-                handle = page.handle.lstrip("@").strip()
-                self.stdout.write(self.style.WARNING(f"\n  [👤] Scraper @{account.username} inspecting competitor page: @{handle}"))
-                page_err = ""
-                page_medias = []
-                try:
-                    uid = cl.user_id_from_username(handle)
-                    page_medias = cl.user_medias(uid, amount=min(max_posts, 30))
-                except Exception as exc:
-                    page_err = str(exc)
-                    self._note_account_error(account, page_err, cl, exc)
-                    self.stderr.write(f"    Notice: Error fetching medias from @{handle}: {exc}")
-
-                p_insp, p_qual, l_saved, p_retired = self._inspect_and_process_medias(
-                    cl=cl,
-                    account=account,
-                    target=target,
-                    medias=page_medias,
-                    min_comments=min_comments,
-                    seen_media_ids=seen_media_ids,
-                    query_label=f"competitor page @{handle}",
-                    check_domain_relevance=False,
-                )
-                total_posts_inspected += p_insp
-                total_qualifying_posts += p_qual
-                total_leads_saved += l_saved
-
-                if not page_err and p_retired:
-                    self._retire_and_delete_source(
-                        business=target.get("business"),
-                        source_type="page",
-                        label=handle,
-                    )
-                    self.stdout.write(self.style.ERROR(
-                        f"  ❌ [حذف دائمی پیج رقیب]: @{handle} به دلیل عدم دستیابی به ۳ پست واجد شرایط پس از بررسی {p_insp} پست غیرفعال شد."
-                    ))
-                    try:
-                        InstagramCrawlExecution.objects.create(
-                            business=target.get("business"),
-                            tenant_id=tenant_id,
-                            query_text=f"@{handle}",
-                            target_type="PAGE",
-                            account_username=account.username,
-                            account=account,
-                            status="REMOVED_UNQUALIFIED",
-                            posts_inspected=p_insp,
-                            qualifying_posts=p_qual,
-                            leads_found=l_saved,
-                            message=f"حذف دائمی پیج رقیب @{handle}: بررسی {p_insp} پست و تنها {p_qual} پست واجد شرایط. پیج غیرفعال شد.",
-                            crawled_at=dj_timezone.now(),
-                        )
-                    except Exception as log_exc:
-                        self.stderr.write(f"Notice: Failed to log InstagramCrawlExecution for @{handle}: {log_exc}")
-                    time.sleep(random.uniform(2.0, 4.0))
-                    continue
-
-                page_status = "SUCCESS" if p_qual > 0 else ("NO_POSTS" if p_insp == 0 else "SUCCESS")
-                if page_err and not page_medias:
-                    page_status = "FAILED"
-                try:
-                    InstagramCrawlExecution.objects.create(
-                        business=target.get("business"),
-                        tenant_id=tenant_id,
-                        query_text=f"@{handle}",
-                        target_type="PAGE",
-                        account_username=account.username,
-                        account=account,
-                        status=page_status,
-                        posts_inspected=p_insp,
-                        qualifying_posts=p_qual,
-                        leads_found=l_saved,
-                        message=f"بررسی {p_insp} پست از صفحه @{handle}، {p_qual} پست حائز شرایط، {l_saved} سرنخ ثبت شد." if not (page_err and not page_medias) else f"خطای دسترسی: {page_err}",
-                        crawled_at=dj_timezone.now(),
-                    )
-                    self.stdout.write(self.style.SUCCESS(f"    📝 [Crawl Log Saved]: @{handle} by @{account.username} ({page_status})"))
-                except Exception as log_exc:
-                    self.stderr.write(f"Notice: Failed to log InstagramCrawlExecution for @{handle}: {log_exc}")
-
-                from apps.discovery.anti_ban import InstagramAntiBanManager
-                InstagramAntiBanManager.record_query_action(account, self.stdout)
-                InstagramAntiBanManager.sleep_after_query(self.stdout)
-
-        # Update account action count
-        account.daily_action_count += total_qualifying_posts
-        account.last_action_at = dj_timezone.now()
-        account.save(update_fields=["daily_action_count", "last_action_at"])
-
-        return total_leads_saved

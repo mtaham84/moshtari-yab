@@ -161,7 +161,7 @@ class InstagramFamilyDatabaseTests(TestCase):
         command._instagram_api_call = Mock(side_effect=AssertionError("Instagram API called"))
         target = {"business": self.business, "family": self.family, "plan": None, "sources": []}
         with patch("apps.billing.services.is_blocked", return_value=True):
-            self.assertEqual(command._scrape_family_target(object(), object(), target, 20, 6), 0)
+            self.assertEqual(command._scrape_family_target(object(), object(), target, 20), 0)
         command._instagram_api_call.assert_not_called()
 
     def test_daily_plan_cap(self):

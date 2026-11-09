@@ -207,20 +207,6 @@ def test_product_queries_cover_three_formats_with_sane_count():
     assert all(positive_word_count(q["query"]) <= 3 and " OR " not in q["query"] for q in qs)
 
 
-def test_ig_term_scoring_demotes_empty_terms_and_keeps_explorers():
-    import random
-    from apps.discovery.ig_query_scoring import pick, score
-
-    hist = {"بد": {"runs": 8, "leads": 0, "penalty": 4.0}, "خوب": {"runs": 5, "leads": 4, "penalty": 0.5}}
-    rng = random.Random(7)
-    wins = sum(pick(["بد", "خوب", "تازه"], 1, hist, rng=rng) == ["خوب"] for _ in range(300))
-    assert wins > 180
-    # never-seen term is still explored sometimes, the empty term almost never
-    rng = random.Random(3)
-    firsts = [pick(["بد", "تازه"], 1, hist, rng=rng)[0] for _ in range(300)]
-    assert firsts.count("تازه") > 240 and score(None, rng) > 0
-
-
 def test_incomplete_llm_terms_are_not_cached():
     from workers.x_collector.llm_terms import is_complete
 

@@ -90,53 +90,11 @@ def extract_caption_cta(caption: Optional[str]) -> Optional[str]:
 from apps.discovery.comment_moderation import is_toxic_or_spam_comment, is_pure_emoji_or_symbols_only
 from instagram_engine.post_filters import is_generic_compliment_comment, EMOJI_PATTERN
 
-PERSIAN_COMMENT_STOPWORDS = {
-    "و", "در", "به", "از", "که", "این", "رو", "را", "با", "برای", "است", "شد", "بود",
-    "شدن", "کردن", "سلام", "من", "تو", "ما", "شما", "اون", "چون", "هم", "یک", "یه", "یا",
-    "کنید", "لطفا", "لطفاً", "میشه", "دارید", "هست", "پست", "پیج"
-}
-
-
-def detect_repeated_comment_triggers(comments_text_list: List[str], min_count: int = 3) -> List[Tuple[str, int]]:
-    """
-    Detects short keywords repeatedly commented across a post's comments.
-    When a creator asks followers to comment a specific word for more information, they often repeat that short phrase.
-    """
-    if not comments_text_list or len(comments_text_list) < 3:
-        return []
-
-    from collections import Counter
-    freq = Counter()
-
-    for raw in comments_text_list:
-        if not raw or not raw.strip():
-            continue
-        clean = EMOJI_PATTERN.sub("", raw).strip(" .!،؟?~_-«»\"'#@*()[]{}<>^%$+=/\\").strip()
-        if not clean:
-            continue
-        words = clean.split()
-        if 1 <= len(words) <= 3:
-            norm_clean = clean.lower()
-            if len(norm_clean) >= 2 and norm_clean not in PERSIAN_COMMENT_STOPWORDS:
-                freq[norm_clean] += 1
-            elif norm_clean.isdigit():
-                freq[norm_clean] += 1
-
-            if len(words) > 1:
-                for w in words:
-                    w_norm = w.lower().strip(" .!،؟?~_-«»\"'#@*()[]{}<>^%$+=/\\")
-                    if len(w_norm) >= 2 and w_norm not in PERSIAN_COMMENT_STOPWORDS:
-                        freq[w_norm] += 1
-
-    repeated = [(word, count) for word, count in freq.most_common(8) if count >= min_count]
-    return repeated
-
 
 # Luna GPT-6 Official Pricing ($ per 1M tokens)
 GPT6_LUNA_INPUT_PRICE_PER_M = 0.10
 GPT6_LUNA_OUTPUT_PRICE_PER_M = 0.50
 GPT6_LUNA_CACHED_PRICE_PER_M = 0.01
-
 
 
 def _call_llm_with_usage(payload: dict, timeout: float = 25.0) -> Dict[str, Any]:
@@ -216,53 +174,6 @@ def _call_llm_completion(payload: dict, timeout: float = 20.0) -> Optional[str]:
     """Helper to perform OpenAI-compatible chat completion."""
     res = _call_llm_with_usage(payload, timeout=timeout)
     return res.get("content")
-
-
-def llm_extract_caption_cta(caption: Optional[str]) -> Optional[str]:
-    """
-    Tier 1B: LLM fallback for complex or conversational Persian caption CTAs
-    (e.g., author asks for an emoji, phrase, or indirect CTA not caught by regex).
-    """
-    if not caption or not caption.strip() or not settings.llm_api_key:
-        return None
-
-    default_prompt = (
-        "شما تحلیل‌گر کپشن اینستاگرام فارسی هستید. وظیفه شما تشخیص این است که آیا نویسنده کپشن از مخاطبان "
-        "خواسته کلمه، عبارت، عدد یا ایموجی خاصی را در کامنت بنویسند تا قیمت/لینک/اطلاعات برایشان دایرکت شود یا خیر.\n"
-        "اگر کلمه یا عبارت خاصی مشخص شده، فقط و فقط همان کلمه یا عبارت را بدون هیچ توضیح اضافی برگردان.\n"
-        "اگر هیچ درخواست کامنت خاصی وجود ندارد، دقیقاً کلمه 'NONE' را برگردان."
-    )
-    prompt = f"{get_system_prompt('ig_cta_extraction', default_prompt)}\n\nکپشن:\n{caption[:1500]}"
-
-    payload = {
-        "model": "gpt-6-luna",
-        "messages": [
-            {"role": "system", "content": "You are a precise Persian text extractor. Return only the requested trigger or 'NONE'."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.0,
-        "max_tokens": 50,
-    }
-
-    raw = _call_llm_completion(payload, timeout=15.0)
-    if raw:
-        candidate = clean_trigger_word(raw.strip())
-        if candidate and candidate.upper() != "NONE" and len(candidate) <= 30:
-            logger.info("LLM extracted conversational caption CTA: '%s'", candidate)
-            return candidate
-
-    return None
-
-
-
-def get_effective_caption_cta(caption: Optional[str]) -> Optional[str]:
-    """
-    Combined Tier 1A + Tier 1B: Deterministic Regex first, LLM fallback second.
-    """
-    cta = extract_caption_cta(caption)
-    if cta:
-        return cta
-    return llm_extract_caption_cta(caption)
 
 
 def is_buyer_comment(comment_text: str, cta_word: Optional[str] = None) -> Tuple[bool, Optional[str]]:
