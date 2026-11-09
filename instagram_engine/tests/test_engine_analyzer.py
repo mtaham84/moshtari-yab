@@ -1,7 +1,6 @@
 import unittest
 from instagram_engine.analyzer import (
     extract_caption_cta,
-    is_buyer_comment,
     clean_trigger_word,
     validate_and_sanitize_dm,
 )
@@ -35,27 +34,6 @@ class TestInstagramAnalyzer(unittest.TestCase):
         # Case 5: No CTA
         cap5 = "یک روز خوب در کارگاه تولیدی ما با همکاران عزیز."
         self.assertIsNone(extract_caption_cta(cap5))
-
-    def test_is_buyer_comment(self):
-        # CTA Match
-        matched, reason = is_buyer_comment("سلام مانتو میخواستم", cta_word="مانتو")
-        self.assertTrue(matched)
-        self.assertEqual(reason, "cta_match:مانتو")
-
-        # Keyword Match
-        matched, reason = is_buyer_comment("سلام قیمت این کار چنده؟")
-        self.assertTrue(matched)
-        self.assertTrue("keyword_match" in reason)
-
-        # Keyword Match with 'موجوده'
-        matched, reason = is_buyer_comment("سایز ۴۰ موجوده؟")
-        self.assertTrue(matched)
-        self.assertTrue("keyword_match" in reason)
-
-        # Non-buyer comment
-        matched, reason = is_buyer_comment("خیلی عالی بود دستتون درد نکنه")
-        self.assertFalse(matched)
-        self.assertIsNone(reason)
 
     def test_outreach_dm_guardrails(self):
         # Case 1: Clean conversational message

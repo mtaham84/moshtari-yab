@@ -35,33 +35,6 @@ PERSION_CTA_PATTERNS = [
 
 PUNCTUATION_TO_STRIP = "«»\"'()[]{}.,;:!؟?،#@/\n\r\t "
 
-# ---------------------------------------------------------------------------
-# Tier 2: Persian High-Intent Buyer Keywords
-# ---------------------------------------------------------------------------
-BUYER_KEYWORDS = [
-    "قیمت",
-    "چنده",
-    "چند",
-    "موجوده",
-    "موجود دارید",
-    "سفارش",
-    "ثبت سفارش",
-    "شرایط",
-    "ارسال",
-    "هزینه ارسال",
-    "دایرکت چک",
-    "دایرکت پیام",
-    "چک دایرکت",
-    "لینک",
-    "خرید",
-    "نحوه خرید",
-    "سایز",
-    "قد",
-    "رنگبندی",
-    "آدرس حضوری",
-]
-
-
 def clean_trigger_word(raw: str) -> str:
     """Cleans punctuation, Persian quotes, and symbols from extracted trigger words."""
     cleaned = raw.strip(PUNCTUATION_TO_STRIP)
@@ -94,7 +67,6 @@ from instagram_engine.post_filters import is_generic_compliment_comment, EMOJI_P
 # Luna GPT-6 Official Pricing ($ per 1M tokens)
 GPT6_LUNA_INPUT_PRICE_PER_M = 0.10
 GPT6_LUNA_OUTPUT_PRICE_PER_M = 0.50
-GPT6_LUNA_CACHED_PRICE_PER_M = 0.01
 
 
 def _call_llm_with_usage(payload: dict, timeout: float = 25.0) -> Dict[str, Any]:
@@ -174,86 +146,6 @@ def _call_llm_completion(payload: dict, timeout: float = 20.0) -> Optional[str]:
     """Helper to perform OpenAI-compatible chat completion."""
     res = _call_llm_with_usage(payload, timeout=timeout)
     return res.get("content")
-
-
-def is_buyer_comment(comment_text: str, cta_word: Optional[str] = None) -> Tuple[bool, Optional[str]]:
-    """
-    Tier 2: Direct Buyer Intent Filter.
-    Returns (is_lead: bool, match_reason: Optional[str]).
-    - True if the comment contains the extracted CTA word.
-    - True if the comment contains high-intent Persian buying inquiry keywords.
-    """
-    if not comment_text or not comment_text.strip():
-        return False, None
-
-    normalized = comment_text.strip().lower()
-
-    # 1. Match CTA word if available
-    if cta_word and len(cta_word) >= 2:
-        cta_norm = cta_word.lower()
-        if cta_norm in normalized:
-            return True, f"cta_match:{cta_word}"
-
-    # 2. Match Direct Buying Intent Keywords
-    for kw in BUYER_KEYWORDS:
-        # Check whole word or substring match
-        if kw in normalized:
-            return True, f"keyword_match:{kw}"
-
-    return False, None
-
-
-def llm_evaluate_batch(caption: str, comments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Tier 3: Local or Remote LLM Batch Comment Evaluator.
-    Evaluates comments that did not match simple keyword/CTA filters (e.g. descriptive problem
-    statements, questions, pain points like 'چشمم پای مانیتور خسته میشه').
-    
-    comments input structure: [{'id': str, 'text': str, 'username': str}, ...]
-    Returns filtered list of comments determined to be qualified buyer leads.
-    """
-    if not comments or not settings.llm_api_key:
-        return []
-
-    # Limit batch to max 25 comments per call to fit context and keep latency low
-    batch_slice = comments[:25]
-    comments_formatted = "\n".join([f"[{i+1}] ID:{c.get('id')} User:@{c.get('username')}: {c.get('text')}" for i, c in enumerate(batch_slice)])
-
-    default_prompt = (
-        "شما متخصص ارزیابی قصد خرید و لید در اینستاگرام هستید. با توجه به کپشن پست زیر، کامنت‌هایی که "
-        "نشان‌دهنده نیاز واقعی به محصول، سوال جدی، ابراز درد/مشکل مرتبط با محصول، یا تمایل به خرید هستند را "
-        "شناسایی کن. کامنت‌های تشکر ساده، ایموجی خالی، یا تعریف غیرخریدارانه را رد کن.\n\n"
-        "پاسخ را دقیقاً در قالب یک آرایه JSON از شناسه‌ها برگردان. مثال: [\"123\", \"456\"]"
-    )
-    prompt = (
-        f"{get_system_prompt('ig_comments_batch_eval', default_prompt)}\n\n"
-        f"کپشن پست:\n{caption[:800]}\n\n"
-        f"کامنت‌ها:\n{comments_formatted}"
-    )
-
-    payload = {
-        "model": settings.llm_model,
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON evaluator. Output valid JSON list of matching comment IDs only."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.1,
-    }
-
-    raw_content = _call_llm_completion(payload, timeout=30.0)
-    if raw_content:
-        match = re.search(r"\[.*?\]", raw_content, re.DOTALL)
-        if match:
-            try:
-                matched_ids = json.loads(match.group(0))
-                matched_ids_set = {str(mid).strip() for mid in matched_ids}
-                qualified = [c for c in batch_slice if str(c.get("id")) in matched_ids_set]
-                logger.info("Tier 3 LLM evaluated %d comments, qualified %d leads.", len(batch_slice), len(qualified))
-                return qualified
-            except Exception as exc:
-                logger.warning("Failed to parse LLM JSON batch evaluation: %s", exc)
-
-    return []
 
 
 # ---------------------------------------------------------------------------

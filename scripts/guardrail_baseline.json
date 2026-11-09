@@ -41,7 +41,7 @@
     "apps/products/taxonomy.py": 1,
     "apps/products/views.py": 7,
     "conftest.py": 1,
-    "instagram_engine/analyzer.py": 5,
+    "instagram_engine/analyzer.py": 4,
     "need_engine/catalog.py": 2,
     "need_engine/config.py": 2,
     "need_engine/embeddings.py": 1,
