@@ -17,7 +17,7 @@ from django.utils import timezone as django_tz
 from apps.discovery.models.instagram import InstagramEngineAccount
 from apps.discovery.human_routine import HumanShiftPlanner  # noqa: F401  (tests patch tasks.HumanShiftPlanner)
 from apps.discovery.outreach_engine import get_available_senders, reply_sync_allowed, run_outreach_batch
-from apps.discovery.outreach_service import check_and_sync_lead_replies
+from apps.discovery.outreach.replies import check_and_sync_lead_replies
 
 logger = logging.getLogger("discovery.tasks")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
@@ -168,7 +168,7 @@ def task_warmup_sender_account(username: Optional[str] = None, tenant_ids: Optio
     for active sender accounts without blocking or slowing down the direct message send path.
     """
     from apps.discovery.outreach_engine import get_available_senders, get_sender_client
-    from apps.discovery.outreach_service import execute_background_organic_warmup
+    from apps.discovery.outreach.journey import execute_background_organic_warmup
     from apps.discovery.tenants import outreach_tenant_ids
 
     tenants = tenant_ids or outreach_tenant_ids()

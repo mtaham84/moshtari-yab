@@ -32,7 +32,7 @@ from apps.discovery.outreach_engine import (  # noqa: F401  (re-exported for old
     reply_sync_allowed,
     run_outreach_batch,
 )
-from apps.discovery.outreach_service import check_and_sync_lead_replies
+from apps.discovery.outreach.replies import check_and_sync_lead_replies
 
 logger = logging.getLogger("instagram_outreach")
 

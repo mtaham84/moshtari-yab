@@ -16,7 +16,9 @@ green, before the next one starts. Behavior must not change unless the step says
 - Phase 2 is done (#30-#34): 0 unreachable modules remain; one Instagram stack.
 - Phase 3 is done (`refactor/one-instagram-stack`): the scraper and `ig_accounts.py` are split into focused modules,
   proxy handling has one owner (`apps/discovery/proxies/`), and every instagrapi client comes from one factory.
-- **Next step:** Phase 4, splitting the largest files.
+- Phase 4 is done as four PRs (#36 views/services, #37 templates, #38 CSS, #39 outreach/ops bot): of the 15 files
+  over 800 lines only `apps/discovery/models/core.py` (848) is left, on purpose.
+- **Next step:** Phase 5, error handling and the bugs listed under "Known issues".
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -120,9 +122,22 @@ kept; the experimental JSONL pipeline (`workers/ig_collector/`, `instagram_disco
 
 ## Phase 4: Split the largest files
 
-`manage_dashboard.html`, `site.css` / `panel.css`, `manage_views.py`, `outreach.html`, `outreach_service.py`,
-`workers/telegram_config_bot.py` (if kept). Split by responsibility: views per page, services, template partials with
-`{% include %}`. Tests first; no behavior change.
+Split by responsibility, tests first, no behavior change. Each PR was checked with a render diff (every URL as anon,
+staff and seller on fixed data, compared with main) and, for JS and CSS, in headless Chromium.
+
+- [x] PR A: `apps/billing/manage_views.py` (2,153) → `apps/billing/manage/` (one module per area; the 640-line
+      dashboard view is built from one function per section, pinned by `test_manage_dashboard_context.py`).
+      Outreach views → `accounts/outreach_views.py`, opportunity export → `discovery/views/export.py`,
+      `billing/services.py` → `services` (wallets) + `reports`, `ops_status`, `x_stats`, `engine_tables`.
+- [x] PR B: `manage_dashboard.html` (4,369) → 370 lines + one partial per tab (`templates/ops/manage/`). Inline JS/CSS
+      of six templates → `static/js`, `static/css`; template values reach the scripts through `data-*` attributes on
+      the `<script>` tag (`document.currentScript.dataset`). `outreach.html`, `opportunities_list.html` → partials.
+- [x] PR C: `site.css` / `panel.css` → `site-*.css` / `panel-*.css` along their sections, linked in the same order
+      (byte-identical when concatenated; flat in `static/css/` for the relative `url()`).
+- [x] PR D: the unused direct DM path in `outreach_service` removed; the rest → `apps/discovery/outreach/` (limits,
+      messages, recipients, journey, replies, outbox). The ops bot's code → `apps/core/ops_bot/`;
+      `workers/telegram_config_bot.py` is only the systemd entry point.
+- Left: `apps/discovery/models/core.py` (848; the `Opportunity` model alone is 412 lines).
 
 ## Phase 5: Error handling and bugs
 
@@ -164,3 +179,9 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
   - Telegram's own egress proxy candidates exist in three slightly different lists (`workers/telegram_config_bot.py`,
     `shared/telegram_alerts.py`, `channel_config_automation.get_http_request_with_proxy`).
   - `apps/discovery/ig_login.py` is 429 lines, over the 400-line guideline for new files.
+- Found in Phase 4, not fixed:
+  - `apps/billing/manage/cockpit.py` is 420 lines (over the 400-line guideline).
+  - The /manage/ dashboard still has its own Instagram account endpoints (`manage/ig_legacy.py`) next to the
+    account pages (`ig_accounts_views.py`) because the dashboard JS calls them; both use the same services.
+  - Splitting files in parallel PRs makes `scripts/guardrail_baseline.json` conflict; merge one at a time and re-run
+    `check_baseline.py --update`.

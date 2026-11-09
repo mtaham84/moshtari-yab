@@ -34,15 +34,11 @@ from apps.discovery.anti_ban import InstagramAntiBanManager
 from apps.discovery.device_emulator import connect_saved_session, has_device_profile
 from apps.discovery.human_routine import HumanShiftPlanner
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-from apps.discovery.outreach_service import (
-    build_bulletproof_message,
-    execute_organic_journey,
-    get_effective_sender_limits,
-    process_queued_outbox_message,
-    qualify_recipient_profile,
-    resolve_queued_sender,
-    select_and_reserve_candidate,
-)
+from apps.discovery.outreach.journey import execute_organic_journey
+from apps.discovery.outreach.limits import get_effective_sender_limits
+from apps.discovery.outreach.messages import build_bulletproof_message
+from apps.discovery.outreach.outbox import process_queued_outbox_message, resolve_queued_sender
+from apps.discovery.outreach.recipients import qualify_recipient_profile, select_and_reserve_candidate
 
 logger = logging.getLogger("instagram_outreach")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")

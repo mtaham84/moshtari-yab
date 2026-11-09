@@ -76,7 +76,7 @@ def check(account, *, actor: str = "", allow_login: bool = True) -> Result:
 # ---------------------------------------------------------------------------
 def update_settings(account, *, actor: str = "", **values) -> Result:
     """username / role / tenant_id / account_tier / daily_limit / password (only the given, non-empty values)."""
-    from apps.discovery.outreach_service import get_tier_specs
+    from apps.discovery.outreach.limits import get_tier_specs
 
     changed = []
     old_username = account.username
@@ -170,7 +170,7 @@ def add_account(*, username, password: str = "", role: str = "SENDER", tenant_id
 
     proxy: system (a free system config, else the pool) | config (`config`) | custom (`proxy_url`) | pool.
     """
-    from apps.discovery.outreach_service import get_tier_specs
+    from apps.discovery.outreach.limits import get_tier_specs
 
     username = normalize_username(username).lower()   # how Instagram itself writes usernames
     if not USERNAME_RE.match(username):

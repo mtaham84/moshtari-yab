@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from apps.discovery.outreach_service import build_bulletproof_message, perform_organic_warmup
+from apps.discovery.outreach.journey import perform_organic_warmup
+from apps.discovery.outreach.messages import build_bulletproof_message
 
 APPROVED = (
     "درود بر شما \nبنده رها هستم مشاور و پشتیبانی تخصصی دندان پزشکی ، متوجه شدم پیگیر امور زیبایی و سلامتی دندونتون هستید\n"
@@ -21,7 +22,7 @@ class StaticTemplateVariationTests(SimpleTestCase):
         body = APPROVED.split("\n", 1)[1]
         outputs = set()
         for seed in range(40):
-            with patch("apps.discovery.outreach_service.random", __import__("random").Random(seed)):
+            with patch("apps.discovery.outreach.messages.random", __import__("random").Random(seed)):
                 msg = build_bulletproof_message(pitch_template=APPROVED, lead=self.lead, consultant_name="رها")
             self.assertIn(body, msg)
             self.assertEqual(len(re.findall(r"درود|سلام", msg.split("\n", 1)[0])), 1)
@@ -36,7 +37,7 @@ class StaticTemplateVariationTests(SimpleTestCase):
 
 
 class OrganicWarmupStoryTests(SimpleTestCase):
-    @patch("apps.discovery.outreach_service.time.sleep")
+    @patch("apps.discovery.outreach.journey.time.sleep")
     def test_views_up_to_two_stories_then_likes_post(self, _sleep):
         cl = MagicMock()
         cl.user_stories.return_value = [SimpleNamespace(pk="11"), SimpleNamespace(pk="12"), SimpleNamespace(pk="13")]
@@ -46,7 +47,7 @@ class OrganicWarmupStoryTests(SimpleTestCase):
         cl.media_like.assert_called_once_with("m1")
         self.assertEqual(actions, {"liked_post": True, "viewed_story": True})
 
-    @patch("apps.discovery.outreach_service.time.sleep")
+    @patch("apps.discovery.outreach.journey.time.sleep")
     def test_story_failure_does_not_block_like(self, _sleep):
         cl = MagicMock()
         cl.user_stories.side_effect = RuntimeError("stories unavailable")

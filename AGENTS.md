@@ -25,7 +25,7 @@ in English.
 | `crawler` | `python -m telegram_crawler.main` | `telegram_crawler/` |
 | `x` (profile `x`) | `python -m workers.x_collector` | `workers/x_collector/`, `x_ingest/` |
 | `ig` | `manage.py run_instagram_scraper` | `apps/discovery/ig_scraper/`, `instagram_engine/` |
-| `ig-outreach` | `manage.py run_instagram_outreach` | `apps/discovery/outreach_service.py` |
+| `ig-outreach` | `manage.py run_instagram_outreach` | `apps/discovery/outreach_engine.py`, `apps/discovery/outreach/` |
 | `channel-config-sync` | `manage.py run_channel_config_automation` | `apps/discovery/channel_config_automation.py`, `xray/multi_proxy_manager.py` |
 | `celery-worker`, `celery-beat` | `celery -A config` | `config/celery.py`, `apps/discovery/tasks.py` |
 | `retention`, `retention-report` (profile `maintenance`) | `purge_retained_data`, `scripts/retention_report.py` | |
@@ -33,8 +33,9 @@ in English.
 Instagram accounts (login, clients, status, tenants) live in `apps/discovery/ig_accounts.py`, `ig_login.py`,
 `ig_client.py`, `ig_state.py` and `tenants.py`; every proxy decision lives in `apps/discovery/proxies/`.
 
-Run outside docker-compose by systemd on the server (keep them): `workers/telegram_config_bot.py` (ops bot) and
-`workers/channel_config_collector.py`. `python scripts/find_unreachable.py` lists code no entry point reaches; do not
+Run outside docker-compose by systemd on the server (keep them): `workers/telegram_config_bot.py` (ops bot entry
+point; the bot is `apps/core/ops_bot/`) and `workers/channel_config_collector.py`. Page scripts and styles live in
+`static/js` / `static/css`, not inline in templates; big pages are split into `{% include %}` partials. `python scripts/find_unreachable.py` lists code no entry point reaches; do not
 extend anything it lists (see `docs/CLEANUP_ROADMAP.md`).
 
 ## Commands
@@ -76,8 +77,7 @@ This code was built fast with AI help, and the same mistakes kept piling up. Eac
 3. **Replace means delete.** When new code replaces old code, delete the old code, its tests, its settings and its docs
    in the same change. Don't keep anything "for reference", "for compatibility" or "just in case". Git history is the
    backup.
-4. **File size.** Do not grow a file that is already over 800 lines (for example `apps/billing/manage_views.py`,
-   `templates/ops/manage_dashboard.html`, `run_instagram_scraper.py`). Put new code in a new, focused module, or split
+4. **File size.** Do not grow a file that is already over 800 lines (`scripts/guardrail_baseline.json` lists them). Put new code in a new, focused module, or split
    the file first in a separate change. New files should stay under 400 lines.
 5. **No silent failures.** Don't write `except Exception: pass` or a broad `except` that only logs and continues. Catch
    the specific exception you expect. A broad catch is allowed only at a process boundary (worker loop, management

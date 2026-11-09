@@ -20,6 +20,11 @@
     "apps/core/jalali.py": 5,
     "apps/core/llm.py": 1,
     "apps/core/management/commands/purge_retained_data.py": 1,
+    "apps/core/ops_bot/leads.py": 2,
+    "apps/core/ops_bot/prompts.py": 2,
+    "apps/core/ops_bot/status.py": 2,
+    "apps/core/ops_bot/telegram_api.py": 5,
+    "apps/core/ops_bot/worker.py": 6,
     "apps/core/prompts.py": 10,
     "apps/discovery/accounts_pool_file.py": 1,
     "apps/discovery/channel_config_automation.py": 16,
@@ -43,8 +48,11 @@
     "apps/discovery/management/commands/run_channel_config_automation.py": 1,
     "apps/discovery/management/commands/run_instagram_outreach.py": 3,
     "apps/discovery/models/core.py": 3,
+    "apps/discovery/outreach/journey.py": 8,
+    "apps/discovery/outreach/messages.py": 1,
+    "apps/discovery/outreach/recipients.py": 2,
+    "apps/discovery/outreach/replies.py": 1,
     "apps/discovery/outreach_engine.py": 7,
-    "apps/discovery/outreach_service.py": 12,
     "apps/discovery/proxies/assignment.py": 1,
     "apps/discovery/proxies/export.py": 1,
     "apps/discovery/proxies/health.py": 2,
@@ -88,7 +96,7 @@
     "telegram_crawler/monitor.py": 7,
     "telegram_crawler/telegram_client.py": 1,
     "workers/channel_config_collector.py": 3,
-    "workers/telegram_config_bot.py": 18,
+    "workers/telegram_config_bot.py": 1,
     "workers/x_collector/account_pool.py": 6,
     "workers/x_collector/client.py": 3,
     "workers/x_collector/families.py": 1,
@@ -101,8 +109,6 @@
     "xray/multi_proxy_manager.py": 16
   },
   "lines": {
-    "apps/discovery/models/core.py": 848,
-    "apps/discovery/outreach_service.py": 1364,
-    "workers/telegram_config_bot.py": 1167
+    "apps/discovery/models/core.py": 848
   }
 }

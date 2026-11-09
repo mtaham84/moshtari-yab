@@ -22,7 +22,7 @@ class OutreachEngineTests(TestCase):
             patch("apps.discovery.proxies.rotation.prepare_sender_proxy_before_dm", return_value={}),
             patch.object(engine, "qualify_recipient_profile", return_value={"eligible": True, "target_pk": 111, "reason": ""}),
             patch.object(engine, "execute_organic_journey", return_value={"target_pk": 111, "actions": {}}),
-            patch("apps.discovery.outreach_service.execute_organic_journey", return_value={"target_pk": 111, "actions": {}}),
+            patch("apps.discovery.outreach.journey.execute_organic_journey", return_value={"target_pk": 111, "actions": {}}),
         ):
             target.start()
             self.addCleanup(target.stop)
@@ -198,11 +198,11 @@ class OutreachEngineTests(TestCase):
 class OrganicSendPathTests(TestCase):
     def test_send_path_works_without_heavy_organic_steps(self):
         """Verify pre-send journey only resolves PK and applies typing delay without heavy browsing."""
-        from apps.discovery.outreach_service import execute_organic_journey
+        from apps.discovery.outreach.journey import execute_organic_journey
         cl = MagicMock()
         cl.user_id_from_username.return_value = 777
 
-        with patch("apps.discovery.outreach_service.time.sleep"):
+        with patch("apps.discovery.outreach.journey.time.sleep"):
             res = execute_organic_journey(cl, "target_buyer", target_pk=None)
 
         self.assertEqual(res["target_pk"], 777)

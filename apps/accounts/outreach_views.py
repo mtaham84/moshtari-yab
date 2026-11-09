@@ -29,7 +29,7 @@ def _outreach_tenant_keys(business) -> list[str]:
 def _captured_phone_for_lead(lead, thread, customer_phones: dict | None = None, business=None):
     """Phone saved on the lead's Customer, else the first Iranian phone number the lead sent us in DM."""
     from apps.discovery.models import Customer
-    from apps.discovery.outreach_service import extract_iranian_phone_number
+    from apps.discovery.outreach.messages import extract_iranian_phone_number
 
     if lead.ig_user_pk:
         if customer_phones is not None:
@@ -88,10 +88,8 @@ def outreach_view(request):
     tenant_key = f"tenant_{business.id}"
     tenant_keys = _outreach_tenant_keys(business)
 
-    from apps.discovery.outreach_service import (
-        TIER_LIMITS,
-        get_lead_conversation_thread,
-    )
+    from apps.discovery.outreach.limits import TIER_LIMITS
+    from apps.discovery.outreach.replies import get_lead_conversation_thread
     from apps.discovery.models import Customer
 
     accounts = InstagramEngineAccount.objects.filter(tenant_id__in=tenant_keys, role="SENDER").order_by("-id")
@@ -146,7 +144,7 @@ def outreach_view(request):
     from django.db.models import Q
     from datetime import timedelta
     from django.utils import timezone as dj_tz
-    from apps.discovery.outreach_service import build_bulletproof_message
+    from apps.discovery.outreach.messages import build_bulletproof_message
     from apps.discovery.instagram_scoring import update_lead_scoring
 
     cutoff_5_days = dj_tz.now() - timedelta(days=5)
@@ -284,7 +282,7 @@ def add_outreach_account_view(request):
 def generate_pitches_ajax_view(request):
     """Generate 3 high-converting AI pitch options based on business info and consultant persona."""
     from django.http import JsonResponse
-    from apps.discovery.outreach_service import generate_ai_outreach_pitches
+    from apps.discovery.outreach.messages import generate_ai_outreach_pitches
 
     business = getattr(request.user, "business", None)
     if not business:
@@ -308,7 +306,7 @@ def generate_pitches_ajax_view(request):
 def sync_replies_view(request):
     """Check direct inbox for any replies from leads across all sender accounts."""
     from django.http import JsonResponse
-    from apps.discovery.outreach_service import check_and_sync_lead_replies
+    from apps.discovery.outreach.replies import check_and_sync_lead_replies
 
     business = getattr(request.user, "business", None)
     if not business:
@@ -338,7 +336,7 @@ def send_followup_view(request):
     """
     from django.http import JsonResponse
     from apps.discovery.models import InstagramEngineLead
-    from apps.discovery.outreach_service import enqueue_direct_message
+    from apps.discovery.outreach.outbox import enqueue_direct_message
 
     business = getattr(request.user, "business", None)
     is_staff = is_operator(request.user)
@@ -429,7 +427,7 @@ def lead_chat_history_view(request, lead_id):
 
     sender_account = lead.sender_account or lead.second_sender_username or ""
     second_sender = lead.second_sender_username or ""
-    from apps.discovery.outreach_service import get_lead_conversation_thread
+    from apps.discovery.outreach.replies import get_lead_conversation_thread
     captured_phone = _captured_phone_for_lead(lead, get_lead_conversation_thread(lead), business=business)
 
     return JsonResponse({
@@ -467,7 +465,7 @@ def update_lead_phone_view(request):
     """Manually update or save a customer's phone number from the direct outreach panel."""
     from django.http import JsonResponse
     from apps.discovery.models import InstagramEngineLead, Customer
-    from apps.discovery.outreach_service import extract_iranian_phone_number
+    from apps.discovery.outreach.messages import extract_iranian_phone_number
 
     business = getattr(request.user, "business", None)
     if not business:
@@ -613,7 +611,7 @@ def outreach_leads_export_csv(request):
         "UNKNOWN": "عمومی",
     }
 
-    from apps.discovery.outreach_service import build_bulletproof_message
+    from apps.discovery.outreach.messages import build_bulletproof_message
     from apps.discovery.tenants import tenant_key as business_tenant_key, tenant_pitch
     default_consultant = (tenant_pitch(business_tenant_key(business))["consultant_name"] if business else "") or "مشاور فروشگاه"
 

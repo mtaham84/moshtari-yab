@@ -6,10 +6,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 from django.test import SimpleTestCase
-from apps.discovery.outreach_service import (
-    qualify_recipient_profile,
-    build_bulletproof_message,
-)
+from apps.discovery.outreach.messages import build_bulletproof_message
+from apps.discovery.outreach.recipients import qualify_recipient_profile
 
 
 class OutreachAutoRecoveryTestCase(SimpleTestCase):

@@ -160,7 +160,7 @@ PROMPT_CATALOG: Dict[str, Dict[str, Any]] = {
     "ig_outreach_pitches": {
         "title": "پیشنهاد ۳ پیش‌نویس متنوع پیام دایرکت در پنل",
         "category": "ارتباط با مشتری و دایرکت",
-        "module_path": "apps/discovery/outreach_service.py:generate_ai_outreach_pitches",
+        "module_path": "apps/discovery/outreach/messages.py:generate_ai_outreach_pitches",
         "description": "ساخت ۳ مدل پیام دایرکت متناسب با لحن مشاور (مشاوره‌ای و صمیمی، دعوت به مشاوره رایگان، بررسی تخصصی نیاز) برای ارسال به مشتری.",
         "default": (
             "شما یک متخصص بازاریابی دیجیتال و کپی‌رایتر ارشد برای دایرکت مارکتینگ اینستاگرام هستید. "

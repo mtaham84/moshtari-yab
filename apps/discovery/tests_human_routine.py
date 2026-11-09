@@ -8,12 +8,9 @@ from django.test import TestCase
 
 from apps.discovery.human_routine import DailyShiftSchedule, HumanShiftPlanner, TEHRAN_TZ
 from apps.discovery.models import InstagramEngineAccount, InstagramEngineLead
-from apps.discovery.outreach_service import (
-    enqueue_direct_message,
-    execute_organic_journey,
-    get_lead_conversation_thread,
-    process_queued_outbox_message,
-)
+from apps.discovery.outreach.journey import execute_organic_journey
+from apps.discovery.outreach.outbox import enqueue_direct_message, process_queued_outbox_message
+from apps.discovery.outreach.replies import get_lead_conversation_thread
 
 
 class HumanRoutineAndQueueTests(TestCase):
@@ -184,7 +181,7 @@ class HumanRoutineAndQueueTests(TestCase):
         mock_cl.direct_send.return_value = True
 
         client_cache = {"raha_test": mock_cl}
-        with patch("apps.discovery.outreach_service.execute_organic_journey") as mock_journey:
+        with patch("apps.discovery.outreach.journey.execute_organic_journey") as mock_journey:
             mock_journey.return_value = {"target_pk": 987654321, "actions": {}}
             res = process_queued_outbox_message(self.lead, client_cache=client_cache, dry_run=False)
 
@@ -215,14 +212,14 @@ class HumanRoutineAndQueueTests(TestCase):
     @patch("time.sleep", return_value=None)
     def test_execute_background_organic_warmup(self, mock_sleep):
         """Test background warm-up simulation (feed, stories, post likes)."""
-        from apps.discovery.outreach_service import execute_background_organic_warmup
+        from apps.discovery.outreach.journey import execute_background_organic_warmup
 
         mock_cl = MagicMock()
         mock_cl.get_timeline_feed.return_value = MagicMock(feed_items=[MagicMock(id="media_1")])
         mock_cl.user_medias.return_value = [MagicMock(id="post_1")]
 
-        with patch("apps.discovery.outreach_service.perform_organic_warmup") as mock_warmup, \
-                patch("apps.discovery.outreach_service.random.random", return_value=0.0):  # every optional step
+        with patch("apps.discovery.outreach.journey.perform_organic_warmup") as mock_warmup, \
+                patch("apps.discovery.outreach.journey.random.random", return_value=0.0):  # every optional step
             mock_warmup.return_value = {"liked_post": True, "viewed_story": True}
             actions = execute_background_organic_warmup(mock_cl, "client_test", target_pk=987654321)
 
