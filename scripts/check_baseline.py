@@ -4,6 +4,10 @@ Existing violations are recorded in scripts/guardrail_baseline.json and may only
 
     python scripts/check_baseline.py            # CI / pre-commit: fail on any new or grown violation
     python scripts/check_baseline.py --update   # after a file shrank: lower its entry (never raises one)
+    python scripts/check_baseline.py --update --moved-from old.py   # code moved out of old.py into new files
+
+A move carries broad excepts with the code. --moved-from gives the new files the entries old.py no longer needs,
+never more than old.py had, so the total cannot grow.
 
 Without a baseline file, --update records the current state.
 """
@@ -76,9 +80,28 @@ def lowered(current: dict[str, dict[str, int]], baseline: dict[str, dict[str, in
     return out
 
 
+def moved(current: dict[str, dict[str, int]], baseline: dict[str, dict[str, int]],
+          sources: list[str]) -> dict[str, dict[str, int]]:
+    """Baseline where the broad excepts no longer needed by `sources` are handed to the files now over their entry."""
+    excepts = dict(baseline["broad_excepts"])
+    budget = 0
+    for src in sources:
+        budget += max(0, excepts.get(src, 0) - current["broad_excepts"].get(src, 0))
+    for path, count in sorted(current["broad_excepts"].items()):
+        need = count - excepts.get(path, 0)
+        if need > 0 and path not in sources:
+            give = min(need, budget)
+            if give:
+                excepts[path] = excepts.get(path, 0) + give
+                budget -= give
+    return {**baseline, "broad_excepts": excepts}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--update", action="store_true", help="lower baseline entries to the current values")
+    parser.add_argument("--moved-from", nargs="+", default=[], metavar="PATH",
+                        help="with --update: code moved out of PATH; its unused broad-except entries move along")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args(argv)
 
@@ -88,7 +111,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.update:
         if baseline_path.exists():
-            new = lowered(current, json.loads(baseline_path.read_text(encoding="utf-8")))
+            old = json.loads(baseline_path.read_text(encoding="utf-8"))
+            if args.moved_from:
+                old = moved(current, old, args.moved_from)
+            new = lowered(current, old)
         else:
             new = current
         baseline_path.write_text(json.dumps(new, indent=2, sort_keys=True) + "\n", encoding="utf-8")

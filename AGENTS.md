@@ -54,7 +54,8 @@ pip install pre-commit && pre-commit install   # runs both before every commit
 Existing violations are recorded in `scripts/guardrail_baseline.json` (file size, broad excepts) and in `ALLOWED` in
 `tests/test_architecture.py` (import boundaries). Both may only shrink: after you shrink a file or remove an except,
 run `python scripts/check_baseline.py --update`; after you remove a forbidden import, delete its `ALLOWED` entry. Never
-add entries. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
+add entries. When you only move code to new files, run `--update --moved-from <old file>`: the moved broad excepts
+take the old file's entries with them, never more. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
 
 Test files are named `test_*.py`, `tests.py` or `tests_*.py` and live under a `testpaths` directory of `pytest.ini`;
 anything else never runs in CI.
