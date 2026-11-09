@@ -17,7 +17,7 @@ class DiscoveryConfig(AppConfig):
 
         def _release_config(sender, instance, **kwargs):
             # its Instagram accounts go to the shared pool (logged) until ensure_system_configs gives them a new one
-            from apps.discovery.ig_accounts import release_config
+            from apps.discovery.proxies.assignment import release_config
             release_config(instance, note=f"کانفیگ #{instance.pk} ({instance.tag or instance.server}) حذف شد")
 
         pre_delete.connect(_release_config, sender=ProxyConfig, weak=False, dispatch_uid="ig_release_proxy_config")

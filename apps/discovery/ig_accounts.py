@@ -17,24 +17,21 @@ import re
 import threading
 import time
 import uuid
-from datetime import timedelta
 from typing import Any, Callable
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import connections, transaction
-from django.db.models import Case, Count, F, FloatField, IntegerField, Value, When
 from django.utils import timezone
 
 from apps.discovery.device_emulator import account_device_settings, apply_device_profile_to_client, connect_saved_session
 from apps.discovery.ig_session import ErrorKind, classify, redact
-from apps.discovery.models import InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.models import InstagramEngineAccount, OutreachTenantProfile
 from apps.discovery.ig_state import (Result, apply_state, clean_sessionid, has_session, log_event, normalize_code,
                                      normalize_digits, normalize_username, now_iso, parse_iso, result_for, set_state)
 from apps.discovery.proxies import health
-from apps.discovery.proxies.urls import (POOL_PORT, RESERVED_PORTS, XRAY_HOST, clean_proxy_url, config_url,
-                                         effective_proxy_url, normalize_proxy_url, proxy_label, proxy_mode,
-                                         validate_proxy_url, xray_port)
+from apps.discovery.proxies.assignment import heal_account, set_proxy, sync_config_owner
+from apps.discovery.proxies.urls import (POOL_PORT, XRAY_HOST, effective_proxy_url, normalize_proxy_url, proxy_label, proxy_mode,
+                                         validate_proxy_url)
 
 log = logging.getLogger("instagram.accounts")
 
@@ -44,7 +41,6 @@ HEARTBEAT_SECONDS = 10.0
 # No heartbeat for this long: the login thread is gone (e.g. the web worker restarted). A thread waiting for the
 # code beats every HEARTBEAT_SECONDS; one talking to Instagram (running/verifying) can be silent for a while.
 STALE_AFTER_SECONDS = {"needs_code": 90, "running": 300, "verifying": 300}
-SETTLE_MINUTES = 45                    # after an IP change no cold DM for this long (a new IP + instant DMs = flag)
 TWO_FACTOR_ATTEMPTS = 3
 LIVE_STATES = ("running", "needs_code", "verifying")
 TENANT_ALIASES = {"sarv": "tenant_4"}  # legacy tenant id of business 4
@@ -52,360 +48,6 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 CODE_RE = re.compile(r"^\d{4,8}$")
 
 _sleep = time.sleep  # indirection for tests
-
-
-
-# ---------------------------------------------------------------------------
-# proxy / config
-# ---------------------------------------------------------------------------
-def _per_config() -> int:
-    try:
-        return max(1, int(getattr(settings, "INSTAGRAM_ACCOUNTS_PER_CONFIG", 1) or 1))
-    except (TypeError, ValueError):
-        return 1
-
-
-def pick_free_config(exclude_ids=(), max_accounts: int | None = None):
-    """A live ACTIVE config with room (INSTAGRAM_ACCOUNTS_PER_CONFIG, default 1 = exclusive): fewest Instagram
-    accounts first, configs used by Twitter last, then lowest ping. None when every config is taken."""
-    limit = max_accounts or _per_config()
-    qs = (ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False)
-          .exclude(local_port__in=RESERVED_PORTS).exclude(pk__in=list(exclude_ids))
-          .annotate(n_ig=Count("instagram_accounts"),
-                    is_tw=Case(When(assigned_platform="TWITTER", then=Value(1)), default=Value(0),
-                               output_field=IntegerField()),
-                    ping_key=Case(When(ping_ms__lte=0, then=Value(99999.0)), default=F("ping_ms"),
-                                  output_field=FloatField()))
-          .filter(n_ig__lt=limit).order_by("n_ig", "is_tw", "ping_key", "pk"))
-    for cfg in qs[:25]:
-        if health.config_live(cfg):
-            return cfg
-    return None
-
-
-def pool_config():
-    """The config behind the shared pool port: xray routes 1080 to the ACTIVE config with the lowest port."""
-    return (ProxyConfig.objects.filter(status="ACTIVE", local_port__isnull=False)
-            .exclude(local_port__in=RESERVED_PORTS).order_by("local_port").first())
-
-
-def _sync_config_owner(config) -> None:
-    """ProxyConfig.assigned_* mirrors the Instagram accounts using it (Twitter keeps configs no IG account uses)."""
-    if config is None or not config.pk:
-        return
-    first = config.instagram_accounts.order_by("pk").values_list("username", flat=True).first()
-    if first:
-        ProxyConfig.objects.filter(pk=config.pk).update(assigned_platform="INSTAGRAM", assigned_to=first)
-    elif config.assigned_platform == "INSTAGRAM":
-        ProxyConfig.objects.filter(pk=config.pk).update(assigned_platform="FREE", assigned_to="")
-
-
-def set_proxy(account, mode: str, *, url: str = "", config=None, actor: str = "", note: str = "",
-              settle: bool = True) -> Result:
-    """Moves `account` to its own proxy (custom), a given system config (config), the automatic choice (system:
-    keeps a live config, else the best free one, else the pool), a different free config (new_config) or the
-    shared pool (pool). An IP change is logged and delays the next cold DM (settle time)."""
-    before_url, before_cfg = effective_proxy_url(account), account.proxy_config
-    if mode == "custom":
-        url = normalize_proxy_url(url)
-        err = validate_proxy_url(url)
-        if err:
-            return result_for(account, False, err)
-        new_url, new_cfg = url, None
-    elif mode == "config":
-        if config is None or not config.local_port or config.local_port in RESERVED_PORTS:
-            return result_for(account, False, "کانفیگ انتخاب‌شده پورت اختصاصی ندارد.")
-        if config.status != "ACTIVE":
-            return result_for(account, False, "کانفیگ انتخاب‌شده فعال نیست.")
-        if (before_cfg is None or before_cfg.pk != config.pk) and not health.config_live(config):
-            return result_for(account, False, f"پورت {config.local_port} این کانفیگ هنوز در xray باز نیست (کانفیگ تازه چند دقیقه "
-                                           "بعد از ثبت فعال می‌شود)؛ کمی بعد دوباره امتحان کنید.")
-        new_url, new_cfg = config_url(config), config
-    elif mode == "system":   # automatic: keep a live config, else a free one, else the pool
-        if proxy_mode(account) != "custom":
-            moved = _heal_account(account, actor or "system")
-            account.refresh_from_db()
-            return result_for(account, True, f"اتصال اکانت: {proxy_label(account)}" + ("" if moved else " (بدون تغییر)"),
-                           extra={"changed": bool(moved and moved.get("changed")), "mode": proxy_mode(account)})
-        cfg = pick_free_config()
-        new_url, new_cfg = (config_url(cfg), cfg) if cfg else ("", None)
-    elif mode == "new_config":   # a different free config (new IP), e.g. after the current IP got flagged
-        cfg = pick_free_config(exclude_ids=[before_cfg.pk] if before_cfg else ())
-        if cfg is None:
-            return result_for(account, False, "کانفیگ آزاد دیگری نیست؛ اتصال تغییری نکرد.")
-        new_url, new_cfg = config_url(cfg), cfg
-    elif mode == "pool":
-        new_url, new_cfg = "", None
-    else:
-        return result_for(account, False, "نوع اتصال نامعتبر است.")
-
-    account.proxy_url = new_url or None
-    account.proxy_config = new_cfg
-    fields = ["proxy_url", "proxy_config"]
-    changed = effective_proxy_url(account) != before_url or (
-        new_cfg is not None and before_cfg is not None and new_cfg.pk != before_cfg.pk)
-    if changed:
-        ds = dict(account.device_settings or {})
-        if ds.pop("proxy_meta", None) is not None:   # old IP info no longer describes this connection
-            account.device_settings = ds
-            fields.append("device_settings")
-        if settle and account.pk:
-            until = timezone.now() + timedelta(minutes=SETTLE_MINUTES)
-            if not account.next_outreach_at or account.next_outreach_at < until:
-                account.next_outreach_at = until
-                fields.append("next_outreach_at")
-    account.save(update_fields=fields)
-    for cfg in {before_cfg, new_cfg} - {None}:
-        _sync_config_owner(cfg)
-    label = proxy_label(account)
-    if changed:
-        log_event(account, "proxy_changed", note or f"اتصال جدید: {label}",
-                  {"from": before_url, "to": effective_proxy_url(account), "mode": proxy_mode(account),
-                   "config_id": new_cfg.pk if new_cfg else None}, actor)
-    return result_for(account, True, f"اتصال اکانت: {label}" + (f" · دایرکت سرد تا {SETTLE_MINUTES} دقیقه "
-                                                             "بعد از تغییر IP ارسال نمی‌شود." if changed and settle else ""),
-                   extra={"changed": changed, "mode": proxy_mode(account)})
-
-
-def assign_system_config(account, *, actor: str = "system", note: str = "") -> Result | None:
-    """Gives an account without its own proxy a system config of its own (if one is free). Never touches custom."""
-    if proxy_mode(account) == "custom":
-        return None
-    cfg = pick_free_config()
-    if cfg is None:
-        return None
-    return set_proxy(account, "config", config=cfg, actor=actor, note=note or f"کانفیگ اختصاصی #{cfg.pk} داده شد")
-
-
-def release_config(config, *, actor: str = "system", note: str = "") -> list[str]:
-    """Called before a config is deleted/marked dead: its accounts move to a free config (else the pool until
-    ensure_system_configs finds one). Returns the usernames moved."""
-    moved = []
-    port_url = config_url(config) if config.local_port else None
-    qs = InstagramEngineAccount.objects.filter(proxy_config=config)
-    if port_url:
-        qs = qs | InstagramEngineAccount.objects.filter(proxy_config__isnull=True, proxy_url=port_url)
-    accounts = list(qs.distinct())
-    xray_up = bool(accounts) and health.port_open(XRAY_HOST, POOL_PORT)
-    for acc in accounts:
-        log_event(acc, "proxy_down", note or f"کانفیگ #{config.pk} ({config.tag or config.server}) از کار افتاد",
-                  {"config_id": config.pk}, actor)
-        new = pick_free_config(exclude_ids=[config.pk]) if xray_up and acc.status not in ("BANNED", "DISABLED") else None
-        if new is None and xray_up and acc.status not in ("BANNED", "DISABLED"):
-            # Multi-tier failover: try picking an active config with room before pool
-            new = pick_free_config(exclude_ids=[config.pk], max_accounts=max(3, _per_config() + 1))
-
-        if new is not None:
-            res = set_proxy(acc, "config", config=new, actor=actor, note=f"کانفیگ #{new.pk} جایگزین کانفیگ حذف‌شده #{config.pk} شد")
-        else:
-            res = set_proxy(acc, "pool", actor=actor, note="موقتاً روی استخر مشترک تا کانفیگ تازه پیدا شود")
-
-        # Lift cooldown if account was in cooldown due to dead proxy
-        if acc.status == "COOLDOWN" and acc.status_reason == "proxy_down" and res and res.ok:
-            acc.status = "ACTIVE"
-            acc.status_reason = ""
-            acc.cooldown_until = None
-            acc.status_message = "کانفیگ سالم جدید جایگزین شد و اکانت فعال گردید"
-            acc.save(update_fields=["status", "status_reason", "cooldown_until", "status_message"])
-            log_event(acc, "cooldown_cleared", "استراحت ناشی از قطعی پروکسی پس از جایگزینی کانفیگ حذف‌شده لغو شد", {}, actor)
-
-        moved.append(acc.username)
-    return moved
-
-
-def _heal_account(acc, actor: str = "system", force_rotate: bool = False, failed_config_id: int | None = None) -> dict | None:
-    """Sticky config for one account without its own proxy (see ensure_system_configs). None: nothing moved."""
-    mode = proxy_mode(acc)
-    if mode == "custom":
-        if not force_rotate:
-            return None
-        why = "پروکسی اختصاصی از کار افتاد"
-    parked = acc.status in ("BANNED", "DISABLED")   # keeps a live config, never takes a free one from the others
-    if mode == "legacy":   # older rows: an xray port without the config link
-        cfg = ProxyConfig.objects.filter(local_port=xray_port(acc.proxy_url)).first()
-        if cfg is not None and cfg.status == "ACTIVE":
-            acc.proxy_config = cfg
-            acc.save(update_fields=["proxy_config"])
-            _sync_config_owner(cfg)
-            mode = "config"
-    old = None
-    if mode == "config":
-        cfg = acc.proxy_config
-        is_current_failed = force_rotate or (failed_config_id is not None and cfg and cfg.pk == failed_config_id)
-        live = health.config_live(cfg)
-        if live and not is_current_failed:
-            if acc.proxy_url != config_url(cfg):   # mirror drifted: same config, same IP
-                acc.proxy_url = config_url(cfg)
-                acc.save(update_fields=["proxy_url"])
-            # shared by more accounts than allowed (left by the old round-robin): the oldest ones keep it,
-            # the others move to a free config of their own when there is one
-            keep = list(cfg.instagram_accounts.order_by("pk").values_list("pk", flat=True)[:_per_config()])
-            new = None if parked or acc.pk in keep else pick_free_config(exclude_ids=[cfg.pk])
-            if new is None:
-                return None
-            res = set_proxy(acc, "config", config=new, actor=actor,
-                            note=f"کانفیگ #{cfg.pk} بین چند اکانت مشترک بود؛ کانفیگ اختصاصی #{new.pk} داده شد")
-            return {"username": acc.username, "from": cfg.pk, "to": new.pk, "new_port": new.local_port,
-                    "changed": bool(res.extra.get("changed"))}
-        old = cfg.pk if cfg else None
-        old = cfg.pk if cfg else None
-        if live:   # xray still serves it: only this account saw it fail, the others keep using it
-            why = f"کانفیگ #{old} برای این اکانت جواب نداد"
-        else:
-            if old:
-                ProxyConfig.objects.filter(pk=old).update(status="DEAD", ping_ms=-1.0)
-                log_event(acc, "proxy_down", f"کانفیگ #{old} در دسترس نیست یا دچار قطعی شد",
-                          {"config_id": old}, actor)
-            why = f"کانفیگ #{old} از کار افتاد یا قطع شد"
-    elif mode == "legacy":
-        why = f"پورت {xray_port(acc.proxy_url)} کانفیگ فعالی ندارد"
-    elif parked:
-        return None
-    elif mode != "custom":
-        why = "قبلاً استخر مشترک"
-    new = None if parked else pick_free_config(exclude_ids=[old] if old else ())
-    if new is None and not parked:
-        # Multi-tier failover: try picking an active config with room before pool
-        new = pick_free_config(exclude_ids=[old] if old else (), max_accounts=max(3, _per_config() + 1))
-    if new is not None:
-        res = set_proxy(acc, "config", config=new, actor=actor, note=f"{why}؛ کانفیگ اختصاصی #{new.pk} داده شد")
-    elif mode == "pool":
-        return None
-    else:
-        res = set_proxy(acc, "pool", actor=actor, note=f"{why}؛ کانفیگ آزادی نبود، موقتاً استخر مشترک")
-
-    # If the account was in cooldown due to proxy failure and now has a working proxy, lift the cooldown
-    if acc.status == "COOLDOWN" and acc.status_reason == "proxy_down" and res and res.ok:
-        acc.status = "ACTIVE"
-        acc.status_reason = ""
-        acc.cooldown_until = None
-        acc.status_message = "پروکسی سالم متصل شد و اکانت از استراحت خارج گردید"
-        acc.save(update_fields=["status", "status_reason", "cooldown_until", "status_message"])
-        log_event(acc, "cooldown_cleared", "استراحت ناشی از قطعی پروکسی پس از انتساب پروکسی جدید لغو شد", {}, actor)
-
-    return {"username": acc.username, "from": old, "to": new.pk if new else None,
-            "new_port": new.local_port if new else POOL_PORT, "changed": bool(res.extra.get("changed"))}
-
-
-def ensure_system_configs(*, actor: str = "system", accounts=None) -> dict:
-    """Heal + sticky assignment for every account without its own proxy (replaces the old round-robin).
-
-    * config still ACTIVE and listening -> untouched (the account keeps its IP)
-    * config dead/gone/not loaded in xray -> another free config (logged, settle time), else the pool
-    * xray port without a config link (older rows) -> linked to the config on that port
-    * pool -> a free config of its own when one exists (working accounts first)
-    * paused/banned accounts keep a live config but never take a free one
-    Nothing happens when xray itself is down (pool port closed): moving every account would not help.
-    """
-    details: list[dict] = []
-    if not health.port_open(XRAY_HOST, POOL_PORT):
-        return {"success": False, "skipped": "xray_down", "healed_count": 0, "details": details}
-    if accounts is None:
-        accounts = (InstagramEngineAccount.objects.select_related("proxy_config")
-                    .annotate(_rank=Case(When(status="ACTIVE", then=Value(0)), When(status="COOLDOWN", then=Value(1)),
-                                         When(status="CHALLENGED", then=Value(2)), default=Value(3),
-                                         output_field=IntegerField()))
-                    .order_by("_rank", "pk"))
-    for acc in accounts:
-        try:
-            moved = _heal_account(acc, actor)
-        except Exception as exc:   # one bad row must not stop the others
-            log.warning("could not heal the connection of @%s: %s", acc.username, exc)
-            continue
-        if moved:
-            details.append(moved)
-    return {"success": True, "healed_count": len(details), "details": details}
-
-
-# ---------------------------------------------------------------------------
-# config export (open the account on a phone from the same IP)
-# ---------------------------------------------------------------------------
-def export_config(account) -> dict:
-    mode = proxy_mode(account)
-    out = {"mode": mode, "label": proxy_label(account), "link": "", "kind": "", "note": "", "shared_with": []}
-    if mode in ("config", "legacy"):
-        cfg = account.proxy_config if mode == "config" else \
-            ProxyConfig.objects.filter(local_port=xray_port(account.proxy_url)).first()
-        if cfg is None:
-            out["note"] = "کانفیگ این اکانت دیگر وجود ندارد؛ «بررسی کانفیگ» را بزنید تا کانفیگ تازه بگیرد."
-            return out
-        others = list(cfg.instagram_accounts.exclude(pk=account.pk).values_list("username", flat=True))
-        out.update(kind="v2ray", link=cfg.raw_url, title=cfg.tag or cfg.server, protocol=cfg.protocol,
-                   server=f"{cfg.server}:{cfg.port}", config_id=cfg.pk, shared_with=others,
-                   note="این لینک را در v2rayNG / v2rayN / Streisand / Hiddify وارد و وصل کنید، بعد اینستاگرام را باز کنید: "
-                        "همان IP که سیستم با آن به این اکانت وصل می‌شود.")
-        return out
-    if mode == "custom":
-        url = clean_proxy_url(account.proxy_url)
-        parsed = urlparse(url)
-        out.update(kind="proxy", link=url, scheme=parsed.scheme, host=parsed.hostname, port=parsed.port,
-                   username=parsed.username or "",
-                   note="پروکسی اختصاصی این اکانت: در تنظیمات پروکسی گوشی یا اپ‌هایی مثل Super Proxy / v2rayNG "
-                        "(نوع HTTP یا SOCKS) وارد کنید.")
-        return out
-    cfg = pool_config()
-    if cfg is not None:
-        out.update(kind="v2ray", link=cfg.raw_url, title=cfg.tag or cfg.server, protocol=cfg.protocol,
-                   server=f"{cfg.server}:{cfg.port}", config_id=cfg.pk, shared=True,
-                   note="این اکانت کانفیگ اختصاصی ندارد و از استخر مشترک استفاده می‌کند (IP مشترک بین اکانت‌ها و با "
-                        "تغییر کانفیگ‌ها عوض می‌شود). برای IP ثابت «کانفیگ اختصاصی» بدهید.")
-    else:
-        out["note"] = "استخر مشترک از تونل پشتیبان سیستم استفاده می‌کند و لینک قابل خروجی ندارد."
-    return out
-
-
-def export_text(accounts) -> str:
-    lines = []
-    for acc in accounts:
-        exp = export_config(acc)
-        lines += [f"@{acc.username} | {acc.get_role_display()} | {acc.tenant_id}", f"اتصال: {exp['label']}"]
-        if exp.get("link"):
-            lines.append(exp["link"])
-        if exp.get("shared_with"):
-            lines.append("مشترک با: " + ", ".join("@" + u for u in exp["shared_with"]))
-        if exp.get("note"):
-            lines.append(exp["note"])
-        lines.append("")
-    return "\n".join(lines).strip() + "\n"
-
-
-def qr_svg(text: str, scale: int = 4) -> str | None:
-    """SVG QR code of `text` (None when segno is not installed or the text is too long)."""
-    if not text:
-        return None
-    try:
-        import io
-        import segno
-        buf = io.BytesIO()
-        segno.make(text, error="l").save(buf, kind="svg", scale=scale, border=2, xmldecl=False)
-        return buf.getvalue().decode("utf-8")
-    except Exception as exc:  # ImportError or DataOverflowError
-        log.info("QR code unavailable: %s", exc.__class__.__name__)
-        return None
-
-
-def check_ip(account, *, actor: str = "") -> Result:
-    """Public IP / ISP / country seen through the account's connection (stored in proxy_meta, logged)."""
-
-    info = health.inspect_proxy_egress(effective_proxy_url(account))
-    ds = dict(account.device_settings or {})
-    meta = dict(ds.get("proxy_meta") or {})
-    prev = meta.get("last_ip")
-    ok = info.get("status") in ("success", "direct")
-    if ok:
-        meta.update(last_ip=info.get("ip", ""), isp=info.get("isp", ""), country=info.get("country", ""),
-                    country_code=info.get("country_code", ""), classification=info.get("classification", ""),
-                    risk_score=info.get("risk_score", ""), checked_at=now_iso())
-        ds["proxy_meta"] = meta
-        account.device_settings = ds
-        account.save(update_fields=["device_settings"])
-        changed = bool(prev and prev != meta["last_ip"])
-        msg = f"IP خروجی {meta['last_ip']} · {meta['country']} · {meta['isp']}" + (f" (قبلاً {prev})" if changed else "")
-        log_event(account, "ip_checked", msg, {"ip": meta["last_ip"], "country": meta["country"], "isp": meta["isp"],
-                                               "classification": meta["classification"], "previous": prev}, actor)
-        return result_for(account, True, msg, extra={"ip": meta["last_ip"], "changed": changed})
-    log_event(account, "ip_checked", "IP خروجی پیدا نشد (اتصال پروکسی/کانفیگ برقرار نشد)", None, actor)
-    return result_for(account, False, "IP خروجی پیدا نشد؛ اتصال پروکسی/کانفیگ برقرار نشد.")
 
 
 # ---------------------------------------------------------------------------
@@ -873,7 +515,7 @@ def check(account, *, actor: str = "", allow_login: bool = True) -> Result:
     proxy = effective_proxy_url(account)
     ok, proxy_msg = health.proxy_reachable(proxy)
     if not ok and proxy_mode(account) != "custom" and health.port_open(XRAY_HOST, POOL_PORT):
-        _heal_account(account, actor or "system")   # its config died: the next free one (or the pool)
+        heal_account(account, actor or "system")   # its config died: the next free one (or the pool)
         account.refresh_from_db()
         proxy = effective_proxy_url(account)
         ok, proxy_msg = health.proxy_reachable(proxy)
@@ -952,7 +594,7 @@ def update_settings(account, *, actor: str = "", **values) -> Result:
         InstagramEngineLead.objects.filter(sender_account__iexact=old_username).update(sender_account=account.username)
         InstagramEngineLead.objects.filter(second_sender_username__iexact=old_username).update(
             second_sender_username=account.username)
-        _sync_config_owner(account.proxy_config)
+        sync_config_owner(account.proxy_config)
     labels = {"username": "نام کاربری", "role": "نقش", "tenant_id": "مشتری", "account_tier": "رده",
               "hourly_limit": "سقف ساعتی", "daily_limit": "سقف روزانه", "password": "پسورد"}
     message = "تغییر: " + "، ".join(dict.fromkeys(labels[f] for f in changed))
@@ -992,7 +634,7 @@ def clear_cooldown(account, *, actor: str = "") -> Result:
 def delete_account(account, *, actor: str = "") -> str:
     username, cfg = account.username, account.proxy_config
     account.delete()
-    _sync_config_owner(cfg)
+    sync_config_owner(cfg)
     log.info("instagram account @%s deleted by %s", username, actor or "system")
     return username
 
@@ -1052,7 +694,7 @@ def add_account(*, username, password: str = "", role: str = "SENDER", tenant_id
     elif proxy == "pool":
         set_proxy(account, "pool", actor=actor, settle=False)
     elif proxy_mode(account) != "custom":   # system: keep a live config, else a free one, else the pool
-        _heal_account(account, actor or "system")
+        heal_account(account, actor or "system")
 
     ok, proxy_msg = health.proxy_reachable(effective_proxy_url(account))
     if not ok:

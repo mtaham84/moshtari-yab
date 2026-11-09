@@ -13,7 +13,7 @@ from instagrapi.exceptions import BadPassword, ChallengeRequired, ClientConnecti
 
 from apps.discovery import ig_accounts as ig
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
-from apps.discovery.proxies import health
+from apps.discovery.proxies import assignment, export, health
 from apps.discovery.proxies.urls import proxy_mode
 
 CODE = "123456"
@@ -339,31 +339,31 @@ class SessionAndCheckTests(IgAccountsTestBase):
 class ConnectionTests(IgAccountsTestBase):
     def test_custom_proxy_from_provider_format(self):
         a = self.acc()
-        res = ig.set_proxy(a, "custom", url="1.2.3.4:8000:user:pass")
+        res = assignment.set_proxy(a, "custom", url="1.2.3.4:8000:user:pass")
         a.refresh_from_db()
         self.assertTrue(res.ok, res)
         self.assertEqual(proxy_mode(a), "custom")
         self.assertEqual(a.clean_proxy, "http://user:pass@1.2.3.4:8000")
         self.assertGreater(a.next_outreach_at, timezone.now())   # a new IP rests before cold DMs
         self.assertIn("proxy_changed", self.kinds(a))
-        self.assertFalse(ig.set_proxy(a, "custom", url="nonsense").ok)
+        self.assertFalse(assignment.set_proxy(a, "custom", url="nonsense").ok)
 
     def test_config_is_kept_by_its_account(self):
         c1 = self.cfg(1091)
         a = self.acc()
-        self.assertTrue(ig.set_proxy(a, "config", config=c1).ok)
+        self.assertTrue(assignment.set_proxy(a, "config", config=c1).ok)
         a.refresh_from_db()
         c1.refresh_from_db()
         self.assertEqual((a.proxy_config_id, a.proxy_url), (c1.pk, "socks5h://xray:1091"))
         self.assertEqual((c1.assigned_platform, c1.assigned_to), ("INSTAGRAM", "acc1"))
-        self.assertTrue(ig.set_proxy(a, "system").ok)            # automatic: keeps its live config
+        self.assertTrue(assignment.set_proxy(a, "system").ok)            # automatic: keeps its live config
         a.refresh_from_db()
         self.assertEqual(a.proxy_config_id, c1.pk)
         c2 = self.cfg(1092)
-        self.assertTrue(ig.set_proxy(a, "new_config").ok)        # explicit: another free config
+        self.assertTrue(assignment.set_proxy(a, "new_config").ok)        # explicit: another free config
         a.refresh_from_db()
         self.assertEqual(a.proxy_config_id, c2.pk)
-        self.assertTrue(ig.set_proxy(a, "pool").ok)
+        self.assertTrue(assignment.set_proxy(a, "pool").ok)
         a.refresh_from_db()
         self.assertEqual((a.proxy_config_id, a.proxy_url, a.clean_proxy), (None, None, "socks5h://xray:1080"))
 
@@ -371,7 +371,7 @@ class ConnectionTests(IgAccountsTestBase):
         c = self.cfg(1093)
         self.closed = {1093}
         a = self.acc()
-        self.assertFalse(ig.set_proxy(a, "config", config=c).ok)
+        self.assertFalse(assignment.set_proxy(a, "config", config=c).ok)
         a.refresh_from_db()
         self.assertIsNone(a.proxy_config_id)
 
@@ -382,7 +382,7 @@ class ConnectionTests(IgAccountsTestBase):
         c = self.acc("c", status="ACTIVE", proxy_config=c2, proxy_url="socks5h://xray:1092")
         d = self.acc("d", proxy_url="http://u:p@5.6.7.8:3128")
         e = self.acc("e", status="DISABLED")
-        out = ig.ensure_system_configs()
+        out = assignment.ensure_system_configs()
         for x in (a, b, c, d, e):
             x.refresh_from_db()
         self.assertEqual(out["healed_count"], 2)
@@ -391,13 +391,13 @@ class ConnectionTests(IgAccountsTestBase):
         self.assertEqual(d.proxy_url, "http://u:p@5.6.7.8:3128")
         self.assertIsNone(e.proxy_config_id)
         self.assertIn("proxy_down", self.kinds(c))
-        self.assertEqual(ig.ensure_system_configs()["healed_count"], 0)   # stable: nothing moves twice
+        self.assertEqual(assignment.ensure_system_configs()["healed_count"], 0)   # stable: nothing moves twice
 
     def test_forced_rotation_off_a_live_config_moves_only_that_account(self):
         # the scraper saw the proxy fail once, but xray still serves the config: other accounts keep using it
         c1, c2 = self.cfg(1091), self.cfg(1092)
         a = self.acc("a", status="ACTIVE", proxy_config=c1, proxy_url="socks5h://xray:1091")
-        ig._heal_account(a, force_rotate=True, failed_config_id=c1.pk)
+        assignment.heal_account(a, force_rotate=True, failed_config_id=c1.pk)
         a.refresh_from_db()
         c1.refresh_from_db()
         self.assertEqual(a.proxy_config_id, c2.pk)
@@ -408,7 +408,7 @@ class ConnectionTests(IgAccountsTestBase):
         c1, c2 = self.cfg(1091), self.cfg(1092)
         a = self.acc("a", status="ACTIVE", proxy_config=c1, proxy_url="socks5h://xray:1091")
         self.closed = {1091}
-        ig._heal_account(a, force_rotate=True, failed_config_id=c1.pk)
+        assignment.heal_account(a, force_rotate=True, failed_config_id=c1.pk)
         a.refresh_from_db()
         c1.refresh_from_db()
         self.assertEqual(a.proxy_config_id, c2.pk)
@@ -418,7 +418,7 @@ class ConnectionTests(IgAccountsTestBase):
     def test_legacy_port_is_linked_to_its_config(self):
         c = self.cfg(1095)
         a = self.acc(proxy_url="socks5h://xray:1095")
-        ig.ensure_system_configs()
+        assignment.ensure_system_configs()
         a.refresh_from_db()
         self.assertEqual(a.proxy_config_id, c.pk)
         self.assertEqual(self.kinds(a), [])   # same IP: no move, no settle time
@@ -427,7 +427,7 @@ class ConnectionTests(IgAccountsTestBase):
         self.cfg(1091)
         a = self.acc()
         self.closed = {1080}
-        self.assertEqual(ig.ensure_system_configs()["skipped"], "xray_down")
+        self.assertEqual(assignment.ensure_system_configs()["skipped"], "xray_down")
         a.refresh_from_db()
         self.assertIsNone(a.proxy_config_id)
 
@@ -472,14 +472,14 @@ class ExportTests(IgAccountsTestBase):
     def test_config_export_link_and_qr(self):
         c = self.cfg(1091)
         a = self.acc(proxy_config=c, proxy_url="socks5h://xray:1091")
-        exp = ig.export_config(a)
+        exp = export.export_config(a)
         self.assertEqual((exp["kind"], exp["link"], exp["shared_with"]), ("v2ray", c.raw_url, []))
-        self.assertIn("<svg", ig.qr_svg(exp["link"]))
-        self.assertIn(c.raw_url, ig.export_text([a]))
+        self.assertIn("<svg", export.qr_svg(exp["link"]))
+        self.assertIn(c.raw_url, export.export_text([a]))
 
     def test_custom_proxy_export(self):
         a = self.acc(proxy_url="socks5://u:p@1.2.3.4:1080#rotate=http://x")
-        exp = ig.export_config(a)
+        exp = export.export_config(a)
         self.assertEqual((exp["kind"], exp["link"], exp["host"], exp["port"]), ("proxy", "socks5://u:p@1.2.3.4:1080",
                                                                                 "1.2.3.4", 1080))
 

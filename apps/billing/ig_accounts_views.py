@@ -20,7 +20,7 @@ from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
 from apps.discovery import ig_state
 from apps.discovery.models import InstagramEngineAccount, ProxyConfig
-from apps.discovery.proxies import health, urls as proxy_urls
+from apps.discovery.proxies import assignment, export, health, urls as proxy_urls
 
 log = logging.getLogger("instagram.accounts")
 
@@ -107,7 +107,7 @@ def ig_accounts_list(request):
         "nav": "ig_accounts", "rows": rows, "f": f, "stats": stats,
         "statuses": InstagramEngineAccount.STATUS_CHOICES, "roles": InstagramEngineAccount.ROLE_CHOICES,
         "tiers": InstagramEngineAccount.TIER_CHOICES, "modes": PROXY_MODES, "tenants": svc.tenant_choices(),
-        "configs": _config_choices(), "per_config": svc._per_config(),
+        "configs": _config_choices(), "per_config": assignment.per_config(),
     })
 
 
@@ -134,7 +134,7 @@ def ig_account_add(request):
 @manage_access_required
 @require_POST
 def ig_accounts_heal(request):
-    out = svc.ensure_system_configs(actor=_actor(request))
+    out = assignment.ensure_system_configs(actor=_actor(request))
     if out.get("skipped") == "xray_down":
         messages.error(request, "xray در دسترس نیست (پورت استخر 1080 بسته است)؛ تا بالا نیاید اتصال‌ها جابه‌جا نمی‌شوند.")
     elif out["healed_count"]:
@@ -156,7 +156,7 @@ def ig_accounts_configs_txt(request):
     accounts = list(qs)
     for acc in accounts:
         ig_state.log_event(acc, "config_exported", "خروجی گروهی کانفیگ‌ها (configs.txt)", None, _actor(request))
-    resp = HttpResponse(svc.export_text(accounts), content_type="text/plain; charset=utf-8")
+    resp = HttpResponse(export.export_text(accounts), content_type="text/plain; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="instagram-configs.txt"'
     return resp
 
@@ -184,7 +184,7 @@ def ig_account_detail(request, pk):
         "resting": acc.cooldown_until if acc.cooldown_until and acc.cooldown_until > now else None,
         "has_password": bool(acc.password and acc.password != "session_only"),
         "pitch": svc.tenant_pitch(acc.tenant_id) if acc.role == "SENDER" else None,
-        "settle_minutes": svc.SETTLE_MINUTES,
+        "settle_minutes": assignment.SETTLE_MINUTES,
     })
 
 
@@ -203,10 +203,10 @@ def ig_account_login_state(request, pk):
 def ig_account_config(request, pk):
     """The account's connection to open it on a phone from the same IP: V2Ray link + QR (or its own proxy)."""
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
-    exp = svc.export_config(acc)
+    exp = export.export_config(acc)
     ig_state.log_event(acc, "config_exported", f"خروجی کانفیگ ({exp['label']})", {"mode": exp["mode"]}, _actor(request))
     return render(request, "ops/ig_accounts/config.html", {
-        "nav": "ig_accounts", "a": acc, "exp": exp, "qr": svc.qr_svg(exp.get("link") or "")})
+        "nav": "ig_accounts", "a": acc, "exp": exp, "qr": export.qr_svg(exp.get("link") or "")})
 
 
 @manage_access_required
@@ -214,7 +214,7 @@ def ig_account_config(request, pk):
 def ig_account_config_txt(request, pk):
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     ig_state.log_event(acc, "config_exported", "دانلود فایل کانفیگ", None, _actor(request))
-    resp = HttpResponse(svc.export_text([acc]), content_type="text/plain; charset=utf-8")
+    resp = HttpResponse(export.export_text([acc]), content_type="text/plain; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{acc.username}-config.txt"'
     return resp
 
@@ -227,7 +227,7 @@ def _do_proxy(acc, p, actor):
         config = ProxyConfig.objects.filter(pk=int(cid)).first() if cid.isdigit() else None
         if config is None:
             return ig_state.result_for(acc, False, "کانفیگ را انتخاب کنید.")
-    return svc.set_proxy(acc, mode, url=p.get("proxy_url", ""), config=config, actor=actor)
+    return assignment.set_proxy(acc, mode, url=p.get("proxy_url", ""), config=config, actor=actor)
 
 
 ACTIONS = {
@@ -235,7 +235,7 @@ ACTIONS = {
     "code": lambda acc, p, actor: svc.submit_code(acc, p.get("code", ""), actor=actor),
     "cancel": lambda acc, p, actor: svc.cancel_login(acc, actor=actor),
     "check": lambda acc, p, actor: svc.check(acc, actor=actor),
-    "check_ip": lambda acc, p, actor: svc.check_ip(acc, actor=actor),
+    "check_ip": lambda acc, p, actor: export.check_ip(acc, actor=actor),
     "pause": lambda acc, p, actor: svc.pause(acc, actor=actor, note=str(p.get("note") or "").strip()),
     "resume": lambda acc, p, actor: svc.resume(acc, actor=actor),
     "clear_cooldown": lambda acc, p, actor: svc.clear_cooldown(acc, actor=actor),

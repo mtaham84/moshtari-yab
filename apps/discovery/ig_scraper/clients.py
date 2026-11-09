@@ -100,7 +100,7 @@ def rotate_or_heal_proxy(run, account, cl=None) -> bool:
     Automatically heals/failovers account connection when proxy drops or dies.
     Finds the next free healthy config (or pool) and updates client proxy immediately.
     """
-    from apps.discovery.ig_accounts import _heal_account
+    from apps.discovery.proxies.assignment import heal_account
     from apps.discovery.proxies.health import proxy_reachable
     old_proxy = account.clean_proxy
     curr_cfg_id = account.proxy_config_id
@@ -108,7 +108,7 @@ def rotate_or_heal_proxy(run, account, cl=None) -> bool:
     run.stdout.write(run.style.WARNING(
         f"    [Auto-Failover]: Proxy for @{account.username} failed. Searching for healthy replacement config..."
     ))
-    res = _heal_account(account, actor="scraper_auto_heal", force_rotate=True, failed_config_id=curr_cfg_id)
+    res = heal_account(account, actor="scraper_auto_heal", force_rotate=True, failed_config_id=curr_cfg_id)
     account.refresh_from_db()
     new_proxy = account.clean_proxy
     if new_proxy and (new_proxy != old_proxy or (res and res.get("changed"))):

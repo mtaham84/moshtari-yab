@@ -139,12 +139,12 @@ def task_sync_telegram_channel_configs(max_posts: int = 15, max_add: int = 10) -
 )
 def task_healthcheck_and_heal_proxies() -> Dict[str, Any]:
     """
-    Proxy healthcheck & healing for every Instagram account without its own proxy (ig_accounts.ensure_system_configs):
+    Proxy healthcheck & healing for every Instagram account without its own proxy (proxies.assignment.ensure_system_configs):
     a config that is still ACTIVE and listening stays with its account (same IP); a dead one is replaced by a free
     config (else the shared pool) and the move is logged on the account's timeline. Accounts with their own
     (custom) proxy are never touched; nothing moves while xray itself is down.
     """
-    from apps.discovery.ig_accounts import ensure_system_configs
+    from apps.discovery.proxies.assignment import ensure_system_configs
     from apps.discovery.proxies import health
     from apps.discovery.proxies.urls import POOL_PORT, XRAY_HOST
 

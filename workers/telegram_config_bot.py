@@ -62,11 +62,7 @@ except Exception as exc:
     log.warning("Django setup warning: %s", exc)
 
 from shared.telegram_alerts import load_subscribers, save_subscribers  # noqa: E402
-from xray.multi_proxy_manager import (
-    add_proxy_config,
-    prune_dead_configs,
-    assign_proxies_to_accounts
-)
+from xray.multi_proxy_manager import add_proxy_config  # noqa: E402
 
 
 _proxy_cache: tuple[float, list[str]] = (0.0, [])
@@ -922,6 +918,7 @@ def handle_accounts_status(chat_id: int | str) -> None:
 
 def handle_prune(chat_id: int | str) -> None:
     send_message(chat_id, "⏳ <b>در حال ارزیابی زنده پینگ تمام کانفیگ‌ها و پاکسازی موارد قطع شده...</b>\nلطفاً چند لحظه شکیبا باشید.")
+    from apps.discovery.proxies.assignment import assign_proxies_to_accounts, prune_dead_configs
     removed = prune_dead_configs()
     assign_res = assign_proxies_to_accounts()
 
@@ -1042,6 +1039,7 @@ def periodic_health_check_worker() -> None:
             # 2. Prune dead & slow (>2000ms) configs every 5 minutes (every cycle)
             try:
                 log.info("Running 5-minute scheduled proxy health check & dead config purge...")
+                from apps.discovery.proxies.assignment import prune_dead_configs
                 removed = prune_dead_configs()
                 if removed:
                     log.info("5-minute purge removed %d dead/slow configs: %s", len(removed), [r.get("tag") for r in removed])

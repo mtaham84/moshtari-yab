@@ -35,7 +35,7 @@ from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
 from apps.discovery.channel_config_automation import get_monitored_channels
 from apps.discovery.ig_accounts import canonical_tenant, tenant_key, tenant_keys_for_business
-from apps.discovery.proxies import health, urls as proxy_urls
+from apps.discovery.proxies import assignment, health, urls as proxy_urls
 from apps.discovery.device_emulator import connect_saved_session
 
 logger = logging.getLogger("management")
@@ -807,7 +807,7 @@ def ig_edit_sender(account, data, actor: str = "") -> dict:
 
     if "proxy_url" in data and (data.get("proxy_url") or "").strip() != (account.proxy_url or "").strip():
         mode, url, cfg = _ig_proxy_choice(data.get("proxy_url"))
-        res = svc.set_proxy(account, mode, url=url, config=cfg, actor=actor)
+        res = assignment.set_proxy(account, mode, url=url, config=cfg, actor=actor)
         ok = ok and res.ok
         if not res.ok or res.extra.get("changed"):
             notes.append(res.message)

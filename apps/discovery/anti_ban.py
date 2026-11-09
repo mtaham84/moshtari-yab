@@ -236,7 +236,7 @@ class InstagramAntiBanManager:
         if not account.proxy_url and not account.proxy_config_id and account.pk:
             # No proxy of its own: a free system config of its own (it stays with the account), else the shared
             # pool (account.clean_proxy). It used to get a hard-coded xray port that may not exist at all.
-            from apps.discovery.ig_accounts import _heal_account
-            changed = bool(_heal_account(account, "system")) or changed
+            from apps.discovery.proxies.assignment import heal_account
+            changed = bool(heal_account(account, "system")) or changed
 
         return changed

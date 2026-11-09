@@ -15,7 +15,7 @@
     "apps/discovery/channel_config_automation.py": 16,
     "apps/discovery/device_emulator.py": 5,
     "apps/discovery/human_routine.py": 1,
-    "apps/discovery/ig_accounts.py": 9,
+    "apps/discovery/ig_accounts.py": 7,
     "apps/discovery/ig_scraper/clients.py": 8,
     "apps/discovery/ig_scraper/comments.py": 6,
     "apps/discovery/ig_scraper/cycle.py": 5,
@@ -33,6 +33,8 @@
     "apps/discovery/models/core.py": 3,
     "apps/discovery/outreach_engine.py": 7,
     "apps/discovery/outreach_service.py": 12,
+    "apps/discovery/proxies/assignment.py": 1,
+    "apps/discovery/proxies/export.py": 1,
     "apps/discovery/proxies/health.py": 2,
     "apps/discovery/proxies/rotation.py": 1,
     "apps/discovery/semantic_moderation.py": 5,
@@ -83,13 +85,13 @@
     "workers/x_collector/query_source.py": 10,
     "workers/x_collector/worker.py": 13,
     "x_ingest/__main__.py": 1,
-    "xray/multi_proxy_manager.py": 17
+    "xray/multi_proxy_manager.py": 16
   },
   "lines": {
     "apps/accounts/views.py": 991,
     "apps/billing/manage_views.py": 2154,
     "apps/billing/services.py": 820,
-    "apps/discovery/ig_accounts.py": 1207,
+    "apps/discovery/ig_accounts.py": 849,
     "apps/discovery/models/core.py": 848,
     "apps/discovery/outreach_service.py": 1370,
     "apps/discovery/views/opportunities.py": 944,
@@ -101,7 +103,6 @@
     "templates/ops/instagram_account_cockpit.html": 953,
     "templates/ops/manage_dashboard.html": 4369,
     "templates/products/product_form.html": 1068,
-    "workers/telegram_config_bot.py": 1169,
-    "xray/multi_proxy_manager.py": 884
+    "workers/telegram_config_bot.py": 1167
   }
 }
