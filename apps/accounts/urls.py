@@ -1,5 +1,5 @@
 from django.urls import path
-from . import onboarding, shop, views
+from . import onboarding, outreach_views, shop, views
 
 app_name = "accounts"
 
@@ -22,16 +22,16 @@ urlpatterns = [
     path("onboarding/api/finish/", onboarding.api_finish, name="ob_finish"),
     path("shop/edit/", shop.shop_edit_view, name="shop_edit"),
     path("shop/<str:slug>/", shop.shop_view, name="shop"),
-    path("outreach/", views.outreach_view, name="outreach"),
-    path("outreach/export/", views.outreach_leads_export_csv, name="outreach_export"),
-    path("outreach/save-pitch/", views.save_pitch_view, name="save_pitch"),
-    path("outreach/add-account/", views.add_outreach_account_view, name="add_outreach_account"),
-    path("outreach/generate-pitches/", views.generate_pitches_ajax_view, name="generate_pitches_ajax"),
-    path("outreach/sync-replies/", views.sync_replies_view, name="sync_replies"),
-    path("outreach/send-followup/", views.send_followup_view, name="send_followup"),
-    path("outreach/lead-chat/<int:lead_id>/", views.lead_chat_history_view, name="lead_chat_history"),
-    path("outreach/update-phone/", views.update_lead_phone_view, name="update_lead_phone"),
-    path("outreach/senders/<int:pk>/edit/", views.edit_outreach_account_view, name="edit_outreach_account"),
-    path("outreach/senders/<int:pk>/clear-cooldown/", views.clear_outreach_cooldown_view, name="clear_outreach_cooldown"),
+    path("outreach/", outreach_views.outreach_view, name="outreach"),
+    path("outreach/export/", outreach_views.outreach_leads_export_csv, name="outreach_export"),
+    path("outreach/save-pitch/", outreach_views.save_pitch_view, name="save_pitch"),
+    path("outreach/add-account/", outreach_views.add_outreach_account_view, name="add_outreach_account"),
+    path("outreach/generate-pitches/", outreach_views.generate_pitches_ajax_view, name="generate_pitches_ajax"),
+    path("outreach/sync-replies/", outreach_views.sync_replies_view, name="sync_replies"),
+    path("outreach/send-followup/", outreach_views.send_followup_view, name="send_followup"),
+    path("outreach/lead-chat/<int:lead_id>/", outreach_views.lead_chat_history_view, name="lead_chat_history"),
+    path("outreach/update-phone/", outreach_views.update_lead_phone_view, name="update_lead_phone"),
+    path("outreach/senders/<int:pk>/edit/", outreach_views.edit_outreach_account_view, name="edit_outreach_account"),
+    path("outreach/senders/<int:pk>/clear-cooldown/", outreach_views.clear_outreach_cooldown_view, name="clear_outreach_cooldown"),
     path("settings/style-sample/", views.style_sample_view, name="style_sample"),
 ]

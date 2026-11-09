@@ -16,7 +16,7 @@ from apps.businesses.models import Business
 from apps.discovery.models import MonitoredCommunity
 from apps.discovery.sources import GLOBAL, normalize_link
 
-from . import services
+from . import ops_status, reports, services, x_stats
 from .forms import AIModelForm, BillingSettingsForm, GlobalSourceForm, ProviderForm, WalletTransactionForm
 from .models import AIModel, BillingSettings, Provider, Wallet, WalletTransaction
 
@@ -42,20 +42,20 @@ def _days(request) -> str:
 @staff_required
 def dashboard(request):
     days = _days(request)
-    totals = services.cost_totals(float(days))
+    totals = reports.cost_totals(float(days))
     wallets = Wallet.objects.aggregate(total=Sum("balance_toman"), n=Count("id"))
     s = BillingSettings.get()
     blocked = Wallet.objects.filter(services.blocked_wallets_q(s)).count()
-    rev = services.revenue(float(days))
+    rev = reports.revenue(float(days))
     waiting = services.waiting_payment().values()
     held = {k: sum(w[k] for w in waiting) for k in ("messages", "needs", "products")}
     return render(request, "ops/dashboard.html", {
         "nav": "dashboard", "days": days, "periods": PERIODS, "totals": totals, "revenue": rev,
         "profit": rev - Decimal(str(round(totals["toman"], 2))),
         "wallet_total": wallets["total"] or 0, "wallet_count": wallets["n"], "blocked": blocked, "held": held,
-        "by_model": services.model_usage(float(days)),
-        "by_stage": services.cost_breakdown(float(days), "stage"),
-        "daily": services.cost_daily(14), "status": services.service_status(),
+        "by_model": reports.model_usage(float(days)),
+        "by_stage": reports.cost_breakdown(float(days), "stage"),
+        "daily": reports.cost_daily(14), "status": ops_status.service_status(),
         "recent": WalletTransaction.objects.select_related("wallet__business")[:10], "settings": s,
     })
 
@@ -63,7 +63,7 @@ def dashboard(request):
 @staff_required
 def x_source(request):
     days = _days(request)
-    st = services.x_collector_status()
+    st = x_stats.x_collector_status()
     queries = sorted((st or {}).get("queries") or [], key=lambda q: (-(q.get("new_posts") or 0), q.get("query") or ""))
     from apps.discovery.models import Opportunity
     delivered_opps = list(
@@ -84,8 +84,8 @@ def x_source(request):
             opp.tweet_url = ""
 
     return render(request, "ops/x.html", {
-        "nav": "x", "days": days, "periods": PERIODS, "o": services.x_overview(float(days)), "st": st,
-        "service": services.x_collector_service(), "queries": queries, "settings_rows": services.x_settings(),
+        "nav": "x", "days": days, "periods": PERIODS, "o": x_stats.x_overview(float(days)), "st": st,
+        "service": x_stats.x_collector_service(), "queries": queries, "settings_rows": x_stats.x_settings(),
         "search_fee": float(os.getenv("X_SEARCH_FEE_TOMAN", "0") or 0),
         "delivered_opps": delivered_opps,
     })
@@ -128,11 +128,11 @@ def costs(request):
     days = _days(request)
     f = {k: request.GET.get(k, "").strip() for k in ("business", "model", "stage")}
     page = max(int(request.GET.get("page", "1") or 1) if str(request.GET.get("page", "1")).isdigit() else 1, 1)
-    rows = services.cost_ledger(limit=100, offset=(page - 1) * 100, **f)
+    rows = reports.cost_ledger(limit=100, offset=(page - 1) * 100, **f)
     return render(request, "ops/costs.html", {
         "nav": "costs", "days": days, "periods": PERIODS, "filters": f, "rows": rows, "page": page,
-        "has_next": len(rows) == 100, "by_business": services.cost_breakdown(float(days), "business"),
-        "by_model": services.model_usage(float(days)),
+        "has_next": len(rows) == 100, "by_business": reports.cost_breakdown(float(days), "business"),
+        "by_model": reports.model_usage(float(days)),
         "businesses": Business.objects.order_by("name").values_list("pk", "name"),
         "models": AIModel.objects.values_list("name", flat=True).distinct(),
     })
@@ -141,7 +141,7 @@ def costs(request):
 # ── providers & models ─────────────────────────────────────────────────────────
 @staff_required
 def providers(request):
-    usage = {u["key"]: u for u in services.model_usage(30)}
+    usage = {u["key"]: u for u in reports.model_usage(30)}
     providers_qs = list(Provider.objects.prefetch_related("models"))
     for prov in providers_qs:
         for m in prov.models.all():
@@ -176,7 +176,7 @@ def provider_delete(request, pk):
 @staff_required
 @require_POST
 def provider_test(request, pk):
-    ok, msg = services.test_provider(get_object_or_404(Provider, pk=pk))
+    ok, msg = ops_status.test_provider(get_object_or_404(Provider, pk=pk))
     (messages.success if ok else messages.error)(request, msg)
     return redirect("ops:providers")
 
@@ -184,7 +184,7 @@ def provider_test(request, pk):
 @staff_required
 @require_POST
 def provider_import_env(request):
-    provider, n = services.import_from_env()
+    provider, n = ops_status.import_from_env()
     messages.success(request, f"«{provider.name}» با {n} مدل از تنظیمات فعلی ساخته شد. قیمت‌ها را بررسی کنید.")
     return redirect("ops:providers")
 
@@ -280,8 +280,8 @@ def communities(request):
         return redirect("ops:communities")
     status = request.GET.get("status", "")
     scope = request.GET.get("scope", "")
-    groups = services.community_groups(status, scope)
-    every = services.community_groups() if (status or scope) else groups
+    groups = ops_status.community_groups(status, scope)
+    every = ops_status.community_groups() if (status or scope) else groups
     summary = {
         "groups": len(every), "orphans": sum(g["orphan"] for g in every),
         "shared": sum(len(g["private"]) > 1 or bool(g["global"] and g["private"]) for g in every),

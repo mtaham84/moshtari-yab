@@ -15,7 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.billing.manage_views import manage_access_required
+from apps.billing.manage.access import manage_access_required
 from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
 from apps.discovery import ig_login, tenants
