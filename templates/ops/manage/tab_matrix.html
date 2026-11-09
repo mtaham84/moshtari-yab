@@ -1,0 +1,70 @@
+{% load ops static %}<div id="tab-matrix" class="tab-pane active">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> ماتریس سرنخ‌ها و فرصت‌های کشف‌شده به تفکیک پلتفرم و مستأجر</h2>
+        <p class="muted" style="margin:2px 0 0;">آمار کامل فرصت‌های ایجادشده از تلگرام، اینستاگرام و توییتر/ایکس برای هر کسب‌وکار</p>
+      </div>
+      <div>
+        <a href="{% url 'discovery:opportunity_list' %}" class="btn">مشاهده جدول فرصت‌ها ↗</a>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>شناسه</th>
+            <th>کسب‌وکار / مستأجر (Tenant)</th>
+            <th style="color:#d946ef; font-weight:700;"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> اینستاگرام</th>
+            <th style="color:#0284c7; font-weight:700;"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg> تلگرام</th>
+            <th style="color:#0f172a; font-weight:700;"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg> ایکس (توییتر)</th>
+            <th style="font-weight:700;">مجموع کل سرنخ‌ها</th>
+            <th>قصد خرید بالا (≥۸۰٪)</th>
+            <th>دایرکت ارسالی</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in tenant_matrix %}
+          <tr>
+            <td>#{{ row.business.id }}</td>
+            <td>
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}" style="font-weight:700; color:var(--accent); text-decoration:none;" title="مشاهده فرصت‌های این کسب‌وکار">
+                {{ row.business.name }} ↗
+              </a>
+              <div class="muted" style="font-size:0.75rem;">مالک: {{ row.business.user.get_full_name|default:row.business.user.username }}</div>
+            </td>
+            <td class="n" style="font-weight:700; color:#d946ef; font-size:1rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}&platform=instagram" style="text-decoration:none; color:inherit;">{{ row.instagram }}</a>
+            </td>
+            <td class="n" style="font-weight:700; color:#0284c7; font-size:1rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}&platform=telegram" style="text-decoration:none; color:inherit;">{{ row.telegram }}</a>
+            </td>
+            <td class="n" style="font-weight:700; color:#0f172a; font-size:1rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}&platform=x" style="text-decoration:none; color:inherit;">{{ row.x }}</a>
+            </td>
+            <td class="n" style="font-weight:800; font-size:1.05rem;">
+              <a href="{% url 'discovery:opportunity_list' %}?business_id={{ row.business.id }}" class="pill" style="font-weight:800; background:rgba(99,102,241,0.15); color:var(--accent); text-decoration:none;">
+                {{ row.total }} فرصت ↗
+              </a>
+            </td>
+            <td class="n" style="color:var(--ok); font-weight:700;">{{ row.high_intent }}</td>
+            <td class="n">{{ row.dms_sent }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--accent-soft); font-weight:800;">
+            <td colspan="2">مجموع کل پلتفرم‌ها:</td>
+            <td class="n" style="color:#d946ef; font-size:1.05rem;">{{ matrix_totals.instagram }}</td>
+            <td class="n" style="color:#0284c7; font-size:1.05rem;">{{ matrix_totals.telegram }}</td>
+            <td class="n" style="color:#0f172a; font-size:1.05rem;">{{ matrix_totals.x }}</td>
+            <td class="n" style="font-size:1.15rem;">{{ matrix_totals.total }}</td>
+            <td class="n" style="color:var(--ok);">{{ matrix_totals.high_intent }}</td>
+            <td class="n">{{ matrix_totals.dms_sent }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>

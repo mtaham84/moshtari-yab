@@ -1,0 +1,224 @@
+{% load ops static %}<div id="top-leads-section" class="p-card" style="padding:24px; border-radius:12px; border:1px solid var(--panel-border); margin-bottom:28px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:18px;">
+    <div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="p-badge" style="background:#e0e7ff; color:#3730a3; font-weight:800; font-size:0.75rem; padding:4px 8px; border-radius:4px;">
+          الگوریتم اولویت‌بندی اختصاصی اینستاگرام
+        </span>
+        <span style="font-size:0.8rem; color:var(--panel-text-muted);">بازه مجاز: ۵ روز اخیر</span>
+      </div>
+      <h2 style="margin:6px 0 0; font-size:1.25rem; font-weight:800; color:var(--panel-text-main);">
+        صف لیدهای اولویت‌بندی شده برای دایرکت (پرامتیازترین لیدها)
+      </h2>
+      <p style="margin:4px 0 0; color:var(--panel-text-muted); font-size:0.84rem;">
+        لیدها طبق فرمول ۴۵ امتیازی (۱۵ امتیاز پیج پابلیک + ۱۵ امتیاز سوال مشاوره‌ای یا کال‌تواکشن + تا ۵ امتیاز تازگی در ۵ روز اخیر + ۴ امتیاز پیج‌های هدف + تا ۶ امتیاز نوع خدمت) رتبه‌بندی شده‌اند و ارسال دایرکت به ترتیب بالاترین امتیاز انجام می‌شود.
+      </p>
+    </div>
+
+    <!-- Quick Filter Summary Badges & Excel Export -->
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; width:100%;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span class="p-badge" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
+          اولویت ویژه (۳۰ امتیاز و بالاتر): {{ high_priority_count }}
+        </span>
+        <span class="p-badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
+          پیج‌های عمومی (پابلیک): {{ public_leads_count }}
+        </span>
+        <span class="p-badge" style="background:#faf5ff; color:#7e22ce; border:1px solid #e9d5ff; font-weight:700; padding:6px 12px; border-radius:8px; font-size:0.82rem;">
+          سوالات مشاوره‌ای و اقساط: {{ inquiry_leads_count }}
+        </span>
+      </div>
+      <div>
+        <a href="{% url 'accounts:outreach_export' %}" class="p-btn"
+           style="background:#059669; color:#fff; padding:7px 14px; border-radius:8px; font-weight:700; font-size:0.82rem; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          خروجی اکسل لیدهای اینستاگرام (Excel .csv)
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {% if top_leads %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%; text-align:right; border-collapse:collapse;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--panel-border); font-size:0.86rem; background:#f8fafc;">
+          <th style="padding:10px 12px; text-align:center; width:100px;">امتیاز و احتمال</th>
+          <th style="padding:10px 12px; width:180px;">مخاطب اینستاگرام</th>
+          <th style="padding:10px 12px; width:210px;">تفکیک امتیاز (پابلیک / نیت / تازگی)</th>
+          <th style="padding:10px 12px; min-width:240px;">متن کامنت و اطلاعات پست مبدا</th>
+          <th style="padding:10px 12px; min-width:240px;">پیش‌نویس پیام اختصاصی</th>
+          <th style="padding:10px 12px; text-align:center; width:110px;">وضعیت دایرکت</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in top_leads %}
+        <tr style="border-bottom:1px solid var(--panel-border); font-size:0.85rem; {% if lead.outreach_score >= 30 %}background:#fcfdff;{% endif %}">
+          <!-- Total Score & Success Probability Badge -->
+          <td style="padding:12px; text-align:center; vertical-align:middle;">
+            <div style="display:inline-flex; flex-direction:column; align-items:center; justify-content:center; width:54px; height:54px; border-radius:12px;
+                        {% if lead.outreach_score >= 30 %}background:#ecfdf5; border:1px solid #86efac; color:#047857;{% elif lead.outreach_score >= 20 %}background:#eff6ff; border:1px solid #93c5fd; color:#1d4ed8;{% else %}background:#f8fafc; border:1px solid #e2e8f0; color:#475569;{% endif %}">
+              <span style="font-size:1.15rem; font-weight:900; line-height:1;">{{ lead.outreach_score }}</span>
+              <span style="font-size:0.62rem; font-weight:700; color:inherit; opacity:0.85;">از ۴۵</span>
+            </div>
+            <div style="margin-top:4px;">
+              <span style="font-size:0.72rem; font-weight:800; color:#0284c7; background:#e0f2fe; padding:2px 6px; border-radius:4px; display:inline-block;">
+                احتمال {{ lead.success_probability|default:50 }}٪
+              </span>
+            </div>
+          </td>
+
+          <!-- Username & Profile Privacy -->
+          <td style="padding:12px; vertical-align:top;">
+            <a href="https://instagram.com/{{ lead.username }}" target="_blank" rel="noopener" style="font-weight:700; color:#2563eb; text-decoration:none; font-family:monospace; font-size:0.92rem; display:block; direction:ltr; text-align:right;">
+              @{{ lead.username }} ↗
+            </a>
+            {% if lead.full_name and lead.full_name != lead.username %}
+            <div style="font-size:0.78rem; color:#475569; margin-top:2px;">{{ lead.full_name }}</div>
+            {% endif %}
+            <div style="margin-top:4px;">
+              {% if lead.is_private %}
+                <span class="p-badge" style="background:#fee2e2; color:#b91c1c; font-size:0.72rem; padding:2px 6px; border-radius:4px; font-weight:700;">
+                  خصوصی (Private)
+                </span>
+              {% else %}
+                <span class="p-badge" style="background:#dcfce7; color:#15803d; font-size:0.72rem; padding:2px 6px; border-radius:4px; font-weight:700;">
+                  عمومی (Public)
+                </span>
+              {% endif %}
+            </div>
+            {% if lead.comment_created_at_jalali %}
+            <div style="margin-top:4px; font-size:0.72rem; color:#64748b;">
+              ثبت کامنت: {{ lead.comment_created_at_jalali }}
+            </div>
+            {% endif %}
+          </td>
+
+          <!-- Score Breakdown Badges -->
+          <td style="padding:12px; vertical-align:top;">
+            <div style="display:flex; flex-direction:column; gap:4px; font-size:0.76rem;">
+              <!-- Intent Type Badge -->
+              {% if lead.comment_intent_type == 'QUESTION_INQUIRY' %}
+                <span style="background:#f3e8ff; color:#6b21a8; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  سوال و نیاز مشاوره‌ای (+۱۵)
+                </span>
+              {% elif lead.comment_intent_type == 'DIRECT_SHORT_CTA' %}
+                <span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیام کوتاه / کال‌تواکشن (+۱۵)
+                </span>
+              {% elif lead.comment_intent_type == 'GENERAL_BUYER' %}
+                <span style="background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  قصد خرید عمومی (+۱۰)
+                </span>
+              {% else %}
+                <span style="background:#f1f5f9; color:#94a3b8; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  کامنت عمومی (+۰)
+                </span>
+              {% endif %}
+
+              <!-- Public profile Badge -->
+              {% if not lead.is_private %}
+                <span style="background:#dcfce7; color:#15803d; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیج پابلیک (+۱۵)
+                </span>
+              {% endif %}
+
+              <!-- Target page Badge -->
+              {% if lead.score_breakdown.target_page_score %}
+                <span title="{{ lead.score_breakdown.target_page_reason }}" style="background:#ede9fe; color:#6d28d9; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  پیج هدف (+{{ lead.score_breakdown.target_page_score }})
+                </span>
+              {% endif %}
+
+              <!-- Service Badge -->
+              {% if lead.score_breakdown.service_score %}
+                <span style="background:#ffedd5; color:#9a3412; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                  خدمت: {{ lead.score_breakdown.service_name }} (+{{ lead.score_breakdown.service_score }})
+                </span>
+              {% endif %}
+
+              <!-- Freshness Badge -->
+              <span style="background:#fef9c3; color:#854d0e; padding:2px 6px; border-radius:4px; font-weight:700; display:inline-block;">
+                تازگی: {{ lead.score_breakdown.age_label|default:"۵ روز اخیر" }} (+{{ lead.score_breakdown.freshness_score|default:0 }})
+              </span>
+            </div>
+          </td>
+
+          <!-- Comment Text & Source Post Info -->
+          <td style="padding:12px; vertical-align:top;">
+            <div style="font-size:0.84rem; color:#1e293b; line-height:1.6; max-height:80px; overflow-y:auto; background:#f8fafc; border-radius:6px; padding:8px 10px; border:1px solid #f1f5f9;">
+              {{ lead.comment_text }}
+            </div>
+            <div style="margin-top:6px; display:flex; flex-direction:column; gap:3px; font-size:0.73rem;">
+              {% if lead.source_page_title or lead.source_page_username %}
+              <div>
+                <span style="color:#64748b;">پیج مبدا:</span>
+                <a href="{{ lead.source_page_url|default:'#' }}" target="_blank" rel="noopener" style="font-weight:700; color:#4f46e5; text-decoration:none;">
+                  {{ lead.source_page_title|default:lead.source_page_username }} ({{ lead.source_page_username }})
+                </a>
+              </div>
+              {% endif %}
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                {% if lead.source_post_url %}
+                <a href="{{ lead.source_post_url }}" target="_blank" rel="noopener" style="color:#0284c7; text-decoration:none; font-weight:600;">
+                  مشاهده پست مبدا ↗
+                </a>
+                {% endif %}
+                {% if lead.post_created_at_jalali %}
+                <span style="color:#94a3b8;">انتشار پست: {{ lead.post_created_at_jalali }}</span>
+                {% endif %}
+              </div>
+              {% if lead.post_caption_snippet %}
+              <div style="color:#64748b; font-size:0.71rem; line-height:1.4; background:#f1f5f9; padding:4px 6px; border-radius:4px; margin-top:2px;" title="{{ lead.post_caption_snippet }}">
+                کپشن: {{ lead.post_caption_snippet|truncatechars:90 }}
+              </div>
+              {% endif %}
+            </div>
+          </td>
+
+          <!-- Personalized Pitch Preview -->
+          <td style="padding:12px; vertical-align:top;">
+            <div style="font-size:0.8rem; color:#475569; line-height:1.6; background:#faf5ff; border:1px solid #f3e8ff; border-radius:6px; padding:8px 10px; max-height:85px; overflow-y:auto; white-space:pre-wrap;">
+              {{ lead.pitch_preview }}
+            </div>
+          </td>
+
+          <!-- Status Badge -->
+          <td style="padding:12px; text-align:center; vertical-align:middle;">
+            {% if lead.status == 'NEW' %}
+              <span class="p-badge" style="background:#eff6ff; color:#1d4ed8; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                در صف ارسال
+              </span>
+            {% elif lead.status == 'DM_SENT' %}
+              <span class="p-badge" style="background:#e6f9f0; color:#0e8a4a; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                دایرکت ارسال شد
+              </span>
+            {% elif lead.status == 'REPLIED' %}
+              <span class="p-badge" style="background:#ede9fe; color:#6d28d9; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                پاسخ دریافت شد
+              </span>
+            {% elif lead.status == 'FOLLOWUP_SENT' %}
+              <span class="p-badge" style="background:#dbeafe; color:#1d4ed8; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                پیگیری شد
+              </span>
+            {% elif lead.status == 'SKIPPED' %}
+              <span class="p-badge" style="background:#f1f5f9; color:#64748b; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                رد شده (حفاظت)
+              </span>
+            {% else %}
+              <span class="p-badge" style="background:#fef2f2; color:#b91c1c; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                ناموفق
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="padding:30px; text-align:center; color:var(--panel-text-muted); font-size:0.9rem;">
+    هنوز لیدی با شرایط ۵ روز اخیر ثبت نشده است. اسکرپر در چرخه‌های بعدی به صورت خودکار کامنت‌های تازه را استخراج و امتیازدهی خواهد کرد.
+  </div>
+  {% endif %}
+</div>

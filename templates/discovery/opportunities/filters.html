@@ -1,0 +1,203 @@
+{% load static %}<div class="p-card" style="padding: 20px 24px; margin-bottom: 24px;">
+  <form id="filter-form" method="GET" action="{% url 'discovery:opportunity_list' %}" style="display: flex; flex-direction: column; gap: 16px; margin: 0;">
+    {% if all_businesses %}
+      <input type="hidden" name="business_id" value="{% if view_all_tenants %}all{% elif selected_business %}{{ selected_business.id }}{% endif %}">
+    {% endif %}
+    
+    <!-- Row 1: Platform Selector Tabs & View Mode Switch -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--panel-border-subtle); padding-bottom: 14px;">
+      
+      <!-- Platform Tabs -->
+      <div style="display: flex; align-items: center; gap: 6px; background: var(--stone-surface-sunken); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border-subtle); flex-wrap: wrap;">
+        <button type="submit" name="platform" value="" class="p-btn p-btn-sm {% if not selected_platform %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+          همه پلتفرم‌ها ({{ stats.total }})
+        </button>
+        <button type="submit" name="platform" value="telegram" class="p-btn p-btn-sm {% if selected_platform == 'telegram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; margin-left: 5px;"></span>
+          تلگرام ({{ stats.telegram_count }})
+        </button>
+        <button type="submit" name="platform" value="x" class="p-btn p-btn-sm {% if selected_platform == 'x' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #1da1f2; margin-left: 5px;"></span>
+          X / توییتر ({{ stats.x_count }})
+        </button>
+        <button type="submit" name="platform" value="instagram" class="p-btn p-btn-sm {% if selected_platform == 'instagram' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem;">
+          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e1306c; margin-left: 5px;"></span>
+          اینستاگرام ({{ stats.instagram_count }})
+        </button>
+        <button type="submit" name="platform" value="divar" class="p-btn p-btn-sm {% if selected_platform == 'divar' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" style="padding: 6px 12px; font-size: 0.78rem; opacity: 0.85;">
+          دیوار ({{ stats.divar_count }})
+        </button>
+      </div>
+
+      <!-- View Mode Buttons (Table vs Cards) -->
+      <div style="display: flex; align-items: center; gap: 4px; background: var(--stone-surface-sunken); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border-subtle);">
+        <a href="?view=table&{{ export_query_string }}" 
+           class="p-btn p-btn-sm {% if view_mode == 'table' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" 
+           style="padding: 5px 12px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px;" 
+           title="همه‌ی جزئیات هر فرصت">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+          <span>نمای کامل</span>
+        </a>
+        <a href="?view=cards&{{ export_query_string }}" 
+           class="p-btn p-btn-sm {% if view_mode == 'cards' %}p-btn-primary{% else %}p-btn-ghost{% endif %}" 
+           style="padding: 5px 12px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px;" 
+           title="فقط پیام و کالای پیشنهادی">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          <span>نمای فشرده</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Row 2: Product Selector, Sorting & Filters -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; align-items: end;">
+      
+      <!-- Catalog Product Filter (Target Product) -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          <svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> فیلتر بر اساس کالای پیشنهادی کاتالوگ:
+        </label>
+        <select id="product-filter-select" name="product_id" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="">همه کالاها و خدمات کاتالوگ (همه خریداران)</option>
+          {% for p in seller_products %}
+            <option value="{{ p.id }}" {% if selected_product_id == p.id %}selected{% endif %}>
+              {{ p.name }} {% if p.price %}({{ p.price|floatformat:0 }} ت){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Sorting Selector -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> مرتب‌سازی نتایج:
+        </label>
+        <select id="sort-select" name="sort" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="source_newest" {% if selected_sort == 'source_newest' %}selected{% endif %}>جدیدترین پست منبع</option>
+          <option value="intent_desc" {% if selected_sort == 'intent_desc' %}selected{% endif %}>بیشترین احتمال خرید (نیت مشتری) <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg></option>
+          <option value="newest" {% if selected_sort == 'newest' %}selected{% endif %}>جدیدترین زمان (تقویم شمسی) ⏱</option>
+          <option value="oldest" {% if selected_sort == 'oldest' %}selected{% endif %}>قدیمی‌ترین زمان (تقویم شمسی)</option>
+          <option value="fit_desc" {% if selected_sort == 'fit_desc' %}selected{% endif %}>بیشترین انطباق با کاتالوگ <svg class="ico" aria-hidden="true"><use href="#i-target"/></svg></option>
+          <option value="cost_desc" {% if selected_sort == 'cost_desc' %}selected{% endif %}>بیشترین هزینه پردازش AI (تومان)</option>
+          <option value="intent_asc" {% if selected_sort == 'intent_asc' %}selected{% endif %}>کمترین احتمال خرید</option>
+        </select>
+      </div>
+
+      <!-- Jalali Date Range: From -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          <svg class="ico" aria-hidden="true"><use href="#i-calendar"/></svg> از تاریخ کشف (تقویم شمسی):
+        </label>
+        <div style="position: relative;">
+          <input type="text" id="date_from" name="date_from" value="{{ date_from|default:'' }}" placeholder="مثال: ۱۴۰۵/۰۸/۰۱" class="form-input jalali-datepicker-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right; padding-left: 36px;" autocomplete="off">
+          <button type="button" class="jalali-calendar-toggle" data-target="date_from" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--brand-purple); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center;" title="انتخاب از تقویم جلالی">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Jalali Date Range: To -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          <svg class="ico" aria-hidden="true"><use href="#i-calendar"/></svg> تا تاریخ کشف (تقویم شمسی):
+        </label>
+        <div style="position: relative;">
+          <input type="text" id="date_to" name="date_to" value="{{ date_to|default:'' }}" placeholder="مثال: ۱۴۰۵/۰۸/۱۰" class="form-input jalali-datepicker-input" style="height: 40px; font-size: 0.82rem; width: 100%; direction: ltr; text-align: right; padding-left: 36px;" autocomplete="off">
+          <button type="button" class="jalali-calendar-toggle" data-target="date_to" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--brand-purple); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center;" title="انتخاب از تقویم جلالی">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Min Intent / Purchase Probability Filter -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          <svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> نیت خرید (احتمال خرید):
+        </label>
+        <select name="min_intent" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="">همه سطوح نیت</option>
+          <option value="90" {% if selected_min_intent == '90' %}selected{% endif %}><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg> فقط فرصت‌های طلایی (≥ ۹۰٪)</option>
+          <option value="80" {% if selected_min_intent == '80' %}selected{% endif %}>نیت خرید بالا (≥ ۸۰٪)</option>
+          <option value="70" {% if selected_min_intent == '70' %}selected{% endif %}>نیت متوسط به بالا (≥ ۷۰٪)</option>
+        </select>
+      </div>
+
+      <!-- Min Score Filter -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          حداقل انطباق با کالا:
+        </label>
+        <select name="min_score" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="">همه</option>
+          <option value="85" {% if selected_min_score == '85' %}selected{% endif %}>انطباق خیلی بالا (≥ ۸۵٪)</option>
+          <option value="70" {% if selected_min_score == '70' %}selected{% endif %}>انطباق بالا (≥ ۷۰٪)</option>
+          <option value="50" {% if selected_min_score == '50' %}selected{% endif %}>انطباق متوسط (≥ ۵۰٪)</option>
+          <option value="30" {% if selected_min_score == '30' %}selected{% endif %}>مشتری بالقوه (≥ ۳۰٪)</option>
+        </select>
+      </div>
+
+      <!-- Status Filter -->
+      <div>
+        <label class="form-label" style="font-size: 0.76rem; font-weight: 600; color: var(--panel-text-main); margin-bottom: 6px; display: block;">
+          وضعیت سرنخ:
+        </label>
+        <select name="status" class="form-input" style="height: 40px; font-size: 0.82rem; padding: 0 10px; width: 100%;">
+          <option value="">همه وضعیت‌ها</option>
+          <option value="NEW" {% if selected_status == 'NEW' %}selected{% endif %}>جدید</option>
+          <option value="REVIEWED" {% if selected_status == 'REVIEWED' %}selected{% endif %}>بررسی شده</option>
+          <option value="CONTACTED" {% if selected_status == 'CONTACTED' %}selected{% endif %}>تماس گرفته شده</option>
+          <option value="CONVERTED" {% if selected_status == 'CONVERTED' %}selected{% endif %}>مشتری نهایی</option>
+          <option value="REJECTED" {% if selected_status == 'REJECTED' %}selected{% endif %}>رد شده</option>
+          <option value="RESOLVED" {% if selected_status == 'RESOLVED' %}selected{% endif %}>نیاز برطرف شد</option>
+          <option value="EXPIRED" {% if selected_status == 'EXPIRED' %}selected{% endif %}>منقضی شده</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Quick Date Filter Presets -->
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0 2px;">
+      <span style="font-size: 0.74rem; color: var(--stone-text-muted); font-weight: 600;">
+        <svg class="ico" aria-hidden="true" style="width: 14px; height: 14px;"><use href="#i-calendar"/></svg> فیلتر سریع بازه زمانی:
+      </span>
+      <button type="button" class="jdp-preset-tag" onclick="applyDatePreset('date_from', 'date_to', 0); document.getElementById('filter-form').submit();">امروز</button>
+      <button type="button" class="jdp-preset-tag" onclick="applyDatePreset('date_from', 'date_to', 3); document.getElementById('filter-form').submit();">۳ روز اخیر</button>
+      <button type="button" class="jdp-preset-tag" onclick="applyDatePreset('date_from', 'date_to', 7); document.getElementById('filter-form').submit();">۷ روز اخیر</button>
+      <button type="button" class="jdp-preset-tag" onclick="applyDatePreset('date_from', 'date_to', 30); document.getElementById('filter-form').submit();">۳۰ روز اخیر</button>
+      {% if date_from or date_to %}
+        <button type="button" class="jdp-preset-tag" onclick="applyDatePreset('date_from', 'date_to', -1); document.getElementById('filter-form').submit();" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">
+          حذف فیلتر تاریخ (نمایش همه)
+        </button>
+      {% endif %}
+    </div>
+
+    <!-- Row 3: Full-text Search & Filter Action Buttons -->
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px;">
+      <div style="flex: 1; min-width: 240px; position: relative;">
+        <input type="text" name="q" value="{{ search_query|default:'' }}" placeholder="جستجو در نام، آیدی، پیام، نیاز یا کالا" class="form-input" style="height: 42px; font-size: 0.84rem; padding-right: 36px; width: 100%;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; right: 12px; top: 13px; color: var(--stone-text-muted);">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </div>
+
+      <input type="hidden" name="view" value="{{ view_mode }}">
+
+      <button type="submit" class="p-btn p-btn-primary" style="height: 42px; padding: 0 22px; font-weight: 600;">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        <span>اعمال فیلتر و سورت</span>
+      </button>
+
+      {% if selected_platform or selected_status or selected_min_score or selected_product_id or date_from or date_to or search_query %}
+        <a href="{% url 'discovery:opportunity_list' %}?view={{ view_mode }}" class="p-btn p-btn-ghost" style="height: 42px; padding: 0 14px; font-size: 0.8rem; color: var(--stone-text-muted);">
+          پاکسازی همه فیلترها
+        </a>
+      {% endif %}
+
+      <!-- Active Filter Banner Hint -->
+      {% if selected_product_id %}
+        <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.25); padding: 6px 12px; border-radius: 8px; font-size: 0.78rem; color: var(--brand-purple); display: flex; align-items: center; gap: 6px;">
+          <span><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> فیلتر کالا فعال است: خریداران به ترتیب بیشترین احتمال خرید چیده شده‌اند.</span>
+        </div>
+      {% endif %}
+    </div>
+  </form>
+</div>

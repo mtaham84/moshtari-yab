@@ -1,0 +1,78 @@
+{% load ops static %}<div id="tab-instagram-live" class="tab-pane">
+  <!-- 3 Minimal Live Status Cards -->
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-bottom:14px;">
+    
+    <!-- 1. Scraper Live Status -->
+    <div class="card" style="padding:14px; margin:0; border-right:4px solid #3b82f6;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:0.9rem; color:#3b82f6;">🔍 وضعیت اسکرپر</strong>
+        <span id="live-scraper-badge" class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">آماده‌باش</span>
+      </div>
+      <div id="live-scraper-text" style="font-size:0.85rem; margin-top:6px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        در انتظار چرخه بعدی اسکرپ...
+      </div>
+      <div id="live-scraper-sub" class="muted" style="font-size:0.75rem; margin-top:4px;">اکانت: —</div>
+    </div>
+
+    <!-- 2. Video / Reel Watching Live Status -->
+    <div class="card" style="padding:14px; margin:0; border-right:4px solid #a855f7;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:0.9rem; color:#a855f7;">🎬 تماشای ویدیو و ریلز</strong>
+        <span id="live-video-badge" class="badge" style="background:#f3e8ff; color:#7e22ce; font-weight:700;">بدون ویدیو</span>
+      </div>
+      <div id="live-video-text" style="font-size:0.85rem; margin-top:6px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        در این لحظه ویدیویی باز نیست.
+      </div>
+      <div id="live-video-sub" class="muted" style="font-size:0.75rem; margin-top:4px;">مدت تماشا: ۰ ثانیه</div>
+    </div>
+
+    <!-- 3. Outreach Live Status -->
+    <div class="card" style="padding:14px; margin:0; border-right:4px solid #10b981;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:0.9rem; color:#10b981;">✉️ پیام‌رسان دایرکت</strong>
+        <span id="live-outreach-badge" class="badge" style="background:#dcfce7; color:#15803d; font-weight:700;">آماده‌باش</span>
+      </div>
+      <div id="live-outreach-text" style="font-size:0.85rem; margin-top:6px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        در انتظار دیسپچ...
+      </div>
+      <div id="live-outreach-sub" class="muted" style="font-size:0.75rem; margin-top:4px;">فرستنده: —</div>
+    </div>
+
+  </div>
+
+  <!-- Action Bar -->
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button type="button" class="btn sm" id="btn-toggle-live-polling" onclick="toggleLivePolling()" style="background:#10b981; color:#fff; font-weight:700;">
+        <span class="live-dot-pulse" style="background:#fff; margin-left:6px;"></span> پایش زنده (هر ۲ ثانیه)
+      </button>
+      <button type="button" class="btn sm" onclick="triggerTestLivePulse(this)" style="background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1;">
+        ⚡ تست زنده (تماشای ریلز)
+      </button>
+      <button type="button" class="btn sm" onclick="clearLiveLogs(this)" style="background:transparent; color:var(--muted); border:1px solid var(--border);">
+        پاک‌سازی
+      </button>
+    </div>
+    <div style="font-size:0.8rem; color:var(--muted);" id="live-status-time">
+      آخرین بررسی: --:--:--
+    </div>
+  </div>
+
+  <!-- Minimal Dark Terminal Stream -->
+  <div class="card" style="padding:0; overflow:hidden; border:1px solid #1e293b; background:#090d16;">
+    <div style="background:#0f172a; padding:8px 14px; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#ef4444;"></span>
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b;"></span>
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#10b981;"></span>
+        <span style="font-family:monospace; font-size:0.8rem; color:#94a3b8; margin-right:8px;">instagram_live_activity.log</span>
+      </div>
+      <div style="font-size:0.75rem; color:#64748b;">
+        <span id="live-log-count">۰</span> لاگ
+      </div>
+    </div>
+    <div id="live-terminal-stream" style="padding:12px; max-height:480px; overflow-y:auto; font-family:'Courier New', monospace, Tahoma; font-size:0.83rem; line-height:1.7; direction:rtl; text-align:right;">
+      <div style="color:#64748b; text-align:center; padding:20px;">در حال دریافت لاگ‌های زنده اینستاگرام...</div>
+    </div>
+  </div>
+</div>

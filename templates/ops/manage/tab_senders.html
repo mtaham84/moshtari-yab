@@ -1,0 +1,262 @@
+{% load ops static %}<div id="tab-senders" class="tab-pane">
+  <div class="msg" style="margin-bottom:14px">افزودن، ورود و ثبت کد، اتصال و کانفیگ/QR، توقف و تاریخچه‌ی اکانت‌های اینستاگرام حالا یک‌جا در صفحه‌ی <a href="{% url 'manage:ig_accounts' %}"><b>اکانت‌های اینستاگرام</b></a> است (نام مشاور و پیام هر مشتری: <a href="{% url 'manage:ig_tenants' %}">پیام مشتری‌ها</a>).</div>
+  <div class="account-form" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:24px;">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+      <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>
+      <span>ثبت اکانت فرستنده و پاسخگوی پیام (Sender Account) با متد سشن و ضوابط Dealism</span>
+    </h2>
+    <form id="form-add-sender" method="POST" action="{% url 'manage:account_add' %}" onsubmit="handleAccountAddForm(event, this)">
+      {% csrf_token %}
+      <input type="hidden" name="role" value="SENDER">
+      <div class="form-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">انتخاب فروشگاه / مستأجر*</label>
+          <select name="tenant_id" class="ops-input" required style="width:100%; padding:8px 10px; border-radius:6px;">
+            <option value="tenant_default">فروشگاه عمومی</option>
+            {% for b in businesses %}
+              <option value="tenant_{{ b.id }}">{{ b.name }} (مالک: {{ b.user.get_full_name|default:b.user.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">نام کاربری اینستاگرام (Username)*</label>
+          <input type="text" name="username" class="ops-input" placeholder="مثال: my_store_support" required dir="ltr" style="width:100%; padding:8px 10px; border-radius:6px;">
+        </div>
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem; color:#0e8a4a;">کوکی sessionid (پیشنهادی بدون نیاز به پسورد)</label>
+          <input type="text" name="sessionid" class="ops-input" placeholder="مقدار sessionid از کوکی‌های وب" dir="ltr" style="width:100%; padding:8px 10px; border-radius:6px; font-family:monospace;">
+        </div>
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">رمز عبور پیج (اختیاری در صورت سشن)</label>
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور" dir="ltr" style="width:100%; padding:8px 10px; border-radius:6px;">
+        </div>
+      </div>
+
+      <div class="form-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:12px;">
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">رده و سن اکانت (Dealism)*</label>
+          <select name="account_tier" class="ops-input" style="width:100%; padding:8px 10px; border-radius:6px; font-weight:600;">
+            <option value="NEW" selected>🔵 اکانت جدید (زیر ۳ ماه) — ۱۰-۲۰ پیام/روز</option>
+            <option value="MEDIUM">🟡 اکانت متوسط (۳ تا ۱۲ ماه) — ۳۰-۵۰ پیام/روز</option>
+            <option value="AGED">🟢 اکانت قدیمی و فعال (بالای ۱ سال) — ۵۰-۱۰۰ پیام/روز</option>
+          </select>
+        </div>
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">سقف روزانه پیام (Daily Limit)</label>
+          <input type="number" name="daily_limit" class="ops-input" value="18" min="5" max="100" style="width:100%; padding:8px 10px; border-radius:6px;">
+        </div>
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">نام مشاور / عنوان نمایشی در پیام</label>
+          <input type="text" name="consultant_name" class="ops-input" placeholder="مثال: رها، مشاور درمان" style="width:100%; padding:8px 10px; border-radius:6px;">
+        </div>
+        <div class="field">
+          <label style="font-weight:600; font-size:0.82rem;">پروکسی اختصاصی (اختیاری)</label>
+          <input type="text" name="proxy_url" class="ops-input" placeholder="http://xray:8080" dir="ltr" style="width:100%; padding:8px 10px; border-radius:6px;">
+        </div>
+        <div style="align-self:flex-end;">
+          <button type="submit" class="btn primary" style="width:100%; height:38px; font-weight:700; border-radius:6px;">
+            ثبت و اتصال اکانت فرستنده
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="ops-head" style="margin-bottom:14px;">
+      <div>
+        <h2 style="margin:0;"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> اکانت‌های فرستنده و پاسخگوی معرفی‌شده ({{ senders_total }})</h2>
+        <p class="muted" style="margin:2px 0 0; font-size:0.84rem;">مدیریت کامل مشخصات، کوکی‌های سشن، رده‌های Dealism و استراحت اکانت‌های ارسال دایرکت</p>
+      </div>
+    </div>
+    {% if senders %}
+    <!-- Desktop & Tablet View (>= 768px) -->
+    <div class="responsive-table-desktop">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th>شناسه</th>
+              <th>نام اکانت</th>
+              <th>مستأجر / فروشگاه</th>
+              <th>مشاور اختصاصی</th>
+              <th>رده Dealism</th>
+              <th>وضعیت</th>
+              <th>دایرکت‌های امروز</th>
+              <th>آخرین دایرکت</th>
+              <th style="text-align:center;">عملیات و مدیریت سشن</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in senders %}
+            <tr>
+              <td>#{{ s.id }}</td>
+              <td style="font-family:monospace; direction:ltr; text-align:right;">
+                <a href="https://instagram.com/{{ s.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none; font-weight:700;">
+                  @{{ s.username }} ↗
+                </a>
+              </td>
+              <td><span class="pill">{{ s.tenant_id }}</span></td>
+              <td style="font-weight:600; font-size:0.84rem;">
+                {% for ap in accounts_with_pitches %}{% if ap.obj.id == s.id %}{{ ap.consultant_name }}{% endif %}{% endfor %}
+              </td>
+              <td>
+                {% if s.account_tier == 'AGED' %}
+                  <span class="badge" style="background:#e6f9f0; color:#0e8a4a; font-weight:700; padding:3px 7px; border-radius:4px; font-size:0.75rem;">🟢 قدیمی (بالای ۱ سال)</span>
+                {% elif s.account_tier == 'MEDIUM' %}
+                  <span class="badge" style="background:#fef9c3; color:#854d0e; font-weight:700; padding:3px 7px; border-radius:4px; font-size:0.75rem;">🟡 متوسط (۳-۱۲ ماه)</span>
+                {% else %}
+                  <span class="badge" style="background:#eff6ff; color:#1d4ed8; font-weight:700; padding:3px 7px; border-radius:4px; font-size:0.75rem;">🔵 جدید (زیر ۳ ماه)</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if s.status == 'ACTIVE' %}
+                  <span class="badge-status active" id="badge-{{ s.id }}"><i class="dot dot-ok" aria-hidden="true"></i> فعال و آماده</span>
+                {% elif s.status == 'COOLDOWN' %}
+                  <span class="badge-status cooldown" id="badge-{{ s.id }}"><i class="dot dot-warn" aria-hidden="true"></i> استراحت تا {{ s.cooldown_until|time:"H:i" }}</span>
+                {% elif s.status == 'CHALLENGED' %}
+                  <span class="badge-status challenged" id="badge-{{ s.id }}"><i class="dot dot-alert" aria-hidden="true"></i> چالش امنیتی (سشن جدید یا کد)</span>
+                {% else %}
+                  <span class="badge-status banned" id="badge-{{ s.id }}"><i class="dot dot-bad" aria-hidden="true"></i> {{ s.get_status_display }}</span>
+                {% endif %}
+                <span class="test-feedback" id="feedback-{{ s.id }}"></span>
+              </td>
+              <td class="n" style="font-weight:700; color:{% if s.daily_action_count >= s.daily_limit|default:18 %}#ea580c{% else %}#10b981{% endif %};">
+                {{ s.daily_action_count }} / {{ s.daily_limit|default:18 }}
+              </td>
+              <td class="jalali-time-cell">{% if s.last_action_at %}{{ s.last_action_at|time_ago_fa }}{% else %}—{% endif %}</td>
+              <td style="text-align:center;">
+                <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
+                  <button type="button" class="btn sm" onclick="openSenderEditModal({{ s.id }}, '{{ s.username }}', '{{ s.tenant_id }}', '{{ s.account_tier|default:'NEW' }}', {{ s.daily_limit|default:18 }}, '{{ s.proxy_url|default:'' }}', '{{ s.status }}', '{% for ap in accounts_with_pitches %}{% if ap.obj.id == s.id %}{{ ap.consultant_name|escapejs }}{% endif %}{% endfor %}')"
+                          style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a; padding:4px 9px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                          title="ویرایش کوکی سشن، رمز، نام مشاور و تنظیمات">
+                    ویرایش سشن ⚙️
+                  </button>
+                  {% if s.cooldown_until or s.status == 'COOLDOWN' or s.status == 'CHALLENGED' %}
+                  <button type="button" class="btn sm" onclick="clearSenderCooldown({{ s.id }}, '{{ s.username }}')"
+                          style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:4px 9px; font-size:0.78rem; font-weight:700; border-radius:6px; cursor:pointer;"
+                          title="رفع استراحت و فعال‌سازی فوری">
+                    فعال‌سازی فوری ⚡
+                  </button>
+                  {% endif %}
+                  <button class="btn sm" onclick="testAccountLive({{ s.id }}, this)" id="btn-test-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست</button>
+                  <a class="btn sm" style="background:#ea580c; color:#fff; {% if s.status != 'CHALLENGED' %}display:none;{% endif %}" href="{% url 'manage:ig_account_detail' s.id %}#login" id="btn-challenge-{{ s.id }}"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ورود / ثبت کد</a>
+                  <a class="btn sm" href="{% url 'manage:ig_account_detail' s.id %}" title="مدیریت کامل اکانت">مدیریت</a>
+                  <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn sm danger">حذف</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Mobile Cards View (< 768px - No Horizontal Scrolling) -->
+    <div class="responsive-cards-mobile" role="region" aria-label="اکانت‌های فرستنده در نمای موبایل">
+      <ul role="list" class="responsive-card-list">
+        {% for s in senders %}
+        <li role="listitem" class="responsive-card sender-card" data-id="{{ s.id }}">
+          <div class="responsive-card-header">
+            <div class="responsive-card-id-group">
+              <div style="font-weight:700; color:var(--muted); font-size:0.8rem;">#{{ s.id }}</div>
+              <div>
+                <h3 class="responsive-card-title">
+                  <a href="https://instagram.com/{{ s.username }}" target="_blank" rel="noopener" style="color:#2563eb; text-decoration:none;">
+                    @{{ s.username }} ↗
+                  </a>
+                </h3>
+                <div style="font-size:0.8rem; color:var(--muted); margin-top:2px;">
+                  مشاور: <strong>{% for ap in accounts_with_pitches %}{% if ap.obj.id == s.id %}{{ ap.consultant_name }}{% endif %}{% endfor %}</strong>
+                </div>
+              </div>
+            </div>
+            <div class="responsive-card-badges">
+              {% if s.status == 'ACTIVE' %}
+                <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> فعال و آماده</span>
+              {% elif s.status == 'COOLDOWN' %}
+                <span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> استراحت</span>
+              {% elif s.status == 'CHALLENGED' %}
+                <span class="badge-status challenged"><i class="dot dot-alert" aria-hidden="true"></i> نیازمند سشن</span>
+              {% else %}
+                <span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> {{ s.get_status_display }}</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="responsive-card-body">
+            <div class="card-kv-row">
+              <span class="card-kv-label">مستأجر / فروشگاه:</span>
+              <span class="card-kv-value"><span class="pill">{{ s.tenant_id }}</span></span>
+            </div>
+            <div class="card-kv-row">
+              <span class="card-kv-label">رده Dealism:</span>
+              <span class="card-kv-value">
+                {% if s.account_tier == 'AGED' %}
+                  <span class="badge" style="background:#e6f9f0; color:#0e8a4a; font-weight:700; padding:2px 6px; border-radius:4px; font-size:0.75rem;">🟢 قدیمی (بالای ۱ سال)</span>
+                {% elif s.account_tier == 'MEDIUM' %}
+                  <span class="badge" style="background:#fef9c3; color:#854d0e; font-weight:700; padding:2px 6px; border-radius:4px; font-size:0.75rem;">🟡 متوسط (۳-۱۲ ماه)</span>
+                {% else %}
+                  <span class="badge" style="background:#eff6ff; color:#1d4ed8; font-weight:700; padding:2px 6px; border-radius:4px; font-size:0.75rem;">🔵 جدید (زیر ۳ ماه)</span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="card-kv-row">
+              <span class="card-kv-label">دایرکت‌های امروز:</span>
+              <span class="card-kv-value" style="font-weight:700; color:{% if s.daily_action_count >= s.daily_limit|default:18 %}#ea580c{% else %}#10b981{% endif %};">
+                {{ s.daily_action_count }} از {{ s.daily_limit|default:18 }} پیام
+              </span>
+            </div>
+            <div class="card-kv-row">
+              <span class="card-kv-label">آخرین فعالیت:</span>
+              <span class="card-kv-value" style="font-size:0.8rem; font-family:monospace;">{% if s.last_action_at %}{{ s.last_action_at|time_ago_fa }}{% else %}—{% endif %}</span>
+            </div>
+          </div>
+
+          <details class="card-collapsible">
+            <summary>
+              <span>تنظیمات فنی و پروکسی</span>
+              <svg class="card-summary-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </summary>
+            <div class="card-collapsible-content">
+              <div class="card-kv-row">
+                <span class="card-kv-label">پروکسی:</span>
+                <span class="card-kv-value" style="font-family:monospace; direction:ltr; font-size:0.78rem;">{{ s.proxy_url|default:"پیش‌فرض شبکه" }}</span>
+              </div>
+              {% if s.status_message %}
+              <div style="background:rgba(0,0,0,0.2); border-inline-start:2px solid var(--muted); padding:6px 10px; border-radius:4px; font-size:0.78rem; color:var(--muted);">
+                <strong>پیام وضعیت:</strong> {{ s.status_message }}
+              </div>
+              {% endif %}
+            </div>
+          </details>
+
+          <div class="responsive-card-footer">
+            <button type="button" class="card-btn card-btn-secondary" onclick="openSenderEditModal({{ s.id }}, '{{ s.username }}', '{{ s.tenant_id }}', '{{ s.account_tier|default:'NEW' }}', {{ s.daily_limit|default:18 }}, '{{ s.proxy_url|default:'' }}', '{{ s.status }}', '{% for ap in accounts_with_pitches %}{% if ap.obj.id == s.id %}{{ ap.consultant_name|escapejs }}{% endif %}{% endfor %}')" aria-label="ویرایش سشن @{{ s.username }}">
+              ویرایش سشن ⚙️
+            </button>
+            {% if s.cooldown_until or s.status == 'COOLDOWN' or s.status == 'CHALLENGED' %}
+              <button type="button" class="card-btn card-btn-danger" onclick="clearSenderCooldown({{ s.id }}, '{{ s.username }}')" aria-label="فعال‌سازی فوری @{{ s.username }}">
+                فعال‌سازی فوری ⚡
+              </button>
+            {% endif %}
+            <button type="button" class="card-btn card-btn-secondary" onclick="testAccountLive({{ s.id }}, this)" aria-label="تست زنده اکانت @{{ s.username }}">
+              <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست
+            </button>
+            <form method="POST" action="{% url 'manage:account_delete' s.id %}" onsubmit="return confirm('حذف اکانت فرستنده؟');" style="display:inline; flex:1 1 auto;">
+              {% csrf_token %}
+              <button type="submit" class="card-btn card-btn-danger" style="width:100%;" aria-label="حذف اکانت @{{ s.username }}">حذف</button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:20px;">هیچ اکانت فرستنده‌ای تعریف نشده است.</p>
+    {% endif %}
+  </div>
+</div>
