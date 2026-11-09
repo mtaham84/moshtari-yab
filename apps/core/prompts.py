@@ -29,7 +29,7 @@ def _get_override_file() -> Path:
         try:
             if candidate.exists() or candidate.parent.exists():
                 return candidate
-        except Exception:
+        except OSError:   # unreadable location: try the next one
             continue
     fallback = Path(__file__).resolve().parent.parent.parent / "data" / "prompts_override.json"
     fallback.parent.mkdir(parents=True, exist_ok=True)
@@ -255,7 +255,7 @@ def _load_overrides_from_file() -> Dict[str, str]:
                 if isinstance(data, dict):
                     return {k: str(v) for k, v in data.items() if v}
         except Exception as e:
-            log.warning("Could not read prompt overrides file %s: %s", f, e)
+            log.warning("Could not read prompt overrides file %s: %s", f, e, exc_info=True)
     return {}
 
 
@@ -266,6 +266,7 @@ def _save_overrides_to_file(overrides: Dict[str, str]) -> None:
             with open(candidate, "w", encoding="utf-8") as fp:
                 json.dump(overrides, fp, ensure_ascii=False, indent=2)
         except Exception:
+            log.warning("Could not write the prompt overrides to %s", candidate, exc_info=True)
             continue
 
 
@@ -405,7 +406,7 @@ def set_system_prompt(key: str, new_text: str) -> Tuple[bool, str]:
             obj.save()
         db_updated = True
     except Exception as e:
-        log.warning("DB prompt update notice: %s", e)
+        log.warning("DB prompt update notice: %s", e, exc_info=True)
 
     log.info("Prompt '%s' updated (length: %d chars, DB: %s)", key, len(cleaned), db_updated)
     return True, f"پرامپت «{meta['title']}» با موفقیت به‌روزرسانی شد و بلافاصله در چرخه پردازش‌های بعدی اعمال گردید."
@@ -443,7 +444,7 @@ def reset_system_prompt(key: str) -> Tuple[bool, str]:
             obj.version += 1
             obj.save(update_fields=["prompt_text", "is_customized", "version", "updated_at"])
     except Exception as e:
-        log.warning("DB prompt reset notice: %s", e)
+        log.warning("DB prompt reset notice: %s", e, exc_info=True)
 
     return True, f"پرامپت «{meta['title']}» با موفقیت به حالت پیش‌فرض اولیه بازگردانی شد."
 
@@ -515,4 +516,4 @@ def ensure_prompts_seeded() -> None:
                     fields.append("prompt_text")
                 obj.save(update_fields=fields)
     except Exception as e:
-        log.debug("Seeding prompts notice: %s", e)
+        log.debug("Seeding prompts notice: %s", e, exc_info=True)

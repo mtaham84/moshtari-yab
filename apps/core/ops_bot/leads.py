@@ -41,7 +41,7 @@ def handle_activation_requests(chat_id: int | str) -> None:
         icon = status_icons.get(req.status, "▫️")
         try:
             dt_str = format_jalali_datetime(req.created_at)
-        except Exception:
+        except (TypeError, ValueError, AttributeError):   # not a datetime
             dt_str = str(req.created_at)[:16]
 
         esc_name = html.escape(req.full_name)
@@ -150,7 +150,7 @@ def handle_single_request(chat_id: int | str, req_id: int) -> None:
 
     try:
         dt_str = format_jalali_datetime(req.created_at)
-    except Exception:
+    except (TypeError, ValueError, AttributeError):   # not a datetime
         dt_str = str(req.created_at)[:16]
 
     esc_name = html.escape(req.full_name)

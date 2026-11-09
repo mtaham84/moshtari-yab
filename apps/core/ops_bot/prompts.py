@@ -44,7 +44,7 @@ def handle_prompts_list(chat_id: int | str) -> None:
     try:
         ensure_prompts_seeded()
     except Exception as e:
-        log.warning("ensure_prompts_seeded warning: %s", e)
+        log.warning("ensure_prompts_seeded warning: %s", e, exc_info=True)
 
     all_prompts = get_all_prompts_info()
     if not all_prompts:
@@ -122,7 +122,7 @@ def handle_single_prompt(chat_id: int | str, key: str) -> None:
         try:
             from apps.core.jalali import format_jalali_datetime
             time_str = f" | آخرین به‌روزرسانی: {format_jalali_datetime(updated_at)}"
-        except Exception:
+        except (TypeError, ValueError, AttributeError):   # not a datetime
             time_str = f" | آخرین به‌روزرسانی: {str(updated_at)[:16]}"
 
     header = (

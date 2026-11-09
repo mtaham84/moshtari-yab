@@ -297,7 +297,7 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
                 if adopted:
                     best_match = adopted
             except Exception as exc:
-                log.warning("Auto-adoption of category %s failed: %s", best_match.id, exc)
+                log.warning("Auto-adoption of category %s failed: %s", best_match.id, exc, exc_info=True)
 
         confidence = min(99, max(75, int(60 + (best_score / 6))))
         return {
@@ -337,7 +337,7 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
                         if adopted:
                             matched_cat = adopted
                     except Exception as exc:
-                        log.warning("Auto-adoption after AI failed: %s", exc)
+                        log.warning("Auto-adoption after AI failed: %s", exc, exc_info=True)
 
                 return {
                     "category_id": matched_cat.id,
@@ -349,6 +349,6 @@ def suggest_category_for_product(name: str, description: str = "", product_type:
                     "suggested_attributes": matched_cat.suggested_attributes or [],
                 }
     except Exception as exc:
-        log.warning("AI category classification fallback failed: %s", exc)
+        log.warning("AI category classification fallback failed: %s", exc, exc_info=True)
 
     return None

@@ -93,7 +93,7 @@ def measure_config(config, timeout_sec: float = 2.5) -> tuple[bool, float, str]:
         else:
             return False, -1.0, "no port and no link"
     except Exception as exc:
-        logger.warning("Error probing config #%s: %s", config.pk, exc)
+        logger.warning("Error probing config #%s: %s", config.pk, exc, exc_info=True)
         return False, -1.0, str(exc)
     if ok and 0 < ping_ms <= MAX_PING_MS:
         return True, round(ping_ms, 1), ""
@@ -165,7 +165,7 @@ def inspect_proxy_egress(proxy_url: str, timeout: float = 6.0) -> Dict[str, Any]
                     "risk_score": risk,
                 }
     except Exception as exc:
-        logger.debug("Proxy egress inspection error via %s: %s", clean_url, exc)
+        logger.debug("Proxy egress inspection error via %s: %s", clean_url, exc, exc_info=True)
 
     return {
         "status": "error",

@@ -241,7 +241,7 @@ def _apply_locale(cl) -> None:
         try:
             getattr(cl, setter)(value)
         except Exception as exc:
-            log.debug("%s failed: %s", setter, exc)
+            log.debug("%s failed: %s", setter, exc, exc_info=True)
 
 
 def apply_device_profile_to_client(cl, account) -> None:
@@ -258,12 +258,12 @@ def apply_device_profile_to_client(cl, account) -> None:
         try:
             cl.set_uuids(uuids)
         except Exception as exc:
-            log.warning("Could not set_uuids on Client: %s", exc)
+            log.warning("Could not set_uuids on Client: %s", exc, exc_info=True)
     try:
         cl.set_device(device_settings, reset=False)
         cl.settings["device_settings"] = dict(cl.device_settings)
     except Exception as exc:
-        log.warning("Could not set_device on Client: %s", exc)
+        log.warning("Could not set_device on Client: %s", exc, exc_info=True)
     _apply_locale(cl)
     try:
         cl.set_user_agent()
