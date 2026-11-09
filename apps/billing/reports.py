@@ -88,7 +88,7 @@ def model_usage(days: float) -> list[dict]:
             r["toman"] += float(a["toman"] or 0)
             bump_last(r, a["last"])
     except Exception:
-        pass
+        log.warning("Could not add AIAnalysis usage to the model usage report", exc_info=True)
     try:
         from django.db.models import Count, Max, Sum
         from apps.core.models import LLMUsageLog

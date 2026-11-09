@@ -299,8 +299,8 @@ def _refresh_cache_if_needed() -> None:
                 finally:
                     if opened_here and not connection.in_atomic_block:
                         connection.close()
-            except Exception:
-                pass
+            except Exception:   # no database (scripts, tests without DB): code defaults only
+                log.debug("Prompt overrides unavailable", exc_info=True)
 
             _PROMPTS_CACHE = overrides
 
@@ -467,7 +467,7 @@ def get_prompt_info(key: str) -> Optional[Dict[str, Any]]:
             meta["version"] = row.version
             meta["updated_at"] = row.updated_at
     except Exception:
-        pass
+        log.debug("Prompt %s: database row unavailable", key, exc_info=True)
 
     if not is_custom:
         overrides = _load_overrides_from_file()

@@ -60,8 +60,8 @@ def _extract_response_ct0(response: Any) -> str | None:
                 for k, v in cookies.items():
                     if k == "ct0" and isinstance(v, str) and v.strip():
                         return v.strip()
-        except Exception:
-            pass
+        except Exception:   # cookie jars differ between requests and curl_cffi
+            logger.debug("Could not read ct0 from the response cookies", exc_info=True)
     headers = getattr(response, "headers", None)
     if headers and hasattr(headers, "get"):
         sc = headers.get("set-cookie") or headers.get("Set-Cookie") or ""

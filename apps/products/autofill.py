@@ -7,6 +7,7 @@
    (no name, or neither description nor price) the page text goes to the LLM, charged to the seller.
 """
 from __future__ import annotations
+import logging
 
 import http.client
 import ipaddress
@@ -18,6 +19,9 @@ from dataclasses import dataclass, field
 from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
+
+log = logging.getLogger(__name__)
+
 
 MAX_BYTES = 2_000_000
 TIMEOUT = 10
@@ -214,8 +218,8 @@ def structured(html: str) -> tuple[Suggestion, _Page]:
     page = _Page()
     try:
         page.feed(html)
-    except Exception:
-        pass
+    except Exception:   # broken markup: keep what was parsed so far
+        log.debug("HTML parsing stopped early", exc_info=True)
     s = Suggestion()
     for raw in page.ld:
         try:

@@ -423,7 +423,7 @@ def lead_chat_history_view(request, lead_id):
                 if not comment_time_jalali and opp.source_message_timestamp:
                     comment_time_jalali = format_jalali_datetime(opp.source_message_timestamp)
         except Exception:
-            pass
+            logger.warning("Could not look up the opportunity of lead %s", lead.pk, exc_info=True)
 
     sender_account = lead.sender_account or lead.second_sender_username or ""
     second_sender = lead.second_sender_username or ""
