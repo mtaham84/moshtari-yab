@@ -10,7 +10,7 @@ try:  # optional, the crawler already depends on python-dotenv
     from dotenv import load_dotenv
 
     load_dotenv()
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     pass
 
 

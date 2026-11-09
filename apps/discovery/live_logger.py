@@ -109,7 +109,7 @@ def report_live_activity(
                 if cutoff_id:
                     InstagramLiveActivity.objects.filter(id__lt=cutoff_id[0]).delete()
             except Exception:
-                pass
+                logger.debug("Could not prune old live activity rows", exc_info=True)
 
         return entry.id
     except Exception as exc:

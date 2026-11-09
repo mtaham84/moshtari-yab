@@ -9,6 +9,8 @@ from shared.tele_logging.formatter import format_error_alert
 from shared.tele_logging.sender import send_telegram_raw
 from shared.tele_logging.throttler import ErrorThrottler
 
+_log = logging.getLogger("shared.tele_logging.handler")
+
 
 class AsyncTelegramHandler(logging.Handler):
     """Asynchronous, non-blocking logging handler that dispatches error alerts to Telegram.
@@ -57,8 +59,8 @@ class AsyncTelegramHandler(logging.Handler):
                 user = getattr(req, "user", None)
                 user_str = str(user) if user and getattr(user, "is_authenticated", False) else "Anonymous"
                 req_info = f"{method} {path} (User: {user_str})"
-            except Exception:
-                pass
+            except Exception:   # never fail a log call over request details
+                self.handleError(record)
 
         # Extract exception details
         exc_type_name = None
@@ -91,8 +93,6 @@ class AsyncTelegramHandler(logging.Handler):
         except queue.Full:
             # Drop record to protect memory if queue is overwhelmed
             pass
-        except Exception:
-            pass
 
     def _worker_loop(self) -> None:
         """Background thread consuming queued log records and delivering to Telegram."""
@@ -124,18 +124,18 @@ class AsyncTelegramHandler(logging.Handler):
                     send_telegram_raw(alert_text)
 
             except Exception:
-                # Absolute silent fail-safe to guarantee thread never crashes and never loops
-                pass
+                # The delivery thread must never die. This logger's records are skipped by emit(), so no loop.
+                _log.warning("Telegram error alert could not be delivered", exc_info=True)
             finally:
                 try:
                     self.queue.task_done()
-                except Exception:
+                except ValueError:   # task_done() called more often than get()
                     pass
 
     def close(self) -> None:
         """Gracefully signals the worker thread to exit."""
         try:
             self.queue.put_nowait(None)
-        except Exception:
+        except queue.Full:
             pass
         super().close()

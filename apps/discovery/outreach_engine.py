@@ -582,7 +582,7 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
             worker_active=True,
         )
     except Exception:
-        pass
+        logger.debug("Live activity report failed", exc_info=True)
     pause = "☕ استراحت طبیعی" if is_break else "⏳ وقفه ایمنی"
     ctx.log(f"   ✅ دایرکت به @{lead.username} ارسال شد. {pause}: دایرکت بعدی @{sender.username} "
             f"حداقل {delay / 60.0:.0f} دقیقه دیگر.")

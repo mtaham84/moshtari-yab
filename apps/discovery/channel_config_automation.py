@@ -391,7 +391,7 @@ def sync_channel_configs(
         from apps.discovery.models.proxy import ProxyConfig
         existing_urls = set(ProxyConfig.objects.values_list("raw_url", flat=True))
     except Exception:
-        pass
+        logger.warning("Could not load the existing proxy configs", exc_info=True)
 
     configs_to_test = []
     max_seen_post_id = last_post_id
@@ -456,7 +456,7 @@ def sync_channel_configs(
             ch_obj.total_configs_found += len(added_results)
             ch_obj.save(update_fields=["last_synced_at", "total_configs_found"])
     except Exception:
-        pass
+        logger.warning("Could not update the stats of channel %s", clean_channel, exc_info=True)
 
     channels = _load_channels_json()
     for ch in channels:

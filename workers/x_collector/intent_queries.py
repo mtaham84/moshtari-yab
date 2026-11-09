@@ -5,6 +5,7 @@ wasteful. Instead every query is ``(term OR "multi word term" …) (intent word 
 all names of the product and all buying cues. Time windows (``since_time:``) are added by the worker per run.
 """
 from __future__ import annotations
+import logging
 
 import os
 import re
@@ -12,12 +13,15 @@ from typing import Any
 
 from need_engine.text import norm, tokens
 
+log = logging.getLogger("x_collector.queries")
+
 # kept for backward compatibility (imported by older code/tests); queries now use INTENT_WORDS
 INTENT_TEMPLATES = (
     "دنبال {t} می‌گردم", "دنبال {t} میگردم", "دنبال {t} هستم", "{t} می‌خوام",
     "{t} میخوام", "قصد خرید {t} دارم", "کسی {t} سراغ داره", "{t} پیشنهاد بدید",
     "{t} کجا بخرم", "برای خرید {t} راهنمایی", "{t} چی بخرم", "ممنون میشم {t} معرفی کنید",
 )
+
 INTENT_WORDS = ("بخرم", "بگیرم", "میخوام", "می‌خوام", "پیشنهاد", "سراغ", "معرفی", "دنبال", "خوبه")
 ALTERNATIVE_CUES = ("جایگزین", "\"به جای\"", "\"بهتر از\"", "\"سوییچ به\"", "\"کوچ به\"")
 COMPLAINT_CUES = ("\"خسته شدم از\"", "افتضاحه", "\"کار نمیکنه\"", "\"دیگه نمیکشه\"", "پشیمونم", "\"کند شده\"")
@@ -218,7 +222,6 @@ def phrase_candidates(product: Any, terms: dict[str, Any] | None, card: Any = No
     return out
 
 
-
 def operators() -> str:
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     if _env_bool("X_QUERY_NEGATIVE_OPERATORS"):
@@ -316,7 +319,6 @@ def _short_terms(values: Any, cap: int, max_words: int = 3) -> list[str]:
     return out[:cap]
 
 
-
 # kind -> prompt format:
 # A: Explicit Purchase Intent (intent, solution, product)
 # B: Advice Seeking (alternative)
@@ -395,7 +397,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
             if q_text and is_short_query(q_text):
                 values.append((q_text, pq.get("kind", "problem")))
     except Exception:
-        pass
+        log.warning("ProQE queries unavailable for product %s", pid, exc_info=True)
 
     raw_candidates, seen = [], set()
     for phrase, kind in values:

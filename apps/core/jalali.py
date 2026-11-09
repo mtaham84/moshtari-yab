@@ -115,7 +115,7 @@ def format_jalali_datetime(dt, persian_digits=True) -> str:
         try:
             from django.utils import timezone as dj_tz
             dt = dj_tz.localtime(dt)
-        except Exception:
+        except (ImportError, ValueError, OverflowError):   # Django not set up / odd tzinfo: keep dt
             pass
     date_part = format_jalali_date(dt, persian_digits=persian_digits)
     time_part = f"{dt.hour:02d}:{dt.minute:02d}"

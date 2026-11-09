@@ -1,7 +1,11 @@
+import logging
 import uuid
 from django.db import models
 from django.utils.text import slugify
 from apps.businesses.models import Business
+
+log = logging.getLogger(__name__)
+
 
 class Category(models.Model):
     PRODUCT_TYPE_CHOICES = [
@@ -311,7 +315,7 @@ class ProductImage(models.Model):
             try:
                 storage.delete(path)
             except Exception:
-                pass
+                log.warning("Could not delete product image file %s", path, exc_info=True)
         if was_main and product:
             first_img = product.images.first()
             if first_img:

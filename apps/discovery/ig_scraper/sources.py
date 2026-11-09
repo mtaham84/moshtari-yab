@@ -1,9 +1,12 @@
 """Discovery sources: finding candidate pages, fetching a source's posts, retiring sources that never qualify."""
+import logging
 from datetime import timezone
 
 from django.utils import timezone as dj_timezone
 
 from apps.discovery.ig_scraper import accounts
+
+log = logging.getLogger("instagram.scraper")
 
 
 def discover_candidate_pages(run, cl, account, business, family, plan, source):
@@ -239,7 +242,7 @@ def fetch_source_medias(
                     top = accounts.instagram_api_call(run, account, cl.hashtag_medias_top, tag, amount=amount) or []
                     _add(top)
                 except Exception:
-                    pass
+                    log.debug("hashtag_medias_top for #%s failed", tag, exc_info=True)
 
             if len(all_medias) >= min_inspect and _count_qualifying() >= target_qualifying:
                 break

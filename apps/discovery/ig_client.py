@@ -35,7 +35,7 @@ def mount_timeouts(cl, connect: float = 10, read: float = 35) -> None:
         try:
             session.mount("https://", adapter)
             session.mount("http://", adapter)
-        except Exception:
+        except AttributeError:   # this client has no such session
             pass
 
 

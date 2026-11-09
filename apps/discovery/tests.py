@@ -397,6 +397,14 @@ class PanelViewTests(TestCase):
         r = self.client.post(reverse("discovery:opportunity_status_update", args=[self.mine.pk]), {"status": "MATCHED"})
         self.assertEqual(r.status_code, 400)
 
+    def test_status_update_reads_a_json_body_and_rejects_other_bodies(self):
+        url = reverse("discovery:opportunity_status_update", args=[self.mine.pk])
+        r = self.client.post(url, data='{"status": "CONTACTED"}', content_type="application/json")
+        self.assertEqual(r.json()["new_status"], "CONTACTED")
+        for body in ("not json", '["a list"]'):
+            r = self.client.post(url, data=body, content_type="application/json")
+            self.assertEqual(r.status_code, 400, body)
+
     def test_opportunity_feedback_is_saved_and_scoped_to_business(self):
         url = reverse("discovery:opportunity_feedback", args=[self.mine.pk])
         response = self.client.post(url, {"feedback": "relevant"})

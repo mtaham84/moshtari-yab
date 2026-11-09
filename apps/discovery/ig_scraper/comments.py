@@ -192,7 +192,7 @@ def inspect_family_medias(run, cl, account, target, source, medias, min_comments
                     if dt < comment_cutoff:
                         continue
                     row["_dt"] = dt
-                except Exception:
+                except (TypeError, ValueError):   # unparseable date: keep the comment, undated
                     pass
             eligible_comments.append(row)
 

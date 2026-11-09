@@ -173,6 +173,9 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
   being reused after an EOFError); cold DMs and first queued DMs are checked by `validate_and_sanitize_dm`; the
   scraper takes `INSTAGRAM_PRIORITY_BUSINESS_IDS` first and then every business (before, while a dental business
   existed no other business was scraped).
+- Found in Phase 5, not fixed: `instagram_families` builds "buyer exemplars" for query expansion with
+  `InstagramEngineLead.objects.filter(business=..., buyer_score__gte=...)` and `lead_text`, fields the model does not
+  have, so the query always fails and the expansion never sees real buyer comments (now logged at debug).
 - Found in Phase 3, not fixed:
   - Telegram's own egress proxy candidates exist in three slightly different lists (`apps/core/ops_bot/telegram_api.py`,
     `shared/telegram_alerts.py`, `channel_config_automation.get_http_request_with_proxy`).

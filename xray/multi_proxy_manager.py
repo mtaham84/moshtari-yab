@@ -153,7 +153,7 @@ def _ensure_django() -> None:
                             if line and not line.startswith("#") and "=" in line:
                                 k, v = line.split("=", 1)
                                 os.environ.setdefault(k.strip(), v.strip())
-            except Exception:
+            except (OSError, ValueError):   # unreadable .env: use the real environment
                 pass
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
         if not Path("/.dockerenv").exists():
@@ -520,7 +520,7 @@ def test_outbound_ping(outbound_dict: dict[str, Any], timeout_sec: float = 4.0) 
         if test_cfg_path.exists():
             try:
                 test_cfg_path.unlink()
-            except Exception:
+            except OSError:
                 pass
 
 

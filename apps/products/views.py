@@ -1,3 +1,4 @@
+import logging
 import json
 import secrets
 from django.contrib import messages
@@ -13,6 +14,8 @@ from apps.discovery.models import Opportunity, ProductDailyMetric, ProductOrder
 from .models import Category, Product, ProductImage
 from . import agent_card
 from .services import suggest_category_for_product
+
+log = logging.getLogger(__name__)
 
 
 def _form_list(value: str, *, hashtags: bool = False) -> list[str]:
@@ -202,7 +205,7 @@ def product_add_view(request):
                     order=idx,
                 )
             except Exception:
-                pass
+                log.warning("Could not save an uploaded image of product %s", product.pk, exc_info=True)
 
         from apps.products import taxonomy
         organizing = taxonomy.maybe_organize(business)
@@ -317,7 +320,7 @@ def product_edit_view(request, pk):
                     order=current_images_count + idx,
                 )
             except Exception:
-                pass
+                log.warning("Could not save an uploaded image of product %s", product.pk, exc_info=True)
 
         messages.success(request, f"مشخصات محصول «{product.name}» به‌روزرسانی شد.")
         return redirect("products:detail", pk=product.pk)
@@ -607,8 +610,6 @@ def public_product_card_view(request, pk):
         "other_images": other_images,
         "ref": ref,
     })
-
-
 
 
 @login_required
