@@ -140,12 +140,13 @@ def retire_and_delete_source(run, business, source_type: str, label: str, family
             if prod_mod:
                 prod.save(update_fields=["instagram_hashtags", "instagram_terms"])
 
-    # 3. InstagramPage (deactivate only auto-discovered candidates, preserve manual/watched target accounts)
+    # 3. InstagramPage: deactivate auto-discovered pages (discovered_family_id set). The seller's own pages and pages
+    # the seller added by hand (no discovered_family_id) stay active. Discovered candidates are created with
+    # kind="watched" too, so kind alone cannot tell them apart.
     if source_type == "page":
         page = InstagramPage.objects.filter(business=business, handle__iexact=raw_handle).first()
-        if page and (page.kind == "watched" or page.kind == "own" or not page.discovered_family_id):
-            # Preserved target account: do NOT deactivate
-            pass
+        if page and (page.kind == "own" or not page.discovered_family_id):
+            pass   # the seller's page: keep it
         else:
             InstagramPage.objects.filter(business=business, handle__iexact=raw_handle).update(
                 is_active=False,

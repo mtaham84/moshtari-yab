@@ -106,15 +106,18 @@ class RetireSourceTests(TestCase):
         self.assertEqual(self.plan.page_search_terms, ["دندانپزشکی"])
         self.assertEqual(self.product.instagram_terms, [])
 
-    def test_watched_and_own_pages_stay_active(self):
-        watched = InstagramPage.objects.create(business=self.business, handle="my_watch", kind="watched",
-                                               discovered_family_id="f1")
-        own = InstagramPage.objects.create(business=self.business, handle="my_own", kind="own")
-        _retire(self.business, "page", "@my_watch")
-        _retire(self.business, "page", "@my_own")
-        watched.refresh_from_db()
-        own.refresh_from_db()
-        self.assertTrue(watched.is_active and own.is_active)
+    def test_discovered_pages_are_deactivated_but_seller_pages_stay(self):
+        discovered = InstagramPage.objects.create(business=self.business, handle="found_page", kind="watched",
+                                                  discovered_family_id="f1", last_status="candidate")
+        hand_added = InstagramPage.objects.create(business=self.business, handle="my_watch", kind="watched")
+        own = InstagramPage.objects.create(business=self.business, handle="my_own", kind="own",
+                                           discovered_family_id="f1")
+        for handle in ("found_page", "my_watch", "my_own"):
+            _retire(self.business, "page", f"@{handle}")
+        for page in (discovered, hand_added, own):
+            page.refresh_from_db()
+        self.assertEqual((discovered.is_active, discovered.last_status), (False, "unqualified_retired"))
+        self.assertTrue(hand_added.is_active and own.is_active)
 
 
 class FetchSourceMediasTests(TestCase):
