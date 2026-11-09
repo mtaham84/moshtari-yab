@@ -1,3 +1,4 @@
+import logging
 import time
 from django.core.management.base import BaseCommand
 
@@ -5,6 +6,8 @@ from apps.discovery.channel_config_automation import (
     sync_channel_configs,
     sync_all_active_channels,
 )
+
+log = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -103,6 +106,7 @@ class Command(BaseCommand):
                             self.style.ERROR(f"❌ [دور {cycle}] خطا در همگام‌سازی @{raw_channel}: {res.get('error')}")
                         )
             except Exception as exc:
+                log.warning("Channel config sync cycle %s failed", cycle, exc_info=True)
                 self.stderr.write(self.style.ERROR(f"❌ خطای غیرمنتظره در دور {cycle}: {exc}"))
 
             if not loop:

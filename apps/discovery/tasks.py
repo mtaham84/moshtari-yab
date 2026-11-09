@@ -112,7 +112,7 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
             logger.info("🎉 [Celery Fast Replies] %d new customer replies synced!", replies_count)
         return res
     except Exception as exc:
-        logger.warning("Error syncing lead replies in Celery task: %s", exc)
+        logger.warning("Error syncing lead replies in Celery task: %s", exc, exc_info=True)
         return {"success": False, "error": str(exc), "replies_found": 0}
 
 
@@ -130,7 +130,7 @@ def task_sync_telegram_channel_configs(max_posts: int = 15, max_add: int = 10) -
         logger.info("📡 [Celery Channels] %s", res.get("message"))
         return res
     except Exception as exc:
-        logger.error("Error syncing Telegram channels in Celery: %s", exc)
+        logger.error("Error syncing Telegram channels in Celery: %s", exc, exc_info=True)
         return {"success": False, "error": str(exc)}
 
 
@@ -184,5 +184,5 @@ def task_warmup_sender_account(username: Optional[str] = None, tenant_ids: Optio
         actions = execute_background_organic_warmup(cl, target_username=sender.username)
         return {"success": True, "sender": sender.username, "actions": actions}
     except Exception as exc:
-        logger.warning("Error running background warmup for @%s: %s", sender.username, exc)
+        logger.warning("Error running background warmup for @%s: %s", sender.username, exc, exc_info=True)
         return {"success": False, "sender": sender.username, "error": str(exc)}

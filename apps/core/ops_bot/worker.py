@@ -115,7 +115,7 @@ def periodic_health_check_worker() -> None:
                         log.info("Luna credit restored! Broadcasting notification...")
                         broadcast_message(restored_text, reply_markup=get_main_keyboard())
             except Exception as luna_exc:
-                log.warning("Periodic Luna health check exception: %s", luna_exc)
+                log.warning("Periodic Luna health check exception: %s", luna_exc, exc_info=True)
 
             # 2. Prune dead & slow (>2000ms) configs every 5 minutes (every cycle)
             try:
@@ -125,10 +125,10 @@ def periodic_health_check_worker() -> None:
                 if removed:
                     log.info("5-minute purge removed %d dead/slow configs: %s", len(removed), [r.get("tag") for r in removed])
             except Exception as prune_exc:
-                log.warning("Periodic proxy prune exception: %s", prune_exc)
+                log.warning("Periodic proxy prune exception: %s", prune_exc, exc_info=True)
 
         except Exception as exc:
-            log.warning("Periodic health check exception: %s", exc)
+            log.warning("Periodic health check exception: %s", exc, exc_info=True)
 
 
 def run_bot() -> None:
@@ -222,12 +222,14 @@ def run_bot() -> None:
                             r_id = int(text.replace("/req_", "").strip())
                             handle_single_request(chat_id, r_id)
                         except Exception as parse_err:
+                            log.warning("Bot command %s failed", text, exc_info=True)
                             send_message(chat_id, f"⚠️ شناسه درخواست نامعتبر است: {parse_err}")
                     elif text.startswith("/activate_"):
                         try:
                             r_id = int(text.replace("/activate_", "").strip())
                             handle_quick_activate(chat_id, r_id)
                         except Exception as parse_err:
+                            log.warning("Bot command %s failed", text, exc_info=True)
                             send_message(chat_id, f"⚠️ شناسه درخواست نامعتبر است: {parse_err}")
                     else:
                         handle_incoming_text(chat_id, text)
@@ -240,5 +242,5 @@ def run_bot() -> None:
                     )
 
         except Exception as exc:
-            log.warning("Bot polling loop error: %s", exc)
+            log.warning("Bot polling loop error: %s", exc, exc_info=True)
             time.sleep(4)

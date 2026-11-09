@@ -52,7 +52,7 @@ def funnel_and_audit(clock, twitter_scrapers) -> dict:
         out.update(_query_intelligence(clock))
         return out
     except Exception as exc:
-        logger.warning("Could not calculate crawler audit and funnel metrics: %s", exc)
+        logger.warning("Could not calculate crawler audit and funnel metrics: %s", exc, exc_info=True)
         return {k: (list(v) if isinstance(v, list) else v) for k, v in EMPTY_FUNNEL.items()}
 
 

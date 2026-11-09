@@ -60,7 +60,7 @@ async def fetch_full_chat(client: TelegramClient, entity: Any) -> Any:
     except FloodWaitTooLong:
         raise
     except Exception as exc:
-        log.warning("Could not fetch full info of %s: %s", getattr(entity, "title", entity), exc)
+        log.warning("Could not fetch full info of %s: %s", getattr(entity, "title", entity), exc, exc_info=True)
         return None
 
 
@@ -133,7 +133,7 @@ class CrawlerMonitor:
                 log.error("Skipping %s: %s", link, exc)
                 continue
             except Exception as exc:
-                log.error("Could not join/resolve %s: %s", link, exc)
+                log.error("Could not join/resolve %s: %s", link, exc, exc_info=True)
                 continue
             self._cli_chats.add(state.chat_id)
             await pace()
@@ -153,7 +153,7 @@ class CrawlerMonitor:
                         if isinstance(ent, (types.Channel, types.Chat)):
                             self._dialogs[utils.get_peer_id(ent)] = ent
                 except Exception as exc:
-                    log.warning("Could not list dialogs: %s", exc)
+                    log.warning("Could not list dialogs: %s", exc, exc_info=True)
         return self._dialogs
 
     def _should_try_join(self, key: str, rows: list[Community], now: float) -> bool:
@@ -174,7 +174,7 @@ class CrawlerMonitor:
             state, full = await self.add_link(rows[0].link)
         except Exception as exc:
             code, wait = classify_join_error(exc)
-            log.warning("Panel link %s (rows %s) not joined: %s (%s)", rows[0].link, ids, code, exc)
+            log.warning("Panel link %s (rows %s) not joined: %s (%s)", rows[0].link, ids, code, exc, exc_info=True)
             if code.startswith("FLOOD_WAIT:"):
                 self._next_join_at = max(self._next_join_at, now + wait)   # every join waits, not only this one
                 self.panel.mark_waiting(ids, code)
@@ -254,6 +254,7 @@ class CrawlerMonitor:
             try:
                 sender = await msg.get_sender()
             except Exception:
+                log.debug("Could not resolve the sender of a message", exc_info=True)
                 sender = None
         return sender
 
@@ -292,7 +293,7 @@ class CrawlerMonitor:
                 log.warning("Parents of '%s' skipped: %s", state.title, exc)
                 return
             except Exception as exc:
-                log.warning("Could not fetch parent messages %s of '%s': %s", chunk, state.title, exc)
+                log.warning("Could not fetch parent messages %s of '%s': %s", chunk, state.title, exc, exc_info=True)
                 continue
             found = [m for m in (found if isinstance(found, list) else [found]) if m is not None and not isinstance(m, types.MessageEmpty)]
             for m in sorted(found, key=lambda m: m.id):
@@ -406,7 +407,7 @@ class CrawlerMonitor:
                 log.warning("Profile worker paused: %s", exc)
                 break
             except Exception as exc:  # privacy, deleted account, unknown access hash → don't retry forever
-                log.debug("No profile for user %s: %s", uid, exc)
+                log.debug("No profile for user %s: %s", uid, exc, exc_info=True)
                 bio = None
             self.archive.set_profile(uid, bio if isinstance(bio, str) and bio else None)
             done += 1

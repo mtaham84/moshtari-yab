@@ -151,7 +151,7 @@ def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
                             ON CONFLICT (post_hash) DO NOTHING
                         """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or ""))
                     except Exception as exc:
-                        log.debug("Skipped discovery_xcrawledpost recording: %s", exc)
+                        log.debug("Skipped discovery_xcrawledpost recording: %s", exc, exc_info=True)
                 count += 1
     if invalid_count:
         log.info("Skipped %s invalid X record(s) from %s", invalid_count, path)

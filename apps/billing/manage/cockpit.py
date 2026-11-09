@@ -61,7 +61,7 @@ def _get_cockpit_client(account: InstagramEngineAccount, force_fresh: bool = Fal
         _cockpit_client_cache[account.id] = (now_ts, cl, current_proxy)
         return cl, None
     except Exception as exc:
-        logger.warning(f"Failed to initialize cockpit client for @{account.username}: {exc}")
+        logger.warning(f"Failed to initialize cockpit client for @{account.username}: {exc}", exc_info=True)
         return None, str(exc)
 
 
@@ -128,7 +128,7 @@ def instagram_cockpit_threads(request, pk: int):
                 if hasattr(m, "timestamp") and m.timestamp:
                     try:
                         last_msg_time = m.timestamp.strftime("%H:%M")
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):   # not a datetime
                         last_msg_time = str(m.timestamp)[:5]
                 is_outgoing = str(getattr(m, "user_id", "")) == str(cl.user_id)
 
@@ -170,7 +170,7 @@ def instagram_cockpit_thread_detail(request, pk: int, thread_id: str):
             if hasattr(m, "timestamp") and m.timestamp:
                 try:
                     t_str = m.timestamp.strftime("%Y-%m-%d %H:%M")
-                except Exception:
+                except (AttributeError, TypeError, ValueError):   # not a datetime
                     t_str = str(m.timestamp)
 
             msgs.append({

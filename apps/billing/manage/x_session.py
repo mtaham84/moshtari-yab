@@ -109,6 +109,7 @@ def _call_twitter_settings_endpoint(
             )
         return r, None
     except Exception as exc:
+        logger.warning("X settings endpoint request failed", exc_info=True)
         return None, exc
 
 
@@ -156,7 +157,7 @@ def _interpret_twitter_response(
         if data is None and hasattr(response, "json"):
             try:
                 data = response.json()
-            except Exception:
+            except ValueError:   # not a JSON body
                 data = None
 
     if code == 200:
@@ -261,7 +262,7 @@ def _test_twitter_account_connection(account: TwitterEngineAccount) -> tuple[boo
             )
             try:
                 payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
-            except Exception:
+            except ValueError:   # twitter-cli printed something that is not JSON
                 payload = {}
 
             if completed.returncode == 0 and payload.get("ok") is True:

@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ from shared.collector_kit.file_lock import exclusive_file_lock
 
 from need_engine.retention import (purge_retained_data, purge_panel_x_posts, purge_x_collector_state,
                                    scrub_panel_opportunities)
+
+log = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -56,6 +59,7 @@ class Command(BaseCommand):
                     else:
                         report["x_crawled_hashes_older_than_10d"] = XCrawledPost.objects.filter(crawled_at__lt=x_cutoff).count()
                 except Exception as exc:
+                    log.warning("Could not purge old X post hashes", exc_info=True)
                     report["x_crawled_hashes_error"] = str(exc)
         except (ValueError, RuntimeError, OSError) as exc:
             raise CommandError(str(exc)) from exc

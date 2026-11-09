@@ -59,4 +59,5 @@ def instagram_live_clear_logs_api(request):
         InstagramLiveActivity.objects.all().delete()
         return JsonResponse({"success": True, "message": "کنسول لاگ‌ها با موفقیت پاک‌سازی شد."})
     except Exception as exc:
+        logger.warning("Could not clear the live activity log", exc_info=True)
         return JsonResponse({"success": False, "error": str(exc)}, status=500)
