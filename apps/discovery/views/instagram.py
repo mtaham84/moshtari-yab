@@ -1,18 +1,13 @@
 import logging
 import os
 import re
-from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_http_methods
 
 from apps.discovery.models import (
     InstagramCategoryTarget,
@@ -21,20 +16,6 @@ from apps.discovery.models import (
     Opportunity,
 )
 from apps.products.models import Category, Product
-from instagram_discovery.comment_metrics import (
-    build_comment_report,
-    load_labels,
-    pending_human_labels,
-    read_jsonl,
-    reporting_paths,
-    save_human_label,
-)
-from instagram_discovery.post_label_store import PostLabelStore, create_post_label_store
-from instagram_discovery.post_metrics import (
-    REASON_CODES,
-    build_post_report,
-    post_review_paths,
-)
 from shared.instagram import PageRefError, parse_page_ref
 
 logger = logging.getLogger(__name__)
@@ -125,33 +106,9 @@ def instagram_pages_view(request):
         "pages": pages, "products": products, "categories": categories,
         "category_configs": category_configs,
     }
-    evaluation_path, labels_path = reporting_paths()
-    evaluation_rows = read_jsonl(evaluation_path)
-    human_labels = load_labels(labels_path, business_id=business.pk)
-    page_context["comment_report"] = build_comment_report(
-        evaluation_rows, labels=human_labels, business_id=business.pk,
-    )
-    page_context["pending_comment_labels"] = pending_human_labels(
-        evaluation_rows, human_labels, business_id=business.pk, limit=25,
-    )
     page_context["crawl_executions"] = InstagramCrawlExecution.objects.filter(business=business).order_by("-crawled_at")[:30]
     if request.method == "POST":
         action = request.POST.get("action", "add")
-        if action == "label_comment":
-            comment_id = request.POST.get("comment_id", "").strip()
-            label = request.POST.get("label", "")
-            comment = next((row for row in pending_human_labels(
-                evaluation_rows, human_labels, business_id=business.pk, limit=100,
-            ) if str(row.get("id") or "") == comment_id), None)
-            if comment is None:
-                messages.error(request, "این کامنت در صف ارزیابی کسب‌وکار شما نیست.")
-            elif label not in {"approve", "reject"}:
-                messages.error(request, "برچسب باید تأیید یا رد باشد.")
-            else:
-                save_human_label(labels_path, comment_id=comment_id, business_id=business.pk,
-                                 label=label, operator_id=request.user.pk)
-                messages.success(request, "برچسب انسانی ذخیره شد.")
-            return redirect("discovery:instagram_pages")
         if action in {"add", "remove", "save_category_target", "approve_candidate", "deny_candidate"} and not _instagram_change_allowed(request):
             return render(request, "discovery/instagram_pages.html", {
                 **page_context, "throttled": True,
@@ -236,162 +193,6 @@ def instagram_pages_view(request):
             messages.success(request, f"صفحهٔ پیشنهادی @{page.handle} رد شد.")
             return redirect("discovery:instagram_pages")
     return render(request, "discovery/instagram_pages.html", page_context)
-
-
-@login_required
-def instagram_comment_report_api_view(request):
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return JsonResponse({"status": "error", "message": "کسب‌وکار مرتبط یافت نشد."}, status=404)
-    evaluation_path, labels_path = reporting_paths()
-    report = build_comment_report(
-        read_jsonl(evaluation_path), labels=load_labels(labels_path, business_id=business.pk),
-        business_id=business.pk,
-    )
-    return JsonResponse({"status": "success", "data": report}, json_dumps_params={"ensure_ascii": False})
-
-
-def _instagram_post_review_context(
-    request, business, label_store: PostLabelStore, *, page_number: int | None = None,
-):
-    analyzed_path, _, _ = post_review_paths()
-    categories = list(Category.objects.filter(business=business, is_active=True).order_by("full_path", "pk"))
-    products = list(Product.objects.filter(business=business, status="ACTIVE").order_by("name", "pk"))
-    labels = label_store.load(business_id=business.pk)
-    reason_code = request.GET.get("reason", "").strip()
-    if reason_code not in REASON_CODES:
-        reason_code = ""
-    category_filter = request.GET.get("category", "").strip()
-    own_category_ids = {str(category.pk) for category in categories}
-    if category_filter not in own_category_ids:
-        category_filter = ""
-    page = page_number if page_number is not None else _bounded_post_int(request.GET.get("page"), 1, 1, 5_000)
-    page_size = 20
-    offset = (page - 1) * page_size
-    rows, total = label_store.pending(
-        business_id=business.pk, limit=page_size, offset=offset,
-        reason_code=reason_code or None, category_id=category_filter or None,
-    )
-    page_count = max(1, (total + page_size - 1) // page_size)
-    page = min(page, page_count)
-    if offset >= total and total:
-        offset = (page - 1) * page_size
-        rows, _ = label_store.pending(
-            business_id=business.pk, limit=page_size, offset=offset,
-            reason_code=reason_code or None, category_id=category_filter or None,
-        )
-    last_label = None
-    labeled_post_id = request.GET.get("labeled_post", "")
-    if labeled_post_id:
-        label = labels.get((str(business.pk), labeled_post_id))
-        if label:
-            last_label = {
-                "post_id": label["post_id"], "decision": label["decision"],
-                "analyzer_snapshot": label["analyzer_snapshot"],
-            }
-    report = build_post_report(read_jsonl(analyzed_path), label_store, business_id=business.pk)
-    return {
-        "pending_posts": rows, "pending_total": total, "page": page, "page_count": page_count,
-        "reason_filter": reason_code, "category_filter": category_filter,
-        "review_reasons": sorted(REASON_CODES),
-        "categories": categories, "products": products, "post_report": report,
-        "last_post_label": last_label,
-    }
-
-
-@login_required
-@csrf_protect
-@require_http_methods(["GET", "POST"])
-def instagram_post_review_view(request):
-    """Business-scoped, blind-first human post review and confident-match auditing."""
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return HttpResponse(status=404)
-    label_store = create_post_label_store()
-
-    if request.method == "POST":
-        action = request.POST.get("action", "")
-        if action == "skip_post":
-            page = _bounded_post_int(request.POST.get("page"), 1, 1, 5_000) + 1
-            query = {"page": page}
-            for name in ("reason", "category"):
-                value = request.POST.get(name, "").strip()
-                if value:
-                    query[name] = value
-            return redirect(f"{reverse('discovery:instagram_post_review')}?{urlencode(query)}")
-        if action != "label_post":
-            return HttpResponse(status=400)
-        if not _instagram_change_allowed(request):
-            context = _instagram_post_review_context(request, business, label_store)
-            return render(request, "discovery/instagram_post_review.html", {
-                **context, "throttled": True,
-            }, status=429)
-
-        post_id = request.POST.get("post_id", "").strip()
-        try:
-            matches, _ = label_store.pending(
-                business_id=business.pk, limit=1, post_id=post_id,
-            )
-        except ValueError:
-            return HttpResponse(status=400)
-        if not matches:
-            return HttpResponse(status=404)
-        review_item = matches[0]
-        decision = request.POST.get("decision", "")
-        if decision not in {"approve", "reject"}:
-            return HttpResponse(status=400)
-
-        category_id: int | None = None
-        product_id: int | None = None
-        if decision == "approve":
-            raw_category_id = request.POST.get("category_id", "").strip()
-            category = Category.objects.filter(
-                business=business, is_active=True, pk=raw_category_id,
-            ).first() if raw_category_id.isdigit() else None
-            if category is None:
-                messages.error(request, "برای تأیید، دسته‌بندی فعال متعلق به کسب‌وکار خودتان را انتخاب کنید.")
-                return render(request, "discovery/instagram_post_review.html", {
-                    **_instagram_post_review_context(request, business, label_store), "invalid_label": True,
-                }, status=400)
-            category_id = category.pk
-            raw_product_id = request.POST.get("product_id", "").strip()
-            if raw_product_id:
-                product = Product.objects.filter(
-                    business=business, status="ACTIVE", pk=raw_product_id,
-                ).first() if raw_product_id.isdigit() else None
-                if product is None or (product.category_id and product.category_id != category.pk):
-                    messages.error(request, "محصول باید فعال، متعلق به کسب‌وکار شما و سازگار با دسته‌بندی باشد.")
-                    return render(request, "discovery/instagram_post_review.html", {
-                        **_instagram_post_review_context(request, business, label_store), "invalid_label": True,
-                    }, status=400)
-                product_id = product.pk
-        try:
-            label_store.save(
-                post_id=review_item["post_id"], business_id=business.pk,
-                decision=decision, category_id=category_id, product_id=product_id,
-                operator_id=request.user.pk, snapshot=review_item["analyzer_snapshot"],
-                audit=review_item["audit"],
-            )
-        except ValueError:
-            return HttpResponse(status=400)
-        query = urlencode({"labeled_post": review_item["post_id"]})
-        return redirect(f"{reverse('discovery:instagram_post_review')}?{query}")
-
-    context = _instagram_post_review_context(request, business, label_store)
-    return render(request, "discovery/instagram_post_review.html", context)
-
-
-@login_required
-def instagram_post_report_api_view(request):
-    business = getattr(request.user, "business", None)
-    if business is None:
-        return JsonResponse({"status": "error", "message": "کسب‌وکار مرتبط یافت نشد."}, status=404)
-    analyzed_path, _, _ = post_review_paths()
-    report = build_post_report(
-        read_jsonl(analyzed_path), create_post_label_store(),
-        business_id=business.pk,
-    )
-    return JsonResponse({"status": "success", "data": report}, json_dumps_params={"ensure_ascii": False})
 
 
 @login_required

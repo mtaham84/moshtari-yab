@@ -22,8 +22,8 @@ import re
 import sys
 from pathlib import Path
 
-PACKAGES = ("apps", "config", "need_engine", "telegram_crawler", "workers", "x_ingest", "instagram_engine",
-            "instagram_discovery", "xray", "shared", "scripts")
+PACKAGES = ("apps", "config", "need_engine", "telegram_crawler", "workers", "x_ingest", "instagram_engine", "xray",
+            "shared", "scripts")
 ENTRY_FILES = ("docker-compose.yml", "docker/entrypoint.sh")
 DJANGO_AUTOLOADED = {"apps", "models", "admin", "urls", "signals", "tasks", "context_processors", "middleware"}
 FRAMEWORK_ROOTS = {"config.settings", "config.urls", "config.wsgi", "config.asgi", "config.celery"}

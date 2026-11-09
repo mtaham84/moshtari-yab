@@ -67,8 +67,8 @@ This code was built fast with AI help, and the same mistakes kept piling up. Eac
    (`grep -rn "def <likely_name>\|<keyword>" --include=*.py .`). If something similar exists, extend or reuse it. Never
    write a second implementation next to the first.
 2. **No parallel implementations.** Do not create a new package, worker, "v2", "new_", "_old" or "engine" folder for
-   something that already has an owner in the table above. Instagram already has three parallel stacks; do not make a
-   fourth. A new top-level package needs explicit approval from the user.
+   something that already has an owner in the table above. There is one Instagram stack (`run_instagram_scraper` +
+   `instagram_engine/`); do not start a second one. A new top-level package needs explicit approval from the user.
 3. **Replace means delete.** When new code replaces old code, delete the old code, its tests, its settings and its docs
    in the same change. Don't keep anything "for reference", "for compatibility" or "just in case". Git history is the
    backup.

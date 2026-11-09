@@ -14,9 +14,7 @@ PROCESS_PREFIXES = (
     ("need_engine/", "need_engine"),
     ("telegram_crawler/", "Telegram crawler"),
     ("workers/x_collector/", "X collector"),
-    ("workers/ig_collector/", "Instagram collector"),
     ("x_ingest/", "X ingest"),
-    ("instagram_discovery/", "Instagram discovery CLI"),
     ("shared/", "collectors using shared utilities"),
     ("scripts/", "maintenance scripts"),
 )
@@ -75,7 +73,7 @@ def collect_reads() -> tuple[dict[str, list[tuple[str, int, str]]], set[str]]:
                                text=True, check=True).stdout.splitlines())
     skipped = {".git", ".worktrees", "__pycache__", "tests", "migrations"}
     for folder in ("apps", "config", "need_engine", "telegram_crawler", "workers", "x_ingest",
-                   "instagram_discovery", "shared", "xray", "scripts"):
+                   "shared", "xray", "scripts"):
         for path in (ROOT / folder).rglob("*.py"):
             if not any(part in skipped for part in path.parts):
                 files.add(path.relative_to(ROOT).as_posix())

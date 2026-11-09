@@ -377,9 +377,8 @@ def service_status() -> list[dict]:
     intervals = {
         "telegram": (float(os.getenv("TG_HEARTBEAT_INTERVAL_SECONDS", "60")), "TG_HEARTBEAT_INTERVAL_SECONDS"),
         "x": (float(os.getenv("X_COLLECT_INTERVAL_SECONDS", "300")), "X_COLLECT_INTERVAL_SECONDS"),
-        "instagram": (float(os.getenv("IG_COLLECT_INTERVAL_SECONDS", "900")), "IG_COLLECT_INTERVAL_SECONDS"),
     }
-    labels = {"telegram": "کراولر تلگرام", "x": "جمع‌آور X", "instagram": "جمع‌آور Instagram"}
+    labels = {"telegram": "کراولر تلگرام", "x": "جمع‌آور X"}
     heartbeats = {row["source"]: row for row in read_heartbeats()}
     for source, label in labels.items():
         heartbeat = heartbeats.get(source)
