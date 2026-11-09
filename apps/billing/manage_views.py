@@ -160,8 +160,8 @@ def manage_dashboard(request):
     senders_active = senders.filter(status="ACTIVE").count()
 
     all_ig_accounts = list(senders) + list(scrapers)
-    # Device profiles are assigned when a client is built (device_emulator.apply_device_profile_to_client) and
-    # backfilled by `manage.py instagram_backfill --device-profiles`; a GET of the dashboard writes nothing.
+    # Device profiles are assigned when a client is built (device_emulator.apply_device_profile_to_client);
+    # a GET of the dashboard writes nothing.
 
     # Prioritized Leads: Ordered strictly by intent_score DESC, created_at ASC
     leads = InstagramEngineLead.objects.all().order_by("-intent_score", "created_at")[:60]
