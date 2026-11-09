@@ -737,7 +737,7 @@ def manage_account_add(request):
     When Instagram asks for a code the login keeps waiting for it: the reply says requires_code and the code goes
     to the same login (account page /manage/instagram/accounts/<id>/settings/ or accounts/<id>/code/).
     """
-    from apps.discovery import ig_accounts as svc
+    from apps.discovery import ig_accounts as svc, ig_state
 
     p = request.POST
     mode, url, cfg = _ig_proxy_choice(p.get("proxy_url"))
@@ -750,7 +750,7 @@ def manage_account_add(request):
         svc.save_tenant_profile(acc.tenant_id, consultant_name=p["consultant_name"], only_empty=True)
     out = res.as_dict()
     out.update(account_id=acc.pk if acc else None,
-               username=acc.username if acc else svc.normalize_username(p.get("username")))
+               username=acc.username if acc else ig_state.normalize_username(p.get("username")))
     if wants_json(request):
         return JsonResponse(out)
     if acc is not None and res.state in svc.LIVE_STATES:
@@ -789,7 +789,7 @@ def manage_account_set_session(request, pk):
 def ig_edit_sender(account, data, actor: str = "") -> dict:
     """The old sender editor's fields (username, customer, password, sessionid, consultant name, tier, daily limit,
     proxy, status, clear_cooldown) applied through apps.discovery.ig_accounts; the dashboard's JSON reply."""
-    from apps.discovery import ig_accounts as svc
+    from apps.discovery import ig_accounts as svc, ig_state
 
     ok, notes, session_updated = True, [], False
     res = svc.update_settings(account, actor=actor, **{k: data.get(k, "") for k in (
@@ -826,10 +826,10 @@ def ig_edit_sender(account, data, actor: str = "") -> dict:
         elif status == "ACTIVE":
             res = svc.resume(account, actor=actor)
         else:
-            svc.set_state(account, status, "", "وضعیت به‌صورت دستی تغییر کرد", force=True)
-            svc.log_event(account, "status_changed", f"وضعیت دستی: {account.get_status_display()}", {"status": status},
+            ig_state.set_state(account, status, "", "وضعیت به‌صورت دستی تغییر کرد", force=True)
+            ig_state.log_event(account, "status_changed", f"وضعیت دستی: {account.get_status_display()}", {"status": status},
                           actor)
-            res = svc.Result(True, f"وضعیت: {account.get_status_display()}")
+            res = ig_state.Result(True, f"وضعیت: {account.get_status_display()}")
         notes.append(res.message)
     if data.get("clear_cooldown") in ("1", "true", "True", "on"):
         notes.append(svc.clear_cooldown(account, actor=actor).message)

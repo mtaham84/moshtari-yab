@@ -270,7 +270,7 @@ def apply_sender_error(sender, kind: str, error_text: str, log: Callable[[str], 
     """Take a failing sender out of rotation for the right amount of time; the other senders keep working."""
     now = timezone.now()
     short = (error_text or "")[:50]
-    from apps.discovery.ig_accounts import log_event
+    from apps.discovery.ig_state import log_event
 
     if kind in ("challenge", "session"):
         sender.status = "CHALLENGED"

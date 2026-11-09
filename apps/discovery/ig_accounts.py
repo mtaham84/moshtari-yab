@@ -17,7 +17,6 @@ import re
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -29,7 +28,9 @@ from django.utils import timezone
 
 from apps.discovery.device_emulator import account_device_settings, apply_device_profile_to_client, connect_saved_session
 from apps.discovery.ig_session import ErrorKind, classify, redact
-from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.models import InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
+from apps.discovery.ig_state import (Result, apply_state, clean_sessionid, has_session, log_event, normalize_code,
+                                     normalize_digits, normalize_username, now_iso, parse_iso, result_for, set_state)
 from apps.discovery.proxies import health
 from apps.discovery.proxies.urls import (POOL_PORT, RESERVED_PORTS, XRAY_HOST, clean_proxy_url, config_url,
                                          effective_proxy_url, normalize_proxy_url, proxy_label, proxy_mode,
@@ -49,118 +50,9 @@ LIVE_STATES = ("running", "needs_code", "verifying")
 TENANT_ALIASES = {"sarv": "tenant_4"}  # legacy tenant id of business 4
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 CODE_RE = re.compile(r"^\d{4,8}$")
-_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-_SECRET_KEYS = ("password", "sessionid", "code", "cookie", "authorization", "token")
 
 _sleep = time.sleep  # indirection for tests
 
-
-# ---------------------------------------------------------------------------
-# small helpers
-# ---------------------------------------------------------------------------
-def _now_iso() -> str:
-    return timezone.now().isoformat()
-
-
-def _parse_iso(value) -> Any:
-    from django.utils.dateparse import parse_datetime
-    try:
-        return parse_datetime(str(value)) if value else None
-    except (TypeError, ValueError):
-        return None
-
-
-def normalize_digits(value) -> str:
-    return str(value or "").translate(_DIGITS).strip()
-
-
-def normalize_code(value) -> str:
-    return re.sub(r"[\s\-]", "", normalize_digits(value))
-
-
-def normalize_username(value) -> str:
-    return str(value or "").strip().lstrip("@").strip()
-
-
-def clean_sessionid(raw) -> str:
-    """The sessionid value from a pasted cookie value, `sessionid=...` pair or whole Cookie header."""
-    sid = str(raw or "").strip()
-    m = re.search(r"sessionid=([^;\s]+)", sid)
-    if m:
-        sid = m.group(1)
-    return sid.strip().strip('"').strip("'").strip(";").strip()
-
-
-def _clean_data(data):
-    if not isinstance(data, dict):
-        return None if data is None else {"value": str(data)[:300]}
-    out = {}
-    for k, v in data.items():
-        if any(s in str(k).lower() for s in _SECRET_KEYS):
-            continue
-        out[str(k)] = v if isinstance(v, (int, float, bool)) or v is None else str(v)[:300]
-    return out
-
-
-def log_event(account, kind: str, message: str = "", data=None, actor: str = ""):
-    """Adds one line to the account's timeline; never raises (the action it describes already happened)."""
-    pk = getattr(account, "pk", account)
-    try:
-        with transaction.atomic():   # a failed insert must not break the caller's transaction
-            return InstagramAccountEvent.objects.create(account_id=pk, kind=kind, message=str(message or "")[:255],
-                                                        data=_clean_data(data), actor=str(actor or "")[:150])
-    except Exception as exc:
-        log.warning("could not log %s event for account %s: %s", kind, pk, exc)
-        return None
-
-
-@dataclass
-class Result:
-    ok: bool
-    message: str = ""
-    status: str = ""
-    reason: str = ""
-    state: str = ""   # login state: running / needs_code / verifying / ok / failed / cancelled
-    hint: str = ""
-    extra: dict = field(default_factory=dict)
-
-    def as_dict(self) -> dict:
-        out = {"success": self.ok, "message": self.message, "status": self.status, "reason": self.reason,
-               "state": self.state, "requires_code": self.state == "needs_code", "hint": self.hint,
-               "challenge_required": self.status == "CHALLENGED"}
-        out.update(self.extra)
-        return out
-
-
-def _result(account, ok: bool, message: str, **kw) -> Result:
-    return Result(ok, message, status=account.status, reason=account.status_reason or "", **kw)
-
-
-def has_session(account) -> bool:
-    sj = account.session_json if isinstance(account.session_json, dict) else {}
-    return bool((sj.get("cookies") or {}).get("sessionid") or (sj.get("authorization_data") or {}).get("sessionid"))
-
-
-def _apply_state(account, status: str, reason: str = "", message: str = "", *, cooldown_minutes=None,
-                 force: bool = False) -> list[str]:
-    """Sets status/reason/message/cooldown on the instance; returns the fields to save.
-
-    A paused (DISABLED) account stays paused (the outcome only goes to its message) unless `force` (resume).
-    """
-    if account.status == "DISABLED" and status != "DISABLED" and not force:
-        account.status_message = (message or "")[:255]
-        return ["status_message"]
-    account.status = status
-    account.status_reason = reason or ""
-    account.status_message = (message or "")[:255]
-    account.cooldown_until = timezone.now() + timedelta(minutes=cooldown_minutes) if cooldown_minutes else None
-    return ["status", "status_reason", "status_message", "cooldown_until"]
-
-
-def set_state(account, status: str, reason: str = "", message: str = "", *, cooldown_minutes=None,
-              extra_fields=(), force: bool = False) -> None:
-    fields = _apply_state(account, status, reason, message, cooldown_minutes=cooldown_minutes, force=force)
-    account.save(update_fields=list(dict.fromkeys([*fields, *extra_fields])))
 
 
 # ---------------------------------------------------------------------------
@@ -218,34 +110,34 @@ def set_proxy(account, mode: str, *, url: str = "", config=None, actor: str = ""
         url = normalize_proxy_url(url)
         err = validate_proxy_url(url)
         if err:
-            return _result(account, False, err)
+            return result_for(account, False, err)
         new_url, new_cfg = url, None
     elif mode == "config":
         if config is None or not config.local_port or config.local_port in RESERVED_PORTS:
-            return _result(account, False, "کانفیگ انتخاب‌شده پورت اختصاصی ندارد.")
+            return result_for(account, False, "کانفیگ انتخاب‌شده پورت اختصاصی ندارد.")
         if config.status != "ACTIVE":
-            return _result(account, False, "کانفیگ انتخاب‌شده فعال نیست.")
+            return result_for(account, False, "کانفیگ انتخاب‌شده فعال نیست.")
         if (before_cfg is None or before_cfg.pk != config.pk) and not health.config_live(config):
-            return _result(account, False, f"پورت {config.local_port} این کانفیگ هنوز در xray باز نیست (کانفیگ تازه چند دقیقه "
+            return result_for(account, False, f"پورت {config.local_port} این کانفیگ هنوز در xray باز نیست (کانفیگ تازه چند دقیقه "
                                            "بعد از ثبت فعال می‌شود)؛ کمی بعد دوباره امتحان کنید.")
         new_url, new_cfg = config_url(config), config
     elif mode == "system":   # automatic: keep a live config, else a free one, else the pool
         if proxy_mode(account) != "custom":
             moved = _heal_account(account, actor or "system")
             account.refresh_from_db()
-            return _result(account, True, f"اتصال اکانت: {proxy_label(account)}" + ("" if moved else " (بدون تغییر)"),
+            return result_for(account, True, f"اتصال اکانت: {proxy_label(account)}" + ("" if moved else " (بدون تغییر)"),
                            extra={"changed": bool(moved and moved.get("changed")), "mode": proxy_mode(account)})
         cfg = pick_free_config()
         new_url, new_cfg = (config_url(cfg), cfg) if cfg else ("", None)
     elif mode == "new_config":   # a different free config (new IP), e.g. after the current IP got flagged
         cfg = pick_free_config(exclude_ids=[before_cfg.pk] if before_cfg else ())
         if cfg is None:
-            return _result(account, False, "کانفیگ آزاد دیگری نیست؛ اتصال تغییری نکرد.")
+            return result_for(account, False, "کانفیگ آزاد دیگری نیست؛ اتصال تغییری نکرد.")
         new_url, new_cfg = config_url(cfg), cfg
     elif mode == "pool":
         new_url, new_cfg = "", None
     else:
-        return _result(account, False, "نوع اتصال نامعتبر است.")
+        return result_for(account, False, "نوع اتصال نامعتبر است.")
 
     account.proxy_url = new_url or None
     account.proxy_config = new_cfg
@@ -270,7 +162,7 @@ def set_proxy(account, mode: str, *, url: str = "", config=None, actor: str = ""
         log_event(account, "proxy_changed", note or f"اتصال جدید: {label}",
                   {"from": before_url, "to": effective_proxy_url(account), "mode": proxy_mode(account),
                    "config_id": new_cfg.pk if new_cfg else None}, actor)
-    return _result(account, True, f"اتصال اکانت: {label}" + (f" · دایرکت سرد تا {SETTLE_MINUTES} دقیقه "
+    return result_for(account, True, f"اتصال اکانت: {label}" + (f" · دایرکت سرد تا {SETTLE_MINUTES} دقیقه "
                                                              "بعد از تغییر IP ارسال نمی‌شود." if changed and settle else ""),
                    extra={"changed": changed, "mode": proxy_mode(account)})
 
@@ -503,7 +395,7 @@ def check_ip(account, *, actor: str = "") -> Result:
     if ok:
         meta.update(last_ip=info.get("ip", ""), isp=info.get("isp", ""), country=info.get("country", ""),
                     country_code=info.get("country_code", ""), classification=info.get("classification", ""),
-                    risk_score=info.get("risk_score", ""), checked_at=_now_iso())
+                    risk_score=info.get("risk_score", ""), checked_at=now_iso())
         ds["proxy_meta"] = meta
         account.device_settings = ds
         account.save(update_fields=["device_settings"])
@@ -511,9 +403,9 @@ def check_ip(account, *, actor: str = "") -> Result:
         msg = f"IP خروجی {meta['last_ip']} · {meta['country']} · {meta['isp']}" + (f" (قبلاً {prev})" if changed else "")
         log_event(account, "ip_checked", msg, {"ip": meta["last_ip"], "country": meta["country"], "isp": meta["isp"],
                                                "classification": meta["classification"], "previous": prev}, actor)
-        return _result(account, True, msg, extra={"ip": meta["last_ip"], "changed": changed})
+        return result_for(account, True, msg, extra={"ip": meta["last_ip"], "changed": changed})
     log_event(account, "ip_checked", "IP خروجی پیدا نشد (اتصال پروکسی/کانفیگ برقرار نشد)", None, actor)
-    return _result(account, False, "IP خروجی پیدا نشد؛ اتصال پروکسی/کانفیگ برقرار نشد.")
+    return result_for(account, False, "IP خروجی پیدا نشد؛ اتصال پروکسی/کانفیگ برقرار نشد.")
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +476,7 @@ def save_session(account, cl, *, kind: str = "login_ok", message: str = "", acto
     account.device_settings = account_device_settings(account, client_settings=fresh)
     fields = ["session_json", "device_settings"]
     if activate:
-        fields += _apply_state(account, "ACTIVE", "", message)
+        fields += apply_state(account, "ACTIVE", "", message)
     account.save(update_fields=fields)
     if kind:
         log_event(account, kind, message, None, actor)
@@ -633,7 +525,7 @@ def record_login_failure(account, exc, *, actor: str = "", code_used: bool = Fal
     set_state(account, status, reason, message, cooldown_minutes=minutes)
     log_event(account, "code_failed" if code_used else "login_failed", message,
               {"error": redact(exc, 200), "reason": reason}, actor)
-    return _result(account, False, message, state="failed")
+    return result_for(account, False, message, state="failed")
 
 
 # ---------------------------------------------------------------------------
@@ -664,7 +556,7 @@ def _update_pending(pk, token, change: Callable[[dict], dict]) -> dict | None:
 def _is_live(pending) -> bool:
     if not isinstance(pending, dict) or pending.get("state") not in LIVE_STATES:
         return False
-    beat = _parse_iso(pending.get("heartbeat") or pending.get("started_at"))
+    beat = parse_iso(pending.get("heartbeat") or pending.get("started_at"))
     return bool(beat and (timezone.now() - beat).total_seconds() < STALE_AFTER_SECONDS[pending["state"]])
 
 
@@ -695,7 +587,7 @@ class CodeWaiter:
         return self.wait("challenge", _contact_hint(getattr(self.client, "last_json", None), choice)) or ""
 
     def wait(self, kind: str, hint: str = "") -> str:
-        now = _now_iso()
+        now = now_iso()
         pending = _update_pending(self.pk, self.token, lambda p: {
             **p, "state": "needs_code", "kind": kind, "hint": hint, "error": self.error, "asked_at": now,
             "heartbeat": now, "code": None})
@@ -717,11 +609,11 @@ class CodeWaiter:
             code = cur.get("code")
             if code:
                 _update_pending(self.pk, self.token, lambda p: {**p, "state": "verifying", "code": None, "error": "",
-                                                                 "heartbeat": _now_iso()})
+                                                                 "heartbeat": now_iso()})
                 self.used = True
                 return str(code)
             if time.monotonic() - last_beat >= HEARTBEAT_SECONDS:
-                _update_pending(self.pk, self.token, lambda p: {**p, "heartbeat": _now_iso()})
+                _update_pending(self.pk, self.token, lambda p: {**p, "heartbeat": now_iso()})
                 last_beat = time.monotonic()
         self.timed_out = True
         return ""
@@ -823,15 +715,15 @@ def _run_login(pk: int, token: str, actor: str = "", *, interactive: bool = True
         res = record_login_failure(account, exc, actor=actor, code_used=waiter.used or two_factor_used,
                                    timed_out=waiter.timed_out)
         _update_pending(pk, token, lambda p: {**p, "state": "failed", "message": res.message, "code": None,
-                                              "finished_at": _now_iso()})
+                                              "finished_at": now_iso()})
         return res
     account.refresh_from_db()
     used = waiter.used or two_factor_used
     message = "کد تأیید پذیرفته شد و اکانت وارد شد." if used else "ورود موفق؛ سشن ذخیره شد."
     save_session(account, cl, kind="code_ok" if used else "login_ok", message=message, actor=actor)
     _update_pending(pk, token, lambda p: {**p, "state": "ok", "message": message, "code": None,
-                                          "finished_at": _now_iso()})
-    return _result(account, True, message, state="ok")
+                                          "finished_at": now_iso()})
+    return result_for(account, True, message, state="ok")
 
 
 def _spawn(fn, *args, **kwargs) -> None:
@@ -872,13 +764,13 @@ def start_login(account, *, actor: str = "", wait: float = 0) -> Result:
     wait > 0 blocks up to that many seconds for the first outcome (needs_code / ok / failed), for old endpoints.
     """
     if not account.password or account.password == "session_only":
-        return _result(account, False, "برای ورود، پسورد اکانت را ثبت کنید (یا sessionid بدهید).")
+        return result_for(account, False, "برای ورود، پسورد اکانت را ثبت کنید (یا sessionid بدهید).")
     pending = account.pending_login or {}
     if _is_live(pending):
-        return _result(account, True, "ورود این اکانت در جریان است.", state=pending.get("state", ""),
+        return result_for(account, True, "ورود این اکانت در جریان است.", state=pending.get("state", ""),
                        hint=pending.get("hint", ""))
     token = uuid.uuid4().hex
-    now = _now_iso()
+    now = now_iso()
     InstagramEngineAccount.objects.filter(pk=account.pk).update(
         pending_login={"state": "running", "token": token, "started_at": now, "heartbeat": now, "actor": actor})
     account.pending_login = _read_pending(account.pk)
@@ -894,12 +786,12 @@ def _login_result(account) -> Result:
     state = st["state"]
     if state == "needs_code":
         msg = (st["error"] + " " if st["error"] else "") + (st["message"] or "کد تأیید را وارد کنید.")
-        return _result(account, False, msg.strip(), state=state, hint=st["hint"])
+        return result_for(account, False, msg.strip(), state=state, hint=st["hint"])
     if state == "ok":
-        return _result(account, True, st["message"] or "ورود موفق.", state=state)
+        return result_for(account, True, st["message"] or "ورود موفق.", state=state)
     if state in ("failed", "stale", "cancelled"):
-        return _result(account, False, st["message"] or "ورود انجام نشد.", state=state)
-    return _result(account, True, "ورود به اینستاگرام شروع شد؛ چند ثانیه صبر کنید…", state=state or "running")
+        return result_for(account, False, st["message"] or "ورود انجام نشد.", state=state)
+    return result_for(account, True, "ورود به اینستاگرام شروع شد؛ چند ثانیه صبر کنید…", state=state or "running")
 
 
 def wait_for_login(account, token: str | None = None, *, timeout: float = 40, until=("needs_code", "ok", "failed",
@@ -920,38 +812,38 @@ def submit_code(account, raw_code, *, actor: str = "", wait: float = 0) -> Resul
     """Hands the operator's code to the login that is waiting for it."""
     code = normalize_code(raw_code)
     if not CODE_RE.match(code):
-        return _result(account, False, "کد باید ۴ تا ۸ رقم باشد.")
+        return result_for(account, False, "کد باید ۴ تا ۸ رقم باشد.")
     pending = _read_pending(account.pk)
     if not _is_live(pending) or pending.get("state") != "needs_code":
-        return _result(account, False, "هیچ ورودی منتظر کد نیست (یا مهلتش تمام شده). «ورود» را بزنید تا کد تازه بیاید و "
+        return result_for(account, False, "هیچ ورودی منتظر کد نیست (یا مهلتش تمام شده). «ورود» را بزنید تا کد تازه بیاید و "
                                        "همان را وارد کنید.", state=login_state(account)["state"])
     token = pending.get("token")
     new = _update_pending(account.pk, token, lambda p: {**p, "code": code, "state": "verifying",
-                                                         "code_at": _now_iso()} if p.get("state") == "needs_code" else p)
+                                                         "code_at": now_iso()} if p.get("state") == "needs_code" else p)
     if not new or new.get("state") != "verifying":
-        return _result(account, False, "این ورود دیگر منتظر کد نیست؛ صفحه را تازه کنید.")
+        return result_for(account, False, "این ورود دیگر منتظر کد نیست؛ صفحه را تازه کنید.")
     if wait:
         return wait_for_login(account, token, timeout=wait, until=("ok", "failed", "cancelled", "needs_code"))
-    return _result(account, True, "کد ثبت شد؛ در حال تأیید با اینستاگرام…", state="verifying")
+    return result_for(account, True, "کد ثبت شد؛ در حال تأیید با اینستاگرام…", state="verifying")
 
 
 def cancel_login(account, *, actor: str = "") -> Result:
     pending = _read_pending(account.pk)
     if pending.get("state") in LIVE_STATES:
         _update_pending(account.pk, pending.get("token"), lambda p: {**p, "state": "cancelled", "code": None,
-                                                                      "finished_at": _now_iso()})
+                                                                      "finished_at": now_iso()})
         log_event(account, "login_failed", "ورود توسط مدیر لغو شد", None, actor)
     account.refresh_from_db()
     if account.status == "CHALLENGED" and account.status_reason == "needs_code":   # nobody waits for a code now
         set_state(account, "CHALLENGED", "session_expired", "ورود لغو شد؛ برای ورود «ورود» را دوباره بزنید.")
-    return _result(account, True, "ورود لغو شد.", state="cancelled")
+    return result_for(account, True, "ورود لغو شد.", state="cancelled")
 
 
 def login_with_sessionid(account, raw_sessionid, *, actor: str = "") -> Result:
     """Connects with a sessionid copied from a browser that is logged in right now (same phone profile)."""
     sid = clean_sessionid(raw_sessionid)
     if not sid:
-        return _result(account, False, "مقدار کوکی sessionid را وارد کنید.")
+        return result_for(account, False, "مقدار کوکی sessionid را وارد کنید.")
     cl = new_client(account)
     apply_device_profile_to_client(cl, account)
     _mount_timeouts(cl)
@@ -962,16 +854,16 @@ def login_with_sessionid(account, raw_sessionid, *, actor: str = "") -> Result:
         if kind == ErrorKind.NETWORK:
             message = f"اتصال برقرار نشد ({redact(exc, 120)}); وضعیت اکانت تغییری نکرد."
             log_event(account, "login_failed", message, {"error": redact(exc, 200), "via": "sessionid"}, actor)
-            return _result(account, False, message, extra={"deleted": False})
+            return result_for(account, False, message, extra={"deleted": False})
         message = (f"سشن واردشده معتبر نبود ({redact(exc, 120)}). sessionid را از مرورگری کپی کنید که همین حالا "
                    "در اکانت لاگین است.")
         set_state(account, "CHALLENGED", "session_expired", message)
         log_event(account, "login_failed", message, {"error": redact(exc, 200), "via": "sessionid"}, actor)
-        return _result(account, False, message, extra={"deleted": False})
+        return result_for(account, False, message, extra={"deleted": False})
     if (account.pending_login or {}).get("state") in LIVE_STATES:
         cancel_login(account, actor=actor)
     save_session(account, cl, kind="session_set", message="", actor=actor)
-    return _result(account, True, f"سشن اکانت @{account.username} ثبت شد و اکانت فعال است.",
+    return result_for(account, True, f"سشن اکانت @{account.username} ثبت شد و اکانت فعال است.",
                    extra={"deleted": False})
 
 
@@ -989,15 +881,15 @@ def check(account, *, actor: str = "", allow_login: bool = True) -> Result:
         message = f"پروکسی/کانفیگ در دسترس نیست: {proxy_msg}"
         set_state(account, "COOLDOWN", "proxy_down", message, cooldown_minutes=15)
         log_event(account, "check_failed", message, {"proxy": proxy}, actor)
-        return _result(account, False, message)
+        return result_for(account, False, message)
     now = timezone.now()
     if account.cooldown_until and account.cooldown_until > now:
         minutes = int((account.cooldown_until - now).total_seconds() // 60) + 1
-        return _result(account, True, f"اکانت در استراحت است (حدود {minutes} دقیقه مانده)؛ تست انجام نشد.")
+        return result_for(account, True, f"اکانت در استراحت است (حدود {minutes} دقیقه مانده)؛ تست انجام نشد.")
     if not has_session(account):
         if allow_login and account.password and account.password != "session_only":
             return start_login(account, actor=actor)
-        return _result(account, False, "اکانت نه سشن دارد نه پسورد؛ sessionid یا پسورد را ثبت کنید.")
+        return result_for(account, False, "اکانت نه سشن دارد نه پسورد؛ sessionid یا پسورد را ثبت کنید.")
     try:
         cl = connect(account)
         cl.get_timeline_feed()   # what the app itself requests when it is opened
@@ -1008,10 +900,10 @@ def check(account, *, actor: str = "", allow_login: bool = True) -> Result:
         set_state(account, status, reason, message, cooldown_minutes=minutes)
         log_event(account, "session_expired" if reason == "session_expired" else "check_failed", message,
                   {"error": redact(exc, 200)}, actor)
-        return _result(account, False, message)
+        return result_for(account, False, message)
     message = f"سشن معتبر است و اتصال برقرار شد ({proxy_label(account)})."
     save_session(account, cl, kind="check_ok", message=message, actor=actor)
-    return _result(account, True, message)
+    return result_for(account, True, message)
 
 
 # ---------------------------------------------------------------------------
@@ -1026,9 +918,9 @@ def update_settings(account, *, actor: str = "", **values) -> Result:
     username = normalize_username(values.get("username"))
     if username and username.lower() != account.username.lower():   # Instagram usernames ignore case
         if not USERNAME_RE.match(username):
-            return _result(account, False, "نام کاربری اینستاگرام معتبر نیست.")
+            return result_for(account, False, "نام کاربری اینستاگرام معتبر نیست.")
         if InstagramEngineAccount.objects.filter(username__iexact=username).exclude(pk=account.pk).exists():
-            return _result(account, False, f"اکانت @{username} از قبل وجود دارد.")
+            return result_for(account, False, f"اکانت @{username} از قبل وجود دارد.")
         account.username = username
         changed.append("username")
     role = str(values.get("role") or "").upper()
@@ -1053,7 +945,7 @@ def update_settings(account, *, actor: str = "", **values) -> Result:
         account.password = password.strip()
         changed.append("password")
     if not changed:
-        return _result(account, True, "تغییری داده نشد.", extra={"changed": []})
+        return result_for(account, True, "تغییری داده نشد.", extra={"changed": []})
     account.save(update_fields=changed)
     if "username" in changed:   # renamed on Instagram: its leads and its config follow it
         from apps.discovery.models import InstagramEngineLead
@@ -1065,7 +957,7 @@ def update_settings(account, *, actor: str = "", **values) -> Result:
               "hourly_limit": "سقف ساعتی", "daily_limit": "سقف روزانه", "password": "پسورد"}
     message = "تغییر: " + "، ".join(dict.fromkeys(labels[f] for f in changed))
     log_event(account, "edited", message, {"fields": ",".join(changed)}, actor)
-    return _result(account, True, message, extra={"changed": changed})
+    return result_for(account, True, message, extra={"changed": changed})
 
 
 def pause(account, *, actor: str = "", note: str = "") -> Result:
@@ -1073,7 +965,7 @@ def pause(account, *, actor: str = "", note: str = "") -> Result:
     account.status, account.status_reason, account.status_message = "DISABLED", "paused", message[:255]
     account.save(update_fields=["status", "status_reason", "status_message"])
     log_event(account, "status_changed", message, {"status": "DISABLED"}, actor)
-    return _result(account, True, "اکانت متوقف شد؛ هیچ سرویسی از آن استفاده نمی‌کند.")
+    return result_for(account, True, "اکانت متوقف شد؛ هیچ سرویسی از آن استفاده نمی‌کند.")
 
 
 def resume(account, *, actor: str = "") -> Result:
@@ -1082,7 +974,7 @@ def resume(account, *, actor: str = "") -> Result:
     else:
         set_state(account, "CHALLENGED", "session_expired", "فعال شد ولی سشن ندارد؛ «ورود» را بزنید.", force=True)
     log_event(account, "status_changed", account.status_message, {"status": account.status}, actor)
-    return _result(account, True, account.status_message)
+    return result_for(account, True, account.status_message)
 
 
 def clear_cooldown(account, *, actor: str = "") -> Result:
@@ -1094,7 +986,7 @@ def clear_cooldown(account, *, actor: str = "") -> Result:
         fields += ["status", "status_reason"]
     account.save(update_fields=fields)
     log_event(account, "status_changed", "استراحت توسط مدیر لغو شد", {"status": account.status}, actor)
-    return _result(account, True, f"استراحت اکانت @{account.username} لغو شد.")
+    return result_for(account, True, f"استراحت اکانت @{account.username} لغو شد.")
 
 
 def delete_account(account, *, actor: str = "") -> str:
@@ -1135,7 +1027,7 @@ def add_account(*, username, password: str = "", role: str = "SENDER", tenant_id
     account = InstagramEngineAccount.objects.filter(username__iexact=username).first()
     if account is not None:
         if account.status == "ACTIVE" and account.session_json:
-            return account, _result(account, False, f"اکانت @{account.username} قبلاً ثبت شده و فعال است؛ از صفحه‌ی "
+            return account, result_for(account, False, f"اکانت @{account.username} قبلاً ثبت شده و فعال است؛ از صفحه‌ی "
                                                      "خودش مدیریتش کنید.", extra={"exists": True})
         if password:
             account.password = password
@@ -1167,14 +1059,14 @@ def add_account(*, username, password: str = "", role: str = "SENDER", tenant_id
         message = f"اکانت ثبت شد ولی پروکسی/کانفیگش در دسترس نیست ({proxy_msg})؛ اتصال را درست کنید و «ورود» بزنید."
         set_state(account, "CHALLENGED", "proxy_down", message)
         log_event(account, "check_failed", message, None, actor)
-        return account, _result(account, False, message)
+        return account, result_for(account, False, message)
     if clean_sessionid(sessionid):
         res = login_with_sessionid(account, sessionid, actor=actor)
         if res.ok or not (login and account.password and account.password != "session_only"):
             return account, res
     if login and account.password and account.password != "session_only":
         return account, start_login(account, actor=actor, wait=login_wait)
-    return account, _result(account, True, f"اکانت @{account.username} ثبت شد.")
+    return account, result_for(account, True, f"اکانت @{account.username} ثبت شد.")
 
 
 # ---------------------------------------------------------------------------

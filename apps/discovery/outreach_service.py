@@ -109,7 +109,7 @@ def record_manual_dm(account, *, user_pk, text: str, actor: str = "") -> None:
     Marking the lead keeps the outreach dispatcher from cold-DMing the same
     person again.
     """
-    from apps.discovery.ig_accounts import log_event
+    from apps.discovery.ig_state import log_event
     from apps.discovery.models import InstagramEngineLead
 
     now = timezone.now()

@@ -10,6 +10,7 @@ from instagrapi.exceptions import ChallengeRequired
 
 from apps.businesses.models import Business
 from apps.discovery import ig_accounts as ig
+from apps.discovery import ig_state
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
 from apps.discovery.proxies import health
 from apps.discovery.proxies.urls import proxy_mode
@@ -20,7 +21,7 @@ XHR = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
 
 def _waiting(acc, state="needs_code"):
     """A login that waits for the operator's code right now (as the login thread leaves it)."""
-    now = ig._now_iso()
+    now = ig_state.now_iso()
     InstagramEngineAccount.objects.filter(pk=acc.pk).update(
         status="CHALLENGED", status_reason="needs_code",
         pending_login={"state": state, "token": "t1", "started_at": now, "heartbeat": now, "kind": "challenge",
@@ -62,7 +63,7 @@ class IgAccountsPanelTests(TestCase):
     def test_pages_render(self):
         a = self.acc(proxy_config=self.cfg, proxy_url="socks5h://xray:1091", status="CHALLENGED",
                      status_reason="needs_code")
-        ig.log_event(a, "code_requested", "کد خواست")
+        ig_state.log_event(a, "code_requested", "کد خواست")
         for url in (reverse("manage:ig_accounts"), reverse("manage:ig_accounts") + "?status=CHALLENGED&mode=config&q=acc",
                     reverse("manage:ig_account_detail", args=[a.pk]), reverse("manage:ig_tenants")):
             res = self.client.get(url)

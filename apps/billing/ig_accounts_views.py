@@ -18,6 +18,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from apps.billing.manage_views import manage_access_required
 from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
+from apps.discovery import ig_state
 from apps.discovery.models import InstagramEngineAccount, ProxyConfig
 from apps.discovery.proxies import health, urls as proxy_urls
 
@@ -71,7 +72,7 @@ def _row(acc, names):
             "tenant": svc.tenant_label(acc.tenant_id, names), "ip": meta.get("last_ip") or "",
             "country": meta.get("country_code") or meta.get("country") or "",
             "login": pending.get("state", "") if svc._is_live(pending) else "",
-            "has_session": svc.has_session(acc)}
+            "has_session": ig_state.has_session(acc)}
 
 
 @manage_access_required
@@ -154,7 +155,7 @@ def ig_accounts_configs_txt(request):
         qs = qs.filter(role=request.GET["role"])
     accounts = list(qs)
     for acc in accounts:
-        svc.log_event(acc, "config_exported", "خروجی گروهی کانفیگ‌ها (configs.txt)", None, _actor(request))
+        ig_state.log_event(acc, "config_exported", "خروجی گروهی کانفیگ‌ها (configs.txt)", None, _actor(request))
     resp = HttpResponse(svc.export_text(accounts), content_type="text/plain; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="instagram-configs.txt"'
     return resp
@@ -173,7 +174,7 @@ def ig_account_detail(request, pk):
         "meta": acc.proxy_meta,
         "login": svc.login_state(acc), "events": list(acc.events.all()[:80]), "configs": _config_choices(),
         "tenants": svc.tenant_choices(), "tenant": svc.tenant_label(acc.tenant_id),
-        "has_session": svc.has_session(acc), "tiers": InstagramEngineAccount.TIER_CHOICES,
+        "has_session": ig_state.has_session(acc), "tiers": InstagramEngineAccount.TIER_CHOICES,
         "roles": InstagramEngineAccount.ROLE_CHOICES,
         "device": {"name": ds.get("device_name") or "", "model": dev.get("model") or "",
                    "manufacturer": dev.get("manufacturer") or "", "android": dev.get("android_release") or "",
@@ -203,7 +204,7 @@ def ig_account_config(request, pk):
     """The account's connection to open it on a phone from the same IP: V2Ray link + QR (or its own proxy)."""
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
     exp = svc.export_config(acc)
-    svc.log_event(acc, "config_exported", f"خروجی کانفیگ ({exp['label']})", {"mode": exp["mode"]}, _actor(request))
+    ig_state.log_event(acc, "config_exported", f"خروجی کانفیگ ({exp['label']})", {"mode": exp["mode"]}, _actor(request))
     return render(request, "ops/ig_accounts/config.html", {
         "nav": "ig_accounts", "a": acc, "exp": exp, "qr": svc.qr_svg(exp.get("link") or "")})
 
@@ -212,7 +213,7 @@ def ig_account_config(request, pk):
 @require_GET
 def ig_account_config_txt(request, pk):
     acc = get_object_or_404(InstagramEngineAccount.objects.select_related("proxy_config"), pk=pk)
-    svc.log_event(acc, "config_exported", "دانلود فایل کانفیگ", None, _actor(request))
+    ig_state.log_event(acc, "config_exported", "دانلود فایل کانفیگ", None, _actor(request))
     resp = HttpResponse(svc.export_text([acc]), content_type="text/plain; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{acc.username}-config.txt"'
     return resp
@@ -225,7 +226,7 @@ def _do_proxy(acc, p, actor):
         cid = str(p.get("config_id") or "")
         config = ProxyConfig.objects.filter(pk=int(cid)).first() if cid.isdigit() else None
         if config is None:
-            return svc._result(acc, False, "کانفیگ را انتخاب کنید.")
+            return ig_state.result_for(acc, False, "کانفیگ را انتخاب کنید.")
     return svc.set_proxy(acc, mode, url=p.get("proxy_url", ""), config=config, actor=actor)
 
 
@@ -265,7 +266,7 @@ def ig_account_action(request, pk, action):
         res = handler(acc, _post(request), _actor(request))
     except Exception as exc:   # never a 500 page for an account action; the reason goes to the operator
         log.exception("instagram account action %s failed for @%s", action, acc.username)
-        res = svc.Result(False, f"خطای غیرمنتظره: {svc.redact(exc, 200)}", status=acc.status)
+        res = ig_state.Result(False, f"خطای غیرمنتظره: {svc.redact(exc, 200)}", status=acc.status)
     return _respond(request, res, acc.pk, ANCHORS.get(action, ""))
 
 
