@@ -1,0 +1,248 @@
+  :root {
+    --card-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05);
+  }
+  .live-dot-pulse {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: live-pulse-anim 1.8s infinite;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  @keyframes live-pulse-anim {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+  .manage-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 20px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .manage-tabs::-webkit-scrollbar {
+    height: 4px;
+  }
+  .manage-tabs::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    padding: 10px 16px;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+  .tab-btn:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent);
+    background: var(--accent-soft);
+  }
+  .tab-pane {
+    display: none;
+  }
+  .tab-pane.active {
+    display: block;
+  }
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+    background: var(--card);
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+  .table-responsive::-webkit-scrollbar {
+    height: 6px;
+  }
+  .table-responsive::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .table-responsive table {
+    width: 100%;
+    min-width: 740px;
+    border-collapse: collapse;
+  }
+  .table-responsive th, .table-responsive td {
+    padding: 10px 12px;
+    text-align: right;
+    direction: rtl;
+    vertical-align: middle;
+    font-family: 'Vazirmatn', Tahoma, sans-serif;
+  }
+  .table-responsive th {
+    white-space: nowrap;
+    background: #f8fafc;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #475569;
+    border-bottom: 2px solid var(--border);
+  }
+  .jalali-time-cell {
+    font-size: 0.84rem;
+    white-space: nowrap;
+    direction: rtl !important;
+    text-align: right !important;
+    font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+    font-feature-settings: 'ss01';
+  }
+  .badge-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .badge-status.active { background: #e6f9f0; color: #0e8a4a; }
+  .badge-status.cooldown { background: #fff8e6; color: #b37400; }
+  .badge-status.challenged { background: #fff0e6; color: #c9510c; }
+  .badge-status.banned { background: #fde8e8; color: #b91c1c; }
+  .badge-status.night_sleep { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .dot-sleep { background: #3b82f6; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .outreach-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .outreach-preview-row { display: grid; grid-template-columns: 200px 1fr 130px; gap: 8px; align-items: center; }
+  @media (max-width: 992px) {
+    .outreach-grid-2col { grid-template-columns: 1fr !important; gap: 16px; }
+    .outreach-preview-row { grid-template-columns: 1fr !important; gap: 8px; }
+  }
+  .intent-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.82rem;
+  }
+  .intent-very-high { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+  .intent-high { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+  .intent-mid { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  .account-form {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+    align-items: flex-end;
+  }
+  .test-feedback {
+    font-size: 0.78rem;
+    margin-top: 4px;
+    display: block;
+  }
+  .activity-banner {
+    background: linear-gradient(135deg, rgba(91, 76, 240, 0.08), rgba(16, 185, 129, 0.08));
+    border: 1px solid rgba(91, 76, 240, 0.25);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* Comprehensive Mobile & Tablet Responsive Rules */
+  @media (max-width: 1024px) {
+    .grid.g4 {
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 12px !important;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .ops-main {
+      padding: 12px 8px !important;
+    }
+    .ops-head {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 10px !important;
+    }
+    .ops-head h1 {
+      font-size: 1.15rem !important;
+    }
+    .activity-banner {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 10px !important;
+      padding: 12px 14px !important;
+    }
+    .card {
+      padding: 14px 12px !important;
+      border-radius: 12px !important;
+    }
+    .account-form {
+      padding: 14px 12px !important;
+    }
+    .form-row {
+      grid-template-columns: 1fr !important;
+      gap: 12px !important;
+    }
+    .tab-btn {
+      padding: 8px 12px !important;
+      font-size: 0.82rem !important;
+    }
+    .table-responsive table {
+      min-width: 680px !important;
+      font-size: 0.82rem !important;
+    }
+    .table-responsive th, .table-responsive td {
+      padding: 8px 10px !important;
+    }
+    .stat .value {
+      font-size: 1.25rem !important;
+    }
+    .btn {
+      font-size: 0.82rem !important;
+      padding: 7px 12px !important;
+    }
+  }
+
+  @media (max-width: 580px) {
+    .grid.g4 {
+      grid-template-columns: 1fr !important;
+      gap: 10px !important;
+    }
+    .manage-tabs {
+      gap: 4px !important;
+      padding-bottom: 4px !important;
+    }
+    .tab-btn {
+      padding: 7px 10px !important;
+      font-size: 0.78rem !important;
+    }
+    #challengeModal > div, #sessionModal > div {
+      width: 95% !important;
+      padding: 18px 14px !important;
+    }
+  }

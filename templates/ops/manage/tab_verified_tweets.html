@@ -1,0 +1,124 @@
+{% load ops static %}<div id="tab-verified-tweets" class="tab-pane">
+  <div class="card" style="margin-bottom:24px;">
+    <div class="ops-head" style="margin-bottom:16px;">
+      <div>
+        <h2 style="color:#0f172a; display:flex; align-items:center; gap:8px;">
+          <svg class="ico" aria-hidden="true" style="color:#0284c7;"><use href="#i-bird"/></svg>
+          <span>توییت‌های تاییدشده و لید شده توسط هوش مصنوعی (Luna)</span>
+        </h2>
+        <p class="muted" style="margin:2px 0 0; font-size:0.85rem;">
+          پست‌هایی که توسط کراولر جمع‌آوری شده، با مدل هوش مصنوعی لونا ارزیابی و تطبیق معنایی داده شده و به عنوان خریدار احتمالی به مستأجرین تحویل داده شده است.
+        </p>
+      </div>
+      <div>
+        <span class="pill" style="background:#e0f2fe; color:#0369a1; font-weight:700;">
+          تعداد کل لیدهای توییتری: {{ verified_x_leads|length }} فرصت تاییدشده
+        </span>
+      </div>
+    </div>
+
+    <!-- Twitter Funnel Summary Cards in Verified Tweets Tab -->
+    <div class="grid g4" style="margin-bottom:20px;">
+      <div class="card stat" style="border-right:3px solid #0284c7;">
+        <div class="label">توییت‌های واکشی‌شده (Posts)</div>
+        <div class="value" style="color:#0284c7;">{{ x_posts_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_posts_24h }}</strong> پست</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #10b981;">
+        <div class="label">لیدهای تأییدشده (Confirmed Leads)</div>
+        <div class="value" style="color:#10b981;">{{ x_leads_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_leads_24h }}</strong> لید خریدار</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #7c3aed;">
+        <div class="label">نرخ تبدیل پست به لید (Conversion Rate)</div>
+        <div class="value" style="color:#7c3aed;">{{ x_conversion_rate_total }}٪</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_conversion_rate_24h }}٪</strong></div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #f59e0b;">
+        <div class="label">کوئری‌های فعال توییتر</div>
+        <div class="value" style="color:#f59e0b;">{{ x_active_queries_count }}</div>
+        <div class="sub">تولیدشده با Luna و پالایش MMR (حداکثر ۱۵ به ازای هر زیردسته)</div>
+      </div>
+    </div>
+
+    <!-- Verified Leads Table -->
+    {% if verified_x_leads %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f0f9ff;">
+            <th style="width:70px;">شناسه</th>
+            <th style="width:160px;">نویسنده و پروفایل در X</th>
+            <th style="width:110px; text-align:center;">پیوند توییت</th>
+            <th>متن پیام توییت / نیاز مشتری</th>
+            <th style="width:130px;">کسب‌وکار مستأجر</th>
+            <th style="width:140px;">شاخه و دسته‌بندی</th>
+            <th style="width:150px;">کوئری کاشف</th>
+            <th style="width:110px; text-align:center;">قصد خرید</th>
+            <th style="width:135px;">تاریخ انتشار</th>
+            <th style="width:135px;">زمان کشف</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in verified_x_leads %}
+          <tr>
+            <td style="font-weight:700; color:var(--muted);">#{{ t.id }}</td>
+            <td>
+              {% if t.author_handle %}
+                <a href="{{ t.profile_url }}" target="_blank" rel="noopener" style="font-weight:700; color:#0284c7; font-family:monospace; direction:ltr; text-align:right; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                  @{{ t.author_handle }}
+                  <svg style="width:12px; height:12px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                </a>
+                {% if t.author_name and t.author_name != t.author_handle %}
+                  <div class="muted" style="font-size:0.75rem; margin-top:2px;">{{ t.author_name }}</div>
+                {% endif %}
+              {% else %}
+                <span class="muted" style="font-size:0.8rem;">کاربر X</span>
+              {% endif %}
+            </td>
+            <td style="text-align:center;">
+              {% if t.tweet_url %}
+                <a href="{{ t.tweet_url }}" target="_blank" rel="noopener" class="btn sm" style="background:#0284c7; color:#fff; padding:4px 8px; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px;" title="مشاهده مستقیم توییت در X">
+                  <svg class="ico" style="width:12px; height:12px;" aria-hidden="true"><use href="#i-bird"/></svg>
+                  <span>مشاهده</span>
+                </a>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td style="font-size:0.88rem; line-height:1.6; color:#0f172a; max-width:320px;">
+              <div style="font-weight:600;">{{ t.raw_text }}</div>
+              {% if t.need_desc and t.need_desc != t.category_name %}
+                <div style="margin-top:4px; font-size:0.78rem; color:#475569; background:#f8fafc; padding:2px 6px; border-radius:4px; border:1px solid #e2e8f0;">
+                  <strong>نیاز استخراج‌شده:</strong> {{ t.need_desc }}
+                </div>
+              {% endif %}
+            </td>
+            <td>
+              <span class="pill" style="background:#f1f5f9; color:#334155; font-size:0.78rem; font-weight:700;">
+                {{ t.business_name }}
+              </span>
+            </td>
+            <td style="font-size:0.82rem; color:#475569;">{{ t.category_name }}</td>
+            <td>
+              <code style="font-size:0.75rem; background:#f8fafc; padding:2px 6px; border-radius:4px; border:1px solid #e2e8f0; color:#0369a1; display:inline-block; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ t.source_query }}">
+                {{ t.source_query }}
+              </code>
+            </td>
+            <td style="text-align:center;">
+              <span class="pill" style="font-family:monospace; font-weight:700; font-size:0.8rem; {% if t.intent_percent >= 80 %}background:#dcfce7; color:#15803d;{% elif t.intent_percent >= 60 %}background:#e0f2fe; color:#0369a1;{% else %}background:#fef3c7; color:#b45309;{% endif %}">
+                {{ t.intent_percent }}٪
+              </span>
+            </td>
+            <td style="font-size:0.78rem; color:#64748b; font-family:monospace;" dir="ltr">{{ t.posted_jalali }}</td>
+            <td style="font-size:0.78rem; color:#0284c7; font-family:monospace; font-weight:600;" dir="ltr">{{ t.created_jalali }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هنوز هیچ توییت تاییدشده‌ای به عنوان لید ثبت نشده است.</p>
+    {% endif %}
+  </div>
+</div>

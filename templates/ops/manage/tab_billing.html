@@ -1,0 +1,76 @@
+{% load ops static %}<div id="tab-billing" class="tab-pane">
+  <div class="card">
+    <div class="ops-head">
+      <div>
+        <h2><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg> گزارش دقیق مالی مستأجرین: هزینه خام دلاری و تومانی در برابر مبلغ نهایی با ۱۵۰٪ کارمزد</h2>
+        <p class="muted" style="margin:2px 0 0;">
+          دیدگاه اختصاصی مدیریت: شما هزینه خام دلاری، هزینه خام تومانی و کارمزد ۱۵۰٪ را می‌بینید؛ در پنل مشتری صرفاً مبلغ نهایی کسر می‌گردد.
+        </p>
+      </div>
+      <div>
+        <a href="{% url 'ops:wallets' %}" class="btn">مدیریت شارژ کیف‌پول‌ها ↗</a>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th>شناسه</th>
+            <th>کسب‌وکار / مستأجر</th>
+            <th>فراخوانی هوش مصنوعی</th>
+            <th style="color:var(--muted);">هزینه خام AI ($)</th>
+            <th style="color:var(--muted);">هزینه خام به نرخ امروز (تومان)</th>
+            <th style="font-weight:800; color:var(--down);">مبلغ واقعی کسرشده (کارمزد فعلی {{ markup_percent|floatformat:0 }}٪)</th>
+            <th>موجودی کیف‌پول</th>
+            <th>وضعیت اعتبار</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in financial_rows %}
+          <tr>
+            <td>#{{ row.business.id }}</td>
+            <td>
+              <strong>{{ row.business.name }}</strong>
+              <div class="muted" style="font-size:0.75rem;">مالک: {{ row.business.user.get_full_name|default:row.business.user.username }}</div>
+            </td>
+            <td class="n">{{ row.calls }}</td>
+            <td class="n" style="color:var(--muted);">${{ row.cost_usd|floatformat:5 }}</td>
+            <td class="n" style="color:var(--muted);">{{ row.raw_toman|floatformat:0 }} تومان</td>
+            <td class="n" style="font-weight:800; font-size:1.05rem; color:var(--down);">
+              {{ row.spent|floatformat:0 }} تومان
+            </td>
+            <td class="n" style="font-weight:700;">
+              {{ row.balance|floatformat:0 }} تومان
+            </td>
+            <td>
+              {% if row.has_credit %}
+                <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> دارای اعتبار کافی</span>
+              {% else %}
+                <span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> اعتبار پایان‌یافته</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" style="text-align:center; padding:30px;" class="muted">
+              هیچ مستأجری در سیستم ثبت نشده است.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--accent-soft); font-weight:800;">
+            <td colspan="2">مجموع کل سیستم:</td>
+            <td class="n">{{ total_calls_all }}</td>
+            <td class="n">${{ total_cost_usd_all|floatformat:4 }}</td>
+            <td class="n">{{ total_raw_toman_all|floatformat:0 }} تومان</td>
+            <td class="n" style="color:var(--down); font-size:1.1rem;">{{ total_spent_all|floatformat:0 }} تومان</td>
+            <td class="n">{{ total_balance_all|floatformat:0 }} تومان</td>
+            <td>—</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>

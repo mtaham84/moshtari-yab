@@ -1,0 +1,193 @@
+{% load ops static %}<div id="tab-twitter-scrapers" class="tab-pane">
+  <div class="account-form">
+    <h2 style="font-size:1.05rem; margin-top:0; margin-bottom:12px;"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg> افزودن اکانت اسکرپر توییتر / X (Twitter Scraper Account)</h2>
+    <form id="form-add-twitter-scraper" method="POST" action="{% url 'manage:twitter_account_add' %}" onsubmit="handleTwitterAccountAddForm(event, this)">
+      {% csrf_token %}
+      <div class="form-row">
+        <div class="field">
+          <label>نام کاربری توییتر / X</label>
+          <input type="text" name="username" class="ops-input" placeholder="مثال: ebi123456url" required dir="ltr">
+        </div>
+        <div class="field">
+          <label>رمز عبور (اختیاری)</label>
+          <input type="password" name="password" class="ops-input" placeholder="رمز عبور اکانت" dir="ltr">
+        </div>
+        <div class="field">
+          <label>کوکی auth_token (سشن لاگین)</label>
+          <input type="text" name="auth_token" class="ops-input" placeholder="مثال: 9baa2fdd446fc..." dir="ltr">
+          <span class="help">از مرورگر: F12 > Application > Cookies > auth_token</span>
+        </div>
+        <div class="field">
+          <label>کوکی ct0 (CSRF Token - اختیاری)</label>
+          <input type="text" name="ct0" class="ops-input" placeholder="مقدار ct0 (در صورت وجود)" dir="ltr">
+        </div>
+        <div class="field">
+          <label>پروکسی اختصاصی</label>
+          <input type="text" name="proxy_url" class="ops-input" value="socks5h://xray:1080" placeholder="socks5h://xray:1080" dir="ltr">
+        </div>
+        <div>
+          <button type="submit" class="btn primary" style="width:100%; height:40px; font-weight:600;">ثبت اکانت توییتر</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="margin-bottom:24px;">
+    <div class="ops-head" style="margin-bottom:12px;">
+      <div>
+        <h2>لیست و وضعیت بلادرنگ اکانت‌های اسکرپر توییتر / X</h2>
+        <span class="muted" style="font-size:0.8rem;">کرول‌ها به صورت چرخشی (Round-Robin) و بالانس بار بین اکانت‌ها تقسیم می‌شوند و در صورت ریت‌لیمیت سوئیچ خودکار انجام می‌شود</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span class="pill" style="background:#e0f2fe; color:#0369a1; font-weight:700;">کل اکانت‌ها: {{ twitter_scrapers_total }}</span>
+        <span class="pill" style="background:#dcfce7; color:#15803d; font-weight:700;">فعال: {{ twitter_scrapers_active }}</span>
+        <span class="pill" style="background:#fff8e6; color:#b45309; font-weight:700;">استراحت: {{ twitter_scrapers_cooldown }}</span>
+      </div>
+    </div>
+
+    <!-- Twitter Lead Conversion Funnel Cards -->
+    <div class="grid g4" style="margin-bottom:20px;">
+      <div class="card stat" style="border-right:3px solid #0284c7;">
+        <div class="label">سرچ‌های انجام‌شده (Searches)</div>
+        <div class="value" style="color:#0284c7;">{{ x_searches_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_searches_24h }}</strong> سرچ</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #64748b;">
+        <div class="label">توییت‌های واکشی‌شده (Posts)</div>
+        <div class="value" style="color:#0f172a;">{{ x_posts_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_posts_24h }}</strong> پست</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #10b981;">
+        <div class="label">لیدهای تأییدشده (Confirmed Leads)</div>
+        <div class="value" style="color:#10b981;">{{ x_leads_total }}</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_leads_24h }}</strong> لید خریدار</div>
+      </div>
+      <div class="card stat" style="border-right:3px solid #7c3aed;">
+        <div class="label">نرخ تبدیل پست به لید (Conversion Rate)</div>
+        <div class="value" style="color:#7c3aed;">{{ x_conversion_rate_total }}٪</div>
+        <div class="sub">۲۴ ساعت اخیر: <strong>{{ x_conversion_rate_24h }}٪</strong></div>
+      </div>
+    </div>
+
+    {% if twitter_scrapers %}
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>اکانت توییتر / X</th>
+            <th><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> پروکسی و کانفیگ</th>
+            <th>وضعیت اتصال و سشن</th>
+            <th>سرچ‌ها (۲۴س / کل)</th>
+            <th>پست‌ها (۲۴س / کل)</th>
+            <th>لیدها (۲۴س / کل)</th>
+            <th>نرخ تبدیل (۲۴س / کل)</th>
+            <th>آخرین فعالیت</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in twitter_scrapers %}
+          <tr id="row-tw-acc-{{ acc.id }}">
+            <td style="font-weight:700; color:var(--muted);">#{{ acc.id }}</td>
+            <td>
+              <div style="font-weight:800; font-size:1rem; color:var(--text);" dir="ltr">@{{ acc.username }}</div>
+              <div style="margin-top:4px;">
+                {% if acc.auth_token %}
+                  <span class="pill" style="font-size:0.7rem; background:#dcfce7; color:#15803d;">سشن ذخیره‌شده</span>
+                {% else %}
+                  <span class="pill" style="font-size:0.7rem; background:#fee2e2; color:#b91c1c;">بدون سشن</span>
+                {% endif %}
+                {% if not acc.is_active %}
+                  <span class="pill" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;">غیرفعال دستی</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div style="font-size:0.82rem; font-family:monospace;" dir="ltr">{{ acc.proxy_url|default:"اتصال مستقیم" }}</div>
+            </td>
+            <td>
+              <div id="tw-status-badge-{{ acc.id }}">
+                {% if acc.live_status_badge == 'cooldown' %}
+                  <span class="badge-status cooldown"><i class="dot dot-warn" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                  <div class="muted" style="font-size:0.75rem; margin-top:2px;">{{ acc.live_status_desc }}</div>
+                {% elif acc.live_status_badge == 'active' %}
+                  <span class="badge-status active"><i class="dot dot-ok" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% elif acc.live_status_badge == 'challenged' %}
+                  <span class="badge-status challenged"><i class="dot dot-alert" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% elif acc.live_status_badge == 'banned' %}
+                  <span class="badge-status banned"><i class="dot dot-bad" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% else %}
+                  <span class="badge-status" style="background:#f1f5f9; color:#64748b;"><i class="dot dot-idle" aria-hidden="true"></i> {{ acc.live_status_label }}</span>
+                {% endif %}
+              </div>
+              <div id="tw-status-msg-{{ acc.id }}" class="test-feedback muted" style="font-size:0.75rem; margin-top:3px;">
+                {{ acc.status_message|default:"" }}
+              </div>
+            </td>
+            <td class="n">
+              <strong style="color:#0284c7;">{{ acc.searches_24h }}</strong> <span class="muted">/ {{ acc.searches_total }}</span>
+            </td>
+            <td class="n">
+              <strong style="color:#0f172a;">{% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.posts_24h }}</strong> <span class="muted">/ {{ acc.posts_total }}</span>
+            </td>
+            <td class="n">
+              <strong style="color:#10b981;">{% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.leads_24h }}</strong> <span class="muted">/ {% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.leads_total }}</span>
+            </td>
+            <td class="n" style="font-family:monospace; font-weight:700;">
+              <span style="color:#7c3aed;">{% if acc.metrics_estimated %}<span title="تخمینی: سهم این اکانت از کل (نتایج X به اکانت ثبت نمی‌شوند)">≈</span>{% endif %}{{ acc.conv_rate_24h }}٪</span> <span class="muted">/ {{ acc.conv_rate_total }}٪</span>
+            </td>
+            <td class="jalali-time-cell">
+              {% if acc.last_action_at %}
+                <span dir="ltr">{{ acc.last_action_at|jalali_dt }}</span>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                <button type="button" class="btn sm" onclick="testTwitterAccount({{ acc.id }}, this)" style="background:#0284c7; color:#fff;" title="تست زنده اتصال اکانت">
+                  <svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> تست اتصال
+                </button>
+                <button type="button" class="btn sm" onclick="openTwitterSessionModal({{ acc.id }}, '{{ acc.username }}', '{{ acc.auth_token }}', '{{ acc.ct0 }}')" style="background:#f8fafc; border:1px solid #cbd5e1; color:#334155;" title="ویرایش یا ثبت کوکی سشن">
+                  <svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> ویرایش سشن
+                </button>
+                <button type="button" class="btn sm" onclick="toggleTwitterAccount({{ acc.id }}, this)" style="background:#f1f5f9; border:1px solid #cbd5e1;" title="فعال یا غیرفعال کردن اکانت">
+                  {% if acc.is_active %}غیرفعال{% else %}فعال{% endif %}
+                </button>
+                <form method="POST" action="{% url 'manage:twitter_account_delete' acc.id %}" onsubmit="return confirm('آیا از حذف اکانت @{{ acc.username }} اطمینان دارید؟')" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn sm" style="background:#fee2e2; color:#b91c1c; border:none;" title="حذف اکانت">
+                    <svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="text-align:center; padding:30px;">هیچ اکانت توییتری ثبت نشده است. از فرم بالا اکانت اول یا دوم خود را ثبت نمایید.</p>
+    {% endif %}
+  </div>
+
+  <!-- Direct Link Banner to Verified Tweets Tab -->
+  <div class="card" style="background:#f0f9ff; border:1px solid #bae6fd; padding:18px 22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+    <div>
+      <h3 style="margin:0 0 4px; color:#0369a1; font-size:1.05rem; display:flex; align-items:center; gap:8px;">
+        <svg class="ico" aria-hidden="true"><use href="#i-bird"/></svg>
+        <span>مشاهده فهرست کامل توییت‌های تأییدشده و لید شده</span>
+      </h3>
+      <p class="muted" style="margin:0; font-size:0.85rem; color:#0c4a6e;">
+        توییت‌های پالایش‌شده و دارای قصد خرید با تمام اطلاعات هویتی، متن، تاریخ جلالی و لینک مستقیم به توییت در سربرگ اختصاصی در دسترس است.
+      </p>
+    </div>
+    <div>
+      <button type="button" class="btn primary" onclick="openTab('verified-tweets', document.querySelector('.tab-btn[onclick*=\'verified-tweets\']'))" style="font-weight:700;">
+        ورود به سربرگ توییت‌های تاییدشده ({{ verified_x_leads|length }}) ←
+      </button>
+    </div>
+  </div>
+</div>
