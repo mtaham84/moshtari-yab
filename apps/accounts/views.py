@@ -768,7 +768,7 @@ def update_lead_phone_view(request):
 @require_POST
 def edit_outreach_account_view(request, pk):
     """Staff only (customers do not edit Instagram accounts; they edit their pitch): same as the dashboard editor."""
-    from apps.billing.manage_views import ig_edit_sender
+    from apps.billing.manage.ig_legacy import ig_edit_sender
     from apps.discovery.models import InstagramEngineAccount
 
     if not _staff(request.user):
