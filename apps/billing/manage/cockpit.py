@@ -128,8 +128,7 @@ def instagram_cockpit_threads(request, pk: int):
                 if hasattr(m, "timestamp") and m.timestamp:
                     try:
                         last_msg_time = m.timestamp.strftime("%H:%M")
-                    except Exception:
-                        logger.warning("instagram_cockpit_threads failed", exc_info=True)
+                    except (AttributeError, TypeError, ValueError):   # not a datetime
                         last_msg_time = str(m.timestamp)[:5]
                 is_outgoing = str(getattr(m, "user_id", "")) == str(cl.user_id)
 
@@ -171,8 +170,7 @@ def instagram_cockpit_thread_detail(request, pk: int, thread_id: str):
             if hasattr(m, "timestamp") and m.timestamp:
                 try:
                     t_str = m.timestamp.strftime("%Y-%m-%d %H:%M")
-                except Exception:
-                    logger.warning("instagram_cockpit_thread_detail failed", exc_info=True)
+                except (AttributeError, TypeError, ValueError):   # not a datetime
                     t_str = str(m.timestamp)
 
             msgs.append({

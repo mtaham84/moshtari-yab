@@ -106,7 +106,7 @@ class Command(BaseCommand):
                             self.style.ERROR(f"❌ [دور {cycle}] خطا در همگام‌سازی @{raw_channel}: {res.get('error')}")
                         )
             except Exception as exc:
-                log.warning("handle failed", exc_info=True)
+                log.warning("Channel config sync cycle %s failed", cycle, exc_info=True)
                 self.stderr.write(self.style.ERROR(f"❌ خطای غیرمنتظره در دور {cycle}: {exc}"))
 
             if not loop:

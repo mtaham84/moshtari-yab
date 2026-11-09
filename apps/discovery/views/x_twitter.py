@@ -67,8 +67,10 @@ def x_management_view(request):
         updated = parse_datetime(status_data.get("updated_at", ""))
         if not updated or timezone.now() - updated > timedelta(minutes=int(os.getenv("X_STATUS_STALE_MINUTES", "30"))):
             status = None
-    except Exception:
-        log.warning("x_management_view failed", exc_info=True)
+    except FileNotFoundError:   # the X collector has not written a status yet
+        status = None
+    except (OSError, ValueError, TypeError, AttributeError):   # unreadable or malformed status file
+        log.warning("Could not read the X collector status file %s", status_file, exc_info=True)
         status = None
     return render(request, "discovery/x_management.html", {"queries": queries, "terms": terms,
         "collector_state": status})

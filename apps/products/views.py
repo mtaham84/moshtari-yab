@@ -182,7 +182,7 @@ def product_add_view(request):
                 x_search_enabled=x_search_enabled,
             )
         except Exception as exc:
-            log.warning("product_add_view failed", exc_info=True)
+            log.warning("Could not create a product for business %s", business.pk, exc_info=True)
             messages.error(request, f"خطا در ایجاد محصول: {exc}")
             return render(request, "products/product_form.html", {
                 "categories": categories,
@@ -301,7 +301,7 @@ def product_edit_view(request, pk):
         try:
             product.save()
         except Exception as exc:
-            log.warning("product_edit_view failed", exc_info=True)
+            log.warning("Could not save product %s", product.pk, exc_info=True)
             messages.error(request, f"خطا در ویرایش محصول: {exc}")
             return render(request, "products/product_form.html", {
                 "product": product,
@@ -470,8 +470,7 @@ def api_create_category(request):
 
     try:
         data = json.loads(request.body) if request.body else request.POST
-    except Exception:
-        log.warning("api_create_category failed", exc_info=True)
+    except ValueError:   # not JSON: a normal form post
         data = request.POST
 
     name = data.get("name", "").strip()

@@ -179,7 +179,7 @@ def manage_exchange_rate_update(request):
         s.save()
         messages.success(request, f"نرخ دلار ({s.usd_to_toman:,.0f} تومان) و کارمزد مستأجرین ({s.markup_percent}٪) با موفقیت به‌روزرسانی شد.")
     except Exception as exc:
-        logger.warning("manage_exchange_rate_update failed", exc_info=True)
+        logger.warning("Could not update the billing settings", exc_info=True)
         messages.error(request, f"خطا در به‌روزرسانی تنظیمات مالی: {exc}")
 
     return redirect("manage:dashboard")

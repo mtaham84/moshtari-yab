@@ -205,5 +205,5 @@ class Command(BaseCommand):
                 for d in res.get("details", []):
                     self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
         except Exception as exc:
-            logger.warning("_sync_replies failed", exc_info=True)
+            logger.warning("Reply sync failed", exc_info=True)
             self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {exc}")

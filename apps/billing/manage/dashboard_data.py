@@ -276,7 +276,7 @@ def proxy_pool() -> dict:
         proxy_configs_total = proxy_configs.count()
         proxy_configs_active = proxy_configs.filter(status="ACTIVE").count()
     except Exception:
-        logger.warning("proxy_pool failed", exc_info=True)
+        logger.warning("Could not load the proxy configs", exc_info=True)
         proxy_configs = []
         proxy_configs_total = proxy_configs_active = 0
     return {"proxy_configs": proxy_configs, "proxy_configs_total": proxy_configs_total,

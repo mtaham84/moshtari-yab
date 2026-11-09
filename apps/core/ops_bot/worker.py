@@ -222,14 +222,14 @@ def run_bot() -> None:
                             r_id = int(text.replace("/req_", "").strip())
                             handle_single_request(chat_id, r_id)
                         except Exception as parse_err:
-                            log.warning("run_bot failed", exc_info=True)
+                            log.warning("Bot command %s failed", text, exc_info=True)
                             send_message(chat_id, f"⚠️ شناسه درخواست نامعتبر است: {parse_err}")
                     elif text.startswith("/activate_"):
                         try:
                             r_id = int(text.replace("/activate_", "").strip())
                             handle_quick_activate(chat_id, r_id)
                         except Exception as parse_err:
-                            log.warning("run_bot failed", exc_info=True)
+                            log.warning("Bot command %s failed", text, exc_info=True)
                             send_message(chat_id, f"⚠️ شناسه درخواست نامعتبر است: {parse_err}")
                     else:
                         handle_incoming_text(chat_id, text)

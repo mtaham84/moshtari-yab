@@ -254,7 +254,7 @@ class CrawlerMonitor:
             try:
                 sender = await msg.get_sender()
             except Exception:
-                log.warning("_sender failed", exc_info=True)
+                log.debug("Could not resolve the sender of a message", exc_info=True)
                 sender = None
         return sender
 

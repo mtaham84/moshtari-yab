@@ -166,7 +166,7 @@ class SessionReplacementTests(TestCase):
     def test_x_http_404_endpoint_error_keeps_previous_state(self):
         acc = self._x_acc(username="x_http_404", status="ACTIVE")
         resp = mock.MagicMock(status_code=404, text="404 Not Found")
-        resp.json.side_effect = Exception("Not JSON")
+        resp.json.side_effect = ValueError("Not JSON")   # requests and curl_cffi raise JSONDecodeError (a ValueError)
         with mock.patch("apps.billing.manage.x_session.requests.get", return_value=resp) as mock_get:
             out = self._post_x_session(acc.pk, "new_auth_token_40_chars_long_12345678", "new_ct0_32_chars_long_1234567890")
         self.assertFalse(out["success"])

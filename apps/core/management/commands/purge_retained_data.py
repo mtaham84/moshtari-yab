@@ -59,7 +59,7 @@ class Command(BaseCommand):
                     else:
                         report["x_crawled_hashes_older_than_10d"] = XCrawledPost.objects.filter(crawled_at__lt=x_cutoff).count()
                 except Exception as exc:
-                    log.warning("handle failed", exc_info=True)
+                    log.warning("Could not purge old X post hashes", exc_info=True)
                     report["x_crawled_hashes_error"] = str(exc)
         except (ValueError, RuntimeError, OSError) as exc:
             raise CommandError(str(exc)) from exc
