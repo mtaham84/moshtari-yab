@@ -18,8 +18,9 @@ green, before the next one starts. Behavior must not change unless the step says
   proxy handling has one owner (`apps/discovery/proxies/`), and every instagrapi client comes from one factory.
 - Phase 4 is done as four PRs (#36 views/services, #37 templates, #38 CSS, #39 outreach/ops bot): of the 15 files
   over 800 lines only `apps/discovery/models/core.py` (848) is left, on purpose.
-- **Next step:** Phase 5 (in progress): 5.1 known bugs; 5.2 silent `except Exception: pass`; 5.3 tracebacks at
-  process boundaries and views; 5.4 narrow excepts in the biggest helper files.
+- Phase 5 is done (#40 bugs, #41 silent excepts, #42 boundaries, #43 helpers): broad excepts in the baseline
+  328 → 70, no `except Exception: pass` left, every remaining broad catch at a boundary logs its traceback.
+- **Next step:** none planned. Candidates: the known issues below and the remaining 70 broad excepts (small files).
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -142,9 +143,17 @@ staff and seller on fixed data, compared with main) and, for JS and CSS, in head
 
 ## Phase 5: Error handling and bugs
 
-- [ ] Work down the broad `except Exception` blocks: catch the specific exception, or `log.exception` at process
-      boundaries.
-- [ ] Every bug fix starts with a failing test (`systematic-debugging` skill).
+- [x] PR 5.1: the known bugs, each with a test that failed on main (page retirement, challenge handling, DM guard,
+      business priority).
+- [x] PR 5.2: every silent `except Exception: pass` (40) catches what it expects or logs the traceback.
+- [x] PR 5.3: worker loops, commands, tasks, the crawler monitor, the X collector, the ops bot and the views (55)
+      log the traceback at the level they already used; expected conditions are caught exactly and not logged.
+- [x] PR 5.4: the biggest helper files narrowed (parsing → TypeError/ValueError, files → OSError, optional Django
+      imports → ImportError/ImproperlyConfigured/AppRegistryNotReady/RuntimeError, ...). Instagram code only gained
+      tracebacks; handlers whose message is redacted (login, session) keep it and get no traceback.
+- Rule used throughout: keep each log call's level and add `exc_info=True`. Telegram alerts take ERROR and above, so
+  their number did not change. `log.exception` (ERROR) would have flooded the ops chat.
+- Left: 70 broad catches in small files (`scripts/guardrail_baseline.json`), to narrow when those files are touched.
 
 ## Running the checks locally (Docker)
 
