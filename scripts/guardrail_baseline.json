@@ -46,10 +46,6 @@
     "conftest.py": 1,
     "instagram_discovery/comment_evaluation.py": 2,
     "instagram_engine/analyzer.py": 5,
-    "instagram_engine/main.py": 1,
-    "instagram_engine/outreach_worker.py": 6,
-    "instagram_engine/scraper_worker.py": 8,
-    "instagram_engine/session_manager.py": 5,
     "need_engine/catalog.py": 2,
     "need_engine/config.py": 2,
     "need_engine/embeddings.py": 1,
@@ -87,8 +83,7 @@
     "workers/x_collector/query_source.py": 10,
     "workers/x_collector/worker.py": 13,
     "x_ingest/__main__.py": 1,
-    "xray/multi_proxy_manager.py": 17,
-    "xray/proxy_switcher.py": 17
+    "xray/multi_proxy_manager.py": 17
   },
   "lines": {
     "apps/accounts/views.py": 991,
@@ -112,7 +107,6 @@
     "workers/ig_collector/tests/test_worker.py": 1134,
     "workers/ig_collector/worker.py": 1244,
     "workers/telegram_config_bot.py": 1169,
-    "xray/multi_proxy_manager.py": 884,
-    "xray/proxy_switcher.py": 866
+    "xray/multi_proxy_manager.py": 884
   }
 }
