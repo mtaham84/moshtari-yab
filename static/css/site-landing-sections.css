@@ -1,0 +1,377 @@
+/* ==========================================================================
+   Section: Product Intelligence & Hierarchical Taxonomy
+   ========================================================================== */
+.section-intelligence {
+  padding: 80px 24px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.intelligence-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.taxonomy-interactive-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: var(--shadow-card);
+}
+
+.taxonomy-card-title {
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.taxonomy-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-main);
+  transition: all 0.2s ease;
+}
+
+.tree-node.active-leaf {
+  background: linear-gradient(135deg, rgba(232, 38, 142, 0.1), rgba(121, 40, 202, 0.15));
+  border-color: rgba(121, 40, 202, 0.35);
+  color: var(--brand-primary);
+  font-weight: 800;
+}
+
+.tree-indent-1 { margin-right: 18px; }
+.tree-indent-2 { margin-right: 36px; }
+.tree-indent-3 { margin-right: 54px; }
+
+.node-chip {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  font-size: 0.74rem;
+  color: var(--text-faint);
+}
+
+/* Category Attributes Pills */
+.attributes-pills-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--divider);
+}
+
+.attr-pill {
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.attr-pill.highlight {
+  background: rgba(121, 40, 202, 0.1);
+  border-color: rgba(121, 40, 202, 0.3);
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Section: Multi-Source Channels (X, Telegram, Instagram, Divar)
+   ========================================================================== */
+.section-sources {
+  padding: 80px 24px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sources-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.sources-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-top: 48px;
+}
+
+.source-channel-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  padding: 28px 24px;
+  text-align: right;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+}
+
+.source-channel-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-md);
+  border-color: rgba(121, 40, 202, 0.3);
+}
+
+.source-icon-wrap {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  color: #fff;
+  font-size: 1.4rem;
+}
+
+.icon-x { background: #000000; }
+.icon-telegram { background: #229ed9; }
+.icon-instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
+.icon-divar { background: #a62626; font-weight: 900; }
+
+.source-name {
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
+.source-desc {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Section: Agent Workflow Pipeline (LangGraph Visualization)
+   ========================================================================== */
+.section-pipeline {
+  padding: 80px 24px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.pipeline-diagram {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-top: 48px;
+  position: relative;
+}
+
+.pipeline-node {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  padding: 24px 20px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.pipeline-node:hover {
+  transform: translateY(-4px);
+  border-color: var(--brand-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.node-icon-box {
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  background: rgba(121, 40, 202, 0.08);
+  color: var(--brand-primary);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 14px;
+}
+
+.node-icon-box svg {
+  width: 26px;
+  height: 26px;
+}
+
+.node-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+
+.node-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+/* ==========================================================================
+   Section: Conversion CTA (Cosmic Card)
+   ========================================================================== */
+.section-cta-wrap {
+  padding: 40px 24px 80px;
+  max-width: 1260px;
+  margin: 0 auto;
+}
+
+.cta-cosmic-card {
+  position: relative;
+  border-radius: 32px;
+  background-color: #0c0d22;
+  background-image:
+    radial-gradient(ellipse at 15% 50%, rgba(232, 38, 142, 0.55), transparent 60%),
+    radial-gradient(ellipse at 85% 50%, rgba(28, 126, 214, 0.6), transparent 65%),
+    linear-gradient(135deg, #100f28 0%, #1f1444 100%);
+  padding: 70px 40px;
+  text-align: center;
+  color: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(12, 13, 34, 0.4);
+}
+
+.cta-cosmic-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.8) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.15;
+}
+
+.cta-content {
+  position: relative;
+  z-index: 5;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.cta-heading {
+  font-size: clamp(2rem, 3.5vw, 2.9rem);
+  font-weight: 900;
+  line-height: 1.35;
+  margin-bottom: 18px;
+}
+
+.cta-heading .glow-span {
+  background: linear-gradient(135deg, #ff71bd, #38bdf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.cta-subtext {
+  font-size: 1.1rem;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 36px;
+}
+
+.cta-btn-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 38px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--aurora-magenta), #6366f1);
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 800;
+  box-shadow: 0 10px 30px rgba(232, 38, 142, 0.5);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.cta-btn-main:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 15px 40px rgba(232, 38, 142, 0.7);
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+.footer-wrap {
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-light);
+  padding: 50px 32px 36px;
+  transition: background-color 0.3s ease;
+}
+
+.footer-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.footer-brand-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  list-style: none;
+}
+
+.footer-nav a {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  transition: color 0.2s;
+}
+
+.footer-nav a:hover {
+  color: var(--brand-primary);
+}
+
+.footer-copy {
+  font-size: 0.85rem;
+  color: var(--text-faint);
+  width: 100%;
+  text-align: center;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--divider);
+}
+

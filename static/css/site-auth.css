@@ -1,0 +1,393 @@
+/* ==========================================================================
+   Auth & Registration Styles (Phase 2)
+   ========================================================================== */
+.auth-page-wrapper {
+  min-height: 100vh;
+  position: relative;
+  background-color: var(--space-dark);
+  background-image:
+    radial-gradient(ellipse at 85% 25%, rgba(232, 38, 142, 0.45) 0%, transparent 55%),
+    radial-gradient(ellipse at 15% 75%, rgba(28, 126, 214, 0.5) 0%, transparent 60%),
+    linear-gradient(135deg, #090a18 0%, #151336 50%, #1f1244 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 32px 20px 60px;
+}
+
+.auth-header {
+  position: relative;
+  z-index: 10;
+  max-width: 600px;
+  width: 100%;
+  margin: 0 auto 32px;
+  display: flex;
+  justify-content: center;
+}
+
+.auth-main-container {
+  position: relative;
+  z-index: 10;
+  max-width: 620px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.auth-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 28px;
+  padding: clamp(28px, 4vw, 44px);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
+  position: relative;
+}
+
+.auth-card-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: rgba(121, 40, 202, 0.1);
+  color: var(--brand-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.auth-title {
+  font-size: clamp(1.6rem, 2.5vw, 2.1rem);
+  font-weight: 850;
+  color: var(--text-main);
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+.auth-subtitle {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+  margin-bottom: 28px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+}
+
+.form-label {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.form-label .req {
+  color: var(--aurora-magenta);
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-light);
+  background: var(--bg-surface-elevated);
+  color: var(--text-main);
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 4px rgba(121, 40, 202, 0.15);
+}
+
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-icon .form-input {
+  padding-left: 44px;
+}
+
+.input-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--text-faint);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.form-hint {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* Business Type Radio Grid */
+.business-type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.type-radio-label {
+  cursor: pointer;
+}
+
+.type-radio-label input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.type-radio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border-light);
+  background: var(--bg-subtle);
+  transition: all 0.25s ease;
+}
+
+.type-radio-card strong {
+  font-size: 0.92rem;
+  color: var(--text-main);
+}
+
+.type-radio-card small {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.type-radio-label input:checked + .type-radio-card {
+  border-color: var(--brand-primary);
+  background: rgba(121, 40, 202, 0.08);
+  box-shadow: 0 0 0 3px rgba(121, 40, 202, 0.15);
+}
+
+.type-radio-label input:checked + .type-radio-card strong {
+  color: var(--brand-primary);
+}
+
+/* Quick Domain Chips */
+.domain-quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.domain-chip {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.domain-chip:hover {
+  background: var(--divider);
+  color: var(--text-main);
+}
+
+/* Submit Button */
+.auth-submit-btn {
+  width: 100%;
+  padding: 14px 24px;
+  border-radius: 14px;
+  background: var(--brand-gradient);
+  color: #ffffff;
+  font-size: 1.02rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: var(--brand-glow);
+  margin-top: 10px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.auth-submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(121, 40, 202, 0.45);
+}
+
+.auth-card-footer {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.auth-link {
+  color: var(--brand-primary);
+  font-weight: 700;
+  transition: color 0.2s;
+}
+
+.auth-link:hover {
+  color: var(--aurora-magenta);
+}
+
+/* Alert messages in auth */
+.auth-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.alert {
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+.alert-error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.alert-success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.alert-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.alert-info {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0ea5e9;
+  border: 1px solid rgba(14, 165, 233, 0.25);
+}
+
+/* OTP Code Input in Verify */
+.otp-digit-input {
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  height: 68px;
+  text-align: center;
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: 12px;
+  border-radius: 16px;
+  border: 2px solid var(--brand-primary);
+  background: var(--bg-surface-elevated);
+  color: var(--brand-primary);
+  box-shadow: 0 0 0 6px rgba(121, 40, 202, 0.1);
+  font-family: "Courier New", Courier, monospace;
+}
+
+.rate-limit-badge {
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}
+
+.rate-limit-badge strong {
+  color: var(--warning);
+}
+
+.resend-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.resend-link {
+  color: var(--brand-primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Blocked State Alert Card */
+.blocked-alert-box {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1.5px solid rgba(239, 68, 68, 0.3);
+  border-radius: 16px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.blocked-alert-icon {
+  font-size: 1.6rem;
+  color: #ef4444;
+  line-height: 1;
+}
+
+.blocked-alert-content strong {
+  display: block;
+  font-size: 0.96rem;
+  color: #ef4444;
+  margin-bottom: 4px;
+}
+
+.blocked-alert-content p {
+  font-size: 0.86rem;
+  color: var(--text-main);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.countdown-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 4px 12px;
+  border-radius: 8px;
+}
+
+.countdown-timer {
+  font-size: 1.15rem;
+  font-family: monospace;
+}
+
