@@ -107,7 +107,7 @@ def get_performance_analytics(business: Business, start_date=None, end_date=None
 
 def business_for_tenant(tenant_id):
     """The Business behind a tenant id ("tenant_<pk>" or a legacy alias such as "sarv"); None when unknown."""
-    from apps.discovery.ig_accounts import canonical_tenant
+    from apps.discovery.tenants import canonical_tenant
 
     tenant = canonical_tenant(tenant_id)
     if not tenant.startswith("tenant_") or not tenant[len("tenant_"):].isdigit():

@@ -175,7 +175,7 @@ class InstagramEngineAccount(models.Model):
                                      related_name="instagram_accounts", verbose_name="کانفیگ اختصاصی سیستم")
     session_json = models.JSONField(null=True, blank=True, verbose_name="دیتای سشن")
     device_settings = models.JSONField(null=True, blank=True, verbose_name="تنظیمات سخت‌افزار")
-    # The login in progress (ig_accounts.start_login): state, token, heartbeat, contact hint, the code typed in the panel
+    # The login in progress (ig_login.start_login): state, token, heartbeat, contact hint, the code typed in the panel
     pending_login = models.JSONField(null=True, blank=True, verbose_name="ورود در جریان (منتظر کد)")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ACTIVE", db_index=True, verbose_name="وضعیت")
     status_reason = models.CharField(max_length=32, choices=REASON_CHOICES, blank=True, default="",

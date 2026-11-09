@@ -15,6 +15,7 @@ from apps.discovery.constants import DM_DELIVERED_STATUSES
 from apps.discovery.exports import safe_csv_row
 from apps.discovery.models import Opportunity, InstagramEngineAccount
 from apps.discovery.services import get_performance_analytics
+from apps.discovery import tenants
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +280,7 @@ def style_sample_view(request):
 
 def _outreach_tenant_keys(business) -> list[str]:
     """Lead/sender tenant ids that belong to a business (tenant_4 also owns legacy 'sarv' rows)."""
-    from apps.discovery.ig_accounts import tenant_keys_for_business
+    from apps.discovery.tenants import tenant_keys_for_business
 
     return tenant_keys_for_business(business)
 
@@ -312,7 +313,7 @@ def _operator_outreach_business(biz_param, own_business, all_businesses):
 
     Explicit ?biz=<id> wins, then the operator's own business if it runs outreach, then the first business that
     runs outreach (OUTREACH_TENANTS / ACTIVE SENDER), then the operator's own business, then the first business."""
-    from apps.discovery.ig_accounts import outreach_tenants, tenant_business_id
+    from apps.discovery.tenants import outreach_tenants, tenant_business_id
 
     by_id = {b.id: b for b in all_businesses}
     if biz_param and str(biz_param).isdigit() and int(biz_param) in by_id:
@@ -388,9 +389,9 @@ def outreach_view(request):
         lead.thread = get_lead_conversation_thread(lead)
         lead.captured_phone = _captured_phone_for_lead(lead, lead.thread, customer_phones)
 
-    # One consultant name + pitch per customer (tenant), used by all of its senders (ig_accounts.tenant_pitch:
+    # One consultant name + pitch per customer (tenant), used by all of its senders (tenants.tenant_pitch:
     # its profile, else the legacy per-username pitch of data/sarv_outreach_config.json)
-    from apps.discovery.ig_accounts import tenant_pitch
+    from apps.discovery.tenants import tenant_pitch
 
     accounts = list(accounts)
     pitch = tenant_pitch(tenant_key, [acc.username for acc in accounts])
@@ -471,7 +472,6 @@ def save_pitch_view(request):
     """Saves the customer's consultant name and cold-DM pitch: one per customer, used by all of its senders.
     A customer edits only its own; staff pick the customer (biz, or the tenant of a sender username)."""
     from apps.businesses.models import Business
-    from apps.discovery import ig_accounts as svc
     from apps.discovery.models import InstagramEngineAccount
 
     business = getattr(request.user, "business", None)
@@ -482,7 +482,7 @@ def save_pitch_view(request):
             business = Business.objects.filter(pk=int(biz)).first() or business
         elif username:
             acc = InstagramEngineAccount.objects.filter(username__iexact=username).first()
-            tid = svc.canonical_tenant(acc.tenant_id) if acc else ""
+            tid = tenants.canonical_tenant(acc.tenant_id) if acc else ""
             if tid.startswith("tenant_") and tid[7:].isdigit():
                 business = Business.objects.filter(pk=int(tid[7:])).first() or business
     if not business:
@@ -494,7 +494,7 @@ def save_pitch_view(request):
         messages.error(request, "متن پیام نمی‌تواند خالی باشد.")
         return _outreach_redirect(request, business.id)
     consultant_name = (request.POST.get("consultant_name") or "").strip()
-    svc.save_tenant_profile(f"tenant_{business.id}", consultant_name=consultant_name,
+    tenants.save_tenant_profile(f"tenant_{business.id}", consultant_name=consultant_name,
                             consultant_role=f"مشاور و پشتیبانی {business.name}", pitch_template=template)
     who = f" (مشاور: {consultant_name})" if consultant_name else ""
     messages.success(request, f"پیام دایرکت «{business.name}»{who} ذخیره شد؛ همه‌ی اکانت‌های فرستنده‌ی این کسب‌وکار "
@@ -531,7 +531,7 @@ def add_outreach_account_view(request):
     if acc is None:
         messages.error(request, res.message)
         return _outreach_redirect(request, business.id if business else None)
-    svc.save_tenant_profile(tenant_key, consultant_name=request.POST.get("consultant_name", ""),
+    tenants.save_tenant_profile(tenant_key, consultant_name=request.POST.get("consultant_name", ""),
                             consultant_role=f"مشاور و پشتیبانی {business.name}" if business else "",
                             pitch_template=request.POST.get("pitch_template", ""), only_empty=True)
     (messages.success if res.ok else messages.warning)(request, res.message)
@@ -933,7 +933,7 @@ def outreach_leads_export_csv(request):
     }
 
     from apps.discovery.outreach_service import build_bulletproof_message
-    from apps.discovery.ig_accounts import tenant_key as business_tenant_key, tenant_pitch
+    from apps.discovery.tenants import tenant_key as business_tenant_key, tenant_pitch
     default_consultant = (tenant_pitch(business_tenant_key(business))["consultant_name"] if business else "") or "مشاور فروشگاه"
 
     for lead in qs[:500]:

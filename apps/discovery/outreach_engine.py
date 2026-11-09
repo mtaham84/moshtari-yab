@@ -443,7 +443,7 @@ def _pitch_for(cfg: dict, sender) -> Tuple[str, str]:
     profile = {}
     tenant = None if isinstance(sender, str) else getattr(sender, "tenant_id", None)
     if tenant:
-        from apps.discovery.ig_accounts import tenant_profile
+        from apps.discovery.tenants import tenant_profile
         profile = tenant_profile(tenant)
     pitches = cfg.get("sender_pitches", {})
     info = (

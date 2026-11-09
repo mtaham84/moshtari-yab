@@ -12,6 +12,7 @@ from instagrapi.exceptions import BadPassword, ChallengeRequired, ClientConnecti
     TwoFactorRequired, UnknownError
 
 from apps.discovery import ig_accounts as ig
+from apps.discovery import ig_login, tenants
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
 from apps.discovery.proxies import assignment, export, health
 from apps.discovery.proxies.urls import proxy_mode
@@ -110,7 +111,7 @@ class Operator:
         self.results, self.statuses, self.hints, self.errors = [], [], [], []
 
     def __call__(self, seconds):
-        p = ig._read_pending(self.account.pk)
+        p = ig_login._read_pending(self.account.pk)
         if p.get("state") != "needs_code" or p.get("code"):
             return
         acc = InstagramEngineAccount.objects.get(pk=self.account.pk)
@@ -118,9 +119,9 @@ class Operator:
         self.hints.append(p.get("hint"))
         self.errors.append(p.get("error"))
         if self.cancel:
-            self.results.append(ig.cancel_login(acc))
+            self.results.append(ig_login.cancel_login(acc))
         elif self.codes:
-            self.results.append(ig.submit_code(acc, self.codes.pop(0)))
+            self.results.append(ig_login.submit_code(acc, self.codes.pop(0)))
 
 
 @override_settings(INSTAGRAM_LOGIN_IN_BACKGROUND=False, INSTAGRAM_DEFAULT_PROXY_URL="socks5h://xray:1080",
@@ -150,7 +151,7 @@ class IgAccountsTestBase(TestCase):
                     .values_list("kind", flat=True))
 
     def sleep_as(self, operator):
-        p = mock.patch.object(ig, "_sleep", operator)
+        p = mock.patch.object(ig_login, "_sleep", operator)
         p.start()
         self.addCleanup(p.stop)
         return operator
@@ -159,7 +160,7 @@ class IgAccountsTestBase(TestCase):
 class LoginWithCodeTests(IgAccountsTestBase):
     def test_plain_login_saves_the_session_and_activates(self):
         a = self.acc(status="CHALLENGED", status_reason="session_expired")
-        res = ig.start_login(a)
+        res = ig_login.start_login(a)
         a.refresh_from_db()
         self.assertTrue(res.ok, res)
         self.assertEqual(res.state, "ok")
@@ -173,7 +174,7 @@ class LoginWithCodeTests(IgAccountsTestBase):
         a = self.acc(status="CHALLENGED")
         FakeIG.script = {"mode": "challenge"}
         op = self.sleep_as(Operator(a, codes=["۱۲۳۴۵۶"]))   # Persian digits are fine
-        res = ig.start_login(a)
+        res = ig_login.start_login(a)
         a.refresh_from_db()
         self.assertTrue(res.ok, res)
         self.assertEqual(len(FakeIG.instances), 1)
@@ -191,7 +192,7 @@ class LoginWithCodeTests(IgAccountsTestBase):
         a = self.acc()
         FakeIG.script = {"mode": "challenge"}
         self.sleep_as(Operator(a, codes=["999999"]))
-        res = ig.start_login(a)
+        res = ig_login.start_login(a)
         a.refresh_from_db()
         self.assertFalse(res.ok)
         self.assertEqual(res.state, "failed")
@@ -202,8 +203,8 @@ class LoginWithCodeTests(IgAccountsTestBase):
     def test_no_code_in_time_ends_the_login(self):
         a = self.acc()
         FakeIG.script = {"mode": "challenge"}
-        with mock.patch.object(ig, "LOGIN_WAIT_SECONDS", 0):
-            res = ig.start_login(a)
+        with mock.patch.object(ig_login, "LOGIN_WAIT_SECONDS", 0):
+            res = ig_login.start_login(a)
         a.refresh_from_db()
         self.assertEqual(res.state, "failed")
         self.assertEqual(a.status_reason, "needs_code")
@@ -213,7 +214,7 @@ class LoginWithCodeTests(IgAccountsTestBase):
         a = self.acc(status="ACTIVE")
         FakeIG.script = {"mode": "challenge"}
         self.sleep_as(Operator(a, cancel=True))
-        res = ig.start_login(a)
+        res = ig_login.start_login(a)
         a.refresh_from_db()
         self.assertEqual(res.state, "cancelled")
         self.assertEqual(a.pending_login["state"], "cancelled")
@@ -224,7 +225,7 @@ class LoginWithCodeTests(IgAccountsTestBase):
         a = self.acc()
         FakeIG.script = {"mode": "two_factor", "code": "654321"}
         op = self.sleep_as(Operator(a, codes=["000000", "654321"]))
-        res = ig.start_login(a)
+        res = ig_login.start_login(a)
         a.refresh_from_db()
         self.assertTrue(res.ok, res)
         cl = FakeIG.instances[0]
@@ -241,30 +242,30 @@ class LoginWithCodeTests(IgAccountsTestBase):
     def test_bad_password_and_network_errors(self):
         a = self.acc("bp")
         FakeIG.script = {"mode": "bad_password"}
-        ig.start_login(a)
+        ig_login.start_login(a)
         a.refresh_from_db()
         self.assertEqual((a.status, a.status_reason), ("CHALLENGED", "bad_password"))
         b = self.acc("net")
         FakeIG.script = {"mode": "network"}
-        ig.start_login(b)
+        ig_login.start_login(b)
         b.refresh_from_db()
         self.assertEqual((b.status, b.status_reason), ("COOLDOWN", "proxy_down"))
         self.assertIsNotNone(b.cooldown_until)
 
     def test_code_without_a_waiting_login_is_refused(self):
         a = self.acc()
-        res = ig.submit_code(a, CODE)
+        res = ig_login.submit_code(a, CODE)
         self.assertFalse(res.ok)
-        self.assertFalse(ig.submit_code(a, "12").ok)
+        self.assertFalse(ig_login.submit_code(a, "12").ok)
 
     def test_no_password_no_login(self):
         a = self.acc(password="session_only")
-        self.assertFalse(ig.start_login(a).ok)
+        self.assertFalse(ig_login.start_login(a).ok)
         self.assertEqual(FakeIG.instances, [])
 
     def test_paused_account_stays_paused_after_a_login(self):
         a = self.acc(status="DISABLED", status_reason="paused")
-        ig.start_login(a)
+        ig_login.start_login(a)
         a.refresh_from_db()
         self.assertEqual(a.status, "DISABLED")
         self.assertTrue(a.session_json)
@@ -273,7 +274,7 @@ class LoginWithCodeTests(IgAccountsTestBase):
 class SessionAndCheckTests(IgAccountsTestBase):
     def test_sessionid_login(self):
         a = self.acc(status="CHALLENGED", status_message="x")
-        res = ig.login_with_sessionid(a, "sessionid=ABC%3A1; csrftoken=zz")
+        res = ig_login.login_with_sessionid(a, "sessionid=ABC%3A1; csrftoken=zz")
         a.refresh_from_db()
         self.assertTrue(res.ok)
         self.assertEqual(FakeIG.instances[0].sessionids, ["ABC%3A1"])
@@ -283,12 +284,12 @@ class SessionAndCheckTests(IgAccountsTestBase):
     def test_rejected_sessionid_and_network_error(self):
         a = self.acc(status="ACTIVE")
         FakeIG.script = {"sessionid_error": LoginRequired("login_required")}
-        self.assertFalse(ig.login_with_sessionid(a, "S1").ok)
+        self.assertFalse(ig_login.login_with_sessionid(a, "S1").ok)
         a.refresh_from_db()
         self.assertEqual((a.status, a.status_reason), ("CHALLENGED", "session_expired"))
         b = self.acc("b", status="ACTIVE")
         FakeIG.script = {"sessionid_error": ClientConnectionError("timed out")}
-        self.assertFalse(ig.login_with_sessionid(b, "S2").ok)
+        self.assertFalse(ig_login.login_with_sessionid(b, "S2").ok)
         b.refresh_from_db()
         self.assertEqual(b.status, "ACTIVE")
 
@@ -490,22 +491,22 @@ class TenantPitchTests(IgAccountsTestBase):
 
         a, b = self.acc("s1", tenant_id="tenant_9"), self.acc("s2", tenant_id="tenant_9")
         other = self.acc("s3", tenant_id="tenant_10")
-        ig.save_tenant_profile("tenant_9", consultant_name="سارا", pitch_template="سلام {consultant_name}")
+        tenants.save_tenant_profile("tenant_9", consultant_name="سارا", pitch_template="سلام {consultant_name}")
         for s in (a, b):
             self.assertEqual(_pitch_for({}, s), ("سارا", "سلام {consultant_name}"))
         self.assertEqual(_pitch_for({}, other)[0], "s3")
         self.assertEqual(_pitch_for({}, "s1")[0], "s1")   # a bare username keeps the old lookup
-        ig.save_tenant_profile("tenant_9", consultant_name="مینا", only_empty=True)
+        tenants.save_tenant_profile("tenant_9", consultant_name="مینا", only_empty=True)
         self.assertEqual(OutreachTenantProfile.objects.get(tenant_id="tenant_9").consultant_name, "سارا")
 
     def test_legacy_pitch_is_the_fallback_and_aliases_share_a_profile(self):
         self.acc("old_sender", tenant_id="sarv")
         cfg = {"sender_pitches": {"old_sender": {"consultant_name": "رها", "template": "متن قدیمی"}}}
         with mock.patch("apps.discovery.outreach_engine.load_outreach_config", return_value=cfg):
-            p = ig.tenant_pitch("tenant_4")
+            p = tenants.tenant_pitch("tenant_4")
             self.assertEqual((p["consultant_name"], p["pitch_template"], p["source"]), ("رها", "متن قدیمی", "legacy"))
-            ig.save_tenant_profile("sarv", pitch_template="متن تازه")
-            p = ig.tenant_pitch("tenant_4")
+            tenants.save_tenant_profile("sarv", pitch_template="متن تازه")
+            p = tenants.tenant_pitch("tenant_4")
         self.assertEqual((p["consultant_name"], p["pitch_template"], p["source"]), ("رها", "متن تازه", "profile"))
         self.assertTrue(OutreachTenantProfile.objects.filter(tenant_id="tenant_4").exists())
 
@@ -534,7 +535,7 @@ class BackgroundLoginThreadTests(TransactionTestCase):
     def setUp(self):
         FakeIG.instances, FakeIG.script = [], {"mode": "challenge"}
         for p in (mock.patch("instagrapi.Client", FakeIG), mock.patch.object(health, "port_open", return_value=True),
-                  mock.patch.object(ig, "CODE_POLL_SECONDS", 0.05)):
+                  mock.patch.object(ig_login, "CODE_POLL_SECONDS", 0.05)):
             p.start()
             self.addCleanup(p.stop)
         self.acc = InstagramEngineAccount.objects.create(username="bg1", password="pw", role="SENDER")
@@ -543,7 +544,7 @@ class BackgroundLoginThreadTests(TransactionTestCase):
     def _stop_thread(self):
         acc = InstagramEngineAccount.objects.filter(pk=self.acc.pk).first()
         if acc is not None:
-            ig.cancel_login(acc)
+            ig_login.cancel_login(acc)
         for t in threading.enumerate():
             if t.name == f"ig-login-{self.acc.pk}":
                 t.join(10)
@@ -553,11 +554,11 @@ class BackgroundLoginThreadTests(TransactionTestCase):
         return InstagramEngineAccount.objects.get(pk=self.acc.pk)
 
     def test_code_typed_later_goes_into_the_same_login(self):
-        res = ig.start_login(self.acc, actor="boss", wait=15)
+        res = ig_login.start_login(self.acc, actor="boss", wait=15)
         self.assertEqual(res.state, "needs_code", res.message)
-        self.assertEqual(ig.login_state(self.acc)["hint"], "ایمیل j***@gmail.com")
+        self.assertEqual(ig_login.login_state(self.acc)["hint"], "ایمیل j***@gmail.com")
         self.assertEqual((self.fresh().status, self.fresh().status_reason), ("CHALLENGED", "needs_code"))
-        res = ig.submit_code(self.fresh(), "۱۲۳۴۵۶", actor="boss", wait=15)   # Persian digits from the phone keyboard
+        res = ig_login.submit_code(self.fresh(), "۱۲۳۴۵۶", actor="boss", wait=15)   # Persian digits from the phone keyboard
         self.assertTrue(res.ok, res.message)
         self.assertEqual(res.state, "ok")
         acc = self.fresh()
@@ -569,12 +570,12 @@ class BackgroundLoginThreadTests(TransactionTestCase):
 
     def test_two_factor_wrong_code_then_right_code_in_the_same_login(self):
         FakeIG.script = {"mode": "two_factor"}
-        res = ig.start_login(self.acc, wait=15)
+        res = ig_login.start_login(self.acc, wait=15)
         self.assertEqual((res.state, res.hint), ("needs_code", "پیامک به **12"), res.message)
-        res = ig.submit_code(self.fresh(), "000000", wait=15)
+        res = ig_login.submit_code(self.fresh(), "000000", wait=15)
         self.assertEqual(res.state, "needs_code", res.message)   # asked again, same login
-        self.assertIn("پذیرفته نشد", ig.login_state(self.acc)["error"])
-        res = ig.submit_code(self.fresh(), CODE, wait=15)
+        self.assertIn("پذیرفته نشد", ig_login.login_state(self.acc)["error"])
+        res = ig_login.submit_code(self.fresh(), CODE, wait=15)
         self.assertTrue(res.ok, res.message)
         self.assertEqual(self.fresh().status, "ACTIVE")
         self.assertEqual((len(FakeIG.instances), len(FakeIG.instances[0].logins)), (1, 1))
@@ -582,8 +583,8 @@ class BackgroundLoginThreadTests(TransactionTestCase):
         self.assertEqual(tries, ["000000", CODE])
 
     def test_cancel_stops_the_waiting_login(self):
-        self.assertEqual(ig.start_login(self.acc, wait=15).state, "needs_code")
-        self.assertEqual(ig.cancel_login(self.fresh()).state, "cancelled")
+        self.assertEqual(ig_login.start_login(self.acc, wait=15).state, "needs_code")
+        self.assertEqual(ig_login.cancel_login(self.fresh()).state, "cancelled")
         for t in threading.enumerate():
             if t.name == f"ig-login-{self.acc.pk}":
                 t.join(10)
@@ -591,4 +592,4 @@ class BackgroundLoginThreadTests(TransactionTestCase):
         acc = self.fresh()
         self.assertEqual((acc.status, acc.status_reason, acc.pending_login["state"]),
                          ("CHALLENGED", "session_expired", "cancelled"))
-        self.assertFalse(ig.submit_code(acc, CODE).ok)   # nobody waits for a code any more
+        self.assertFalse(ig_login.submit_code(acc, CODE).ok)   # nobody waits for a code any more

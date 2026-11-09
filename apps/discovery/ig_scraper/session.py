@@ -80,7 +80,7 @@ def auto_renew_session(run, cl, account) -> bool:
         except (ChallengeRequired, TwoFactorRequired) as exc:
             # Instagram wants a code (2FA / email / SMS): nobody is here to type it. The operator presses
             # «ورود» on the account page (/manage/instagram/accounts/) and types the code into that login.
-            from apps.discovery.ig_accounts import record_login_failure
+            from apps.discovery.ig_login import record_login_failure
             record_login_failure(account, exc, actor="scraper")
             run.stderr.write(f"    recovery_failed: account {account.id} needs a verification code")
             return False

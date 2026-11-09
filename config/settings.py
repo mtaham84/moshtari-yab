@@ -273,7 +273,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_BEAT_SCHEDULE_FILENAME = os.environ.get("CELERY_BEAT_SCHEDULE_FILENAME", "/app/data/celerybeat-schedule")
 
 # Tenants served by the Instagram DM dispatcher and reply sync, e.g. OUTREACH_TENANTS=tenant_4,tenant_7.
-# Empty = every tenant that has an ACTIVE SENDER account (apps.discovery.ig_accounts.outreach_tenants).
+# Empty = every tenant that has an ACTIVE SENDER account (apps.discovery.tenants.outreach_tenants).
 OUTREACH_TENANTS = [t.strip() for t in os.getenv("OUTREACH_TENANTS", "").split(",") if t.strip()]
 
 CELERY_TASK_ROUTES = {

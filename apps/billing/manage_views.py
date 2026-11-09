@@ -34,9 +34,10 @@ from apps.core.http import wants_json
 from apps.core.permissions import operator_required
 from apps.discovery.constants import DM_DELIVERED_STATUSES, HIGH_INTENT_THRESHOLD
 from apps.discovery.channel_config_automation import get_monitored_channels
-from apps.discovery.ig_accounts import canonical_tenant, tenant_key, tenant_keys_for_business
+from apps.discovery.tenants import canonical_tenant, tenant_key, tenant_keys_for_business
 from apps.discovery.proxies import assignment, health, urls as proxy_urls
 from apps.discovery.device_emulator import connect_saved_session
+from apps.discovery import ig_login, tenants
 
 logger = logging.getLogger("management")
 
@@ -552,7 +553,7 @@ def manage_dashboard(request):
             senders_active = senders.filter(status="ACTIVE").count()
 
     # One consultant name / pitch per customer (tenant), as the outreach engine resolves it
-    from apps.discovery.ig_accounts import tenant_pitch
+    from apps.discovery.tenants import tenant_pitch
     pitch_by_tenant = {}
     accounts_with_pitches = []
     for s in senders:
@@ -571,7 +572,7 @@ def manage_dashboard(request):
         default_pitch = accounts_with_pitches[0]["template"]
         default_consultant = accounts_with_pitches[0]["consultant_name"]
     # No hard-coded industry pitch here: per-tenant pitches (and the old
-    # tenant_4 fallback) come from ig_accounts.tenant_pitch().
+    # tenant_4 fallback) come from tenants.tenant_pitch().
 
     outreach_replied_qs = InstagramEngineLead.objects.filter(has_replied=True)
     if selected_outreach_biz:
@@ -747,13 +748,13 @@ def manage_account_add(request):
         account_tier=p.get("account_tier") or "NEW", daily_limit=p.get("daily_limit"), proxy=mode, proxy_url=url,
         config=cfg, actor=_ig_actor(request), login=True, login_wait=25)
     if acc is not None and acc.role == "SENDER" and (p.get("consultant_name") or "").strip():
-        svc.save_tenant_profile(acc.tenant_id, consultant_name=p["consultant_name"], only_empty=True)
+        tenants.save_tenant_profile(acc.tenant_id, consultant_name=p["consultant_name"], only_empty=True)
     out = res.as_dict()
     out.update(account_id=acc.pk if acc else None,
                username=acc.username if acc else ig_state.normalize_username(p.get("username")))
     if wants_json(request):
         return JsonResponse(out)
-    if acc is not None and res.state in svc.LIVE_STATES:
+    if acc is not None and res.state in ig_login.LIVE_STATES:
         messages.warning(request, res.message)
         return redirect(reverse("manage:ig_account_detail", args=[acc.pk]) + "#login")
     (messages.success if res.ok else messages.error)(request, res.message)
@@ -776,12 +777,11 @@ def manage_account_delete(request, pk):
 @require_POST
 def manage_account_set_session(request, pk):
     """Connects the account with a sessionid copied from a browser that is logged in (no password, no code)."""
-    from apps.discovery import ig_accounts as svc
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     if not (request.POST.get("sessionid") or "").strip():
         return JsonResponse({"success": False, "message": "لطفاً مقدار کوکی sessionid را وارد نمایید."})
-    out = svc.login_with_sessionid(account, request.POST["sessionid"], actor=_ig_actor(request)).as_dict()
+    out = ig_login.login_with_sessionid(account, request.POST["sessionid"], actor=_ig_actor(request)).as_dict()
     out.setdefault("deleted", False)
     return JsonResponse(out)
 
@@ -801,9 +801,9 @@ def ig_edit_sender(account, data, actor: str = "") -> dict:
         notes.append(res.message)
 
     consultant = (data.get("consultant_name") or "").strip()
-    if consultant and consultant != svc.tenant_pitch(account.tenant_id).get("consultant_name"):
-        svc.save_tenant_profile(account.tenant_id, consultant_name=consultant)
-        notes.append(f"نام مشاور مشتری «{svc.tenant_label(account.tenant_id)}»: {consultant}")
+    if consultant and consultant != tenants.tenant_pitch(account.tenant_id).get("consultant_name"):
+        tenants.save_tenant_profile(account.tenant_id, consultant_name=consultant)
+        notes.append(f"نام مشاور مشتری «{tenants.tenant_label(account.tenant_id)}»: {consultant}")
 
     if "proxy_url" in data and (data.get("proxy_url") or "").strip() != (account.proxy_url or "").strip():
         mode, url, cfg = _ig_proxy_choice(data.get("proxy_url"))
@@ -814,7 +814,7 @@ def ig_edit_sender(account, data, actor: str = "") -> dict:
 
     sessionid = (data.get("sessionid") or "").strip()
     if sessionid:
-        res = svc.login_with_sessionid(account, sessionid, actor=actor)
+        res = ig_login.login_with_sessionid(account, sessionid, actor=actor)
         session_updated = res.ok
         ok = ok and res.ok
         notes.append(res.message)
@@ -878,9 +878,9 @@ def manage_account_test(request, pk):
     account.refresh_from_db()
     if (not res.ok and account.status == "CHALLENGED" and account.status_reason == "session_expired"
             and account.password and account.password != "session_only"):
-        res = svc.start_login(account, actor=actor, wait=25)
-    elif res.state in svc.LIVE_STATES:
-        res = svc.wait_for_login(account, timeout=25)
+        res = ig_login.start_login(account, actor=actor, wait=25)
+    elif res.state in ig_login.LIVE_STATES:
+        res = ig_login.wait_for_login(account, timeout=25)
     account.refresh_from_db()
     out = res.as_dict()
     out.update(success=res.ok and account.status != "CHALLENGED", status=account.status,
@@ -892,7 +892,6 @@ def manage_account_test(request, pk):
 @require_POST
 def manage_account_submit_code(request, pk):
     """Hands Instagram's code to the login that is waiting for it (the same login that asked for it)."""
-    from apps.discovery import ig_accounts as svc
 
     account = get_object_or_404(InstagramEngineAccount, pk=pk)
     raw_code = ""
@@ -906,7 +905,7 @@ def manage_account_submit_code(request, pk):
         raw_code = (request.POST.get("code") or "").strip()
     if not raw_code:
         return JsonResponse({"success": False, "message": "لطفاً کد تایید را وارد کنید."})
-    res = svc.submit_code(account, raw_code, actor=_ig_actor(request), wait=25)
+    res = ig_login.submit_code(account, raw_code, actor=_ig_actor(request), wait=25)
     account.refresh_from_db()
     out = res.as_dict()
     out["status"] = account.status

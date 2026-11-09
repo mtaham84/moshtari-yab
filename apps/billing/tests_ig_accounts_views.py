@@ -9,7 +9,7 @@ from django.utils import timezone
 from instagrapi.exceptions import ChallengeRequired
 
 from apps.businesses.models import Business
-from apps.discovery import ig_accounts as ig
+from apps.discovery import ig_login
 from apps.discovery import ig_state
 from apps.discovery.models import InstagramAccountEvent, InstagramEngineAccount, OutreachTenantProfile, ProxyConfig
 from apps.discovery.proxies import health
@@ -31,7 +31,7 @@ def _waiting(acc, state="needs_code"):
 def _login_thread(pk):
     """Stands in for the login thread while a request waits: takes the typed code and finishes the login."""
     def sleep(seconds):
-        p = ig._read_pending(pk)
+        p = ig_login._read_pending(pk)
         if p.get("state") == "verifying" and p.get("code") == CODE:
             InstagramEngineAccount.objects.filter(pk=pk).update(
                 status="ACTIVE", status_reason="", pending_login={**p, "state": "ok", "code": None,
@@ -116,7 +116,7 @@ class IgAccountsPanelTests(TestCase):
         _waiting(a)
         old = (timezone.now() - timezone.timedelta(minutes=10)).isoformat()
         InstagramEngineAccount.objects.filter(pk=a.pk).update(
-            pending_login={**ig._read_pending(a.pk), "heartbeat": old, "started_at": old})
+            pending_login={**ig_login._read_pending(a.pk), "heartbeat": old, "started_at": old})
         out = self.do(a, "code", {"code": CODE}, **XHR).json()
         self.assertFalse(out["success"])
         self.assertEqual(self.client.get(reverse("manage:ig_account_login_state", args=[a.pk])).json()["state"], "stale")
@@ -206,7 +206,7 @@ class OldDashboardEndpointTests(TestCase):
     def test_old_code_endpoint_feeds_the_waiting_login(self):
         acc = InstagramEngineAccount.objects.create(username="c1", password="pw", role="SENDER")
         _waiting(acc)
-        with mock.patch.object(ig, "_sleep", _login_thread(acc.pk)):
+        with mock.patch.object(ig_login, "_sleep", _login_thread(acc.pk)):
             out = self.client.post(f"/manage/accounts/{acc.pk}/code/", {"code": CODE}, content_type="application/json",
                                    **XHR).json()
         self.assertTrue(out["success"], out)

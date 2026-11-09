@@ -18,6 +18,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from apps.billing.manage_views import manage_access_required
 from apps.core.http import wants_json
 from apps.discovery import ig_accounts as svc
+from apps.discovery import ig_login, tenants
 from apps.discovery import ig_state
 from apps.discovery.models import InstagramEngineAccount, ProxyConfig
 from apps.discovery.proxies import assignment, export, health, urls as proxy_urls
@@ -69,9 +70,9 @@ def _row(acc, names):
     meta = acc.proxy_meta
     pending = acc.pending_login or {}
     return {"a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": proxy_urls.proxy_mode(acc), "label": proxy_urls.proxy_label(acc),
-            "tenant": svc.tenant_label(acc.tenant_id, names), "ip": meta.get("last_ip") or "",
+            "tenant": tenants.tenant_label(acc.tenant_id, names), "ip": meta.get("last_ip") or "",
             "country": meta.get("country_code") or meta.get("country") or "",
-            "login": pending.get("state", "") if svc._is_live(pending) else "",
+            "login": pending.get("state", "") if ig_login._is_live(pending) else "",
             "has_session": ig_state.has_session(acc)}
 
 
@@ -85,10 +86,10 @@ def ig_accounts_list(request):
     if f["role"]:
         qs = qs.filter(role=f["role"])
     if f["tenant"]:
-        qs = qs.filter(tenant_id__in=svc._tenant_ids(f["tenant"]))
+        qs = qs.filter(tenant_id__in=tenants._tenant_ids(f["tenant"]))
     if f["q"]:
         qs = qs.filter(username__icontains=f["q"].lstrip("@"))
-    names = svc.tenant_names()
+    names = tenants.tenant_names()
     rows = [r for r in (_row(acc, names) for acc in qs) if not f["mode"] or r["mode"] == f["mode"]]
 
     by_status = dict(InstagramEngineAccount.objects.values_list("status").annotate(n=Count("id")))
@@ -106,7 +107,7 @@ def ig_accounts_list(request):
     return render(request, "ops/ig_accounts/list.html", {
         "nav": "ig_accounts", "rows": rows, "f": f, "stats": stats,
         "statuses": InstagramEngineAccount.STATUS_CHOICES, "roles": InstagramEngineAccount.ROLE_CHOICES,
-        "tiers": InstagramEngineAccount.TIER_CHOICES, "modes": PROXY_MODES, "tenants": svc.tenant_choices(),
+        "tiers": InstagramEngineAccount.TIER_CHOICES, "modes": PROXY_MODES, "tenants": tenants.tenant_choices(),
         "configs": _config_choices(), "per_config": assignment.per_config(),
     })
 
@@ -150,7 +151,7 @@ def ig_accounts_heal(request):
 def ig_accounts_configs_txt(request):
     qs = InstagramEngineAccount.objects.select_related("proxy_config").order_by("tenant_id", "username")
     if request.GET.get("tenant"):
-        qs = qs.filter(tenant_id__in=svc._tenant_ids(request.GET["tenant"]))
+        qs = qs.filter(tenant_id__in=tenants._tenant_ids(request.GET["tenant"]))
     if request.GET.get("role"):
         qs = qs.filter(role=request.GET["role"])
     accounts = list(qs)
@@ -172,8 +173,8 @@ def ig_account_detail(request, pk):
     return render(request, "ops/ig_accounts/detail.html", {
         "nav": "ig_accounts", "a": acc, "st": ST_CLASS.get(acc.status, ""), "mode": mode, "label": proxy_urls.proxy_label(acc),
         "meta": acc.proxy_meta,
-        "login": svc.login_state(acc), "events": list(acc.events.all()[:80]), "configs": _config_choices(),
-        "tenants": svc.tenant_choices(), "tenant": svc.tenant_label(acc.tenant_id),
+        "login": ig_login.login_state(acc), "events": list(acc.events.all()[:80]), "configs": _config_choices(),
+        "tenants": tenants.tenant_choices(), "tenant": tenants.tenant_label(acc.tenant_id),
         "has_session": ig_state.has_session(acc), "tiers": InstagramEngineAccount.TIER_CHOICES,
         "roles": InstagramEngineAccount.ROLE_CHOICES,
         "device": {"name": ds.get("device_name") or "", "model": dev.get("model") or "",
@@ -183,7 +184,7 @@ def ig_account_detail(request, pk):
         "settling": acc.next_outreach_at if acc.next_outreach_at and acc.next_outreach_at > now else None,
         "resting": acc.cooldown_until if acc.cooldown_until and acc.cooldown_until > now else None,
         "has_password": bool(acc.password and acc.password != "session_only"),
-        "pitch": svc.tenant_pitch(acc.tenant_id) if acc.role == "SENDER" else None,
+        "pitch": tenants.tenant_pitch(acc.tenant_id) if acc.role == "SENDER" else None,
         "settle_minutes": assignment.SETTLE_MINUTES,
     })
 
@@ -192,7 +193,7 @@ def ig_account_detail(request, pk):
 @require_GET
 def ig_account_login_state(request, pk):
     acc = get_object_or_404(InstagramEngineAccount, pk=pk)
-    st = svc.login_state(acc)
+    st = ig_login.login_state(acc)
     st["status_display"] = dict(InstagramEngineAccount.STATUS_CHOICES).get(st["status"], st["status"])
     st["reason_display"] = dict(InstagramEngineAccount.REASON_CHOICES).get(st["reason"], st["reason"])
     return JsonResponse(st)
@@ -231,15 +232,15 @@ def _do_proxy(acc, p, actor):
 
 
 ACTIONS = {
-    "login": lambda acc, p, actor: svc.start_login(acc, actor=actor),
-    "code": lambda acc, p, actor: svc.submit_code(acc, p.get("code", ""), actor=actor),
-    "cancel": lambda acc, p, actor: svc.cancel_login(acc, actor=actor),
+    "login": lambda acc, p, actor: ig_login.start_login(acc, actor=actor),
+    "code": lambda acc, p, actor: ig_login.submit_code(acc, p.get("code", ""), actor=actor),
+    "cancel": lambda acc, p, actor: ig_login.cancel_login(acc, actor=actor),
     "check": lambda acc, p, actor: svc.check(acc, actor=actor),
     "check_ip": lambda acc, p, actor: export.check_ip(acc, actor=actor),
     "pause": lambda acc, p, actor: svc.pause(acc, actor=actor, note=str(p.get("note") or "").strip()),
     "resume": lambda acc, p, actor: svc.resume(acc, actor=actor),
     "clear_cooldown": lambda acc, p, actor: svc.clear_cooldown(acc, actor=actor),
-    "session": lambda acc, p, actor: svc.login_with_sessionid(acc, p.get("sessionid", ""), actor=actor),
+    "session": lambda acc, p, actor: ig_login.login_with_sessionid(acc, p.get("sessionid", ""), actor=actor),
     "proxy": _do_proxy,
     "settings": lambda acc, p, actor: svc.update_settings(
         acc, actor=actor, **{k: p.get(k, "") for k in ("username", "role", "tenant_id", "account_tier", "daily_limit",
@@ -279,22 +280,22 @@ def ig_tenants(request):
         if not tid:
             messages.error(request, "مشتری را انتخاب کنید.")
         else:
-            svc.save_tenant_profile(tid, consultant_name=request.POST.get("consultant_name", ""),
+            tenants.save_tenant_profile(tid, consultant_name=request.POST.get("consultant_name", ""),
                                     consultant_role=request.POST.get("consultant_role", ""),
                                     pitch_template=request.POST.get("pitch_template", ""))
-            messages.success(request, f"پیام و نام مشاور «{svc.tenant_label(tid)}» ذخیره شد.")
-        return redirect(reverse("manage:ig_tenants") + (f"#t-{svc.canonical_tenant(tid)}" if tid else ""))
+            messages.success(request, f"پیام و نام مشاور «{tenants.tenant_label(tid)}» ذخیره شد.")
+        return redirect(reverse("manage:ig_tenants") + (f"#t-{tenants.canonical_tenant(tid)}" if tid else ""))
     counts = {}
     for tid, n in (InstagramEngineAccount.objects.filter(role="SENDER").values_list("tenant_id")
                    .annotate(n=Count("id"))):
-        counts[svc.canonical_tenant(tid)] = counts.get(svc.canonical_tenant(tid), 0) + n
+        counts[tenants.canonical_tenant(tid)] = counts.get(tenants.canonical_tenant(tid), 0) + n
     rows, seen = [], set()
-    for tid, label in svc.tenant_choices():
-        ctid = svc.canonical_tenant(tid)
+    for tid, label in tenants.tenant_choices():
+        ctid = tenants.canonical_tenant(tid)
         if ctid in seen:
             continue
         seen.add(ctid)
-        rows.append({"tenant_id": ctid, "label": label, "senders": counts.get(ctid, 0), "pitch": svc.tenant_pitch(ctid)})
+        rows.append({"tenant_id": ctid, "label": label, "senders": counts.get(ctid, 0), "pitch": tenants.tenant_pitch(ctid)})
     rows.sort(key=lambda r: (-r["senders"], r["tenant_id"]))
     return render(request, "ops/ig_accounts/tenants.html", {"nav": "ig_tenants", "rows": rows})
 

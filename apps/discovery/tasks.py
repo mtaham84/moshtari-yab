@@ -49,7 +49,7 @@ def task_dispatch_instagram_outreach(
     `tenant` limits the tick to one tenant; by default every tenant of `outreach_tenants()` is served.
     `min_intent` is accepted for old beat entries only; ranking uses the 45-point outreach score.
     """
-    from apps.discovery.ig_accounts import outreach_tenants, tenant_ids as ig_tenant_ids
+    from apps.discovery.tenants import outreach_tenants, tenant_ids as ig_tenant_ids
 
     # Single-dispatcher guard: never send in parallel with the ig-outreach command loop
     dispatcher = getattr(settings, "INSTAGRAM_OUTREACH_DISPATCHER", "command")
@@ -95,7 +95,7 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
     skipped so the checks are not evenly spaced.
     """
     if not tenant_ids:
-        from apps.discovery.ig_accounts import outreach_tenant_ids
+        from apps.discovery.tenants import outreach_tenant_ids
 
         tenant_ids = outreach_tenant_ids()
         if not tenant_ids:
@@ -169,7 +169,7 @@ def task_warmup_sender_account(username: Optional[str] = None, tenant_ids: Optio
     """
     from apps.discovery.outreach_engine import get_available_senders, get_sender_client
     from apps.discovery.outreach_service import execute_background_organic_warmup
-    from apps.discovery.ig_accounts import outreach_tenant_ids
+    from apps.discovery.tenants import outreach_tenant_ids
 
     tenants = tenant_ids or outreach_tenant_ids()
     senders = get_available_senders(tenants)

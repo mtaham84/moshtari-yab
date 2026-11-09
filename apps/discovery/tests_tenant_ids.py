@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from apps.discovery.ig_accounts import tenant_ids, tenant_pitch
+from apps.discovery.tenants import tenant_ids, tenant_pitch
 
 
 class TenantIdsTests(TestCase):
@@ -26,14 +26,14 @@ class OutreachTenantsTests(TestCase):
         InstagramEngineAccount.objects.create(username="sc", password="x", role="SCRAPER", status="ACTIVE", tenant_id="tenant_9")
 
     def test_default_is_every_tenant_with_an_active_sender(self):
-        from apps.discovery.ig_accounts import outreach_tenant_ids, outreach_tenants
+        from apps.discovery.tenants import outreach_tenant_ids, outreach_tenants
 
         with self.settings(OUTREACH_TENANTS=[]):
             self.assertEqual(sorted(outreach_tenants()), ["tenant_4", "tenant_7"])
             self.assertEqual(sorted(outreach_tenant_ids()), ["sarv", "tenant_4", "tenant_7"])
 
     def test_env_setting_pins_the_tenants(self):
-        from apps.discovery.ig_accounts import outreach_tenants
+        from apps.discovery.tenants import outreach_tenants
 
         with self.settings(OUTREACH_TENANTS=["sarv", "tenant_7", "tenant_4"]):
             self.assertEqual(outreach_tenants(), ["tenant_4", "tenant_7"])
