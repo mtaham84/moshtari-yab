@@ -67,8 +67,6 @@ def _process(path: str) -> str:
     for prefix, label in PROCESS_PREFIXES:
         if path.startswith(prefix):
             return label
-    if path == "workers/state_migrate.py":
-        return "collector state migration CLI"
     return "Django or CLI startup"
 
 

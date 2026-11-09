@@ -80,7 +80,10 @@ kept; the experimental JSONL pipeline (`workers/ig_collector/`, `instagram_disco
       `requirements.txt`; it could not even import in the app image), `apps/accounts/emails.py`,
       `need_engine/x_query_scoring.py`. `instagram_engine/` now holds only what the live scraper uses: `analyzer`,
       `post_filters`, `config`.
-- [ ] Unused tools: one-off management commands, `workers/state_migrate.py`, `scripts/profile_*.py`.
+- [x] Unused tools: one-off management commands (`seed_demo_businesses`, `check_outreach_health`,
+      `instagram_backfill`, `purge_x_contacts`, `purge_x_queries`, `regenerate_platform_queries`),
+      `workers/state_migrate.py`, `scripts/profile_engine.py`, `scripts/profile_panel.py`. Kept as manual tools:
+      `charge_usage`, `rotate_provider_keys`, `seed_global_sources`, `scripts/check_proxy_leaks.py`.
 - [ ] Experimental Instagram pipeline, its post-review page and report APIs.
 - [ ] Unused `.env.example` variables and unused images.
 - Later (Phase 5 candidate): lead-quality measurement (human labels, precision) rebuilt on the live DB data; only the
