@@ -162,7 +162,13 @@ Phases 0-5 removed what was dead, duplicated or too big by file. What is left is
 can follow, a data model that will be expensive to change later, and paths with no tests. This phase first finds
 and ranks those problems (the audit), then turns the ranked list into phases 7+ (the plan). The audit changes no code.
 
-- [ ] Step 1: audit, one track per session, results written under "Audit report" below.
+- [ ] Step 1: audit, one track group per session, results written under "Audit report" below.
+  - [x] Session 1: B data model, C migrations (production numbers still to come, see "Waiting for")
+  - [ ] Session 2: D tenant isolation
+  - [ ] Session 3: A complex functions
+  - [ ] Session 4: E duplication, F coupling
+  - [ ] Session 5: G tests, H panel queries
+  - [ ] Session 6: I config and deploy
 - [ ] Step 2: the user reviews the report and answers its open decisions.
 - [ ] Step 3: phases 7+ are written from the accepted findings; guardrails for them are added first.
 
@@ -216,12 +222,8 @@ Keep it in this file, short enough to read in one sitting: one table row per fin
 P0 and P1. More than about 40 rows means the bar is too low.
 
 1. Summary: five lines at most. The three problems that matter most, and what was not checked.
-2. Findings table, sorted by priority:
-
-   | ID | Track | Finding | Where | Evidence | Impact / Growth / Effort | Priority | Status |
-   |---|---|---|---|---|---|---|---|
-   | B-1 | Data model | Leads link to a business by string | `models/instagram.py:409` | 3 tables, N rows, M unknown tenant strings | 3 / 3 / 3 | P0 | CONFIRMED |
-
+2. Findings table, sorted by priority (columns: ID, finding, where, evidence, impact / growth / effort, priority,
+   status).
 3. Detail for each P0 and P1 finding:
    - What it is today, with the code reference.
    - What goes wrong later if it stays.
@@ -231,6 +233,56 @@ P0 and P1. More than about 40 rows means the bar is too low.
 4. Decisions for the user: questions only they can answer, each with the options and a recommendation.
 5. Proposed phases 7+: findings grouped into phases, guardrails before fixes, data model before code that depends on
    it, each phase a list of PRs of one logical change.
+
+#### Starting numbers (main @ 5944ce4, 2026-11-10)
+
+| Metric | Value |
+|---|---|
+| Functions over 10 / 15 / 25 / 40 branches (ruff 0.17.4 `C901`, no tests or migrations) | 99 / 51 / 14 / 4 |
+| Functions with too many branches / statements / arguments (`PLR0912` / `PLR0915` / `PLR0913`) | 69 / 56 / 44 |
+| Tests | 735 passed, 18 skipped |
+| Statement coverage without test files | 69% (24,305 statements, 7,545 missed) |
+| Forbidden imports (`ALLOWED`) / broad excepts in the baseline | 13 / 70 |
+| Exact duplicate indexes (same table, same columns) | 15 |
+| Model changes without a migration (`makemigrations --check`) | 0 |
+
+#### Findings so far (sessions 1 of 6; unranked across tracks until step 2)
+
+Scores are impact / growth / effort. Paths are under `apps/discovery/` unless they start with another package.
+
+| ID | Finding | Where | Evidence | I / G / E | Pri | Status |
+|---|---|---|---|---|---|---|
+| B-1 | Instagram tables point at a seller with a string `tenant_id`, not a `business` foreign key. The default `tenant_default` matches no business, and `sarv` is a hardcoded alias | `models/instagram.py:162,382,409,547`, `tenants.py:11` | 4 tables; 167 references in 23 files; the crawl-execution table has both a nullable `business` and a `tenant_id` | 3 / 3 / 3 | P0 | CONFIRMED |
+| B-2 | A lead and its opportunity are linked by an id inside JSON, and 12 lead fields are copied into that JSON | `models/core.py:512`, `services.py:249-272` | `trace_metadata["instagram"]["lead_id"]`; one query per row wherever a list shows `instagram_*` properties | 3 / 3 / 2 | P0 | CONFIRMED |
+| B-3 | The retention job never touches Instagram leads (comments, bios, DM texts), account events, crawl logs or `LLMUsageLog`; it is also not scheduled anywhere in git (compose profile `maintenance`) | `telegram_crawler/retention.py`, `models/instagram.py:397` | No reference to `leads` / `InstagramEngineLead` in the four retention modules | 3 / 3 / 2 | P0 | CONFIRMED |
+| B-4 | Account passwords and session cookies are stored unencrypted; only `Provider.api_key` uses `EncryptedTextField`. `AGENTS.md` says secrets in the DB are encrypted | `models/instagram.py:164,176`, `models/x_twitter.py:145-147`, `apps/billing/models.py:19` | `ig_accounts.password`, `session_json`; `x_accounts.password`, `auth_token`, `ct0`; `proxy_configs.raw_url` | 3 / 2 / 2 | P1 | CONFIRMED |
+| B-5 | Two ways to charge a wallet. The engine path uses the cost ledger and a cursor. The Instagram path debits inline, keeps its "already charged" list inside the opportunity's JSON (last 20 only) and logs a failed debit without retrying. A transaction does not record what it paid for | `apps/billing/services.py:102`, `services.py:339-361` | `charged_refs` in `trace_metadata`; `WalletTransaction` has no reference column; model name hardcoded at `services.py:307` | 3 / 2 / 2 | P1 | CONFIRMED |
+| B-6 | Nothing in the database stops two opportunities for the same seller and engine id: the import looks one up, then creates it | `engine_bridge.py:129-134`, `models/core.py:389` | Only an index on `engine_opportunity_id`; safe today because one `sync` process runs | 3 / 1 / 1 | P1 | CONFIRMED |
+| B-7 | `InstagramEngineLead` is five things in one row: person, comment, source post, scores, conversation. Messages are fixed columns (first, second, last reply) plus a JSON history that is also the send queue. One person can be one lead per seller only | `models/instagram.py:397-470`, `outreach_engine.py:368-381` | `UNIQUE (tenant_id, ig_user_pk)`; queue read by `_first_queued_item` from `conversation_history` | 2 / 3 / 3 | P1 | CONFIRMED |
+| B-8 | A lead reserved for sending gets status `PROCESSING`, and no code ever releases it. A restart in the middle of a send (every deploy restarts `ig-outreach`) leaves the lead there for good | `outreach_engine.py:391`, `outreach/recipients.py:57` | `PROCESSING` is written in two places and read in none | 2 / 1 / 1 | P2 | CONFIRMED (bug) |
+| B-9 | Workers read and write panel tables with hardcoded SQL, so a renamed Django column fails at runtime, not in review. The X worker writes the Instagram stats table | `workers/x_collector/account_pool.py:143-230`, `worker.py:548`, `need_engine/sources.py` | 12 worker and engine files name panel tables; 5 write statements | 2 / 2 / 2 | P2 | CONFIRMED; test cover not checked |
+| B-10 | Code filters and branches on keys inside `trace_metadata` (`retention_scrubbed`, `engine.decision`), so the JSON is a second schema | `engine_bridge.py:86`, `services.py:690`, `retention.py:10` | 56 references in code, 6 in query filters | 2 / 2 / 2 | P2 | CONFIRMED |
+| B-11 | Accounts are referenced by username text next to, or instead of, a foreign key; a proxy's owner is stored both as `proxy_configs.assigned_to` and as `ig_accounts.proxy_config` | `models/instagram.py:449,456,505,564,656`, `models/proxy.py:26` | 6 text columns: `sender_account`, `second_sender_username`, three `account_username`, `assigned_to` | 2 / 2 / 2 | P2 | CONFIRMED |
+| B-12 | Seller feedback is saved three times on every click | `views/opportunities.py:621-667`, `models/core.py:340-342` | `feedback`, `trace_metadata["seller_feedback"]`, `lead_feedback` | 1 / 2 / 1 | P2 | CONFIRMED |
+| B-13 | Status columns accept any string: `choices` is not a database rule, and workers write statuses with raw SQL | `workers/x_collector/account_pool.py:192-230` | No `CheckConstraint` on lead or account status | 2 / 1 / 1 | P2 | CONFIRMED |
+| B-14 | 15 indexes are exact copies of another index (`db_index=True` plus a named `Index` on the same column) | `models/instagram.py:472-519,611-613`, `models/x_twitter.py:108-111` | `pg_index` grouped by table and columns on a freshly migrated database | 1 / 1 / 1 | P2 | CONFIRMED |
+| C-1 | Six places create tables at start-up with `CREATE TABLE IF NOT EXISTS` and `ALTER ... ADD COLUMN IF NOT EXISTS`. There is no version table, so a rename, a drop or a type change cannot be shipped | `need_engine/store.py:27`, `telegram_crawler/schema.sql`, `shared/collector_kit/seen.py`, `state_store.py`, `workers/x_collector/proqe.py`, `x_ingest/__main__.py` | 53 `CREATE TABLE` statements outside Django migrations | 2 / 2 / 2 | P2 | CONFIRMED |
+| C-2 | CI does not run `makemigrations --check`, so a model change without its migration can merge (none today) | `.github/workflows/ci.yml` | Check passes on main; 87 migrations applied | 2 / 1 / 1 | P2 | CONFIRMED |
+
+Not a finding: 7 of the 8 data migrations have no reverse. They are old and applied; nothing to do.
+
+#### Waiting for
+
+- Production numbers for B-1 to B-14: the user runs `phase6_production_numbers.sql` (read-only, counts only; handed
+  over in the session, not committed) on the server. The effort scores of B-1, B-2, B-6 and B-7 depend on how many
+  rows break the rule to be added.
+- Whether the retention job runs on a schedule on the server, and whether 180 days is a promise to customers (B-3).
+
+#### Not checked yet
+
+- Session 1 read field lists and relations of every model, but not every model method, and not the tables of
+  `shared/collector_kit` and `x_ingest` beyond counting them.
+- Tracks A and D to I.
 
 ## Running the checks locally (Docker)
 
