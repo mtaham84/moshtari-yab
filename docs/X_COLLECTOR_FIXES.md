@@ -4,7 +4,8 @@ Plan for making the X (Twitter) collector reliable and better at finding leads. 
 the code (`workers/x_collector/`); nothing was run against X and there are no production numbers yet, so every item
 says how it was verified. Update this file in the PR that fixes an item; delete it when the list is empty.
 
-Related: phase 13 of `docs/CLEANUP_ROADMAP.md` (splitting the collector's large functions). This file is about
+How the pipeline works: `docs/X_COLLECTOR.md`. Related: phase 13 of `docs/CLEANUP_ROADMAP.md` (splitting the
+collector's large functions). This file is about
 behavior; that phase is about structure. Fix behavior first, with tests, then refactor.
 
 ## How it works today
@@ -71,13 +72,23 @@ needs time to collect engagement before it shows up there, so a "since the last 
   there for the next account and for any subprocess.
 - Fix: pass them to the client directly, as the code already does on the next line.
 
-### 6. Measure the funnel per query
+### 6. One post is judged once per product of the family
+
+- Today: a query belongs to a family, and every post it finds is stored once per product of that family
+  (`worker.py:499`). The engine then asks the LLM about the post for each product separately, and the cache key
+  includes the product id (`need_engine/extract.py:287`). A family of ten products pays for ten judgments of the
+  same post, and the seller can get the same person as several opportunities.
+- Fix (needs a design decision): judge a post once per family against the family's products together, and return
+  the products that fit.
+- Verified: read in code. How much it costs depends on family sizes in production; measure before changing.
+
+### 7. Measure the funnel per query
 
 - Needed before any change to volume: per query and per seller, posts fetched, new posts, passed the pre-filter,
   became an opportunity, marked relevant by the seller. The data exists (`XQueryDaily`, `x_filter_decisions`,
   `x_hit_results`, opportunity feedback); it is not shown together.
 
-## Later, only after 1-3 and with numbers from 6
+## Later, only after 1-3 and with numbers from 7
 
 - Replies under high-intent posts ("where did you buy it?"). `X_THREAD_COLLECT` exists as a setting but the worker
   only logs a warning (`worker.py:272`).
