@@ -125,3 +125,32 @@ class ChannelConfigAutomationUnitTests(SimpleTestCase):
         self.assertEqual(res["failed_count"], 1)
         self.assertEqual(res["last_post_id"], 101)
         mock_save.assert_called_once()
+
+
+class DirectFetchTests(SimpleTestCase):
+    def test_direct_attempt_ignores_the_proxy_environment(self):
+        # in docker HTTP(S)_PROXY point at xray; when xray is down the "direct" attempt must still go direct
+        import http.server
+        import threading
+
+        from apps.discovery.channel_config_automation import get_http_request_with_proxy
+
+        class Page(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"channel page")
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Page)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        dead_proxy = "http://127.0.0.1:9"
+        env = {"HTTP_PROXY": dead_proxy, "HTTPS_PROXY": dead_proxy, "http_proxy": dead_proxy,
+               "https_proxy": dead_proxy, "NO_PROXY": "", "no_proxy": ""}
+        with patch.dict("os.environ", env):
+            html = get_http_request_with_proxy(f"http://127.0.0.1:{server.server_port}/s/x", timeout=2)
+        self.assertEqual(html, "channel page")
