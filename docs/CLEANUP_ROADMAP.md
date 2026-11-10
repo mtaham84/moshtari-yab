@@ -25,6 +25,9 @@ green, before the next one starts. Behavior must not change unless the step says
 - Phase 6, steps 2 and 3 are done: the user answered the decisions and phases 7-13 are written from them.
 - **Next step:** Phase 7 (live risks), one small PR per item, starting with 7.1. Still open: who has server access
   (TLS and the published web port, I-2).
+- Second refactor, proxies: `docs/PROXY_REFACTOR.md` (2026-11-10) lists what the first production deploy showed
+  (one bad config stopped xray, the purge then deleted every config) and the steps to put all proxy logic in
+  `apps/discovery/proxies/`. Not started.
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
