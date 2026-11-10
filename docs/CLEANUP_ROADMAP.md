@@ -343,7 +343,8 @@ one logical change; every fix starts with a test that fails without it.
 - 7.1 Require login and a per-user limit on `suggest-category` and `category-attributes`. Test: anonymous gets no
   model call. Risk: the signup page may call it before login; check the templates first.
 - 7.2 Inbox check from the panel becomes a request the dispatcher serves inside `reply_sync_allowed` and its own
-  spacing, POST only; outside shift hours the seller is told when it will run (decision 6). Test: a second click inside the spacing does not touch Instagram.
+  spacing, POST only; outside shift hours the seller is told when it will run (decision 6).
+  Test: a second click inside the spacing does not touch Instagram.
 - 7.3 A reserved lead gets a `reserved_at` time; the dispatcher returns leads reserved longer than its longest send
   to their previous status. Test: a lead left in `PROCESSING` is picked up again.
 - 7.4 Partial unique constraint on `(business, engine_opportunity_id)`. The migration merges duplicates first if it
@@ -365,7 +366,8 @@ backfill ships with a query that must return zero before the next PR.
 - 9.1 `business` foreign key on `ig_accounts`, `leads`, `outreach_tenant_profiles`, backfilled from `tenant_id`;
   code writes both; reads move to the key; then `tenant_id`, the `sarv` alias and the hardcoded first-customer
   fallbacks are deleted. On accounts the key stays optional: empty means a shared scraper or a shared sender
-  (decision 3). Before the change: read how a shared sender picks its pitch and which leads it may take. Guardrail: an architecture test that fails on `tenant_id`.
+  (decision 3). Before the change: read how a shared sender picks its pitch and which leads it may take.
+  Guardrail: an architecture test that fails on `tenant_id`.
   Risk: 167 references in 23 files; done in four or five PRs, never one.
 - 9.2 `Opportunity.lead` foreign key and a `retention_scrubbed` column, backfilled from the JSON; the copied lead
   fields and the duplicate feedback leave `trace_metadata`. This also removes most per-row queries of H-1.
