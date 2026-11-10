@@ -12,6 +12,7 @@ the step says so and the user agreed.
 | Part | Status |
 |---|---|
 | 1. Proxies | Planned (2026-11-10), not started |
+| 2. Telegram | Planned (2026-11-10), not started |
 
 ## Part 1: Proxies
 
@@ -211,3 +212,133 @@ After step 12, the answer to "where is the proxy logic?" is one folder: `apps/di
 - PR #48: the purge does nothing while xray is down.
 - PR #50: the channel fetch's direct attempt is really direct.
 - PR #51: redis client version, so Celery runs (which is why P1 became visible).
+
+## Part 2: Telegram
+
+Discussed with the user on 2026-11-10. How the pipeline behaves is in `docs/TELEGRAM_PIPELINE.md` and the behaviour
+fixes (late leads in quiet groups, unused bios, per-group report, lost messages after a stop, health signal, one
+account, edits) are in `docs/TELEGRAM_FIXES.md`. This part is about the code: where the Telegram logic lives, what
+makes it hard to read and change, and the workflow of finding leads.
+
+### Where the Telegram logic is today
+
+Three layers, which meet only in the database (the right design; keep it):
+
+| Layer | Files | In one place? |
+|---|---|---|
+| Crawler: join groups, archive messages | `telegram_crawler/`: `main.py` (127 lines), `monitor.py` (473), `panel.py` (140), `telegram_client.py` (198), `db.py` (136) + `schema.sql`, `extractor.py` (231), `ratelimit.py` (57), `config.py` (107), `models.py` (14), `retention.py` (660) | Yes, apart from `retention.py` (T1) |
+| Engine: read the archive, find needs, match products | `need_engine/sources.py` (`SQLMessageSource`, next to the X and product sources), `windowing.py` (wait for 50 messages per chat), `engine.py` (711 lines; Telegram is the default path, X is special-cased with branches throughout, the Telegram contact lookup in `tg_users` is inline), `platforms/telegram.py` (32 lines: user id, profile URL), `access.py` (who sees leads of which group) | No: the `platforms/` package exists for this, but most platform logic never moved into it |
+| Panel: the list of groups | `apps/discovery/models/community.py` (`MonitoredCommunity`), `apps/discovery/sources.py` (link normalizing, error texts), `apps/discovery/views/community.py` (seller page), `apps/billing/views.py` `communities` (operator page), `apps/discovery/management/commands/seed_global_sources.py` | Mostly; the operator page moves to the "Sources" section of `docs/OPS_PANEL.md` |
+
+### Problems in the code
+
+#### T1. `retention.py` is not Telegram code
+
+`telegram_crawler/retention.py` (660 lines) is the retention job of the whole product: panel opportunities, X posts,
+the X collector state, engine needs. It imports Django (an `ALLOWED` entry in `tests/test_architecture.py`), and only
+lives in the crawler package by history. `need_engine/retention.py` re-exports it; `apps/discovery/retention.py` holds
+another piece. The audit already lists its main function (288 lines, 58 branches, A-2) and the missing Instagram
+purge (B-3). Target: one retention package for the product (for example `apps/core/retention/`), one module per
+source, run by one command; the crawler keeps only "is this message too old to store" (T7).
+
+#### T2. One class does everything
+
+`CrawlerMonitor` holds the join queue, the panel sync, the backfill, live messages, reply parents, the bio worker
+and a retention check. Target: `joining.py` (panel sync and join queue), `archive_writer.py` (store a message and its
+parents), `backfill.py`, `profiles.py`; `monitor.py` only starts them. Each can then be tested alone.
+
+#### T3. The same t.me link is parsed in four places
+
+`telegram_crawler/panel.normalize_link`, `apps/discovery/sources.normalize_link` (a copy, kept equal by a test),
+`telegram_crawler/telegram_client.parse_group_link` (different rules) and the proxy channels'
+`normalize_channel_username`. Target: one function in `shared/`, which both Django and the crawler may import.
+
+#### T4. A hidden contract with the panel
+
+`panel.py` writes Django's table `public.discovery_monitoredcommunity` with raw SQL (`sync_status`, `sync_error`,
+`members_count`, `telegram_chat_id`, counters). Renaming a field of the Django model breaks the crawler silently.
+The error codes (`INVALID_LINK`, `FLOOD_WAIT:<s>`, ...) are defined in the crawler and translated in
+`apps/discovery/sources.py`. Target: keep talking through the database (the rule in `AGENTS.md`), with one list of
+codes in `shared/` and a test that every column the crawler's SQL uses exists on the Django model.
+
+#### T5. The database connection never comes back
+
+`Archive` and `PanelCommunities` each open one psycopg connection at start. If PostgreSQL restarts (it did on
+production on 2026-11-10), every write fails, the live handler logs the error and continues, and the crawler never
+reconnects: messages are lost until the container is restarted. Found by reading the code; on 2026-11-10 the deploy
+had restarted the crawler just before. The calls are also synchronous inside the asyncio loop, so every write
+blocks Telegram updates for a moment. Target: reconnect on a broken connection (with a test that kills the
+connection), later run the writes with `asyncio.to_thread`.
+
+#### T6. Settings outside `config.py`
+
+`TG_SETUP_RETRY_SECONDS` and `TG_HEARTBEAT_INTERVAL_SECONDS` are read in `main.py`; `DATA_RETENTION_DAYS` is read
+from `os.environ` on every message in `monitor._store` and in four more places in `need_engine` (`sources.py`,
+`store.py`). Some names have no `TG_` prefix (`FLOOD_MAX_WAIT_SECONDS`, `REQUEST_DELAY_SECONDS`, `BACKFILL_HOURS`,
+`BACKFILL_LIMIT`, `FLOOD_SLEEP_THRESHOLD`), so nothing says they belong to Telegram. `config.py` loads `.env` at import
+(the known test problem). Target: every crawler setting in `config.py` with a `TG_` prefix (old names still read for
+one release, documented in `.env.example`); `DATA_RETENTION_DAYS` read in one place in `shared/`.
+
+#### T7. Retention rules in two places
+
+`_store` already skips old messages and blanks the fields of old parents (a hand-written list of 13 fields), while
+`retention.py` purges later with its own rules. Target: one function that answers "expired?" and "what to keep",
+used by both.
+
+#### T8. The schema is created at every start
+
+`Archive()` runs `schema.sql` (`CREATE ... IF NOT EXISTS`) on every start, so a rename or a type change cannot be
+shipped. Follows the decision for audit finding C-1 (one migration mechanism for all schemas).
+
+#### T9. Small leftovers
+
+- `models.py` (`GroupInfo`, pydantic) is built in `join_and_resolve_group` and thrown away by its only caller.
+- `panel.classify_join_error` imports inside the function to avoid circular imports between `panel`,
+  `telegram_client` and `ratelimit`.
+- Errors of `JoinChannelRequest` are logged at debug level and ignored ("may already be in").
+
+### The engine side
+
+- `need_engine/platforms/telegram.py` and `platforms/x.py` become the place for everything platform-specific: the
+  message source SQL, contact lookup, profile URLs, platform filters and batching. `engine.py` keeps only the shared
+  steps (collect, read, match, publish) with no per-platform branches. Today adding a platform means more branches in
+  a 711-line file.
+- `sources.py` keeps the product and style sources only.
+
+### The workflow of finding leads
+
+Keep: the crawler archives everything raw, the engine reads it later, they meet in the database. Old messages can be
+re-read with a better prompt, the crawler stays simple, and a crashed engine loses nothing.
+
+Improve, in this order:
+
+1. **Speed** (`TELEGRAM_FIXES.md` fix 1): the engine waits for 50 new messages per group and the maximum wait is off,
+   so a need in a quiet group can wait hours or days. A lead is worth most in its first minutes.
+2. **Measure each group** (fix 3): messages read, LLM cost, needs, opportunities, opportunities the seller liked.
+   Without it noisy groups cannot be dropped.
+3. **A cheap filter before the LLM**: X has one (`x_filters.py`, shadow mode first); Telegram sends every message to
+   the LLM, although most group chat is greetings, thanks and stickers. Build it the same way: shadow mode (only log
+   what it would drop), compare with the LLM's answers, then turn it on.
+4. **Feedback**: a seller's "good lead" / "bad lead" never reaches the prompt or the filters (and feedback is stored
+   in three places, audit finding). Use it to tune the filter and the prompt examples.
+5. **Bios** (fix 2): fetched, never read.
+6. **One engine for all platforms** (long term): Telegram and X use `need_engine`; Instagram has its own
+   `instagram_engine` with its own judging, product matching and billing (`INSTAGRAM_FIXES.md` fix 6), so every
+   change to matching or charging is made twice. Target: one engine with platforms as plugins (`platforms/`).
+
+### Steps (one PR each, in this order)
+
+1. **Reconnect after a database restart** (T5). Test: kill the connection, the next write succeeds.
+2. **Settings in one place** (T6). Test: the crawler reads the `TG_` names and the old names.
+3. **One link parser** (T3) in `shared/`. Test: the cases of today's four functions give one answer.
+4. **Panel contract** (T4): shared error codes and a column test.
+5. **Split `CrawlerMonitor`** (T2): pure moves first, `check_baseline.py --update --moved-from`.
+6. **One retention rule** (T7), then **move retention out of the crawler** (T1) together with audit items A-2 and B-3.
+7. **Leftovers** (T9).
+8. **Engine platform split** (see "The engine side"): `SQLMessageSource` and the contact lookup to
+   `platforms/telegram.py`, the X branches of `engine.py` to `platforms/x.py`.
+9. **Workflow** items 1 to 5 above, each its own PR (item 3 starts in shadow mode). Item 6 is its own project.
+10. **Schema** (T8) with the decision on C-1.
+
+Live state on 2026-11-10: the crawler account is logged in and connected, but the panel has no Telegram group, so
+nothing is archived; groups are added on the communities page.
