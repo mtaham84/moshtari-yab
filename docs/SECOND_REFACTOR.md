@@ -297,6 +297,29 @@ shipped. Follows the decision for audit finding C-1 (one migration mechanism for
   `telegram_client` and `ratelimit`.
 - Errors of `JoinChannelRequest` are logged at debug level and ignored ("may already be in").
 
+#### T10. The archive's relations are incomplete
+
+The user's target: the archive looks like Telegram's own data, with messages, chats and users and every relation
+between them. Today (`telegram_crawler/schema.sql`) the base is there: `tg_messages` has foreign keys to `tg_chats`
+(`chat_id`, `sender_chat_id`) and `tg_users` (`sender_user_id`), the crawler writes in the order chat, sender,
+parent, message, and parents are stored (`is_context`). Missing:
+
+- **Reply is not a relation**: `reply_to_msg_id` is a plain number, with no foreign key to the parent row. Telegram
+  replies can also point to another chat (`reply_to_peer`), which is not stored. The same for `reply_to_top_id`
+  (thread root), `fwd_from_id` (forwarded from a user or a chat) and `via_bot_id`.
+- **No link from mentions to users**: mentions sit in `entities` (JSON); there is no table "message mentions user".
+- **No membership**: nothing says which users are in which chat (only "has written in"); no join or leave dates
+  (they arrive as service messages and are stored only as `service_action`).
+- **No history**: `tg_users` is a snapshot taken once (username and name changes are lost); edits overwrite the text.
+- **Indexes for context**: the two-step reading above needs "messages of a chat around a time" and "a person's
+  messages in a chat"; there is no `(chat_id, date)` index and the sender index has no `chat_id`.
+
+Target: a foreign key `(chat_id, reply_to_msg_id)` to `tg_messages (chat_id, message_id)` (the parent is written
+first; a missing parent stays NULL with the number kept in another column), the reply peer, foreign keys for
+forwards and bots, a `tg_message_mentions` table, a `tg_chat_members` table filled from messages and service
+messages, user name history, and the two indexes. Retention (T7) must keep a parent row when it blanks its fields.
+Needs a real migration, so it comes with T8.
+
 ### The engine side
 
 - `need_engine/platforms/telegram.py` and `platforms/x.py` become the place for everything platform-specific: the
@@ -377,7 +400,8 @@ Improve, in this order:
 8. **Engine platform split** (see "The engine side"): `SQLMessageSource` and the contact lookup to
    `platforms/telegram.py`, the X branches of `engine.py` to `platforms/x.py`.
 9. **Workflow** items 1 to 7 above, each its own PR (item 4 starts in shadow mode). Item 8 is its own project.
-10. **Schema** (T8) with the decision on C-1.
+10. **Schema** (T8) with the decision on C-1, then **complete relations** (T10). The two context indexes can come
+    earlier, with workflow item 3.
 
 Live state on 2026-11-10: the crawler account is logged in and connected, but the panel has no Telegram group, so
 nothing is archived; groups are added on the communities page.
