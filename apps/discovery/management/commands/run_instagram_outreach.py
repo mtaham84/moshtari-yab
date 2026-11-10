@@ -32,7 +32,7 @@ from apps.discovery.outreach_engine import (  # noqa: F401  (re-exported for old
     reply_sync_allowed,
     run_outreach_batch,
 )
-from apps.discovery.outreach.replies import check_and_sync_lead_replies
+from apps.discovery.outreach.replies import check_and_sync_lead_replies, serve_reply_syncs
 
 logger = logging.getLogger("instagram_outreach")
 
@@ -139,7 +139,7 @@ class Command(BaseCommand):
         if options["once"] or not options["loop"]:
             batch = run_batches()
             if not dry_run and reply_sync_allowed(options["ignore_circadian"])[0]:
-                self._sync_replies(tenant_ids)
+                self._sync_replies(groups, ignore_shift=options["ignore_circadian"])
             self.stdout.write(self.style.SUCCESS(f"\n🏁 عملیات تک‌بچ به پایان رسید. مجموع پیام‌های ارسالی: {batch['sent']}"))
             return
 
@@ -153,10 +153,11 @@ class Command(BaseCommand):
                 batch = run_batches()
                 if batch["paused"]:
                     pause = max(tick, min(int(batch["paused"].get("wait_seconds") or tick), 300))
-                if not dry_run and time.monotonic() >= next_reply_sync:
-                    if reply_sync_allowed(options["ignore_circadian"])[0]:  # no inbox checks outside the shift
-                        self._sync_replies(tenant_ids)
-                    next_reply_sync = time.monotonic() + (fixed_reply_every or next_reply_sync_delay())
+                if not dry_run and reply_sync_allowed(options["ignore_circadian"])[0]:  # no inbox checks outside the shift
+                    due_all = time.monotonic() >= next_reply_sync
+                    self._sync_replies(groups, requested_only=not due_all, ignore_shift=options["ignore_circadian"])
+                    if due_all:
+                        next_reply_sync = time.monotonic() + (fixed_reply_every or next_reply_sync_delay())
             except Exception as exc:
                 self.stderr.write(self.style.ERROR(f"خطای کلی در حلقه ارسال: {exc}"))
                 logger.exception("ig-outreach tick failed")
@@ -195,15 +196,21 @@ class Command(BaseCommand):
         elif action == "busy":
             self.stdout.write("مرحله قبلی هنوز در حال اجراست؛ این دور رد شد.")
 
-    def _sync_replies(self, tenant_ids):
-        if not tenant_ids:
+    def _sync_replies(self, groups, *, requested_only: bool = False, ignore_shift: bool = False):
+        if not groups:
             return
         try:
-            res = check_and_sync_lead_replies(tenant_ids)
-            if res.get("replies_found", 0) > 0:
-                self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
-                for d in res.get("details", []):
-                    self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
+            results = serve_reply_syncs(
+                groups,
+                requested_only=requested_only,
+                ignore_shift=ignore_shift,
+                sync_fn=check_and_sync_lead_replies,
+            )
+            for res in results:
+                if res.get("replies_found", 0) > 0:
+                    self.stdout.write(self.style.SUCCESS(f"   🎉 تعداد {res['replies_found']} پاسخ جدید از مشتریان دریافت شد!"))
+                    for d in res.get("details", []):
+                        self.stdout.write(f"      • @{d['lead']}: \"{d['reply_text']}\"")
         except Exception as exc:
             logger.warning("Reply sync failed", exc_info=True)
             self.stderr.write(f"   هشدار در بررسی پاسخ‌ها: {exc}")

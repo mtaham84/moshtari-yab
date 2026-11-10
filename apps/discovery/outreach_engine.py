@@ -642,11 +642,16 @@ def run_outreach_step(
     return _send_next_cold(ctx, now)
 
 
+def reply_sync_window(ignore_shift: bool = False) -> Tuple[bool, str, int]:
+    """Shift status for inbox checks: (allowed, Persian reason with next start time, wait seconds)."""
+    if ignore_shift:
+        return True, "", 0
+    return HumanShiftPlanner.is_shift_active()
+
+
 def reply_sync_allowed(ignore_shift: bool = False) -> Tuple[bool, str]:
     """Inbox checks follow the same shift hours as sending: a person does not refresh DMs all night."""
-    if ignore_shift:
-        return True, ""
-    active, reason, _ = HumanShiftPlanner.is_shift_active()
+    active, reason, _ = reply_sync_window(ignore_shift=ignore_shift)
     return active, reason
 
 

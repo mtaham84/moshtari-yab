@@ -1,11 +1,153 @@
 """Conversation threads and syncing incoming replies from Instagram."""
+from datetime import timedelta
 import logging
-from typing import Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from apps.discovery.outreach.messages import extract_iranian_phone_number
 
 logger = logging.getLogger("instagram_outreach")
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+
+
+def _reply_sync_spacing() -> timedelta:
+    return timedelta(seconds=max(60, int(getattr(settings, "INSTAGRAM_REPLY_SYNC_MIN_SECONDS", 300))))
+
+
+def _next_shift_label(now, shift_reason: str, wait_seconds: int) -> tuple[str, str]:
+    if wait_seconds and wait_seconds > 0:
+        next_tehran = (now + timedelta(seconds=wait_seconds)).astimezone(TEHRAN_TZ).strftime("%H:%M")
+        return next_tehran, f"حدود ساعت {next_tehran}"
+    return "", shift_reason or "شروع شیفت بعدی"
+
+
+def request_reply_sync(tenant_id: str, *, now=None) -> Dict[str, Any]:
+    """Queue an inbox reply check for the outreach dispatcher without hitting Instagram from the web process."""
+    from apps.discovery.models import OutreachTenantProfile
+    from apps.discovery.outreach_engine import reply_sync_window
+    from apps.discovery.tenants import canonical_tenant
+
+    now = now or timezone.now()
+    tid = canonical_tenant(tenant_id)
+    spacing = _reply_sync_spacing()
+    allowed, shift_reason, wait_seconds = reply_sync_window()
+
+    OutreachTenantProfile.objects.get_or_create(tenant_id=tid)
+    with transaction.atomic():
+        profile = OutreachTenantProfile.objects.select_for_update().get(tenant_id=tid)
+        if profile.last_reply_sync_at and (now - profile.last_reply_sync_at) < spacing:
+            remaining = max(1, int((spacing - (now - profile.last_reply_sync_at)).total_seconds()))
+            next_tehran = (profile.last_reply_sync_at + spacing).astimezone(TEHRAN_TZ).strftime("%H:%M")
+            mins = max(1, (remaining + 59) // 60)
+            return {
+                "status": "throttled",
+                "queued": False,
+                "allowed": allowed,
+                "wait_seconds": remaining,
+                "next_run_at": next_tehran,
+                "message": f"صندوق پیام‌ها به‌تازگی بررسی شده است؛ بررسی بعدی حدود {mins} دقیقه دیگر (ساعت {next_tehran}) مجاز است.",
+            }
+
+        already_queued = profile.reply_sync_requested_at is not None
+        if not already_queued:
+            profile.reply_sync_requested_at = now
+            profile.save(update_fields=["reply_sync_requested_at", "updated_at"])
+
+    if not allowed:
+        next_tehran, when_label = _next_shift_label(now, shift_reason, wait_seconds)
+        prefix = "درخواست بررسی صندوق از قبل ثبت شده است" if already_queued else "درخواست بررسی صندوق ثبت شد"
+        return {
+            "status": "outside_shift",
+            "queued": True,
+            "allowed": False,
+            "wait_seconds": wait_seconds,
+            "next_run_at": next_tehran,
+            "reason": shift_reason,
+            "message": (
+                f"{prefix}؛ ربات خارج از ساعت کاری است و "
+                f"بررسی در شروع شیفت بعدی ({when_label} — {shift_reason}) انجام می‌شود."
+            ),
+        }
+
+    if already_queued:
+        return {
+            "status": "already_queued",
+            "queued": True,
+            "allowed": True,
+            "wait_seconds": 0,
+            "next_run_at": "",
+            "message": "درخواست بررسی صندوق از قبل در صف ربات پیام‌رسان است و در چرخه جاری انجام می‌شود.",
+        }
+
+    return {
+        "status": "queued",
+        "queued": True,
+        "allowed": True,
+        "wait_seconds": 0,
+        "next_run_at": "",
+        "message": "درخواست بررسی صندوق پیام‌ها برای ربات پیام‌رسان ثبت شد و در چرخه جاری (با رعایت فاصله ایمنی) انجام می‌شود.",
+    }
+
+
+def has_pending_reply_sync_requests(tenant_ids: List[str]) -> bool:
+    """True when any canonical tenant in ``tenant_ids`` has an unserved panel reply-sync request."""
+    from apps.discovery.models import OutreachTenantProfile
+
+    if not tenant_ids:
+        return False
+    return OutreachTenantProfile.objects.filter(
+        tenant_id__in=tenant_ids,
+        reply_sync_requested_at__isnull=False,
+    ).exists()
+
+
+def serve_reply_syncs(
+    tenant_groups: List[List[str]],
+    *,
+    requested_only: bool = False,
+    ignore_shift: bool = False,
+    sync_fn: Optional[Callable[[List[str]], Dict[str, Any]]] = None,
+    now=None,
+) -> List[Dict[str, Any]]:
+    """Run reply sync for due tenant groups inside shift hours and per-tenant spacing."""
+    from apps.discovery.models import OutreachTenantProfile
+    from apps.discovery.outreach_engine import reply_sync_window
+    from apps.discovery.tenants import canonical_tenant
+
+    if not reply_sync_window(ignore_shift=ignore_shift)[0]:
+        return []
+
+    now = now or timezone.now()
+    spacing = _reply_sync_spacing()
+    runner = sync_fn or check_and_sync_lead_replies
+    results: List[Dict[str, Any]] = []
+
+    for group in tenant_groups:
+        if not group:
+            continue
+        tid = canonical_tenant(group[0])
+        OutreachTenantProfile.objects.get_or_create(tenant_id=tid)
+        with transaction.atomic():
+            profile = OutreachTenantProfile.objects.select_for_update().get(tenant_id=tid)
+            should_run = True
+            if requested_only and profile.reply_sync_requested_at is None:
+                should_run = False
+            elif profile.last_reply_sync_at and (now - profile.last_reply_sync_at) < spacing:
+                should_run = False
+
+            if should_run:
+                profile.last_reply_sync_at = now
+                profile.reply_sync_requested_at = None
+                profile.save(update_fields=["last_reply_sync_at", "reply_sync_requested_at", "updated_at"])
+
+        if should_run:
+            results.append(runner(group))
+
+    return results
 
 
 def get_lead_conversation_thread(lead: Any) -> List[Dict[str, Any]]:
