@@ -164,7 +164,7 @@ and ranks those problems (the audit), then turns the ranked list into phases 7+ 
 
 - [ ] Step 1: audit, one track group per session, results written under "Audit report" below.
   - [x] Session 1: B data model, C migrations (production numbers still to come, see "Waiting for")
-  - [ ] Session 2: D tenant isolation
+  - [x] Session 2: D tenant isolation
   - [ ] Session 3: A complex functions
   - [ ] Session 4: E duplication, F coupling
   - [ ] Session 5: G tests, H panel queries
@@ -246,7 +246,7 @@ P0 and P1. More than about 40 rows means the bar is too low.
 | Exact duplicate indexes (same table, same columns) | 15 |
 | Model changes without a migration (`makemigrations --check`) | 0 |
 
-#### Findings so far (sessions 1 of 6; unranked across tracks until step 2)
+#### Findings so far (sessions 1-2 of 6; unranked across tracks until step 2)
 
 Scores are impact / growth / effort. Paths are under `apps/discovery/` unless they start with another package.
 
@@ -268,8 +268,14 @@ Scores are impact / growth / effort. Paths are under `apps/discovery/` unless th
 | B-14 | 15 indexes are exact copies of another index (`db_index=True` plus a named `Index` on the same column) | `models/instagram.py:472-519,611-613`, `models/x_twitter.py:108-111` | `pg_index` grouped by table and columns on a freshly migrated database | 1 / 1 / 1 | P2 | CONFIRMED |
 | C-1 | Six places create tables at start-up with `CREATE TABLE IF NOT EXISTS` and `ALTER ... ADD COLUMN IF NOT EXISTS`. There is no version table, so a rename, a drop or a type change cannot be shipped | `need_engine/store.py:27`, `telegram_crawler/schema.sql`, `shared/collector_kit/seen.py`, `state_store.py`, `workers/x_collector/proqe.py`, `x_ingest/__main__.py` | 53 `CREATE TABLE` statements outside Django migrations | 2 / 2 / 2 | P2 | CONFIRMED |
 | C-2 | CI does not run `makemigrations --check`, so a model change without its migration can merge (none today) | `.github/workflows/ci.yml` | Check passes on main; 87 migrations applied | 2 / 1 / 1 | P2 | CONFIRMED |
+| D-1 | A public URL makes paid LLM calls: no login and no rate limit. When the keyword match fails it asks the model | `apps/products/views.py:444`, `apps/products/services.py:327` | Test client, anonymous `GET /products/api/suggest-category/?name=...` returns 200 and calls `chat_json` (mocked) | 3 / 1 / 1 | P1 | CONFIRMED |
+| D-2 | Any seller can make the web process open the Instagram inbox of all their sender accounts, at any hour and as often as they click, with a plain GET. The dispatcher's shift hours and random 5-10 minute spacing are not applied on this path | `apps/accounts/outreach_views.py:306`, `outreach/replies.py:89` | `reply_sync_allowed` is called only in `tasks.py:103` and `run_instagram_outreach.py:141,157`; the view has `login_required` only | 3 / 1 / 1 | P1 | CONFIRMED (read, not run) |
+| D-3 | Seller scoping is written by hand in each of the 53 seller views, with three different "is operator" checks (`is_operator`, `_staff`, `is_superuser`). Every id lookup traced is scoped correctly today, but no test walks all routes as another seller, so one missed filter in a new view ships | `apps/accounts/outreach_views.py:390,480`, `views/opportunities.py:373-603` | 136 routes mapped from the resolver; about 30 id lookups traced; cross-seller tests exist in 5 test files, per view | 3 / 2 / 1 | P1 | CONFIRMED (missing guardrail) |
+| D-4 | A public URL returns the attribute list of any category by id, including a seller's private categories | `apps/products/views.py:458` | Test client, anonymous `GET /products/api/category-attributes/1/` returns 200 | 1 / 1 / 1 | P2 | CONFIRMED |
 
-Not a finding: 7 of the 8 data migrations have no reverse. They are old and applied; nothing to do.
+Not a finding: 7 of the 8 data migrations have no reverse. They are old and applied; nothing to do. All 45 `/manage/` and 22 `/ops/` routes
+require an operator (`operator_required` under two aliases); the 16 routes without a decorator are public on purpose
+(landing, login, signup, shop, product card, click counter) except D-1 and D-4.
 
 #### Waiting for
 
