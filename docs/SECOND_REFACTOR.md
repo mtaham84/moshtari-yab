@@ -1,15 +1,26 @@
-# Proxy refactor (second refactor)
+# Second refactor
+
+The first refactor (`docs/CLEANUP_ROADMAP.md`, phases 0-6) removed dead code, duplicate stacks and silent errors,
+and audited the rest. This second refactor goes through the code **one part at a time**, with the user, and writes
+down for each part what is wrong and the small steps to fix it. Each part gets a section here; the operator panel has
+its own document, `docs/OPS_PANEL.md`.
+
+Rules from `AGENTS.md` apply to every step: one small PR per step, a test that fails before each fix, replace means
+delete, no change to anti-ban behaviour (which account gets which IP, rest after an IP change, limits, delays) unless
+the step says so and the user agreed.
+
+| Part | Status |
+|---|---|
+| 1. Proxies | Planned (2026-11-10), not started |
+
+## Part 1: Proxies
 
 Goal, set by the user on 2026-11-10: **all proxy logic lives in one place**, so it can be read, changed and debugged
-without hunting through the repo. This document lists what was found on 2026-11-10 (first deploy of the cleaned-up
-`main` to production, then reading the code) and the order to fix it in.
+without hunting through the repo. This part lists what was found on 2026-11-10 (first deploy of the cleaned-up
+`main` to production, then reading the code) and the order to fix it in. The proxy pages of the panel are in
+`docs/OPS_PANEL.md` (section "Proxies").
 
-Status: plan only. Nothing below is done unless it says "done".
-
-Rules from `AGENTS.md` apply: one small PR per step, a test that fails before each fix, replace means delete, no
-change to anti-ban behaviour (which account gets which IP, rest after an IP change) unless the step says so.
-
-## What happened in production on 2026-11-10
+### What happened in production on 2026-11-10
 
 Why the rest of this document matters:
 
@@ -25,7 +36,7 @@ Why the rest of this document matters:
 One broken config took down everything, and the path from "config posted in a channel" to "account uses this IP" runs
 through four folders, two files on disk, three schedulers and the ops bot. That path is what this refactor fixes.
 
-## Where the proxy code is today
+### Where the proxy code is today
 
 | File | Lines | What it does |
 |---|---|---|
@@ -47,11 +58,11 @@ through four folders, two files on disk, three schedulers and the ops bot. That 
 | `workers/channel_config_collector.py` | | A third runner of the channel sync (systemd); not installed on the current server |
 | `xray/watch.sh` | | Inside the xray container: restarts xray when `config.json` changes |
 
-## Problems found
+### Problems found
 
 Each problem has an id used by the steps below.
 
-### P1. Three schedulers run the same jobs
+#### P1. Three schedulers run the same jobs
 
 - The channel sync runs from the `channel-config-sync` service (every 180 s), from Celery beat
   `sync-telegram-channel-configs` (every 180 s) and from `workers/channel_config_collector.py`. Celery beat only
@@ -62,7 +73,7 @@ Each problem has an id used by the steps below.
   maintenance: when the bot is down or restarted (every deploy restarts it), the purge stops; when it is upgraded
   by a `git pull`, new purge code runs before the rest is deployed.
 
-### P2. Config channels are stored in two places, with silent fallbacks
+#### P2. Config channels are stored in two places, with silent fallbacks
 
 - The table `config_channel_sources` (`ConfigChannelSource`, migration 0035) exists, but on production it is empty;
   the only channel lives in `data/proxy_channels.json`.
@@ -74,7 +85,7 @@ Each problem has an id used by the steps below.
   that no channel has been added.
 - The "last post read" per channel is a third store: `data/channel_configs_state.json`.
 
-### P3. A broken config can still stop xray
+#### P3. A broken config can still stop xray
 
 - `is_valid_xray_outbound` was added (2026-11-06) to keep configs xray refuses out of `config.json`, but:
   - `rebuild_xray_config_file` keeps the existing file unchanged when the database has no ACTIVE config, even if that
@@ -85,7 +96,7 @@ Each problem has an id used by the steps below.
 - xray has no way to report "I refused this config": `watch.sh` restarts it on every file change and the error goes
   only to the container log. Nothing alerts the ops chat that xray itself is down.
 
-### P4. Testing a config means two different things
+#### P4. Testing a config means two different things
 
 - New links are tested with a temporary xray (`test_outbound_ping`); saved configs are tested through the running
   xray service (`health.measure_config` → `probe_proxy_port`). The second one fails for every config when xray is
@@ -94,7 +105,7 @@ Each problem has an id used by the steps below.
 - The ping limit (2000 ms) is written in more than one place: `health.MAX_PING_MS`, and again as a literal in
   `xray/multi_proxy_manager.py` (`probe_socks5_http`, `add_proxy_config`).
 
-### P5. Link parsing is fragile
+#### P5. Link parsing is fragile
 
 - `parse_ss_url` crashes with `TypeError` when an `ss://` link has no port (seen on production, 2026-11-10); the
   caller logs a traceback and skips the link. Each parser should reject a bad link with a clear reason.
@@ -102,7 +113,7 @@ Each problem has an id used by the steps below.
   zero posts and nothing reports it. Python's own `html.parser` is sturdier and needs no new dependency; a sync
   that finds zero posts on a channel that had posts before should log a warning.
 
-### P6. Several "how to reach Telegram" lists
+#### P6. Several "how to reach Telegram" lists
 
 `apps/core/ops_bot/telegram_api.get_proxy_candidates`, `shared/telegram_alerts.proxy_candidates` and
 `channel_config_automation.get_http_request_with_proxy` each build their own list of proxies to try (already listed in
@@ -110,14 +121,14 @@ the roadmap's known issues). The user confirmed on 2026-11-10 that **the bots an
 proxy on the current server**, so direct must always be tried first and must really be direct (PR #50 fixed the
 channel fetch only).
 
-### P7. Logging
+#### P7. Logging
 
 - `telegram_api` logs the full request URL when every candidate fails, and the URL contains the bot token
   (`/bot<token>/getUpdates`). Anyone who can read the server logs can take over the bot. The token must be redacted
   (and the current token revoked in BotFather).
 - The purge and the heal log one line per config or account, but no summary ("tested 40, removed 3, xray up").
 
-### P8. Code in the wrong place
+#### P8. Code in the wrong place
 
 - `xray/multi_proxy_manager.py` is a Django module living outside `apps/`, with its own `django.setup()` and a
   `POSTGRES_HOST` rewrite for running on the host.
@@ -127,7 +138,7 @@ channel fetch only).
   to the Instagram code with different rules; `workers/x_collector/account_pool.py` has its own default
   (`TWITTER_PROXY`, `socks5h://xray:1080`).
 
-## Target layout
+### Target layout
 
 Everything about proxies in one package, one file per job, each under 400 lines:
 
@@ -155,10 +166,10 @@ And around it:
 - **The ops bot only reports and triggers**: its buttons call `sync` / `maintenance` and show the result.
 - **One store per thing**: configs in `proxy_configs`, channels in `config_channel_sources` with a `last_post_id`
   column; `xray/config.json` stays a file because xray reads files, but it is always generated, never edited.
-- **Panel pages** move with the rest of the operator panel when F-3 is done; until then they only call functions of
-  `apps/discovery/proxies/`.
+- **Panel pages**: one separate "Proxies" section in the operator panel, planned in `docs/OPS_PANEL.md`. Its views
+  only call functions of `apps/discovery/proxies/`.
 
-## Steps (one PR each, in this order)
+### Steps (one PR each, in this order)
 
 Safety first, then the moves, then the cleanup. Each step lists its pinning test.
 
@@ -195,7 +206,7 @@ Safety first, then the moves, then the cleanup. Each step lists its pinning test
 
 After step 12, the answer to "where is the proxy logic?" is one folder: `apps/discovery/proxies/`.
 
-## Done on 2026-11-10 (not part of the steps)
+### Done on 2026-11-10 (not part of the steps)
 
 - PR #48: the purge does nothing while xray is down.
 - PR #50: the channel fetch's direct attempt is really direct.
