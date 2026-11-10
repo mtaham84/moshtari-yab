@@ -297,6 +297,29 @@ shipped. Follows the decision for audit finding C-1 (one migration mechanism for
   `telegram_client` and `ratelimit`.
 - Errors of `JoinChannelRequest` are logged at debug level and ignored ("may already be in").
 
+#### T10. The archive's relations are incomplete
+
+The user's target: the archive looks like Telegram's own data, with messages, chats and users and every relation
+between them. Today (`telegram_crawler/schema.sql`) the base is there: `tg_messages` has foreign keys to `tg_chats`
+(`chat_id`, `sender_chat_id`) and `tg_users` (`sender_user_id`), the crawler writes in the order chat, sender,
+parent, message, and parents are stored (`is_context`). Missing:
+
+- **Reply is not a relation**: `reply_to_msg_id` is a plain number, with no foreign key to the parent row. Telegram
+  replies can also point to another chat (`reply_to_peer`), which is not stored. The same for `reply_to_top_id`
+  (thread root), `fwd_from_id` (forwarded from a user or a chat) and `via_bot_id`.
+- **No link from mentions to users**: mentions sit in `entities` (JSON); there is no table "message mentions user".
+- **No membership**: nothing says which users are in which chat (only "has written in"); no join or leave dates
+  (they arrive as service messages and are stored only as `service_action`).
+- **No history**: `tg_users` is a snapshot taken once (username and name changes are lost); edits overwrite the text.
+- **Indexes for context**: the two-step reading above needs "messages of a chat around a time" and "a person's
+  messages in a chat"; there is no `(chat_id, date)` index and the sender index has no `chat_id`.
+
+Target: a foreign key `(chat_id, reply_to_msg_id)` to `tg_messages (chat_id, message_id)` (the parent is written
+first; a missing parent stays NULL with the number kept in another column), the reply peer, foreign keys for
+forwards and bots, a `tg_message_mentions` table, a `tg_chat_members` table filled from messages and service
+messages, user name history, and the two indexes. Retention (T7) must keep a parent row when it blanks its fields.
+Needs a real migration, so it comes with T8.
+
 ### The engine side
 
 - `need_engine/platforms/telegram.py` and `platforms/x.py` become the place for everything platform-specific: the
@@ -307,22 +330,61 @@ shipped. Follows the decision for audit finding C-1 (one migration mechanism for
 
 ### The workflow of finding leads
 
-Keep: the crawler archives everything raw, the engine reads it later, they meet in the database. Old messages can be
-re-read with a better prompt, the crawler stays simple, and a crashed engine loses nothing.
+Keep: the crawler only archives (live updates, one backfill at join, bios) and never analyses; the engine never
+calls Telegram and works on the archive; they meet in the database. Old messages can be re-read with a better
+prompt, Telegram gets few requests, the crawler stays simple, and a crashed engine loses nothing.
+
+How matching works today (keep it): it matches problems to solutions, not keywords. Each product gets an LLM card
+with what it is, other names and "problems it solves"; each need has a situation, `solution_queries` and
+`problem_queries`. Retrieval compares both sides with embeddings (`extract.query_texts`, product card vectors), then
+the verify call answers `solves: yes|partly` and checks the person's requirements. Gap: without embeddings, the
+fallback (`retrieve.py`) and the BM25 part use `solution_queries` only.
+
+X uses the same backbone (extract, retrieve, verify, score) with its own prompt (`NEED_SYSTEM_X`: readiness tiers
+from pain to buying), a keyword pre-filter, and posts read one by one without chat context.
+
+#### The context problem in group chats
+
+A need is often spread over several people and messages: "anyone have VPN problems?" answered with "yes" or one
+emoji, without using reply. Each LLM call sees up to 50 new messages, only 10 older ones (`NE_CONTEXT_MESSAGES`) and
+at most 5 reply parents. In a busy group the question is often more than 10 messages back, so the answer loses its
+meaning. Following replies alone is not enough: people rarely reply.
+
+Also, the engine does not read context from the archive: it copies messages into its own JSONB tables
+(`need_engine.store`: `pending`, `recent`) and looks up context there. The archive already has the indexes needed for
+relations (`tg_messages` by reply and by sender, `tg_users`), so context should be read from the archive.
+
+Target, read in two steps:
+
+1. **Cheap pass** over a whole conversation: "is anyone here a possible buyer, and who?". A small model, never one
+   message alone. This is the cheap filter for Telegram: it may skip a conversation that is only greetings and
+   stickers, but never a short reply that follows a question.
+2. **Careful pass** with the strong model, only for the people found, with context built from the archive:
+   - the person's own messages in this group in the last hours,
+   - the messages just before each of theirs by time (not only replies),
+   - replies in both directions and messages that mention them,
+   - their earlier needs (the engine already merges a person's needs; show them as context),
+   - their bio (fix 2).
+
+Conversations are cut by silence (for example 15 quiet minutes) instead of every 50 messages, which also fixes the
+speed problem in quiet groups.
 
 Improve, in this order:
 
 1. **Speed** (`TELEGRAM_FIXES.md` fix 1): the engine waits for 50 new messages per group and the maximum wait is off,
-   so a need in a quiet group can wait hours or days. A lead is worth most in its first minutes.
+   so a need in a quiet group can wait hours or days. A lead is worth most in its first minutes. Cut by silence.
 2. **Measure each group** (fix 3): messages read, LLM cost, needs, opportunities, opportunities the seller liked.
-   Without it noisy groups cannot be dropped.
-3. **A cheap filter before the LLM**: X has one (`x_filters.py`, shadow mode first); Telegram sends every message to
-   the LLM, although most group chat is greetings, thanks and stickers. Build it the same way: shadow mode (only log
-   what it would drop), compare with the LLM's answers, then turn it on.
-4. **Feedback**: a seller's "good lead" / "bad lead" never reaches the prompt or the filters (and feedback is stored
-   in three places, audit finding). Use it to tune the filter and the prompt examples.
-5. **Bios** (fix 2): fetched, never read.
-6. **One engine for all platforms** (long term): Telegram and X use `need_engine`; Instagram has its own
+   Without it noisy groups cannot be dropped, and the two-step reading cannot be compared with today's.
+3. **Context from the archive**: the careful pass builds the person's context as above.
+4. **Two-step reading** with the cheap pass in shadow mode first (only log who it would skip, compare with the
+   strong model's answers), then turn it on.
+5. **Readiness levels for Telegram**: the same tiers as X (pain, unhappy with a competitor, asking for advice,
+   comparing, buying), so pain-only leads rank below "which one should I buy?".
+6. **Seller-written problems**: the seller can write "problems my product solves" and "who my customer is" next to
+   the LLM card; the keyword fallback also uses `problem_queries`.
+7. **Feedback**: a seller's "good lead" / "bad lead" never reaches the prompt or the filters (and feedback is stored
+   in three places, audit finding). Use it for prompt examples and to tune the cheap pass.
+8. **One engine for all platforms** (long term): Telegram and X use `need_engine`; Instagram has its own
    `instagram_engine` with its own judging, product matching and billing (`INSTAGRAM_FIXES.md` fix 6), so every
    change to matching or charging is made twice. Target: one engine with platforms as plugins (`platforms/`).
 
@@ -337,8 +399,9 @@ Improve, in this order:
 7. **Leftovers** (T9).
 8. **Engine platform split** (see "The engine side"): `SQLMessageSource` and the contact lookup to
    `platforms/telegram.py`, the X branches of `engine.py` to `platforms/x.py`.
-9. **Workflow** items 1 to 5 above, each its own PR (item 3 starts in shadow mode). Item 6 is its own project.
-10. **Schema** (T8) with the decision on C-1.
+9. **Workflow** items 1 to 7 above, each its own PR (item 4 starts in shadow mode). Item 8 is its own project.
+10. **Schema** (T8) with the decision on C-1, then **complete relations** (T10). The two context indexes can come
+    earlier, with workflow item 3.
 
 Live state on 2026-11-10: the crawler account is logged in and connected, but the panel has no Telegram group, so
 nothing is archived; groups are added on the communities page.
