@@ -1,7 +1,8 @@
 # How the Telegram pipeline works
 
 From a group link in the panel to a lead for a seller. Written on 2026-11-10 from the code; defaults are the values
-in the code, the server's `.env` may differ. Nothing was run against Telegram. Known problems are in `docs/TELEGRAM_FIXES.md`.
+in the code, the server's `.env` may differ. Nothing was run against Telegram. Known problems are in
+`docs/TELEGRAM_FIXES.md`.
 
 ## The short version
 
