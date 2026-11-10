@@ -165,7 +165,7 @@ and ranks those problems (the audit), then turns the ranked list into phases 7+ 
 - [ ] Step 1: audit, one track group per session, results written under "Audit report" below.
   - [x] Session 1: B data model, C migrations (production numbers still to come, see "Waiting for")
   - [x] Session 2: D tenant isolation
-  - [ ] Session 3: A complex functions
+  - [x] Session 3: A complex functions
   - [ ] Session 4: E duplication, F coupling
   - [ ] Session 5: G tests, H panel queries
   - [ ] Session 6: I config and deploy
@@ -246,7 +246,7 @@ P0 and P1. More than about 40 rows means the bar is too low.
 | Exact duplicate indexes (same table, same columns) | 15 |
 | Model changes without a migration (`makemigrations --check`) | 0 |
 
-#### Findings so far (sessions 1-2 of 6; unranked across tracks until step 2)
+#### Findings so far (sessions 1-3 of 6; unranked across tracks until step 2)
 
 Scores are impact / growth / effort. Paths are under `apps/discovery/` unless they start with another package.
 
@@ -272,6 +272,15 @@ Scores are impact / growth / effort. Paths are under `apps/discovery/` unless th
 | D-2 | Any seller can make the web process open the Instagram inbox of all their sender accounts, at any hour and as often as they click, with a plain GET. The dispatcher's shift hours and random 5-10 minute spacing are not applied on this path | `apps/accounts/outreach_views.py:306`, `outreach/replies.py:89` | `reply_sync_allowed` is called only in `tasks.py:103` and `run_instagram_outreach.py:141,157`; the view has `login_required` only | 3 / 1 / 1 | P1 | CONFIRMED (read, not run) |
 | D-3 | Seller scoping is written by hand in each of the 53 seller views, with three different "is operator" checks (`is_operator`, `_staff`, `is_superuser`). Every id lookup traced is scoped correctly today, but no test walks all routes as another seller, so one missed filter in a new view ships | `apps/accounts/outreach_views.py:390,480`, `views/opportunities.py:373-603` | 136 routes mapped from the resolver; about 30 id lookups traced; cross-seller tests exist in 5 test files, per view | 3 / 2 / 1 | P1 | CONFIRMED (missing guardrail) |
 | D-4 | A public URL returns the attribute list of any category by id, including a seller's private categories | `apps/products/views.py:458` | Test client, anonymous `GET /products/api/category-attributes/1/` returns 200 | 1 / 1 / 1 | P2 | CONFIRMED |
+| A-1 | Nothing limits function size. The file-size ratchet let 280-line functions through, and each agent edit adds another branch | `scripts/check_baseline.py`, `pyproject.toml` | 51 functions over 15 branches, 14 over 25; 56 over 50 statements; 44 with more than 5 parameters (`fetch_source_medias` has 10) | 2 / 3 / 1 | P1 | CONFIRMED (missing guardrail) |
+| A-2 | The retention purge is one function: 58 branches, 288 lines, 34 SQL statements inside a single `with` block, deleting customer data in three schemas. Its file is 22% covered | `telegram_crawler/retention.py:371` | ruff `C901` = 58 (highest in the repo); coverage 349 of 445 statements missed | 3 / 1 / 2 | P1 | CONFIRMED |
+| A-3 | Two long functions create opportunities, one per source. Each does customer upsert, product matching, opportunity upsert and analysis in one body; the Instagram one also bills. The import reads the engine's JSON by hand with `x.get(...) or default` although the engine has a pydantic schema for it | `engine_bridge.py:82` (22 branches, 151 lines, 11 writes), `services.py:167` (20 branches, 202 lines, 8 writes, 9 imports inside) | `services.py` is the most changed file on this list (33 commits); `engine_bridge.py` is 64% covered | 3 / 2 / 2 | P1 | CONFIRMED |
+| A-4 | The scraper cycle is three large functions with low cover around them | `ig_scraper/comments.py:62` (37 branches, 281 lines, one 251-line loop), `ig_scraper/sources.py:191` (33) and `:84` (25) | Coverage: `comments.py` 69%, `sources.py` 58%, `cycle.py` 32%, `session.py` 22%, `accounts.py` 22% | 3 / 2 / 2 | P1 | CONFIRMED |
+| A-5 | The inbox reply sync (writes lead status and captured phone numbers) is one 150-line function, 25% covered | `outreach/replies.py:89` | 20 branches, one 121-line loop; 78 of 104 statements missed | 3 / 1 / 2 | P1 | CONFIRMED |
+| A-6 | X collector: the cycle and the search client are the most branched worker code, and the client is barely tested | `workers/x_collector/worker.py:270` (37 branches, 208 lines, 32 commits), `client.py:91` (31, 242 lines), `client.py:334` (27) | `client.py` 22% covered | 2 / 2 / 2 | P2 | CONFIRMED |
+| A-7 | Panel views carry the logic: filtering, row decoration and CSV building live in view bodies | `views/export.py:23` (45 branches, one 162-line loop), `views/opportunities.py:41,201,595` (22, 22, 20), `views/instagram.py:81` (24), `apps/products/views.py:223` (21) | `views/opportunities.py` 64% covered, 14 commits | 2 / 2 / 2 | P2 | CONFIRMED |
+| A-8 | Category suggestion and Instagram query building mix scoring rules, database writes and an LLM fallback in one function each | `apps/products/services.py:127` (49 branches, 228 lines), `instagram_families.py:191` (43, with a 33-branch nested function) | `instagram_families.py` 38% covered; it also holds the broken buyer-exemplar query from Known issues | 2 / 2 / 2 | P2 | CONFIRMED |
+| A-9 | The engine's LLM call handles rate limit, cache, retries, truncation and JSON repair in one loop with 10 parameters; the engine's main `process` step changes often | `need_engine/llm.py:170` (27 branches, 146 lines), `need_engine/engine.py:383` (23, 21 commits) | `llm.py` 60% covered | 2 / 2 / 2 | P2 | CONFIRMED |
 
 Not a finding: 7 of the 8 data migrations have no reverse. They are old and applied; nothing to do. All 45 `/manage/` and 22 `/ops/` routes
 require an operator (`operator_required` under two aliases); the 16 routes without a decorator are public on purpose
@@ -288,7 +297,10 @@ require an operator (`operator_required` under two aliases); the 16 routes witho
 
 - Session 1 read field lists and relations of every model, but not every model method, and not the tables of
   `shared/collector_kit` and `x_ingest` beyond counting them.
-- Tracks A and D to I.
+- Track A: branch counts are ruff's (`if`, loops, `except`, comprehensions). They do not count `and` / `or` and
+  one-line conditionals, which is where `import_opportunity` hides most of its paths. Churn is weak evidence: the
+  repository is five weeks old and phases 3-4 moved most of this code into new files.
+- Tracks E to I.
 
 ## Running the checks locally (Docker)
 
