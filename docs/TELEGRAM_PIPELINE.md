@@ -1,7 +1,7 @@
 # How the Telegram pipeline works
 
 From a group link in the panel to a lead for a seller. Written on 2026-11-10 from the code; defaults are the values
-in the code, the server's `.env` may differ. Nothing was run against Telegram. Open concerns are at the end.
+in the code, the server's `.env` may differ. Nothing was run against Telegram. Known problems are in `docs/TELEGRAM_FIXES.md`.
 
 ## The short version
 
@@ -140,19 +140,6 @@ used up is skipped; private groups that only blocked sellers watch are still arc
 Join and request settings change how the account behaves towards Telegram; treat them like the anti-ban settings
 in `AGENTS.md`.
 
-## Open concerns (read in code, not measured)
+## Known problems
 
-1. **Leads can arrive late or never.** A chat is analysed only in batches of 50 and the time limit is off, so in a
-   quiet group a buyer's message waits until 49 more arrive, and the last messages of any group always wait.
-   `NE_MAX_WAIT_MINUTES` exists for this; turning it on costs more small LLM calls.
-2. **Messages can be lost around restarts.** After a stop the crawler fetches at most 200 messages and 24 hours per
-   group; a busy group loses the rest. Nothing re-checks for missed messages while running (suspected: depends on
-   how reliably Telegram delivers updates for large groups).
-3. **One account does everything.** One ban, logout or 100-group limit stops Telegram for every seller. The
-   heartbeat is sent every minute while the process runs, so a connected account that receives nothing looks healthy.
-4. **Bios are fetched but not read.** The engine's Telegram query does not select the bio, the phone or the raw
-   object. The lookups cost one request per new user and are the most likely source of flood waits.
-5. **Edited and deleted messages are not followed.** An edit that adds details is missed, and a message its author
-   deleted stays stored until retention removes it.
-6. **Every message is paid for.** There is no cheap filter before the LLM as on X; cost grows with group activity,
-   not with the number of leads. Which groups are worth their cost is not shown per group.
+Listed with their fixes in `docs/TELEGRAM_FIXES.md`.
