@@ -166,7 +166,7 @@ and ranks those problems (the audit), then turns the ranked list into phases 7+ 
   - [x] Session 1: B data model, C migrations (production numbers still to come, see "Waiting for")
   - [x] Session 2: D tenant isolation
   - [x] Session 3: A complex functions
-  - [ ] Session 4: E duplication, F coupling
+  - [x] Session 4: E duplication, F coupling
   - [ ] Session 5: G tests, H panel queries
   - [ ] Session 6: I config and deploy
 - [ ] Step 2: the user reviews the report and answers its open decisions.
@@ -246,7 +246,7 @@ P0 and P1. More than about 40 rows means the bar is too low.
 | Exact duplicate indexes (same table, same columns) | 15 |
 | Model changes without a migration (`makemigrations --check`) | 0 |
 
-#### Findings so far (sessions 1-3 of 6; unranked across tracks until step 2)
+#### Findings so far (sessions 1-4 of 6; unranked across tracks until step 2)
 
 Scores are impact / growth / effort. Paths are under `apps/discovery/` unless they start with another package.
 
@@ -281,6 +281,11 @@ Scores are impact / growth / effort. Paths are under `apps/discovery/` unless th
 | A-7 | Panel views carry the logic: filtering, row decoration and CSV building live in view bodies | `views/export.py:23` (45 branches, one 162-line loop), `views/opportunities.py:41,201,595` (22, 22, 20), `views/instagram.py:81` (24), `apps/products/views.py:223` (21) | `views/opportunities.py` 64% covered, 14 commits | 2 / 2 / 2 | P2 | CONFIRMED |
 | A-8 | Category suggestion and Instagram query building mix scoring rules, database writes and an LLM fallback in one function each | `apps/products/services.py:127` (49 branches, 228 lines), `instagram_families.py:191` (43, with a 33-branch nested function) | `instagram_families.py` 38% covered; it also holds the broken buyer-exemplar query from Known issues | 2 / 2 / 2 | P2 | CONFIRMED |
 | A-9 | The engine's LLM call handles rate limit, cache, retries, truncation and JSON repair in one loop with 10 parameters; the engine's main `process` step changes often | `need_engine/llm.py:170` (27 branches, 146 lines), `need_engine/engine.py:383` (23, 21 commits) | `llm.py` 60% covered | 2 / 2 / 2 | P2 | CONFIRMED |
+| E-1 | Two LLM clients with separate bookkeeping. The engine's client has quotas, a cache and the cost ledger that billing reads. The panel's client has model failover and its own `LLMUsageLog`, which billing does not read; the engine and the Instagram analyzer call the panel's one too | `need_engine/llm.py:170`, `apps/core/llm.py:32`, `need_engine/post_qualification.py:365`, `instagram_engine/analyzer.py:224,355` | 11 files import the engine client, 9 the panel client; see B-5 for the two charging paths that follow from it | 3 / 2 / 3 | P1 | CONFIRMED |
+| F-1 | The engine and the X collector import panel code for prompts, the LLM and models, so neither runs or is tested without Django. Prompts live in three places to make this work: a table, `data/prompts_override.json` and a per-process cache | `tests/test_architecture.py` (`ALLOWED`), `apps/core/prompts.py:22,42,291` | 13 allowed violations, 10 of them for `apps.core.prompts` / `apps.core.llm` | 2 / 2 / 2 | P2 | CONFIRMED |
+| F-2 | 363 project imports sit inside functions. Most exist to dodge an import cycle, so a broken import shows up when the function runs, not when the process starts | `apps/accounts/outreach_views.py` (34), `services.py` (17), `workers/x_collector/query_source.py` (16) | grep for indented `from apps` / `from need_engine` / ... outside tests | 2 / 2 / 2 | P2 | CONFIRMED |
+| F-3 | Apps do not match what they hold. `apps/discovery` is 15,358 lines (scraper, outreach, proxies, X, engine sync, retention); `apps/billing` holds the operator panel (3,177 of its 4,406 lines); `Opportunity` has 27 display properties, some of which query | `models/core.py:398-660`, `apps/billing/manage/`, `apps/billing/ig_accounts_views.py` | Line counts without tests and migrations | 2 / 2 / 3 | P2 | CONFIRMED |
+| E-2 | The first customer is still written into the code, as fallbacks behind the tables that replaced them | `tenants.py:11,82`, `outreach_engine.py:47-49`, `config/settings.py:261` | Alias `sarv`, a `tenant_4` pitch, `DEFAULT_SENDER_PITCHES`, `data/sarv_outreach_config.json`, priority business id default `4` | 2 / 1 / 1 | P2 | CONFIRMED |
 
 Not a finding: 7 of the 8 data migrations have no reverse. They are old and applied; nothing to do. All 45 `/manage/` and 22 `/ops/` routes
 require an operator (`operator_required` under two aliases); the 16 routes without a decorator are public on purpose
@@ -300,7 +305,10 @@ require an operator (`operator_required` under two aliases); the 16 routes witho
 - Track A: branch counts are ruff's (`if`, loops, `except`, comprehensions). They do not count `and` / `or` and
   one-line conditionals, which is where `import_opportunity` hides most of its paths. Churn is weak evidence: the
   repository is five weeks old and phases 3-4 moved most of this code into new files.
-- Tracks E to I.
+- Track E: found by concept search, not by a clone detector, so copied blocks inside one package can be missing.
+  Already listed under Known issues and not repeated here: three lists of Telegram proxy candidates, and
+  `manage/ig_legacy.py` next to `ig_accounts_views.py`.
+- Tracks G to I.
 
 ## Running the checks locally (Docker)
 
