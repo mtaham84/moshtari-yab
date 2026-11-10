@@ -13,6 +13,7 @@ the step says so and the user agreed.
 |---|---|
 | 1. Proxies | Planned (2026-11-10), not started |
 | 2. Telegram | Planned (2026-11-10), not started |
+| 3. Engine | Planned (2026-11-10), not started |
 
 ## Part 1: Proxies
 
@@ -405,3 +406,95 @@ Improve, in this order:
 
 Live state on 2026-11-10: the crawler account is logged in and connected, but the panel has no Telegram group, so
 nothing is archived; groups are added on the communities page.
+
+## Part 3: Engine
+
+Discussed with the user on 2026-11-10. `need_engine/` (about 5,400 lines) reads Telegram messages and X posts, finds
+people with a need, finds the sellers' products that solve it and publishes opportunities. Part 2 covers how it reads
+Telegram (context, windows, the cheap pass); this part is about the engine's own code.
+
+### What one run does (`NeedEngine.run_once`)
+
+1. **Access** (`access.py`): reads the panel's `discovery_monitoredcommunity` to know which chats are analysed and
+   who pays for each. Work for a seller without balance is held, not lost.
+2. **Products** (`catalog.py`, `embeddings.py`, `SQLProductSource`): new or changed products get an LLM card (what
+   it is, other names, problems it solves) and vectors.
+3. **Release** held work after a top-up.
+4. **Ingest** (`sources.py`, `store.py`): copies new archive rows (Telegram, X) into the engine's `pending` table.
+5. **Process** per chat: windows (`windowing.py`), need extraction (`extract.py`, `prompts.py`), merge with the
+   person's earlier need (`extract.remember`), retrieve (`retrieve.py`: vectors and BM25), verify (`verify.py`: the
+   LLM answers `solves: yes|partly` and checks requirements), score (`scoring.py`), publish (`engine._emit`).
+6. **Expire** old needs; write the heartbeat and the "waiting for payment" summary for the panel.
+
+`sync_opportunities` (`apps/discovery/engine_bridge.py`) then imports the opportunities into the panel. The engine
+keeps its own state in its own PostgreSQL schema (`store.py`: needs, vectors, products, LLM cache, costs, quota,
+opportunities).
+
+Keep: its own package, talking to the panel only through the database, one small module per step.
+
+### Problems
+
+#### E1. `engine.py` mixes shared steps and X
+
+711 lines; `process` branches on X, X product mode and Telegram in the same loop, and ten `_x_*` methods sit in the
+class. Same target as "The engine side" in Part 2.
+
+#### E2. X is in six places
+
+`x_filters.py`, `x_replies.py`, `platforms/x.py`, `extract_x_batch` and `extract_x_product_batch` in `extract.py`,
+`XMessageSource` and `XProductHitSource` in `sources.py`, and the `_x_*` methods of `engine.py`. Target: one package
+`need_engine/platforms/x/` (source, filters, extraction, replies, batching); the same shape for
+`platforms/telegram/`.
+
+#### E3. The engine is also the product's LLM library
+
+`llm.py`, `registry.py` (providers, models, prices, wallets), `crypto.py`, `embeddings.py` and `text.py` are used by
+Django (`apps/core/agent.py`, `apps/billing/fields.py`, `apps/products`, `apps/discovery` Instagram and moderation
+modules, `rotate_provider_keys`, a migration) and by `workers/x_collector`. They are not engine code; the engine is
+only their first user. Target: a package outside the engine (for example `shared/llm/`, which needs the user's
+approval as a new top-level place for code), imported by the engine, Django and the workers. Because `shared/`
+may import no project package, `registry.py` keeps reading the billing tables with SQL as today.
+
+#### E4. Prompts in two places, and Django imports for them
+
+Defaults are in `need_engine/prompts.py`, the operator's overrides in Django (`apps.core.prompts`), so `catalog.py`,
+`extract.py`, `reply.py` and `verify.py` import Django inside `try/except` (four `ALLOWED` entries in
+`tests/test_architecture.py`). Target: the engine reads the override table with SQL (as `registry.py` reads billing),
+one function `prompt(key, default)`; the four entries are deleted.
+
+#### E5. `post_qualification.py` looks dead
+
+438 lines ("Luna Post Qualification Engine for Peyda v2"); only `apps/discovery/test_leaf_taxonomy_and_qualification.py`
+imports it, and it imports Django's `Product` model (an `ALLOWED` entry). Target: prove it with the
+`removing-dead-code` skill, then delete it, its test, its prompt entry in `apps/core/prompts.py` and its `ALLOWED`
+entry.
+
+#### E6. Hidden contract with the panel
+
+`access.py`, `registry.py` and `SQLProductSource` read Django tables with raw SQL. Renaming a field breaks the engine
+silently. Same target as T4: a test that every column the engine's SQL reads exists on the Django model.
+
+#### E7. Messages are copied, not read
+
+The engine copies archive rows into `pending` and `recent` (JSONB) and reads context from that copy. Target in Part 2
+("The context problem").
+
+#### E8. Schema created at start
+
+`Store` runs `CREATE ... IF NOT EXISTS` on every start; same as T8 (decision C-1).
+
+#### E9. A second engine for Instagram
+
+`instagram_engine/` has its own judging, matching and billing. Long-term target in Part 2, workflow item 8.
+
+### Steps (one PR each, in this order)
+
+1. **Delete `post_qualification.py`** (E5) after proving it unused.
+2. **Prompts from the database** (E4). Test: an override in the table is used; without it, the default.
+3. **Move the LLM library out** (E3), pure moves first (`check_baseline.py --update --moved-from`); ask the user about
+   the location before starting.
+4. **Panel contract test** (E6), together with T4.
+5. **X into `platforms/x/`** (E2), then **the shared loop** (E1), which is step 8 of Part 2.
+6. **Context from the archive** (E7) with Part 2 workflow item 3.
+7. **Schema** (E8) with T8.
+8. **One engine** (E9), its own project.
