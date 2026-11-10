@@ -22,8 +22,9 @@ green, before the next one starts. Behavior must not change unless the step says
   328 → 70, no `except Exception: pass` left, every remaining broad catch at a boundary logs its traceback.
 - Phase 6, step 1 is done: the audit found 40 problems worth fixing (3 P0, 15 P1, 22 P2), listed under "Audit
   report" with a proposed order of work.
-- **Next step:** Phase 6, step 2: the user answers "Decisions for the user" (the first is running the production
-  numbers). Phases 7+ become final after that; until then no code changes.
+- Phase 6, steps 2 and 3 are done: the user answered the decisions and phases 7-13 are written from them.
+- **Next step:** Phase 7 (live risks), one small PR per item, starting with 7.1. Still open: who has server access
+  (TLS and the published web port, I-2).
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -165,14 +166,14 @@ can follow, a data model that will be expensive to change later, and paths with 
 and ranks those problems (the audit), then turns the ranked list into phases 7+ (the plan). The audit changes no code.
 
 - [x] Step 1: audit, one track group per session, results written under "Audit report" below.
-  - [x] Session 1: B data model, C migrations (production numbers still to come, see "Decisions for the user")
+  - [x] Session 1: B data model, C migrations (production numbers not collected, see Decisions)
   - [x] Session 2: D tenant isolation
   - [x] Session 3: A complex functions
   - [x] Session 4: E duplication, F coupling
   - [x] Session 5: G tests, H panel queries
   - [x] Session 6: I config and deploy
-- [ ] Step 2: the user reviews the report and answers its open decisions.
-- [ ] Step 3: phases 7+ are written from the accepted findings; guardrails for them are added first.
+- [x] Step 2: the user reviews the report and answers its open decisions.
+- [x] Step 3: phases 7+ are written from the accepted findings; guardrails for them are added first.
 
 ### Rules for the audit
 
@@ -226,7 +227,7 @@ P0 and P1. More than about 40 rows means the bar is too low.
 1. Summary: five lines at most. The three problems that matter most, and what was not checked.
 2. Findings table, sorted by priority (columns: ID, finding, where, evidence, impact / growth / effort, priority,
    status).
-3. Decisions for the user: questions only they can answer, each with a recommendation.
+3. Decisions: questions only the user can answer, and their answers.
 4. Proposed phases 7+: findings grouped into phases, guardrails before fixes, data model before code that depends on
    it. Each phase lists its PRs in order with the test that pins behavior first, the guardrail that keeps it fixed,
    and the risk; for data changes also the backfill and the query that proves it is complete. (Written per phase
@@ -244,8 +245,8 @@ P0 and P1. More than about 40 rows means the bar is too low.
   (B-4), and leads that stay reserved for ever after a restart (B-8).
 - Complexity is concentrated: 51 of about 1,570 functions are over 15 branches, and the worst ones sit on the
   retention, scraper and reply-sync paths, which are also the least tested (22-32% covered).
-- Not checked: production data and the server itself. The ranking of the data model findings is provisional until
-  the numbers below are in.
+- Not checked: production data and the server itself. Production has two sellers, so data fixes are cheap now and
+  get more expensive with every seller added.
 
 #### Starting numbers (main @ 5944ce4, 2026-11-10)
 
@@ -313,27 +314,27 @@ require an operator; the 16 routes without a decorator are public on purpose (la
 card, click counter) except the two in D-1. Tests on the critical paths use the real database with few mocks
 (4 patches in the 15 dispatcher tests, 1 in the 13 lead-sync tests).
 
-#### Decisions for the user
+#### Decisions (answered by the user, 2026-11-10)
 
-1. Run `phase6_production_numbers.sql` on the server (read-only, counts only; handed over in the session, not
-   committed). The effort of B-1, B-2, B-6 and B-7 depends on how many existing rows break the rule to be added.
-2. Scale target for the next 12 months (sellers, Instagram accounts, messages per day). It decides how far phase 12
-   goes. Recommendation: plan for one server and about ten times today's load; nothing below needs more.
-3. Who owns a scraper account (B-1)? Today they sit under `tenant_default`. Recommendation: scraper accounts belong
-   to the platform (no business), sender accounts must have one.
-4. Can one person be more than one lead for the same seller (B-7)? Recommendation: one lead per person, with one
-   row per comment and one row per message under it.
-5. Retention (B-3): is 180 days a promise to customers, should it cover Instagram leads and DM texts, and does the
-   job run on a schedule on the server today? Recommendation: cover them, and schedule the job with celery-beat so
-   the schedule is in git.
-6. May a seller start an inbox check by hand (D-2)? Recommendation: keep the button, but have it ask the dispatcher,
-   which answers inside its own shift hours and spacing. This changes anti-ban behavior, so it needs your yes.
-7. Backups, TLS and the published web port (I-2): what exists on the server that is not in git?
-8. Add `pytest-cov` as a test dependency and a coverage floor for the critical modules (G-1)? Recommendation: yes.
-9. Is the X collector staying? It is behind a compose profile and described as experimental. If it may go, A-6 and
-   part of B-9 are deleted, not refactored.
+1. Production numbers: not collected. Production has two sellers, so the tables are small and every backfill below
+   is cheap; each data migration checks its own rule (duplicates, orphans) before it adds a constraint.
+2. Scale target: up to about 50 sellers in 12 months, on one server.
+3. Account ownership (B-1): scraper accounts are shared by the platform. A sender account usually belongs to one
+   seller, and some senders are shared too, so a sender's `business` is optional (empty = shared).
+4. Leads (B-7): one lead per person per seller, one row per comment and per message, the sender linked as a foreign
+   key. Two rules must be answerable by a query: was this person already messaged (and when), and the same person
+   must not get messages for two sellers from the same sender account.
+5. Retention (B-3): 180 days for everything, Instagram leads and DM texts included, run automatically.
+6. Inbox check from the panel (D-2): the button stays; it asks the dispatcher, which checks inside its own shift
+   hours and spacing. Anti-ban change approved.
+7. Server (I-2): the user has no server access. Prepare the database backup job now: skip with an alert when free
+   disk space is low, keep the last few files, send each file to a Telegram channel, encrypted before sending. Still
+   open: who has server access, and what exists there for TLS and the published web port.
+8. Coverage (G-1): `pytest-cov` approved as a test dependency; CI measures coverage, with a floor per critical
+   module that may only rise.
+9. The X collector stays and is used, so A-6 and B-9 are refactored, not deleted.
 
-#### Proposed phases 7+ (provisional until the decisions above)
+#### Phases 7+
 
 Order: live risks, then guardrails, then the data model, then the code that sits on it, then deploy. Every PR is
 one logical change; every fix starts with a test that fails without it.
@@ -341,14 +342,15 @@ one logical change; every fix starts with a test that fails without it.
 **Phase 7: live risks (small, independent PRs).** Closes D-1, D-2, B-8, B-6, I-2.
 - 7.1 Require login and a per-user limit on `suggest-category` and `category-attributes`. Test: anonymous gets no
   model call. Risk: the signup page may call it before login; check the templates first.
-- 7.2 Inbox check from the panel goes through `reply_sync_allowed` and the dispatcher's spacing, POST only
-  (decision 6). Test: a second click inside the spacing does not touch Instagram.
+- 7.2 Inbox check from the panel becomes a request the dispatcher serves inside `reply_sync_allowed` and its own
+  spacing, POST only; outside shift hours the seller is told when it will run (decision 6). Test: a second click inside the spacing does not touch Instagram.
 - 7.3 A reserved lead gets a `reserved_at` time; the dispatcher returns leads reserved longer than its longest send
-  to their previous status. Test: a lead left in `PROCESSING` is picked up again. Check first: query 8 of the
-  production numbers.
-- 7.4 Partial unique constraint on `(business, engine_opportunity_id)`. Before: query 4 must show no duplicates.
-  Rollback: drop the constraint.
-- 7.5 Database backup job and web port on 127.0.0.1 (after decision 7).
+  to their previous status. Test: a lead left in `PROCESSING` is picked up again.
+- 7.4 Partial unique constraint on `(business, engine_opportunity_id)`. The migration merges duplicates first if it
+  finds any. Rollback: drop the constraint.
+- 7.5 Database backup job (decision 7): free-space check, rotation, encrypted file to a Telegram channel (split
+  over 50 MB), an alert when it is skipped or fails, and a documented restore that is tested once. New settings go to
+  `.env.example`. The web port and TLS wait for an answer about the server.
 
 **Phase 8: guardrails.** Closes A-1, D-3, C-2, G-1.
 - 8.1 Function complexity in `scripts/check_baseline.py` and `guardrail_baseline.json` (ruff `C901` over 15 and
@@ -356,22 +358,26 @@ one logical change; every fix starts with a test that fails without it.
 - 8.2 One test that walks every route with an id as another seller and expects 403 or 404, built from the URL
   resolver so new routes are covered without editing it. One `is_operator` check everywhere.
 - 8.3 `makemigrations --check --dry-run` in CI.
-- 8.4 Coverage measured in CI with a floor per critical module that may only rise (decision 8).
+- 8.4 `pytest-cov` in CI with a floor per critical module that may only rise (decision 8).
 
 **Phase 9: data model.** Closes B-1, B-2, B-3, B-4, B-7, B-10, B-11, B-13, B-14, E-2. One migration per PR; each
 backfill ships with a query that must return zero before the next PR.
-- 9.1 `business` foreign key on `ig_accounts`, `leads`, `outreach_tenant_profiles` (nullable first), backfilled from
-  `tenant_id`; code writes both; reads move to the key; then `tenant_id`, the `sarv` alias and the hardcoded
-  first-customer fallbacks are deleted (decision 3). Guardrail: an architecture test that fails on `tenant_id`.
+- 9.1 `business` foreign key on `ig_accounts`, `leads`, `outreach_tenant_profiles`, backfilled from `tenant_id`;
+  code writes both; reads move to the key; then `tenant_id`, the `sarv` alias and the hardcoded first-customer
+  fallbacks are deleted. On accounts the key stays optional: empty means a shared scraper or a shared sender
+  (decision 3). Before the change: read how a shared sender picks its pitch and which leads it may take. Guardrail: an architecture test that fails on `tenant_id`.
   Risk: 167 references in 23 files; done in four or five PRs, never one.
 - 9.2 `Opportunity.lead` foreign key and a `retention_scrubbed` column, backfilled from the JSON; the copied lead
   fields and the duplicate feedback leave `trace_metadata`. This also removes most per-row queries of H-1.
 - 9.3 Account passwords, cookies and sessions use `EncryptedTextField` (and a JSON variant), with a reversible data
   migration like `billing/0003`. The X worker reads `x_accounts` with raw SQL and must decrypt with
   `need_engine/crypto.py`. Risk: a wrong key locks every account out; test the migration on a copy first.
-- 9.4 Retention covers leads, account events, crawl logs and `LLMUsageLog`, and is scheduled (decision 5).
-- 9.5 One row per outreach message (sender as a foreign key, direction, status, send-after time) in place of the
-  fixed columns and the JSON queue (decision 4). The largest change of this phase; planned on its own.
+- 9.4 Retention covers leads, DM texts, account events, crawl logs and `LLMUsageLog` at 180 days, and runs every
+  night from celery-beat (decision 5).
+- 9.5 One row per comment and one row per outreach message (sender as a foreign key, direction, status, send-after
+  time) in place of the fixed columns and the JSON queue (decision 4). The dispatcher then refuses, by query, a
+  sender that already messaged the same person for another seller. The largest change of this phase; planned on
+  its own.
 - 9.6 Check constraints on lead and account status; the 15 duplicate indexes dropped.
 
 **Phase 10: one LLM client, one way to charge.** Closes B-5, E-1, F-1.
@@ -388,7 +394,11 @@ reply sync, opportunity import and lead sync, scraper cycle. The ratchet from 8.
 override, pinned dependencies, image built and tagged in CI); Redis as the Django cache; a `/healthz` URL and worker
 healthchecks that read the heartbeats; the login thread becomes a Celery task.
 
-**When the code is touched anyway:** A-6 to A-9, B-9, C-1, F-2, F-3, H-1 (what 9.2 leaves), H-2, I-4.
+**Phase 13: X collector.** Closes A-6, B-9 (decision 9). Tests around the search client first (22% covered), then
+the cycle and the client split by stage; the worker's hand-written SQL on panel tables gets a test that fails when
+a column it names is renamed.
+
+**When the code is touched anyway:** A-7 to A-9, C-1, F-2, F-3, H-1 (what 9.2 leaves), H-2, I-4.
 
 #### Not checked
 
