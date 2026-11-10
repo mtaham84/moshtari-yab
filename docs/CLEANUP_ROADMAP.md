@@ -23,8 +23,8 @@ green, before the next one starts. Behavior must not change unless the step says
 - Phase 6, step 1 is done: the audit found 40 problems worth fixing (3 P0, 15 P1, 22 P2), listed under "Audit
   report" with a proposed order of work.
 - Phase 6, steps 2 and 3 are done: the user answered the decisions and phases 7-13 are written from them.
-- **Next step:** Phase 7 (live risks), one small PR per item, starting with 7.1. Still open: who has server access
-  (TLS and the published web port, I-2).
+- **Next step:** Phase 7 (live risks, in progress): 7.1 is done (`fix/suggest-category-auth`); next is 7.2. Still open:
+  who has server access (TLS and the published web port, I-2).
 - Open PRs and other branches are out of scope for this plan.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
@@ -275,7 +275,7 @@ F coupling, G tests, H panel queries, I config and deploy).
 | B-5 | Two ways to charge a wallet. The engine path uses the cost ledger and a cursor. The Instagram path debits inline, keeps its "already charged" list inside the opportunity's JSON (last 20 only) and logs a failed debit without retrying. A transaction does not record what it paid for | `apps/billing/services.py:102`, `services.py:339-361` | `charged_refs` in `trace_metadata`; `WalletTransaction` has no reference column; model name hardcoded at `services.py:307` | 3 / 2 / 2 | P1 | CONFIRMED |
 | B-6 | Nothing in the database stops two opportunities for the same seller and engine id: the import looks one up, then creates it | `engine_bridge.py:129-134`, `models/core.py:389` | Only an index on `engine_opportunity_id`; safe today because one `sync` process runs | 3 / 1 / 1 | P1 | CONFIRMED |
 | B-7 | `InstagramEngineLead` is five things in one row: person, comment, source post, scores, conversation. Messages are fixed columns (first, second, last reply) plus a JSON history that is also the send queue. One person can be one lead per seller only | `models/instagram.py:397-470`, `outreach_engine.py:368-381` | `UNIQUE (tenant_id, ig_user_pk)`; queue read by `_first_queued_item` from `conversation_history` | 2 / 3 / 3 | P1 | CONFIRMED |
-| D-1 | A public URL makes paid LLM calls: no login and no rate limit. When the keyword match fails it asks the model. A second public URL returns the attribute list of any category by id, including a seller's private ones | `apps/products/views.py:444`, `apps/products/services.py:327`, `:458` | Test client, anonymous `GET /products/api/suggest-category/?name=...` returns 200 and calls `chat_json` (mocked) | 3 / 1 / 1 | P1 | CONFIRMED |
+| D-1 | A public URL makes paid LLM calls: no login and no rate limit. When the keyword match fails it asks the model. A second public URL returns the attribute list of any category by id, including a seller's private ones | `apps/products/views.py:444`, `apps/products/services.py:327`, `:458` | Test client, anonymous `GET /products/api/suggest-category/?name=...` returns 200 and calls `chat_json` (mocked) | 3 / 1 / 1 | P1 | FIXED (7.1) |
 | D-2 | Any seller can make the web process open the Instagram inbox of all their sender accounts, at any hour and as often as they click, with a plain GET. The dispatcher's shift hours and random 5-10 minute spacing are not applied on this path | `apps/accounts/outreach_views.py:306`, `outreach/replies.py:89` | `reply_sync_allowed` is called only in `tasks.py:103` and `run_instagram_outreach.py:141,157`; the view has `login_required` only | 3 / 1 / 1 | P1 | CONFIRMED (read, not run) |
 | D-3 | Seller scoping is written by hand in each of the 53 seller views, with three different "is operator" checks (`is_operator`, `_staff`, `is_superuser`). Every id lookup traced is scoped correctly today, but no test walks all routes as another seller, so one missed filter in a new view ships | `apps/accounts/outreach_views.py:390,480`, `views/opportunities.py:373-603` | 136 routes mapped from the resolver; about 30 id lookups traced; cross-seller tests exist in 5 test files, per view | 3 / 2 / 1 | P1 | CONFIRMED (missing guardrail) |
 | A-1 | Nothing limits function size. The file-size ratchet let 280-line functions through, and each agent edit adds another branch | `scripts/check_baseline.py`, `pyproject.toml` | 51 functions over 15 branches, 14 over 25; 56 over 50 statements; 44 with more than 5 parameters (`fetch_source_medias` has 10) | 2 / 3 / 1 | P1 | CONFIRMED (missing guardrail) |
@@ -340,8 +340,9 @@ Order: live risks, then guardrails, then the data model, then the code that sits
 one logical change; every fix starts with a test that fails without it.
 
 **Phase 7: live risks (small, independent PRs).** Closes D-1, D-2, B-8, B-6, I-2.
-- 7.1 Require login and a per-user limit on `suggest-category` and `category-attributes`. Test: anonymous gets no
-  model call. Risk: the signup page may call it before login; check the templates first.
+- [x] 7.1 Require login, per-user rate limit, and seller category scoping on `suggest-category` and `category-attributes`.
+      Checked templates/static: only `static/js/product_form.js` calls them (not signup/onboarding). Test: anonymous gets
+      redirected with no model/DB call; another seller's private category returns 404.
 - 7.2 Inbox check from the panel becomes a request the dispatcher serves inside `reply_sync_allowed` and its own
   spacing, POST only; outside shift hours the seller is told when it will run (decision 6).
   Test: a second click inside the spacing does not touch Instagram.
