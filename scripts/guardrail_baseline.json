@@ -53,6 +53,6 @@
     "workers/x_collector/llm_terms.py": 2
   },
   "lines": {
-    "apps/discovery/models/core.py": 848
+    "apps/discovery/models/core.py": 845
   }
 }
