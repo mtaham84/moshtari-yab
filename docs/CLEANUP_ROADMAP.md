@@ -350,6 +350,10 @@ one logical change; every fix starts with a test that fails without it.
       spacing, POST only; outside shift hours the seller is told when it will run (decision 6).
       Test: a second click inside the spacing does not touch Instagram. (`OutreachTenantProfile.reply_sync_requested_at`
       / `last_reply_sync_at` + migration `discovery/0041`).
+      Follow-up cleanup: one spacing check and one profile lock in `outreach/replies.py`, which returns data only (the
+      seller's texts are built in `accounts/outreach_views._reply_sync_message`); one code path in
+      `task_sync_lead_replies` (given tenants get the same spacing); the two `INSTAGRAM_REPLY_SYNC_*` settings in
+      `.env.example`.
 - [x] 7.3 A reserved lead gets a `reserved_at` time; the dispatcher returns leads reserved longer than its longest send
       (`PROCESSING_TIMEOUT_MINUTES = 10`) to their previous status (`NEW`, `QUEUED`, `REPLIED`, `DM_SENT`) via
       `release_stale_reservations`. Test: a lead left in `PROCESSING` is picked up again. (Migration `discovery/0042`).

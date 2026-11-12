@@ -148,6 +148,18 @@ class SyncRepliesViewUnitTests(SimpleTestCase):
         self.assertIn("POST", sync_fn_block)
         self.assertIn("X-CSRFToken", sync_fn_block)
 
+    def test_view_words_each_result_for_the_seller(self):
+        throttled = outreach_views._reply_sync_message(
+            {"status": "throttled", "wait_seconds": 240, "next_run_at": "11:05"})
+        self.assertIn("4 دقیقه", throttled)
+        self.assertIn("11:05", throttled)
+        outside = outreach_views._reply_sync_message(
+            {"status": "outside_shift", "already_queued": True, "next_run_at": "09:50", "reason": "استراحت شبانه"})
+        self.assertIn("از قبل ثبت شده", outside)
+        self.assertIn("حدود ساعت 09:50", outside)
+        self.assertIn("در صف", outreach_views._reply_sync_message({"status": "already_queued"}))
+        self.assertIn("ثبت شد", outreach_views._reply_sync_message({"status": "queued"}))
+
 
 class ReplySyncDispatcherUnitTests(SimpleTestCase):
     """Tests request_reply_sync + serve_reply_syncs logic with an in-memory profile stub."""
@@ -246,7 +258,7 @@ class ReplySyncDispatcherUnitTests(SimpleTestCase):
                 res = replies.request_reply_sync("tenant_7", now=t_night)
                 self.assertEqual(res["status"], "outside_shift")
                 self.assertTrue(res["queued"])
-                self.assertIn("09:50", res["message"])
+                self.assertEqual(res["next_run_at"], "09:50")
                 self.assertIsNotNone(store["tenant_7"].reply_sync_requested_at)
 
                 # Dispatcher outside shift does NOT touch Instagram
