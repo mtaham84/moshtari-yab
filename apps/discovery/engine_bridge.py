@@ -44,6 +44,10 @@ SELLER_KEYS = ("seller_drafts", "seller_drafts_n")   # trace_metadata keys writt
 ENGINE_OWNED_STATUSES = {"NEW", "RESOLVED", "EXPIRED"}  # seller-set statuses (REVIEWED, CONTACTED, …) are kept
 
 
+# Run results written by workers/x_collector that have another name on XCollectorState
+X_COLLECTOR_STATUSES = {"completed": "idle", "partial": "idle", "daily_cap_reached": "daily_cap"}
+
+
 def _dt(value: Any) -> datetime | None:
     return parse_datetime(value) if isinstance(value, str) else value
 
@@ -370,21 +374,24 @@ def sync_x_status_file(path: str, stale_minutes: int = 30) -> bool:
         return False
     try:
         payload = json.loads(target.read_text(encoding="utf-8"))
-        updated = parse_datetime(payload.get("updated_at", ""))
-        if not isinstance(payload, dict) or updated is None:
+        if not isinstance(payload, dict):
+            raise ValueError("invalid status format")
+        updated = _dt(payload.get("updated_at"))
+        if updated is None:
             raise ValueError("invalid status format")
         stale = timezone.now() - updated > timedelta(minutes=max(1, stale_minutes))
         status = "unknown" if stale else str(payload.get("status", "unknown")).casefold()
+        status = X_COLLECTOR_STATUSES.get(status, status)
         allowed = {choice[0] for choice in XCollectorState.STATUSES}
         if status not in allowed:
             status = "unknown"
         XCollectorState.objects.update_or_create(id=1, defaults={
             "status": status, "collected_today": max(0, int(payload.get("collected_today", 0))),
             "daily_cap": max(0, int(payload.get("daily_cap", 0))),
-            "last_cycle_at": parse_datetime(payload.get("last_cycle_at", "")),
+            "last_cycle_at": _dt(payload.get("last_cycle_at")),
             "last_cycle_collected": max(0, int(payload.get("collected", 0))),
             "failures_last_cycle": max(0, int(payload.get("failures", 0))),
-            "cooldown_until": parse_datetime(payload.get("cooldown_until", "")),
+            "cooldown_until": _dt(payload.get("cooldown_until")),
         })
         for row in payload.get("queries", []):
             normalized = str(row.get("query", ""))[:100]
