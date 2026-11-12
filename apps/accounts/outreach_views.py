@@ -303,27 +303,40 @@ def generate_pitches_ajax_view(request):
 
 
 @login_required
+@require_POST
 def sync_replies_view(request):
-    """Check direct inbox for any replies from leads across all sender accounts."""
-    from django.http import JsonResponse
-    from apps.discovery.outreach.replies import check_and_sync_lead_replies
+    """Queue an inbox reply check for the outreach dispatcher (never calls Instagram from the web process)."""
+    from apps.businesses.models import Business
+    from apps.discovery.outreach.replies import request_reply_sync
 
     business = getattr(request.user, "business", None)
+    if _staff(request.user):
+        biz = (request.POST.get("biz") or "").strip()
+        if biz.isdigit():
+            business = Business.objects.filter(pk=int(biz)).first() or business
+        elif not business:
+            business = _operator_outreach_business(None, business, list(Business.objects.all().order_by("id")))
     if not business:
+        if wants_json(request):
+            return JsonResponse({"success": False, "error": "کسب‌وکار یافت نشد."}, status=400)
         return redirect("accounts:dashboard")
 
-    tenant_keys = _outreach_tenant_keys(business)
-
-    res = check_and_sync_lead_replies(tenant_keys)
+    res = request_reply_sync(tenants.tenant_key(business))
+    status_code = 429 if res.get("status") == "throttled" else 200
     if wants_json(request):
-        return JsonResponse({"success": True, "replies_found": res.get("replies_found", 0), "details": res.get("details", [])})
+        return JsonResponse({"success": res.get("status") != "throttled", **res}, status=status_code)
 
-    found = res.get("replies_found", 0)
-    if found > 0:
-        messages.success(request, f"پایش صندوق پیام‌ها انجام شد: {found} پاسخ جدید از خریداران دریافت و ثبت شد!")
+    msg = res.get("message") or "درخواست همگام‌سازی صندوق ثبت شد."
+    if res.get("status") == "throttled":
+        messages.warning(request, msg)
+    elif res.get("status") == "outside_shift":
+        messages.info(request, msg)
     else:
-        messages.info(request, "صندوق پیام‌ها پایش شد؛ پاسخ جدیدی تا این لحظه دریافت نشده است.")
-    return redirect("accounts:outreach")
+        messages.success(request, msg)
+
+    if _staff(request.user) and request.POST.get("next") == "manage":
+        return redirect("manage:dashboard")
+    return _outreach_redirect(request, business.id)
 
 
 @login_required

@@ -23,8 +23,8 @@ green, before the next one starts. Behavior must not change unless the step says
 - Phase 6, step 1 is done: the audit found 40 problems worth fixing (3 P0, 15 P1, 22 P2), listed under "Audit
   report" with a proposed order of work.
 - Phase 6, steps 2 and 3 are done: the user answered the decisions and phases 7-13 are written from them.
-- **Next step:** Phase 7 (live risks), one small PR per item, starting with 7.1. Still open: who has server access
-  (TLS and the published web port, I-2).
+- **Next step:** Phase 7 (live risks, in progress): 7.1 is done (`fix/suggest-category-auth`); next is 7.2. Still open:
+  who has server access (TLS and the published web port, I-2).
 - Second refactor: `docs/SECOND_REFACTOR.md` (2026-11-10) goes through the code one part at a time with the user;
   part 1 is proxies (what the first production deploy showed, and the steps to put all proxy logic in
   `apps/discovery/proxies/`). The operator panel rebuild is planned in `docs/OPS_PANEL.md`. Neither is started.
@@ -276,10 +276,10 @@ F coupling, G tests, H panel queries, I config and deploy).
 | B-3 | The retention job never touches Instagram leads (comments, bios, DM texts), account events, crawl logs or `LLMUsageLog`; it is also not scheduled anywhere in git (compose profile `maintenance`) | `telegram_crawler/retention.py`, `models/instagram.py:397` | No reference to `leads` / `InstagramEngineLead` in the four retention modules | 3 / 3 / 2 | P0 | CONFIRMED |
 | B-4 | Account passwords and session cookies are stored unencrypted; only `Provider.api_key` uses `EncryptedTextField`. `AGENTS.md` says secrets in the DB are encrypted | `models/instagram.py:164,176`, `models/x_twitter.py:145-147`, `apps/billing/models.py:19` | `ig_accounts.password`, `session_json`; `x_accounts.password`, `auth_token`, `ct0`; `proxy_configs.raw_url` | 3 / 2 / 2 | P1 | CONFIRMED |
 | B-5 | Two ways to charge a wallet. The engine path uses the cost ledger and a cursor. The Instagram path debits inline, keeps its "already charged" list inside the opportunity's JSON (last 20 only) and logs a failed debit without retrying. A transaction does not record what it paid for | `apps/billing/services.py:102`, `services.py:339-361` | `charged_refs` in `trace_metadata`; `WalletTransaction` has no reference column; model name hardcoded at `services.py:307` | 3 / 2 / 2 | P1 | CONFIRMED |
-| B-6 | Nothing in the database stops two opportunities for the same seller and engine id: the import looks one up, then creates it | `engine_bridge.py:129-134`, `models/core.py:389` | Only an index on `engine_opportunity_id`; safe today because one `sync` process runs | 3 / 1 / 1 | P1 | CONFIRMED |
+| B-6 | Nothing in the database stops two opportunities for the same seller and engine id: the import looks one up, then creates it | `engine_bridge.py:129-134`, `models/core.py:389` | Only an index on `engine_opportunity_id`; safe today because one `sync` process runs | 3 / 1 / 1 | P1 | FIXED (7.4) |
 | B-7 | `InstagramEngineLead` is five things in one row: person, comment, source post, scores, conversation. Messages are fixed columns (first, second, last reply) plus a JSON history that is also the send queue. One person can be one lead per seller only | `models/instagram.py:397-470`, `outreach_engine.py:368-381` | `UNIQUE (tenant_id, ig_user_pk)`; queue read by `_first_queued_item` from `conversation_history` | 2 / 3 / 3 | P1 | CONFIRMED |
-| D-1 | A public URL makes paid LLM calls: no login and no rate limit. When the keyword match fails it asks the model. A second public URL returns the attribute list of any category by id, including a seller's private ones | `apps/products/views.py:444`, `apps/products/services.py:327`, `:458` | Test client, anonymous `GET /products/api/suggest-category/?name=...` returns 200 and calls `chat_json` (mocked) | 3 / 1 / 1 | P1 | CONFIRMED |
-| D-2 | Any seller can make the web process open the Instagram inbox of all their sender accounts, at any hour and as often as they click, with a plain GET. The dispatcher's shift hours and random 5-10 minute spacing are not applied on this path | `apps/accounts/outreach_views.py:306`, `outreach/replies.py:89` | `reply_sync_allowed` is called only in `tasks.py:103` and `run_instagram_outreach.py:141,157`; the view has `login_required` only | 3 / 1 / 1 | P1 | CONFIRMED (read, not run) |
+| D-1 | A public URL makes paid LLM calls: no login and no rate limit. When the keyword match fails it asks the model. A second public URL returns the attribute list of any category by id, including a seller's private ones | `apps/products/views.py:444`, `apps/products/services.py:327`, `:458` | Test client, anonymous `GET /products/api/suggest-category/?name=...` returns 200 and calls `chat_json` (mocked) | 3 / 1 / 1 | P1 | FIXED (7.1) |
+| D-2 | Any seller can make the web process open the Instagram inbox of all their sender accounts, at any hour and as often as they click, with a plain GET. The dispatcher's shift hours and random 5-10 minute spacing are not applied on this path | `apps/accounts/outreach_views.py:306`, `outreach/replies.py:89` | `reply_sync_allowed` is called only in `tasks.py:103` and `run_instagram_outreach.py:141,157`; the view has `login_required` only | 3 / 1 / 1 | P1 | FIXED (7.2) |
 | D-3 | Seller scoping is written by hand in each of the 53 seller views, with three different "is operator" checks (`is_operator`, `_staff`, `is_superuser`). Every id lookup traced is scoped correctly today, but no test walks all routes as another seller, so one missed filter in a new view ships | `apps/accounts/outreach_views.py:390,480`, `views/opportunities.py:373-603` | 136 routes mapped from the resolver; about 30 id lookups traced; cross-seller tests exist in 5 test files, per view | 3 / 2 / 1 | P1 | CONFIRMED (missing guardrail) |
 | A-1 | Nothing limits function size. The file-size ratchet let 280-line functions through, and each agent edit adds another branch | `scripts/check_baseline.py`, `pyproject.toml` | 51 functions over 15 branches, 14 over 25; 56 over 50 statements; 44 with more than 5 parameters (`fetch_source_medias` has 10) | 2 / 3 / 1 | P1 | CONFIRMED (missing guardrail) |
 | A-2 | The retention purge is one function: 58 branches, 288 lines, 34 SQL statements inside a single `with` block, deleting customer data in three schemas. Its file is 22% covered | `telegram_crawler/retention.py:371` | ruff `C901` = 58 (highest in the repo); coverage 349 of 445 statements missed | 3 / 1 / 2 | P1 | CONFIRMED |
@@ -288,8 +288,8 @@ F coupling, G tests, H panel queries, I config and deploy).
 | A-5 | The inbox reply sync (writes lead status and captured phone numbers) is one 150-line function, 25% covered | `outreach/replies.py:89` | 20 branches, one 121-line loop; 78 of 104 statements missed | 3 / 1 / 2 | P1 | CONFIRMED |
 | E-1 | Two LLM clients with separate bookkeeping. The engine's client has quotas, a cache and the cost ledger that billing reads. The panel's client has model failover and its own `LLMUsageLog`, which billing does not read; the engine and the Instagram analyzer call the panel's one too | `need_engine/llm.py:170`, `apps/core/llm.py:32`, `need_engine/post_qualification.py:365`, `instagram_engine/analyzer.py:224,355` | 11 files import the engine client, 9 the panel client; see B-5 for the two charging paths that follow from it | 3 / 2 / 3 | P1 | CONFIRMED |
 | I-1 | Production runs the server's checkout, not a built image: compose mounts ten source folders over the image, dependencies are version ranges, and CI builds no image. A deploy cannot be reproduced or rolled back by tag | `docker-compose.yml:26-36`, `requirements.txt`, `.github/workflows/ci.yml` | `Django>=5.2,<7.0`, `instagrapi>=2.1.2`, `curl_cffi>=0.7.0`; `collectstatic` is baked in while `./static` is mounted | 3 / 2 / 2 | P1 | CONFIRMED |
-| I-2 | No database backup job exists in git (only the accounts pool is backed up), the web port is published on every interface while db and redis bind to 127.0.0.1, and no TLS proxy is defined | `docker-compose.yml:80`, `docker/entrypoint.sh` | grep for `pg_dump` finds nothing; the server may have what git does not | 3 / 2 / 1 | P1 | SUSPECTED (server not seen) |
-| B-8 | A lead reserved for sending gets status `PROCESSING`, and no code ever releases it. A restart in the middle of a send (every deploy restarts `ig-outreach`) leaves the lead there for good | `outreach_engine.py:391`, `outreach/recipients.py:57` | `PROCESSING` is written in two places and read in none | 2 / 1 / 1 | P2 | CONFIRMED (bug) |
+| I-2 | No database backup job exists in git (only the accounts pool is backed up), the web port is published on every interface while db and redis bind to 127.0.0.1, and no TLS proxy is defined | `docker-compose.yml:80`, `docker/entrypoint.sh` | grep for `pg_dump` finds nothing; the server may have what git does not | 3 / 2 / 1 | P1 | PARTIAL (7.5 backup added; TLS/port pending server access) |
+| B-8 | A lead reserved for sending gets status `PROCESSING`, and no code ever releases it. A restart in the middle of a send (every deploy restarts `ig-outreach`) leaves the lead there for good | `outreach_engine.py:391`, `outreach/recipients.py:57` | `PROCESSING` is written in two places and read in none | 2 / 1 / 1 | P2 | FIXED (7.3) |
 | B-9 | Workers read and write panel tables with hardcoded SQL, so a renamed Django column fails at runtime, not in review. The X worker writes the Instagram stats table | `workers/x_collector/account_pool.py:143-230`, `worker.py:548`, `need_engine/sources.py` | 12 worker and engine files name panel tables; 5 write statements | 2 / 2 / 2 | P2 | CONFIRMED; test cover not checked |
 | B-10 | Code filters and branches on keys inside `trace_metadata` (`retention_scrubbed`, `engine.decision`), so the JSON is a second schema. Seller feedback is saved three times on every click (`feedback`, `lead_feedback`, a JSON key) | `engine_bridge.py:86`, `services.py:690`, `retention.py:10`, `views/opportunities.py:621-667` | 56 references in code, 6 in query filters | 2 / 2 / 2 | P2 | CONFIRMED |
 | B-11 | Accounts are referenced by username text next to, or instead of, a foreign key; a proxy's owner is stored both as `proxy_configs.assigned_to` and as `ig_accounts.proxy_config` | `models/instagram.py:449,456,505,564,656`, `models/proxy.py:26` | 6 text columns: `sender_account`, `second_sender_username`, three `account_username`, `assigned_to` | 2 / 2 / 2 | P2 | CONFIRMED |
@@ -343,18 +343,23 @@ Order: live risks, then guardrails, then the data model, then the code that sits
 one logical change; every fix starts with a test that fails without it.
 
 **Phase 7: live risks (small, independent PRs).** Closes D-1, D-2, B-8, B-6, I-2.
-- 7.1 Require login and a per-user limit on `suggest-category` and `category-attributes`. Test: anonymous gets no
-  model call. Risk: the signup page may call it before login; check the templates first.
-- 7.2 Inbox check from the panel becomes a request the dispatcher serves inside `reply_sync_allowed` and its own
-  spacing, POST only; outside shift hours the seller is told when it will run (decision 6).
-  Test: a second click inside the spacing does not touch Instagram.
-- 7.3 A reserved lead gets a `reserved_at` time; the dispatcher returns leads reserved longer than its longest send
-  to their previous status. Test: a lead left in `PROCESSING` is picked up again.
-- 7.4 Partial unique constraint on `(business, engine_opportunity_id)`. The migration merges duplicates first if it
-  finds any. Rollback: drop the constraint.
-- 7.5 Database backup job (decision 7): free-space check, rotation, encrypted file to a Telegram channel (split
-  over 50 MB), an alert when it is skipped or fails, and a documented restore that is tested once. New settings go to
-  `.env.example`. The web port and TLS wait for an answer about the server.
+- [x] 7.1 Require login, per-user rate limit, and seller category scoping on `suggest-category` and `category-attributes`.
+      Checked templates/static: only `static/js/product_form.js` calls them (not signup/onboarding). Test: anonymous gets
+      redirected with no model/DB call; another seller's private category returns 404.
+- [x] 7.2 Inbox check from the panel becomes a request the dispatcher serves inside `reply_sync_allowed` and its own
+      spacing, POST only; outside shift hours the seller is told when it will run (decision 6).
+      Test: a second click inside the spacing does not touch Instagram. (`OutreachTenantProfile.reply_sync_requested_at`
+      / `last_reply_sync_at` + migration `discovery/0041`).
+- [x] 7.3 A reserved lead gets a `reserved_at` time; the dispatcher returns leads reserved longer than its longest send
+      (`PROCESSING_TIMEOUT_MINUTES = 10`) to their previous status (`NEW`, `QUEUED`, `REPLIED`, `DM_SENT`) via
+      `release_stale_reservations`. Test: a lead left in `PROCESSING` is picked up again. (Migration `discovery/0042`).
+- [x] 7.4 Partial unique constraint on `(business, engine_opportunity_id)` (`uniq_opportunity_business_engine_id`
+      excluding `engine_opportunity_id=""`). The migration (`discovery/0043`) merges duplicates first if it finds any.
+      Rollback: drop the constraint.
+- [x] 7.5 Database backup job: `apps/core/backup.py` + `manage.py backup_database` (`db-backup` maintenance service in
+      `docker-compose.yml`). Free-disk check skips with alert, `pg_dump -Fc` -> GPG AES-256 (stdin passphrase) ->
+      split at 45 MB -> Telegram channel -> rotate keeping 7 newest sets. Seven new env vars in `.env.example`. Restore
+      procedure in `docs/BACKUP.md` (live server restore test still pending server access).
 
 **Phase 8: guardrails.** Closes A-1, D-3, C-2, G-1.
 - 8.1 Function complexity in `scripts/check_baseline.py` and `guardrail_baseline.json` (ruff `C901` over 15 and

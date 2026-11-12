@@ -5,17 +5,20 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import F, Q
 from django.http import HttpResponseRedirect, JsonResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from apps.businesses.models import Business
 from apps.businesses.services import ensure_business
+from apps.core.http import allow_user_rate
 from apps.discovery.models import Opportunity, ProductDailyMetric, ProductOrder
 from .models import Category, Product, ProductImage
 from . import agent_card
 from .services import suggest_category_for_product
 
 log = logging.getLogger(__name__)
+SUGGEST_CATEGORY_HOURLY_LIMIT = 30
+CATEGORY_ATTRIBUTES_HOURLY_LIMIT = 120
 
 
 def _form_list(value: str, *, hashtags: bool = False) -> list[str]:
@@ -441,11 +444,18 @@ def delete_image_view(request, pk, image_pk):
         return redirect(referer)
     return redirect("products:edit", pk=product.pk)
 
+@login_required
+@require_GET
 def api_suggest_category(request):
+    if not allow_user_rate("suggest-category", request.user.pk, SUGGEST_CATEGORY_HOURLY_LIMIT):
+        return JsonResponse(
+            {"status": "rate_limited", "message": "تعداد درخواست‌ها بیش از حد مجاز است؛ لطفاً کمی بعد دوباره تلاش کنید."},
+            status=429,
+        )
     name = request.GET.get("name", "").strip()
     description = request.GET.get("description", "").strip()
     product_type = request.GET.get("product_type", "").strip() or None
-    business = getattr(request.user, "business", None) if getattr(request, "user", None) and request.user.is_authenticated else None
+    business = getattr(request.user, "business", None)
 
     if not name:
         return JsonResponse({"status": "empty", "suggestion": None})
@@ -455,10 +465,17 @@ def api_suggest_category(request):
         return JsonResponse({"status": "success", "suggestion": suggestion})
     return JsonResponse({"status": "no_match", "suggestion": None})
 
+
+@login_required
+@require_GET
 def api_category_attributes(request, category_id):
-    category = Category.objects.filter(id=category_id).first()
+    if not allow_user_rate("category-attributes", request.user.pk, CATEGORY_ATTRIBUTES_HOURLY_LIMIT):
+        return JsonResponse({"attributes": [], "status": "rate_limited"}, status=429)
+    business = getattr(request.user, "business", None)
+    scope = Q(business__isnull=True) | Q(business=business) if business else Q(business__isnull=True)
+    category = Category.objects.filter(scope, id=category_id, is_active=True).first()
     if not category:
-        return JsonResponse({"attributes": []})
+        return JsonResponse({"attributes": []}, status=404)
     return JsonResponse({"attributes": category.suggested_attributes or []})
 
 @login_required

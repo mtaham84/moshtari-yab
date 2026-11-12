@@ -38,7 +38,11 @@ from apps.discovery.outreach.journey import execute_organic_journey
 from apps.discovery.outreach.limits import get_effective_sender_limits
 from apps.discovery.outreach.messages import build_bulletproof_message
 from apps.discovery.outreach.outbox import process_queued_outbox_message, resolve_queued_sender
-from apps.discovery.outreach.recipients import qualify_recipient_profile, select_and_reserve_candidate
+from apps.discovery.outreach.recipients import (
+    qualify_recipient_profile,
+    release_stale_reservations,
+    select_and_reserve_candidate,
+)
 from instagram_engine.analyzer import validate_and_sanitize_dm
 
 logger = logging.getLogger("instagram_outreach")
@@ -360,7 +364,8 @@ def _record_queued_failure(lead, error: str, kind: str, now) -> bool:
     fields = ["conversation_history", "updated_at"]
     if gave_up and _first_queued_item(lead)[1] is None:
         lead.status = "REPLIED" if lead.has_replied else ("DM_SENT" if lead.initial_dm_at else "FAILED")
-        fields.append("status")
+        lead.reserved_at = None
+        fields.extend(["status", "reserved_at"])
     lead.save(update_fields=fields)
     return gave_up
 
@@ -389,7 +394,8 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
 
             # Atomically reserve by setting status to PROCESSING
             cand.status = "PROCESSING"
-            cand.save(update_fields=["status", "updated_at"])
+            cand.reserved_at = now
+            cand.save(update_fields=["status", "reserved_at", "updated_at"])
             lead_to_process = cand
             sender = cand_sender
             break
@@ -430,7 +436,8 @@ def _send_next_queued(ctx: _Ctx, now) -> Optional[Dict[str, Any]]:
     else:
         # Revert back to QUEUED for retry
         lead_to_process.status = "QUEUED"
-        lead_to_process.save(update_fields=["status", "updated_at"])
+        lead_to_process.reserved_at = None
+        lead_to_process.save(update_fields=["status", "reserved_at", "updated_at"])
     return {"action": "queued_failed", "sent": False, "lead": lead_to_process.username, "sender": sender.username, "kind": kind}
 
 
@@ -462,6 +469,7 @@ def _mark_cold_sent(lead, sender, text: str, *, pace: bool) -> Tuple[float, bool
     delay, is_break = 0.0, False
     with transaction.atomic():
         lead.status = "DM_SENT"
+        lead.reserved_at = None
         lead.sender_account = sender.username
         lead.initial_dm_text = text
         lead.initial_dm_at = now
@@ -473,7 +481,7 @@ def _mark_cold_sent(lead, sender, text: str, *, pace: bool) -> Tuple[float, bool
             "time": now.isoformat(),
             "delivery_status": "SENT",
         }]
-        lead.save(update_fields=["status", "sender_account", "initial_dm_text", "initial_dm_at",
+        lead.save(update_fields=["status", "reserved_at", "sender_account", "initial_dm_text", "initial_dm_at",
                                  "conversation_history", "updated_at"])
         sender.daily_action_count += 1
         sender.hourly_action_count = (sender.hourly_action_count or 0) + 1
@@ -511,8 +519,9 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
     if not valid:
         ctx.log(f"   🚫 [گاردریل پیام]: دایرکت به @{lead.username} ارسال نشد: {reason}")
         lead.status = "FAILED"
+        lead.reserved_at = None
         lead.comment_text = (lead.comment_text or "") + f"\n[گاردریل پیام]: {reason}"
-        lead.save(update_fields=["status", "comment_text", "updated_at"])
+        lead.save(update_fields=["status", "reserved_at", "comment_text", "updated_at"])
         return {"action": "cold_blocked", "sent": False, "lead": lead.username, "sender": sender.username,
                 "reason": reason}
 
@@ -534,8 +543,9 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         if not qualify["eligible"]:
             ctx.log(f"   ⏭️ [سپر ضد بلاک]: ارسال به @{lead.username} لغو شد: {qualify['reason']}")
             lead.status = "SKIPPED"
+            lead.reserved_at = None
             lead.comment_text = (lead.comment_text or "") + f"\n[گاردریل ضد بلاک]: {qualify['reason']}"
-            lead.save(update_fields=["status", "comment_text", "updated_at"])
+            lead.save(update_fields=["status", "reserved_at", "comment_text", "updated_at"])
             return {"action": "skipped", "sent": False, "lead": lead.username}
 
         target_pk = qualify.get("target_pk") or (
@@ -544,7 +554,8 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         if not target_pk:
             ctx.log(f"   ⚠️ عدم امکان تعیین PK معتبر برای @{lead.username}. رد شد.")
             lead.status = "SKIPPED"
-            lead.save(update_fields=["status", "updated_at"])
+            lead.reserved_at = None
+            lead.save(update_fields=["status", "reserved_at", "updated_at"])
             return {"action": "skipped", "sent": False, "lead": lead.username}
 
         ctx.log(f"   [۲/۳] 🌐 پیمایش ارگانیک (فید، جستجو، پروفایل، استوری) برای @{lead.username}...")
@@ -561,15 +572,18 @@ def _send_cold_dm(ctx: _Ctx, sender, lead) -> Dict[str, Any]:
         apply_sender_error(sender, kind, error, ctx.log)
         if kind == "recipient_blocked":
             lead.status = "SKIPPED"
+            lead.reserved_at = None
             lead.comment_text = (lead.comment_text or "") + "\n[محدودیت کاربر]: مسدود بودن دایرکت اکانت‌های ناشناس"
-            lead.save(update_fields=["status", "comment_text", "updated_at"])
+            lead.save(update_fields=["status", "reserved_at", "comment_text", "updated_at"])
         elif kind == "unknown":
             lead.status = "FAILED"
-            lead.save(update_fields=["status", "updated_at"])
+            lead.reserved_at = None
+            lead.save(update_fields=["status", "reserved_at", "updated_at"])
         else:
             # sender-level errors: the lead reverts to NEW so another sender can deliver it
             lead.status = "NEW"
-            lead.save(update_fields=["status", "updated_at"])
+            lead.reserved_at = None
+            lead.save(update_fields=["status", "reserved_at", "updated_at"])
         return {"action": "cold_failed", "sent": False, "lead": lead.username, "sender": sender.username, "kind": kind}
 
     delay, is_break = _mark_cold_sent(lead, sender, pitch_text, pace=True)
@@ -636,17 +650,23 @@ def run_outreach_step(
             return {"action": "paused", "sent": False, "reason": reason, "wait_seconds": wait_sec}
     now = timezone.now()
     refresh_sender_states(ctx.tenant_ids, ctx.log)
+    release_stale_reservations(ctx.tenant_ids, now=now)
     queued = _send_next_queued(ctx, now)
     if queued:
         return queued
     return _send_next_cold(ctx, now)
 
 
+def reply_sync_window(ignore_shift: bool = False) -> Tuple[bool, str, int]:
+    """Shift status for inbox checks: (allowed, Persian reason with next start time, wait seconds)."""
+    if ignore_shift:
+        return True, "", 0
+    return HumanShiftPlanner.is_shift_active()
+
+
 def reply_sync_allowed(ignore_shift: bool = False) -> Tuple[bool, str]:
     """Inbox checks follow the same shift hours as sending: a person does not refresh DMs all night."""
-    if ignore_shift:
-        return True, ""
-    active, reason, _ = HumanShiftPlanner.is_shift_active()
+    active, reason, _ = reply_sync_window(ignore_shift=ignore_shift)
     return active, reason
 
 

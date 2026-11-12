@@ -116,7 +116,8 @@ def process_queued_outbox_message(
             history[queued_idx] = queued_item
             lead.conversation_history = history
             lead.status = "DM_SENT" if lead.initial_dm_at else "FAILED"
-            lead.save(update_fields=["status", "conversation_history", "updated_at"])
+            lead.reserved_at = None
+            lead.save(update_fields=["status", "reserved_at", "conversation_history", "updated_at"])
             return {"success": False, "blocked": True, "error": reason}
 
     if dry_run:
@@ -128,11 +129,15 @@ def process_queued_outbox_message(
 
         lead.conversation_history = history
         lead.status = "FOLLOWUP_SENT"
+        lead.reserved_at = None
         if not lead.second_message_text:
             lead.second_message_text = queued_item["text"]
             lead.second_sender_username = chosen_sender
             lead.second_message_at = now
-        lead.save(update_fields=["status", "conversation_history", "second_message_text", "second_sender_username", "second_message_at", "updated_at"])
+        lead.save(update_fields=[
+            "status", "reserved_at", "conversation_history", "second_message_text",
+            "second_sender_username", "second_message_at", "updated_at",
+        ])
 
         if sender:
             sender.daily_action_count = (sender.daily_action_count or 0) + 1
@@ -182,11 +187,15 @@ def process_queued_outbox_message(
 
         lead.conversation_history = history
         lead.status = "FOLLOWUP_SENT"
+        lead.reserved_at = None
         if not lead.second_message_text:
             lead.second_message_text = queued_item["text"]
             lead.second_sender_username = sender.username
             lead.second_message_at = now
-        lead.save(update_fields=["status", "conversation_history", "second_message_text", "second_sender_username", "second_message_at", "updated_at"])
+        lead.save(update_fields=[
+            "status", "reserved_at", "conversation_history", "second_message_text",
+            "second_sender_username", "second_message_at", "updated_at",
+        ])
 
         sender.daily_action_count = (sender.daily_action_count or 0) + 1
         sender.hourly_action_count = (sender.hourly_action_count or 0) + 1

@@ -255,9 +255,16 @@
         <p class="muted" style="margin:2px 0 0;">خریدارانی که به دایرکت اولیه مشاور پاسخ داده‌اند و شماره تماس یا نیازشان را ثبت کرده‌اند</p>
       </div>
       <div>
-        <a href="{% url 'accounts:sync_replies' %}" class="btn" style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; font-size:0.82rem; padding:6px 14px; border-radius:6px; font-weight:700; text-decoration:none;">
-          🔄 همگام‌سازی فوری پاسخ‌ها
-        </a>
+        <form method="post" action="{% url 'accounts:sync_replies' %}" style="margin:0;">
+          {% csrf_token %}
+          {% if selected_outreach_biz %}
+          <input type="hidden" name="biz" value="{{ selected_outreach_biz.id }}">
+          {% endif %}
+          <input type="hidden" name="next" value="manage">
+          <button type="submit" class="btn" style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; font-size:0.82rem; padding:6px 14px; border-radius:6px; font-weight:700; cursor:pointer;">
+            🔄 ثبت درخواست همگام‌سازی پاسخ‌ها
+          </button>
+        </form>
       </div>
     </div>
 

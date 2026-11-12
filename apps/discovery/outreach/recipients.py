@@ -5,6 +5,54 @@ from typing import Dict, Any, List, Optional
 from django.utils import timezone
 
 logger = logging.getLogger("instagram_outreach")
+PROCESSING_TIMEOUT_MINUTES = 10
+
+
+def _previous_status(lead: Any) -> str:
+    """Infer the pre-PROCESSING status from the lead's persisted message/conversation state."""
+    for item in getattr(lead, "conversation_history", None) or []:
+        if item.get("direction") == "out" and item.get("delivery_status") == "QUEUED":
+            return "QUEUED"
+    if getattr(lead, "has_replied", False):
+        return "REPLIED"
+    if getattr(lead, "initial_dm_at", None):
+        return "DM_SENT"
+    return "NEW"
+
+
+def release_stale_reservations(
+    tenant_ids: List[str],
+    *,
+    now=None,
+    timeout_minutes: int = PROCESSING_TIMEOUT_MINUTES,
+) -> int:
+    """Return leads left in PROCESSING longer than ``timeout_minutes`` back to their previous status."""
+    from django.db import transaction
+    from django.db.models import Q
+    from apps.discovery.models import InstagramEngineLead
+
+    if not tenant_ids:
+        return 0
+
+    now = now or timezone.now()
+    stale_before = now - timedelta(minutes=max(1, int(timeout_minutes)))
+    released = 0
+
+    with transaction.atomic():
+        stale_leads = list(
+            InstagramEngineLead.objects.select_for_update(skip_locked=True)
+            .filter(tenant_id__in=tenant_ids, status="PROCESSING")
+            .filter(Q(reserved_at__lte=stale_before) | Q(reserved_at__isnull=True, updated_at__lte=stale_before))
+        )
+        for lead in stale_leads:
+            lead.status = _previous_status(lead)
+            lead.reserved_at = None
+            lead.save(update_fields=["status", "reserved_at", "updated_at"])
+            released += 1
+
+    if released:
+        logger.info("Released %d stale PROCESSING lead(s) for tenants %s", released, tenant_ids)
+    return released
 
 
 def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional[Any]:
@@ -55,7 +103,8 @@ def select_and_reserve_candidate(tenant_ids: List[str], *, now=None) -> Optional
         )
         winner = scored[0]
         winner.status = "PROCESSING"
-        winner.save(update_fields=["status", "outreach_score", "updated_at"])
+        winner.reserved_at = now
+        winner.save(update_fields=["status", "reserved_at", "outreach_score", "updated_at"])
         return winner
 
 

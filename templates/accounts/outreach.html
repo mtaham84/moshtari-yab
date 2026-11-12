@@ -200,7 +200,7 @@
   </div>
 </div>
 
-<script src="{% static 'js/outreach.js' %}" data-generate-pitches-url="{% url 'accounts:generate_pitches_ajax' %}" data-csrf-token="{{ csrf_token }}" data-send-followup-url="{% url 'accounts:send_followup' %}" data-sync-replies-url="{% url 'accounts:sync_replies' %}?format=json"></script>
+<script src="{% static 'js/outreach.js' %}" data-generate-pitches-url="{% url 'accounts:generate_pitches_ajax' %}" data-csrf-token="{{ csrf_token }}" data-send-followup-url="{% url 'accounts:send_followup' %}" data-sync-replies-url="{% url 'accounts:sync_replies' %}?format=json" data-business-id="{{ business.id }}"></script>
 
 <!-- Outreach Sender Edit Modal -->
 <div id="outreachEditModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; width:100vw; height:100vh; background:rgba(15,23,42,0.65); z-index:99999; align-items:center; justify-content:center; padding:16px; backdrop-filter:blur(3px);">

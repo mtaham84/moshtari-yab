@@ -383,6 +383,8 @@ class OutreachTenantProfile(models.Model):
     consultant_name = models.CharField(max_length=100, blank=True, default="", verbose_name="نام مشاور")
     consultant_role = models.CharField(max_length=150, blank=True, default="", verbose_name="سمت مشاور")
     pitch_template = models.TextField(blank=True, default="", verbose_name="الگوی پیام معرفی")
+    reply_sync_requested_at = models.DateTimeField(null=True, blank=True, verbose_name="زمان درخواست پایش صندوق")
+    last_reply_sync_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان پایش صندوق")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -420,6 +422,7 @@ class InstagramEngineLead(models.Model):
     matched_cta = models.CharField(max_length=100, null=True, blank=True, verbose_name="کال‌تواکشن منطبق")
     intent_score = models.FloatField(default=0.85, db_index=True, verbose_name="ضریب احتمال خرید")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NEW", db_index=True, verbose_name="وضعیت لید")
+    reserved_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان رزرو ارسال")
 
     # Priority Scoring & Freshness System (Max 35 points: 15 Public + 15 Intent + 5 Freshness)
     comment_created_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان ارسال کامنت")
