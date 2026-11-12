@@ -308,11 +308,7 @@ class Opportunity(models.Model):
         db_index=True,
         verbose_name="شناسه فرصت در موتور تحلیل"
     )
-    expires_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        verbose_name="زمان انقضای فرصت"
-    )
+    expires_at = models.DateTimeField(null=True, blank=True, verbose_name="زمان انقضای فرصت")
     source_raw_message = models.TextField(
         verbose_name="متن پیام کاربر در شبکه اجتماعی"
     )
@@ -373,24 +369,25 @@ class Opportunity(models.Model):
         blank=True,
         verbose_name="متادیتای ردیابی و لاگ پردازش"
     )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name="زمان ایجاد فرصت"
-    )
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        verbose_name="آخرین به‌روزرسانی"
-    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="زمان ایجاد فرصت")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="آخرین به‌روزرسانی")
 
     class Meta:
         verbose_name = "فرصت فروش"
         verbose_name_plural = "فرصت‌های فروش"
         ordering = ["-created_at"]
-        constraints = [models.UniqueConstraint(
-            fields=["business", "source_platform", "source_message_id"],
-            condition=models.Q(source_platform="instagram") & ~models.Q(source_message_id=""),
-            name="uniq_ig_opportunity_business_message",
-        )]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "source_platform", "source_message_id"],
+                condition=models.Q(source_platform="instagram") & ~models.Q(source_message_id=""),
+                name="uniq_ig_opportunity_business_message",
+            ),
+            models.UniqueConstraint(
+                fields=["business", "engine_opportunity_id"],
+                condition=~models.Q(engine_opportunity_id=""),
+                name="uniq_opportunity_business_engine_id",
+            ),
+        ]
 
     def __str__(self):
         return f"فرصت #{self.id} - {self.customer} - {self.get_status_display()}"
