@@ -290,11 +290,15 @@ def prune_dead_configs() -> list[dict[str, Any]]:
     Tests all ProxyConfigs in DB and deletes the dead ones (ping -1 / > 2000ms), then rebuilds config.json.
 
     Two phases: every dead config is first marked DEAD, then deleted, so an Instagram account leaving a dead config
-    (pre_delete -> release_config) only moves to a config that just passed the test.
+    (pre_delete -> release_config) only moves to a config that just passed the test. Does nothing while xray is down.
     """
     from xray.multi_proxy_manager import rebuild_xray_config_file, reload_xray_service
 
     removed: list[dict[str, Any]] = []
+    # Configs are probed through xray: with xray down every probe fails and every config would be deleted.
+    if not health.port_open(XRAY_HOST, POOL_PORT):
+        log.warning("xray is down (pool port %s closed); skipping the dead config purge", POOL_PORT)
+        return removed
     dead = []
     for p in list(ProxyConfig.objects.all()):
         ok, ping_ms, _ = health.measure_config(p, timeout_sec=2.0)

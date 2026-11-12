@@ -249,8 +249,8 @@ def get_http_request_with_proxy(url: str, timeout: float = 12.0) -> str:
     for proxy_choice in candidates:
         try:
             req = urllib.request.Request(url, headers=headers)
-            if proxy_choice == "direct":
-                opener = urllib.request.build_opener()
+            if proxy_choice == "direct":   # an empty ProxyHandler: the default one would use HTTP(S)_PROXY (xray)
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             else:
                 opener = urllib.request.build_opener(
                     urllib.request.ProxyHandler({"http": proxy_choice, "https": proxy_choice})
