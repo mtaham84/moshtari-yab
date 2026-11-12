@@ -432,6 +432,18 @@ class ConnectionTests(IgAccountsTestBase):
         a.refresh_from_db()
         self.assertIsNone(a.proxy_config_id)
 
+    def test_prune_deletes_nothing_while_xray_is_down(self):
+        # every config is probed through xray: with xray down they all fail, and pruning used to delete every one
+        c = self.cfg(1091)
+        a = self.acc(proxy_config=c, proxy_url="socks5h://xray:1091")
+        self.closed = {1080, 1091}
+        with mock.patch.object(health, "measure_config", return_value=(False, -1.0, "refused")) as probe:
+            self.assertEqual(assignment.prune_dead_configs(), [])
+        probe.assert_not_called()
+        a.refresh_from_db()
+        self.assertTrue(ProxyConfig.objects.filter(pk=c.pk, status="ACTIVE").exists())
+        self.assertEqual(a.proxy_config_id, c.pk)
+
     def test_deleted_config_moves_its_account(self):
         c1, c2 = self.cfg(1091), self.cfg(1092)
         a = self.acc(proxy_config=c1, proxy_url="socks5h://xray:1091")
