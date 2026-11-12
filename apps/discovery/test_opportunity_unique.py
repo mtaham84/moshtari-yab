@@ -1,12 +1,10 @@
 """Tests for the partial unique constraint on Opportunity(business, engine_opportunity_id) (Roadmap 7.4 / B-6)."""
-from importlib import import_module
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, models
+from django.db import IntegrityError, connection, models
+from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from apps.businesses.models import Business
 from apps.discovery.models import Customer, Opportunity
@@ -23,70 +21,6 @@ class OpportunityUniqueConstraintUnitTests(SimpleTestCase):
         c = constraints["uniq_opportunity_business_engine_id"]
         self.assertEqual(tuple(c.fields), ("business", "engine_opportunity_id"))
         self.assertEqual(c.condition, ~Q(engine_opportunity_id=""))
-
-    def test_migration_merges_duplicate_engine_opportunities_before_constraint(self):
-        mig = import_module("apps.discovery.migrations.0043_opportunity_unique_engine_id")
-
-        keep = SimpleNamespace(
-            pk=10, id=10, business_id=1, engine_opportunity_id="need_5",
-            status="NEW", feedback="", feedback_at=None, feedback_reason="",
-            lead_feedback=None, lead_feedback_at=None, trace_metadata={"engine": {}},
-            save=MagicMock(),
-        )
-        dup = SimpleNamespace(
-            pk=11, id=11, business_id=1, engine_opportunity_id="need_5",
-            status="CONTACTED", feedback="good", feedback_at="2026-11-10", feedback_reason="",
-            lead_feedback="good", lead_feedback_at="2026-11-10",
-            trace_metadata={"seller_drafts": {"1": "سلام"}},
-            save=MagicMock(),
-        )
-
-        opp_qs = MagicMock()
-        opp_qs.exclude.return_value = opp_qs
-        opp_qs.values.return_value = opp_qs
-        opp_qs.annotate.return_value = opp_qs
-        opp_qs.filter.return_value = opp_qs
-        opp_qs.order_by.return_value = [keep, dup]
-        opp_qs.__iter__.return_value = iter([{"business_id": 1, "engine_opportunity_id": "need_5", "n": 2}])
-
-        opp_model = MagicMock()
-        opp_model.objects = opp_qs
-
-        ai_model = MagicMock()
-        ai_model.objects.filter.return_value.exists.return_value = True
-
-        match_model = MagicMock()
-        match_model.objects.filter.return_value.values_list.return_value = [1]
-
-        ev_model = MagicMock()
-        ev_model.objects.filter.return_value.exists.return_value = True
-
-        order_model = MagicMock()
-        reply_model = MagicMock()
-        reply_model.objects.filter.return_value.values_list.return_value = []
-
-        models_by_name = {
-            "Opportunity": opp_model,
-            "AIAnalysis": ai_model,
-            "OpportunityProductMatch": match_model,
-            "Evidence": ev_model,
-            "InstagramReplySuggestion": reply_model,
-            "ProductOrder": order_model,
-        }
-        apps_registry = MagicMock()
-        apps_registry.get_model.side_effect = lambda app, name: models_by_name[name]
-
-        mig.merge_duplicate_engine_opportunities(apps_registry, MagicMock())
-
-        self.assertEqual(keep.status, "CONTACTED")
-        self.assertEqual(keep.feedback, "good")
-        self.assertEqual(keep.trace_metadata["seller_drafts"], {"1": "سلام"})
-        keep.save.assert_called_once()
-        order_model.objects.filter.assert_called_once_with(opportunity_id__in=[11])
-        order_model.objects.filter.return_value.update.assert_called_once_with(opportunity_id=10)
-        opp_qs.filter.assert_any_call(parent_opportunity_id__in=[11])
-        opp_qs.filter.assert_any_call(pk__in=[11])
-        opp_qs.filter.return_value.delete.assert_called()
 
 
 class OpportunityUniqueConstraintIntegrationTests(TestCase):
@@ -132,3 +66,82 @@ class OpportunityUniqueConstraintIntegrationTests(TestCase):
             source_message_id="ig:2", engine_opportunity_id="", source_raw_message="کامنت ۲",
         )
         self.assertNotEqual(o1.pk, o2.pk)
+
+
+BEFORE_MERGE = [("discovery", "0042_instagramenginelead_reserved_at")]
+
+
+def _discovery_leaf(executor: MigrationExecutor) -> list[tuple[str, str]]:
+    return [node for node in executor.loader.graph.leaf_nodes() if node[0] == "discovery"]
+
+
+class MergeDuplicatesMigrationTests(TransactionTestCase):
+    """Runs the real migrations on PostgreSQL with duplicates in the table (the case the migration exists for)."""
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(BEFORE_MERGE)
+        apps = executor.loader.project_state(BEFORE_MERGE).apps
+        user_model = apps.get_model(settings.AUTH_USER_MODEL)
+        business_model = apps.get_model("businesses", "Business")
+        customer_model = apps.get_model("discovery", "Customer")
+        opportunity_model = apps.get_model("discovery", "Opportunity")
+        product_model = apps.get_model("products", "Product")
+        b1 = business_model.objects.create(user=user_model.objects.create(username="m1@test.ir"), name="b1")
+        b2 = business_model.objects.create(user=user_model.objects.create(username="m2@test.ir"), name="b2")
+        c1 = customer_model.objects.create(business=b1, source_platform="telegram", external_user_id="1001")
+        c2 = customer_model.objects.create(business=b2, source_platform="telegram", external_user_id="1001")
+        p1 = product_model.objects.create(business=b1, name="p1", product_type="PHYSICAL", description="d", price=1)
+        p2 = product_model.objects.create(business=b1, name="p2", product_type="PHYSICAL", description="d", price=2)
+
+        def opp(business, customer, engine_id, **kw):
+            return opportunity_model.objects.create(business=business, customer=customer, source_platform="telegram",
+                                                    engine_opportunity_id=engine_id, source_raw_message="m", **kw)
+
+        self.keep = opp(b1, c1, "need_1")
+        dup = opp(b1, c1, "need_1", status="CONTACTED", feedback="good",
+                  trace_metadata={"seller_drafts": {str(p1.pk): "draft"}})
+        dup2 = opp(b1, c1, "need_1")
+        self.other_seller = opp(b2, c2, "need_1")
+        self.blank = [opp(b1, c1, ""), opp(b1, c1, "")]
+        self.child = opp(b1, c1, "need_child", parent_opportunity=dup)
+        analysis = apps.get_model("discovery", "AIAnalysis")
+        analysis.objects.create(opportunity=dup, need="n2", intent_score=0.5, product_fit_score=0.5, confidence=0.5)
+        analysis.objects.create(opportunity=dup2, need="n3", intent_score=0.5, product_fit_score=0.5, confidence=0.5)
+        match = apps.get_model("discovery", "OpportunityProductMatch")
+        match.objects.create(opportunity=self.keep, product=p1, rank=1, match_score=0.9)
+        match.objects.create(opportunity=dup, product=p1, rank=1, match_score=0.8)
+        match.objects.create(opportunity=dup, product=p2, rank=2, match_score=0.7)
+        evidence = apps.get_model("discovery", "Evidence")
+        evidence.objects.create(opportunity=dup, evidence_type="customer_message", content="e2", source_reference="r")
+        evidence.objects.create(opportunity=dup2, evidence_type="customer_message", content="e3", source_reference="r")
+        apps.get_model("discovery", "ProductOrder").objects.create(
+            product=p1, opportunity=dup2, customer_name="x", customer_phone="09120000000", shipping_address="a")
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_duplicates_are_merged_and_the_constraint_is_added(self):
+        executor = MigrationExecutor(connection)
+        target = _discovery_leaf(executor)
+        executor.migrate(target)
+        apps = executor.loader.project_state(target).apps
+        opportunity_model = apps.get_model("discovery", "Opportunity")
+
+        rows = opportunity_model.objects.filter(business__name="b1", engine_opportunity_id="need_1")
+        self.assertEqual(list(rows.values_list("pk", flat=True)), [self.keep.pk])
+        keep = rows.get()
+        self.assertEqual((keep.status, keep.feedback), ("CONTACTED", "good"))
+        self.assertIn("seller_drafts", keep.trace_metadata)
+        self.assertTrue(opportunity_model.objects.filter(pk=self.other_seller.pk).exists())
+        self.assertEqual(opportunity_model.objects.filter(pk__in=[o.pk for o in self.blank]).count(), 2)
+        self.assertEqual(opportunity_model.objects.get(pk=self.child.pk).parent_opportunity_id, self.keep.pk)
+        self.assertEqual(list(apps.get_model("discovery", "AIAnalysis").objects.values_list("need", flat=True)), ["n2"])
+        matches = apps.get_model("discovery", "OpportunityProductMatch").objects.filter(opportunity=keep)
+        self.assertEqual(sorted(matches.values_list("product__name", "match_score")), [("p1", 0.9), ("p2", 0.7)])
+        self.assertEqual(list(apps.get_model("discovery", "Evidence").objects.values_list("content", flat=True)), ["e2"])
+        self.assertEqual(apps.get_model("discovery", "ProductOrder").objects.get().opportunity_id, self.keep.pk)
+        with connection.cursor() as cursor:
+            constraints = connection.introspection.get_constraints(cursor, "discovery_opportunity")
+        self.assertIn("uniq_opportunity_business_engine_id", constraints)
