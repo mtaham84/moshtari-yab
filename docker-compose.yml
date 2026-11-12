@@ -216,6 +216,19 @@ services:
       - media:/app/media
       - xdata:/app/output
 
+  db-backup:
+    <<: *app
+    profiles: ["maintenance"]
+    entrypoint: ["python", "manage.py"]
+    command: ["backup_database"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - ./backups:/app/backups
+    restart: "no"
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
