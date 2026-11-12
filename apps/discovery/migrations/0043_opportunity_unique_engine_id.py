@@ -115,10 +115,8 @@ class Migration(migrations.Migration):
         ('products', '0010_category_origin_category_source'),
     ]
 
+    # Data only: on PostgreSQL the deletes leave deferred foreign key checks pending until the end of the
+    # transaction, and CREATE INDEX refuses to run while they are pending, so the constraint is in 0044.
     operations = [
         migrations.RunPython(merge_duplicate_engine_opportunities, migrations.RunPython.noop),
-        migrations.AddConstraint(
-            model_name='opportunity',
-            constraint=models.UniqueConstraint(condition=models.Q(('engine_opportunity_id', ''), _negated=True), fields=('business', 'engine_opportunity_id'), name='uniq_opportunity_business_engine_id'),
-        ),
     ]

@@ -354,8 +354,9 @@ one logical change; every fix starts with a test that fails without it.
       (`PROCESSING_TIMEOUT_MINUTES = 10`) to their previous status (`NEW`, `QUEUED`, `REPLIED`, `DM_SENT`) via
       `release_stale_reservations`. Test: a lead left in `PROCESSING` is picked up again. (Migration `discovery/0042`).
 - [x] 7.4 Partial unique constraint on `(business, engine_opportunity_id)` (`uniq_opportunity_business_engine_id`
-      excluding `engine_opportunity_id=""`). The migration (`discovery/0043`) merges duplicates first if it finds any.
-      Rollback: drop the constraint.
+      excluding `engine_opportunity_id=""`). `discovery/0043` merges duplicates first if it finds any and
+      `discovery/0044` adds the constraint; one migration for both failed on PostgreSQL whenever duplicates existed
+      (see Known issues). Rollback: drop the constraint.
 - [x] 7.5 Database backup job: `apps/core/backup.py` + `manage.py backup_database` (`db-backup` maintenance service in
       `docker-compose.yml`). Free-disk check skips with alert, `pg_dump -Fc` -> GPG AES-256 (stdin passphrase) ->
       split at 45 MB -> Telegram channel -> rotate keeping 7 newest sets. Seven new env vars in `.env.example`. Restore
@@ -445,6 +446,11 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
   X-collector tests clear `X_QUERY_*` (`workers/x_collector/tests/conftest.py`); do the same for new env-driven tests.
 - Tests that mock the function under review can pass while production breaks (PR #21: the probe was mocked, so CI
   never saw that `api.telegram.org` answers 302). Prefer real local servers/databases in tests.
+- Never put a data change (`RunPython`) and a schema change in one migration. On PostgreSQL the data step's deletes
+  leave deferred foreign key checks pending, and `CREATE INDEX` / `ALTER TABLE` then fail with "pending trigger
+  events". The first `discovery/0043` did both; CI passed because it migrates an empty database and the merge was
+  tested with mocks. Test a data migration by running it on a real database that has the rows it is written for
+  (`MergeDuplicatesMigrationTests` in `apps/discovery/test_opportunity_unique.py` shows how).
 - A deploy that changes the `Dockerfile` needs `docker compose build` on the server (the app image ships the xray
   binary since PR #21).
 - Fixed in Phase 5 (PR 5.1, each with a test that failed before): retired auto-discovered pages are deactivated;
