@@ -383,6 +383,8 @@ class OutreachTenantProfile(models.Model):
     consultant_name = models.CharField(max_length=100, blank=True, default="", verbose_name="نام مشاور")
     consultant_role = models.CharField(max_length=150, blank=True, default="", verbose_name="سمت مشاور")
     pitch_template = models.TextField(blank=True, default="", verbose_name="الگوی پیام معرفی")
+    reply_sync_requested_at = models.DateTimeField(null=True, blank=True, verbose_name="زمان درخواست پایش صندوق")
+    last_reply_sync_at = models.DateTimeField(null=True, blank=True, verbose_name="آخرین زمان پایش صندوق")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

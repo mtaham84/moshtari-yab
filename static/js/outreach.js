@@ -566,23 +566,36 @@
     const btn = document.getElementById('syncRepliesBtn');
     btn.disabled = true;
     const origHtml = btn.innerHTML;
-    btn.innerHTML = '<span>در حال پایش دایرکت‌ها...</span>';
+    btn.innerHTML = '<span>در حال ثبت درخواست پایش...</span>';
+
+    const formData = new FormData();
+    if (OUTREACH_CFG.businessId) {
+      formData.append('biz', OUTREACH_CFG.businessId);
+    }
 
     fetch(OUTREACH_CFG.syncRepliesUrl, {
+      method: 'POST',
       headers: {
-        'X-Requested-With': 'XMLHttpRequest'
-      }
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': OUTREACH_CFG.csrfToken
+      },
+      body: formData
     })
     .then(r => r.json())
     .then(data => {
       btn.disabled = false;
       btn.innerHTML = origHtml;
+      if (data.message) {
+        alert(data.message);
+        refreshCurrentChatLead();
+        return;
+      }
       const count = data.replies_found || 0;
       if (count > 0) {
         alert(`پایش انجام شد: ${count} پاسخ جدید از خریداران دریافت و ثبت شد.`);
         window.location.reload();
       } else {
-        alert('صندوق دایرکت‌ها بررسی شد؛ پاسخ جدیدی تا این لحظه ثبت نشده است.');
+        alert('درخواست پایش صندوق ثبت شد.');
         refreshCurrentChatLead();
       }
     })

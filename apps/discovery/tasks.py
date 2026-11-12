@@ -17,7 +17,11 @@ from django.utils import timezone as django_tz
 from apps.discovery.models.instagram import InstagramEngineAccount
 from apps.discovery.human_routine import HumanShiftPlanner  # noqa: F401  (tests patch tasks.HumanShiftPlanner)
 from apps.discovery.outreach_engine import get_available_senders, reply_sync_allowed, run_outreach_batch
-from apps.discovery.outreach.replies import check_and_sync_lead_replies
+from apps.discovery.outreach.replies import (
+    check_and_sync_lead_replies,
+    has_pending_reply_sync_requests,
+    serve_reply_syncs,
+)
 
 logger = logging.getLogger("discovery.tasks")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
@@ -92,25 +96,44 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
     """
     Polling task for incoming Instagram lead replies (Celery dispatcher only).
     Beat ticks every 5 minutes; outside shift hours nothing is checked, and REPLY_SYNC_SKIP_CHANCE of the ticks are
-    skipped so the checks are not evenly spaced.
+    skipped unless a panel request is waiting (per-tenant spacing still applies).
     """
-    if not tenant_ids:
-        from apps.discovery.tenants import outreach_tenant_ids
-
-        tenant_ids = outreach_tenant_ids()
-        if not tenant_ids:
-            return {"success": True, "skipped": True, "reason": "no_outreach_tenants", "replies_found": 0}
     allowed, reason = reply_sync_allowed()
     if not allowed:
         return {"success": True, "skipped": True, "reason": reason, "replies_found": 0}
+
+    if tenant_ids:
+        if random.random() < REPLY_SYNC_SKIP_CHANCE:
+            return {"success": True, "skipped": True, "reason": "random_skip", "replies_found": 0}
+        try:
+            res = check_and_sync_lead_replies(tenant_ids)
+            replies_count = res.get("replies_found", 0)
+            if replies_count > 0:
+                logger.info("🎉 [Celery Fast Replies] %d new customer replies synced!", replies_count)
+            return res
+        except Exception as exc:
+            logger.warning("Error syncing lead replies in Celery task: %s", exc, exc_info=True)
+            return {"success": False, "error": str(exc), "replies_found": 0}
+
+    from apps.discovery.tenants import canonical_tenant, outreach_tenants, tenant_ids as ig_tenant_ids
+
+    groups = [ig_tenant_ids(t) for t in outreach_tenants()]
+    if not groups:
+        return {"success": True, "skipped": True, "reason": "no_outreach_tenants", "replies_found": 0}
+
+    requested_only = False
     if random.random() < REPLY_SYNC_SKIP_CHANCE:
-        return {"success": True, "skipped": True, "reason": "random_skip", "replies_found": 0}
+        if not has_pending_reply_sync_requests([canonical_tenant(g[0]) for g in groups]):
+            return {"success": True, "skipped": True, "reason": "random_skip", "replies_found": 0}
+        requested_only = True
+
     try:
-        res = check_and_sync_lead_replies(tenant_ids)
-        replies_count = res.get("replies_found", 0)
+        results = serve_reply_syncs(groups, requested_only=requested_only, sync_fn=check_and_sync_lead_replies)
+        replies_count = sum(r.get("replies_found", 0) for r in results)
+        details = [d for r in results for d in r.get("details", [])]
         if replies_count > 0:
             logger.info("🎉 [Celery Fast Replies] %d new customer replies synced!", replies_count)
-        return res
+        return {"status": "success", "success": True, "replies_found": replies_count, "details": details}
     except Exception as exc:
         logger.warning("Error syncing lead replies in Celery task: %s", exc, exc_info=True)
         return {"success": False, "error": str(exc), "replies_found": 0}
