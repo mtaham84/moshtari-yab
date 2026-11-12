@@ -356,9 +356,10 @@ one logical change; every fix starts with a test that fails without it.
 - [x] 7.4 Partial unique constraint on `(business, engine_opportunity_id)` (`uniq_opportunity_business_engine_id`
       excluding `engine_opportunity_id=""`). The migration (`discovery/0043`) merges duplicates first if it finds any.
       Rollback: drop the constraint.
-- 7.5 Database backup job (decision 7): free-space check, rotation, encrypted file to a Telegram channel (split
-  over 50 MB), an alert when it is skipped or fails, and a documented restore that is tested once. New settings go to
-  `.env.example`. The web port and TLS wait for an answer about the server.
+- [x] 7.5 Database backup job: `apps/core/backup.py` + `manage.py backup_database` (`db-backup` maintenance service in
+      `docker-compose.yml`). Free-disk check skips with alert, `pg_dump -Fc` -> GPG AES-256 (stdin passphrase) ->
+      split at 45 MB -> Telegram channel -> rotate keeping 7 newest sets. Seven new env vars in `.env.example`. Restore
+      procedure in `docs/BACKUP.md` (live server restore test still pending server access).
 
 **Phase 8: guardrails.** Closes A-1, D-3, C-2, G-1.
 - 8.1 Function complexity in `scripts/check_baseline.py` and `guardrail_baseline.json` (ruff `C901` over 15 and
