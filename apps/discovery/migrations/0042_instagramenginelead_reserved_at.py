@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('discovery', '0040_instagramenginelead_status_processing'),
+        ('discovery', '0041_outreachtenantprofile_reply_sync_fields'),
     ]
 
     operations = [

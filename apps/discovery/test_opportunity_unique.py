@@ -25,7 +25,7 @@ class OpportunityUniqueConstraintUnitTests(SimpleTestCase):
         self.assertEqual(c.condition, ~Q(engine_opportunity_id=""))
 
     def test_migration_merges_duplicate_engine_opportunities_before_constraint(self):
-        mig = import_module("apps.discovery.migrations.0041_opportunity_unique_engine_id")
+        mig = import_module("apps.discovery.migrations.0043_opportunity_unique_engine_id")
 
         keep = SimpleNamespace(
             pk=10, id=10, business_id=1, engine_opportunity_id="need_5",

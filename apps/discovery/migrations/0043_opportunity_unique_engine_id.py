@@ -111,7 +111,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('businesses', '0009_seed_business_types'),
-        ('discovery', '0040_instagramenginelead_status_processing'),
+        ('discovery', '0042_instagramenginelead_reserved_at'),
         ('products', '0010_category_origin_category_source'),
     ]
 
