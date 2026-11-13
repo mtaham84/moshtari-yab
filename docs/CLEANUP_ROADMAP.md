@@ -23,7 +23,8 @@ green, before the next one starts. Behavior must not change unless the step says
 - Phase 6, step 1 is done: the audit found 40 problems worth fixing (3 P0, 15 P1, 22 P2), listed under "Audit
   report" with a proposed order of work.
 - Phase 6, steps 2 and 3 are done: the user answered the decisions and phases 7-13 are written from them.
-- **Next step:** Phase 7 (live risks, in progress): 7.1 is done (`fix/suggest-category-auth`); next is 7.2. Still open:
+- Phase 7 is done (7.1-7.5).
+- Phase 8 (guardrails) is in progress: 8.1 is done (`ci/complexity-guardrail`); next is 8.2 (automated cross-tenant route walker and unified `is_operator`). Still open:
   who has server access (TLS and the published web port, I-2).
 - Second refactor: `docs/SECOND_REFACTOR.md` (2026-11-10) goes through the code one part at a time with the user;
   part 1 is proxies (what the first production deploy showed, and the steps to put all proxy logic in
@@ -362,12 +363,12 @@ one logical change; every fix starts with a test that fails without it.
       procedure in `docs/BACKUP.md` (live server restore test still pending server access).
 
 **Phase 8: guardrails.** Closes A-1, D-3, C-2, G-1.
-- 8.1 Function complexity in `scripts/check_baseline.py` and `guardrail_baseline.json` (ruff `C901` over 15 and
+- [x] 8.1 Function complexity in `scripts/check_baseline.py` and `guardrail_baseline.json` (ruff `C901` over 15 and
   `PLR0915`), with the same only-shrinks rule as file size; one line in `AGENTS.md`.
-- 8.2 One test that walks every route with an id as another seller and expects 403 or 404, built from the URL
+- [ ] 8.2 One test that walks every route with an id as another seller and expects 403 or 404, built from the URL
   resolver so new routes are covered without editing it. One `is_operator` check everywhere.
-- 8.3 `makemigrations --check --dry-run` in CI.
-- 8.4 `pytest-cov` in CI with a floor per critical module that may only rise (decision 8).
+- [ ] 8.3 `makemigrations --check --dry-run` in CI.
+- [ ] 8.4 `pytest-cov` in CI with a floor per critical module that may only rise (decision 8).
 
 **Phase 9: data model.** Closes B-1, B-2, B-3, B-4, B-7, B-10, B-11, B-13, B-14, E-2. One migration per PR; each
 backfill ships with a query that must return zero before the next PR.

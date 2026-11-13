@@ -13,3 +13,6 @@ select = ["E9", "F63", "F7", "F82", "F401", "F811", "F841", "F601", "F821"]
 "**/tests*/**" = ["F841"]
 "**/tests*.py" = ["F841"]
 "**/test_*.py" = ["F841"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15

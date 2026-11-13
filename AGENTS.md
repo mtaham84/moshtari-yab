@@ -51,14 +51,14 @@ python -m pytest                          # every test, including the Django app
 python -m pytest path/to/test_x.py::test_name -q   # single test
 
 pip install ruff==0.17.4 && ruff check .  # same version and rules as CI (pyproject.toml)
-python scripts/check_baseline.py          # CI guardrail: files over 800 lines and broad excepts may only shrink
+python scripts/check_baseline.py          # CI guardrail: files over 800 lines, broad excepts and function complexity may only shrink
 pip install pre-commit && pre-commit install   # runs both before every commit
 ```
 
-Existing violations are recorded in `scripts/guardrail_baseline.json` (file size, broad excepts) and in `ALLOWED` in
-`tests/test_architecture.py` (import boundaries). Both may only shrink: after you shrink a file or remove an except,
+Existing violations are recorded in `scripts/guardrail_baseline.json` (file size, broad excepts, function complexity) and in `ALLOWED` in
+`tests/test_architecture.py` (import boundaries). Both may only shrink: after you shrink a file, remove an except or simplify a function,
 run `python scripts/check_baseline.py --update`; after you remove a forbidden import, delete its `ALLOWED` entry. Never
-add entries. When you only move code to new files, run `--update --moved-from <old file>`: the moved broad excepts
+add entries. When you only move code to new files, run `--update --moved-from <old file>`: the moved broad excepts and complexity
 take the old file's entries with them, never more. On pull requests CI also runs `scripts/check_commits.py` (Conventional Commits, no AI attribution).
 
 Test files are named `test_*.py`, `tests.py` or `tests_*.py` and live under a `testpaths` directory of `pytest.ini`;
@@ -77,8 +77,7 @@ This code was built fast with AI help, and the same mistakes kept piling up. Eac
 3. **Replace means delete.** When new code replaces old code, delete the old code, its tests, its settings and its docs
    in the same change. Don't keep anything "for reference", "for compatibility" or "just in case". Git history is the
    backup.
-4. **File size.** Do not grow a file that is already over 800 lines (`scripts/guardrail_baseline.json` lists them). Put new code in a new, focused module, or split
-   the file first in a separate change. New files should stay under 400 lines.
+4. **File size and complexity.** Do not grow a file that is already over 800 lines (`scripts/guardrail_baseline.json` lists them). Put new code in a new, focused module, or split the file first in a separate change. New files should stay under 400 lines. Functions over 15 cyclomatic complexity or 50 statements may only shrink; new functions must stay below both limits.
 5. **No silent failures.** Don't write `except Exception: pass` or a broad `except` that only logs and continues. Catch
    the specific exception you expect. A broad catch is allowed only at a process boundary (worker loop, management
    command, view) and must log the traceback: `log.warning(..., exc_info=True)` at the level that fits. ERROR and

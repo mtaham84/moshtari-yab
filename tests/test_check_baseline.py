@@ -29,6 +29,24 @@ def lines(n: int) -> str:
 BROAD = "try:\n    pass\nexcept Exception:\n    print(1)\n"
 
 
+def complex_func(branches: int = 16) -> str:
+    """Generate a function exceeding McCabe complexity threshold (15)."""
+    body = "def f(x):\n"
+    for i in range(branches):
+        body += f"    if x == {i}:\n        return {i}\n"
+    body += "    return -1\n"
+    return body
+
+
+def many_statements_func(n: int = 55) -> str:
+    """Generate a function exceeding statement limit (50)."""
+    body = "def g():\n"
+    for i in range(n):
+        body += f"    y{i} = {i}\n"
+    body += "    return y0\n"
+    return body
+
+
 def baseline_of(root: Path) -> dict:
     return json.loads((root / check_baseline.BASELINE_NAME).read_text(encoding="utf-8"))
 
@@ -38,7 +56,7 @@ class TestCheckBaseline:
         write(repo, "big.py", lines(900))
         write(repo, "app.py", BROAD)
         assert check_baseline.main(["--root", str(repo), "--update"]) == 0
-        assert baseline_of(repo) == {"lines": {"big.py": 900}, "broad_excepts": {"app.py": 1}}
+        assert baseline_of(repo) == {"broad_excepts": {"app.py": 1}, "complexity": {}, "lines": {"big.py": 900}}
         assert check_baseline.main(["--root", str(repo)]) == 0
 
         write(repo, "big.py", lines(901))
@@ -72,7 +90,7 @@ class TestCheckBaseline:
         write(repo, "app.py", BROAD)          # one except fixed
         write(repo, "other.py", BROAD)        # new violation: must not be added by --update
         check_baseline.main(["--root", str(repo), "--update"])
-        assert baseline_of(repo) == {"lines": {"big.py": 850}, "broad_excepts": {"app.py": 1}}
+        assert baseline_of(repo) == {"broad_excepts": {"app.py": 1}, "complexity": {}, "lines": {"big.py": 850}}
         assert check_baseline.main(["--root", str(repo)]) == 1
 
     def test_moved_code_takes_its_entries_but_never_more(self, repo, write):
@@ -83,7 +101,7 @@ class TestCheckBaseline:
         write(repo, "a.py", BROAD * 2)
         write(repo, "b.py", BROAD * 2)        # one more than old.py gave up
         check_baseline.main(["--root", str(repo), "--update", "--moved-from", "old.py"])
-        assert baseline_of(repo) == {"lines": {}, "broad_excepts": {"a.py": 2, "b.py": 1}}
+        assert baseline_of(repo) == {"broad_excepts": {"a.py": 2, "b.py": 1}, "complexity": {}, "lines": {}}
         assert check_baseline.main(["--root", str(repo)]) == 1
 
     def test_update_without_moved_from_never_adds_entries(self, repo, write):
@@ -92,4 +110,56 @@ class TestCheckBaseline:
         write(repo, "old.py", lines(1))
         write(repo, "a.py", BROAD)
         check_baseline.main(["--root", str(repo), "--update"])
-        assert baseline_of(repo) == {"lines": {}, "broad_excepts": {}}
+        assert baseline_of(repo) == {"broad_excepts": {}, "complexity": {}, "lines": {}}
+
+    def test_complexity_existing_passes_and_growth_fails(self, repo, write, capsys):
+        write(repo, "comp.py", complex_func(16))
+        assert check_baseline.main(["--root", str(repo), "--update"]) == 0
+        assert baseline_of(repo)["complexity"] == {"comp.py": 1}
+        assert check_baseline.main(["--root", str(repo)]) == 0
+
+        write(repo, "comp.py", complex_func(16) + "\n" + many_statements_func(55))
+        assert check_baseline.main(["--root", str(repo)]) == 1
+        out = capsys.readouterr().out
+        assert "comp.py: 2 complex function(s)" in out
+        assert "allowed 1" in out
+
+    def test_new_complex_function_fails(self, repo, write, capsys):
+        write(repo, "clean.py", "def simple():\n    return 1\n")
+        check_baseline.main(["--root", str(repo), "--update"])
+        write(repo, "comp.py", complex_func(16))
+        assert check_baseline.main(["--root", str(repo)]) == 1
+        out = capsys.readouterr().out
+        assert "comp.py: 1 complex function(s)" in out
+        assert "allowed 0" in out
+
+    def test_complexity_update_lowers_and_drops(self, repo, write):
+        write(repo, "comp1.py", complex_func(16) + "\n" + many_statements_func(55))
+        write(repo, "comp2.py", complex_func(16))
+        check_baseline.main(["--root", str(repo), "--update"])
+        assert baseline_of(repo)["complexity"] == {"comp1.py": 2, "comp2.py": 1}
+
+        write(repo, "comp1.py", complex_func(16))
+        write(repo, "comp2.py", "def simple():\n    return 1\n")
+        write(repo, "other.py", complex_func(16))
+        check_baseline.main(["--root", str(repo), "--update"])
+        assert baseline_of(repo)["complexity"] == {"comp1.py": 1}
+        assert check_baseline.main(["--root", str(repo)]) == 1
+
+    def test_complexity_moved_from_transfers_budget(self, repo, write):
+        write(repo, "old.py", complex_func(16) + "\n" + many_statements_func(55))
+        check_baseline.main(["--root", str(repo), "--update"])
+        assert baseline_of(repo)["complexity"] == {"old.py": 2}
+
+        write(repo, "old.py", "def simple():\n    return 1\n")
+        write(repo, "part1.py", complex_func(16))
+        write(repo, "part2.py", many_statements_func(55))
+        check_baseline.main(["--root", str(repo), "--update", "--moved-from", "old.py"])
+        assert baseline_of(repo)["complexity"] == {"part1.py": 1, "part2.py": 1}
+        assert check_baseline.main(["--root", str(repo)]) == 0
+
+    def test_complexity_ignores_migrations(self, repo, write):
+        check_baseline.main(["--root", str(repo), "--update"])
+        write(repo, "apps/example/migrations/0001_initial.py", complex_func(20))
+        assert check_baseline.main(["--root", str(repo)]) == 0
+
