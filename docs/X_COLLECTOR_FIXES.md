@@ -106,6 +106,24 @@ comment collection, prompt changes, changes to wallet charging, or changes to ac
 | 9. Proxy redaction | `shared/tele_logging/formatter.py`, `client.py`, `account_pool.py`, `x_ingest/__main__.py`, `tests/test_proxy_redaction.py` | `mask_proxy` removes all userinfo; logs, pool status and nested stored search stats are redacted. Tests: `test_mask_proxy`, `test_search_logs_and_stats_hide_proxy_credentials`, `test_search_run_storage_redacts_stats`. |
 | 10. Run guard/resume | `worker.py`, `cycle_support.py`, `query_source.py`, `query_files.py`, `balance_gate.py`, `config.py`, both shared state-store schedulers | Fresh wallet reads before every attempt (TTL zero). Shared query metadata retains funded owners/products only. Read-only scheduling prevents history or penalties for balance skips. Tests in `test_balance_run.py`: exhaustion, top-up, shared owners, missing wallets on/off, mid-run failure, owned/unowned static files and direct static entries. `test_read_only_schedule_does_not_register_skipped_queries` covers SQLite and PostgreSQL. |
 
+### Shared-query delivery follow-up
+
+A shared X query still runs once for its funded owners, and automatic query generation remains per seller/category
+family (first three category levels), not per individual categorized product. Product-level fit judging is separate.
+The existing category/family tests cover grouping, collapsing a manual fourth level and merging identical seller
+queries. Products with no category retain their existing single-product fallback; classification uses the configured
+model when needed after deterministic matching, rather than a model call on every product submission.
+
+`apps/discovery/engine_delivery.py` adds a fresh, read-only eligibility check inside `engine_bridge.import_opportunity`.
+It reuses the billing balance rule and locks eligible wallet rows until the panel transaction commits. A result made
+while funded cannot create a new panel lead/customer after the owner reaches zero/negative balance; other funded
+owners of that shared result still receive theirs. Missing wallets and enforced-minimum balances are blocked too.
+The existing X import test now explicitly funds its seller. Billing debits and non-X imports are unchanged.
+
+`apps/discovery/test_x_delivery_credit.py` covers shared funded/unfunded delivery, balance drained after analysis,
+missing wallet without auto-creation, enforced minimum on/off, top-up recovery, preservation/closure of existing
+leads, and an actual concurrent PostgreSQL debit that must wait for the delivery transaction's wallet lock.
+
 ### Assumptions and reproduction limits
 
 - The README already uses `python -m x_ingest --path ...`. There is no `DATABASE_SCHEMA.sql` in this checkout and

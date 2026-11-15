@@ -161,7 +161,13 @@ Needs `NE_X_ENABLED=true`. Per product chat, each run:
   `need_engine.opportunities`. A reply draft is cleaned of links and phone numbers and cut to X's length; the panel
   offers it through an X "intent" link that opens the reply box. The system never posts or sends a DM on X itself.
 - `sync_opportunities` imports it into the panel: `Customer` (the X author), `Opportunity`, `AIAnalysis`,
-  `OpportunityProductMatch`.
+  `OpportunityProductMatch`. X delivery rechecks the seller's wallet at this boundary. Eligible wallet rows are
+  locked until the panel write commits, so a concurrent debit cannot invalidate the eligibility check. Zero,
+  negative, missing-wallet and enforced-minimum balances receive no new panel lead or customer record, even if
+  the shared search or engine analysis ran while the seller was funded. Other funded owners still receive their
+  matching leads. This reads/locks balances without changing charging. Existing delivered leads remain available
+  and can still be closed; topping up allows future deliveries. `X_REQUIRE_WALLET=false` permits the legacy
+  collection fallback only, not unpaid delivery.
 - The seller sees it in the opportunities list and on the product's X page (`/discovery/x/<product>/`), which
   shows the phrases searched and a log of every post found with its outcome. Sellers switch X search on per product
   there; operators see accounts and statistics under `/manage/` and `/ops/x/`.

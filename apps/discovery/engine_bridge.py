@@ -24,6 +24,7 @@ from .models import (ENGINE_STATUS_MAP, AIAnalysis, Customer, Evidence, Monitore
                      OpportunityProductMatch, XCollectorState, XQueryDaily, XSearchQuery)
 from .retention import customer_ids_to_anonymize
 from .sources import GLOBAL
+from .engine_delivery import eligible_x_delivery_sellers
 
 log = logging.getLogger(__name__)
 
@@ -94,15 +95,16 @@ def import_opportunity(payload: dict) -> list[Opportunity]:
     matches = payload.get("matched_products") or []
     ids = [int(m["product_id"]) for m in matches if str(m.get("product_id", "")).isdigit()]
     products = {p.id: p for p in Product.objects.filter(id__in=ids).select_related("business", "category")}
-    allowed = sellers_allowed_for_chat((payload.get("source") or {}).get("chat_id"))
+    allowed = eligible_x_delivery_sellers(payload, products.values(),
+                                        sellers_allowed_for_chat((payload.get("source") or {}).get("chat_id")))
     by_business: dict[int, list[tuple[dict, Product]]] = defaultdict(list)
     for m in matches:
         p = products.get(int(m["product_id"])) if str(m.get("product_id", "")).isdigit() else None
         if p is None:
             log.warning("opportunity %s: unknown product %s skipped", payload.get("opportunity_id"), m.get("product_id"))
             continue
-        if allowed is not None and p.business_id not in allowed:   # double check of the engine's access rule
-            log.warning("opportunity %s: seller %s does not watch this chat; product %s skipped",
+        if allowed is not None and p.business_id not in allowed:   # recheck source access and X delivery credit
+            log.warning("opportunity %s: seller %s is not eligible for this delivery; product %s skipped",
                         payload.get("opportunity_id"), p.business_id, p.id)
             continue
         by_business[p.business_id].append((m, p))
