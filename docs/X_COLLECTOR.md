@@ -105,6 +105,7 @@ include `paused_businesses` and `skipped_queries_by_balance`.
 
 ## 3. Searching (`client.py`, `account_pool.py`)
 
+- **Startup.** Compose waits for healthy web, whose entrypoint completes migrations before serving requests.
 - **Accounts.** A pool in `x_accounts` (cookies `auth_token` and `ct0`, a proxy each). The least-used available
   account is taken; each has a daily action limit (250) and a 15-minute rest after a rate limit. The daily
   counter resets in PostgreSQL at UTC midnight, both on refresh and on the next successful action.

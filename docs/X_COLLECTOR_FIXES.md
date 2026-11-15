@@ -133,16 +133,21 @@ comment collection, prompt changes, changes to wallet charging, or changes to ac
 
 ### Deploy checklist (requires a reviewed merge first)
 
-1. Review discovery migration `0044_xcrawledpost_product_id_alter_xcrawledpost_tweet_id_and_more.py`. It adds
-   `product_id`, removes tweet-only uniqueness, and adds `(tweet_id, product_id)` uniqueness. Stop the X writer
-   during migration and deploy its matching ingest/collector code together. No data migration rewrites old hashes.
+1. Discovery migration `0044_xcrawledpost_product_id_alter_xcrawledpost_tweet_id_and_more.py` is reviewed and
+   tested. It adds `product_id`, removes tweet-only uniqueness, and adds `(tweet_id, product_id)` uniqueness.
+   The web entrypoint applies pending migrations automatically. Compose starts X only after web is healthy;
+   `test_x_startup_waits_for_migrated_web_service` checks the resolved startup graph. Stop an already-running X
+   writer before updating the deployment, then deploy matching web/collector/ingest code together. Startup
+   dependencies do not stop a writer that is already running. No data migration rewrites old hashes.
    A rollback to tweet-only uniqueness needs duplicate tweet rows consolidated first; do not reverse blindly.
-2. Set `X_SELLER_ALLOWLIST` for staged rollout if desired (empty/unset means every funded seller). Keep
-   `X_REQUIRE_WALLET=true` unless deliberately allowing legacy businesses without wallet rows. Check funded
+2. No new environment setting is required: an unset `X_SELLER_ALLOWLIST` permits every funded seller, and
+   `X_REQUIRE_WALLET` defaults to true. Set an allowlist only for staged rollout, or disable the wallet requirement
+   only when deliberately allowing legacy businesses without wallet rows. Check funded
    businesses have wallet rows and that read failures generate an ops alert.
 3. Inspect existing `x_accounts` counters. The code automatically resets rows whose last action is before today
-   UTC (including null timestamps). Manually reset an already-inflated current-day daily counter if required:
-   review the affected IDs and set only `daily_action_count=0`; preserve lifetime counts and account status.
+   UTC (including null timestamps). A manual reset is optional, only to restore availability before the next UTC
+   day when today's count is confirmed inflated. Do not blindly clear legitimate current-day usage; preserve
+   lifetime counts and account status. The automatic daily reset needs no operator action.
 4. Removing the dental eligibility filter increases query volume, LLM use and X account use in proportion to the
    number of funded tenants, within existing global/per-account caps. Start with an allowlist and observe costs
    and account health. Rate limits, daily caps, delays and anti-ban settings were not raised.
