@@ -11,6 +11,7 @@ from typing import Any
 
 from . import cli_mapping as mapping
 from .native_session import native_session
+from shared.tele_logging.formatter import mask_proxy
 
 log = logging.getLogger("x_collector.client")
 
@@ -147,7 +148,7 @@ class XCliClient:
             "target_posts": target_posts,
             "account_id": acc_id,
             "account_username": acc_user,
-            "proxy_url": proxy,
+            "proxy_url": mask_proxy(proxy),
             "pages_fetched": 0,
             "raw_posts_received": 0,
             "valid_posts": 0,
@@ -164,7 +165,7 @@ class XCliClient:
 
         log.info(
             "Starting X Top search for '%s' [Account: @%s, Proxy: %s, Cutoff: %s]",
-            full_query, acc_user, proxy, cutoff_utc.isoformat(),
+            full_query, acc_user, mask_proxy(proxy), cutoff_utc.isoformat(),
         )
 
         use_in_process = False
@@ -385,7 +386,7 @@ class XCliClient:
             for secret in (sub_env.get("TWITTER_AUTH_TOKEN"), sub_env.get("TWITTER_CT0")):
                 if secret:
                     detail = detail.replace(secret, "[REDACTED]")
-            detail = detail[:500]
+            detail = mask_proxy(detail)[:500]
             lowered = detail.casefold()
             if re.search(r"\b(?:429|rate limit|too many requests)\b", lowered):
                 raise XCliError("X CLI rate limit detected", kind="rate_limit")

@@ -13,6 +13,7 @@ from pathlib import Path
 from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.records import RecordError, SourceRecord
 from shared.x_dedup import compute_tweet_hash
+from shared.tele_logging.formatter import redact_proxy_stats
 
 log = logging.getLogger("x_ingest")
 
@@ -188,7 +189,7 @@ def record_search_runs(searches: list[dict], dsn: str | None = None) -> int:
         raise ValueError("NE_CRAWLER_SCHEMA must be a simple SQL schema name")
     rows = [(s.get("ran_at") or datetime.now().astimezone().isoformat(), str(pid), str(s.get("query") or "")[:500],
              int(s.get("fetched") or 0), int((s.get("new_by_product") or {}).get(str(pid), 0)),
-             Jsonb(s.get("stats")) if s.get("stats") else None)
+             Jsonb(redact_proxy_stats(s.get("stats"))) if s.get("stats") else None)
             for s in searches for pid in s.get("product_ids") or []]
     if not rows:
         return 0

@@ -11,6 +11,8 @@ import logging
 import os
 from typing import Any
 
+from shared.tele_logging.formatter import mask_proxy
+
 log = logging.getLogger("x_collector.accounts")
 
 
@@ -278,7 +280,7 @@ class TwitterAccountPool:
                     "available": a.is_available(),
                     "daily_actions": a.daily_actions,
                     "posts_found": a.posts_found,
-                    "proxy": a.proxy_url
+                    "proxy": mask_proxy(a.proxy_url)
                 }
                 for a in self.accounts
             ]
