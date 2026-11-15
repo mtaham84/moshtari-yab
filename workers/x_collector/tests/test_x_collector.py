@@ -308,7 +308,7 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(result["collected"], 1)
 
     def test_error_json_codes_are_classified_even_on_nonzero_exit(self):
-        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "fatal"), ("service_unavailable", "transient"), ("not_found", "query")]
+        cases = [("rate_limited", "rate_limit"), ("not_authenticated", "auth"), ("service_unavailable", "transient"), ("not_found", "query")]
         for code, kind in cases:
             completed = type("Completed", (), {"returncode": 1, "stdout": json.dumps({"ok": False, "error": {"code": code}}), "stderr": ""})()
             with self.subTest(code=code), patch("workers.x_collector.client.shutil.which", return_value="C:/bin/twitter"), \

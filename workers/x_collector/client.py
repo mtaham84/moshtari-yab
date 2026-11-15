@@ -83,6 +83,22 @@ class XCliError(RuntimeError):
         self.kind = kind
 
 
+def _search_error(exc: Exception) -> XCliError:
+    if isinstance(exc, XCliError):
+        return exc
+    detail = str(exc).casefold()
+    if re.search(r"\b(?:401|403|unauthorized|authentication|session expired|login required|invalid cookies)\b", detail):
+        kind = "auth"
+    elif re.search(r"\b(?:429|rate limit|too many requests)\b", detail):
+        kind = "rate_limit"
+    elif isinstance(exc, (TimeoutError, ConnectionError)) or re.search(r"\b(?:5\d\d|timeout|timed out|connection)\b", detail):
+        kind = "transient"
+    else:
+        kind = "fatal"
+    # Native exceptions can contain cookies and proxy credentials.
+    return XCliError(f"X search failed ({kind})", kind=kind)
+
+
 class XCliClient:
     def __init__(self, command: str | None = None, timeout: int | None = None):
         self.command = command or mapping.CLI_COMMAND
@@ -292,7 +308,7 @@ class XCliClient:
                 return valid_records[:target_posts], stats
 
             except Exception as proc_err:
-                log.warning("In-process SearchTimeline failed, falling back to CLI: %s", proc_err, exc_info=True)
+                raise _search_error(proc_err) from None
 
         # Fallback via CLI runner
         try:
@@ -327,9 +343,7 @@ class XCliClient:
             stats["stop_reason"] = "TARGET_REACHED" if len(valid_records) >= target_posts else "EXHAUSTED"
             return valid_records[:target_posts], stats
         except Exception as cli_exc:
-            stats["stop_reason"] = f"SEARCH_FAILED: {cli_exc}"
-            log.warning("X search fallback failed for query '%s': %s", query, cli_exc, exc_info=True)
-            return valid_records[:target_posts], stats
+            raise _search_error(cli_exc) from None
 
     def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:
         if query.lstrip().startswith("-"):
@@ -346,7 +360,7 @@ class XCliClient:
             if getattr(account, "proxy_url", None):
                 sub_env["TWITTER_PROXY"] = str(account.proxy_url)
         if not sub_env.get("TWITTER_AUTH_TOKEN") or not sub_env.get("TWITTER_CT0"):
-            raise XCliError("X session cookies are missing. Configure TWITTER_AUTH_TOKEN and TWITTER_CT0 securely, then run 'agent-reach doctor'.")
+            raise XCliError("X session cookies are missing. Configure TWITTER_AUTH_TOKEN and TWITTER_CT0 securely, then run 'agent-reach doctor'.", kind="auth")
         args = [executable, mapping.CLI_SEARCH_SUBCOMMAND, query, "-t", mapping.CLI_TIME_FILTER,
                 mapping.CLI_EXCLUDE_RETWEETS_FLAG, mapping.CLI_EXCLUDE_RETWEETS_VALUE,
                 mapping.CLI_LIMIT_FLAG, str(limit), mapping.CLI_OUTPUT_FLAG]
@@ -368,7 +382,7 @@ class XCliClient:
             if code == "not_found":   # stale query id / endpoint for this search: skip the query, not the whole cycle
                 raise XCliError("X CLI search endpoint returned 404 (twitter-cli query id may be stale)", kind="query")
             if code == "not_authenticated":
-                raise XCliError("X CLI authentication failed; verify the session and run 'agent-reach doctor'")
+                raise XCliError("X CLI authentication failed; verify the session and run 'agent-reach doctor'", kind="auth")
             if code in {"timeout", "timed_out", "server_error", "internal_error", "bad_gateway", "service_unavailable"} or re.fullmatch(r"5\d\d", code):
                 raise XCliError(f"X CLI transient server error ({code})", kind="transient")
             raise XCliError(f"X CLI failed with error code: {code}")
@@ -382,7 +396,7 @@ class XCliClient:
             if re.search(r"\b(?:429|rate limit|too many requests)\b", lowered):
                 raise XCliError("X CLI rate limit detected", kind="rate_limit")
             if re.search(r"\b(?:unauthorized|authentication failed|invalid credentials|session expired|login required)\b", lowered):
-                raise XCliError("X CLI authentication failed; verify cookies and run 'agent-reach doctor'")
+                raise XCliError("X CLI authentication failed; verify cookies and run 'agent-reach doctor'", kind="auth")
             if re.search(r"\b5\d\d\b", lowered):
                 raise XCliError(f"X CLI transient server error (exit {completed.returncode})", kind="transient")
             raise XCliError(f"X CLI failed (exit {completed.returncode}): {detail}")

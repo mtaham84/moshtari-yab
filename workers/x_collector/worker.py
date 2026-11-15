@@ -287,6 +287,7 @@ class XCollector:
         collected, failures, failed_queries = [], 0, 0
         breaker = CircuitBreaker(self.circuit_breaker)
         stop_reason = None
+        search_errors: dict[str, int] = {}
         daily_remaining = DailyCap(self.daily_cap, self.state.count_today()).remaining
         cooldown = Cooldown(self.state, RATE_LIMIT_COOLDOWN_SECONDS)
         cooldown_until = cooldown.active_until()
@@ -430,11 +431,12 @@ class XCollector:
                                 self.state.record_query(query, fetched_count, 0, started_at=started_at)
                             break
                     except XCliError as exc:
+                        search_errors[exc.kind] = search_errors.get(exc.kind, 0) + 1
                         self.state.record_query(query, 0, 0, str(exc)[:300])
                         failures += 1
                         circuit_open = breaker.failure()
                         if exc.kind == "rate_limit":
-                            if not is_test_client and current_account and hasattr(self, "account_pool") and self.account_pool:
+                            if current_account and self.account_pool:
                                 self.account_pool.record_rate_limit(current_account)
                                 next_acc = self.account_pool.get_next_account()
                                 if next_acc:
@@ -446,8 +448,8 @@ class XCollector:
                             stop_reason = "RATE_LIMITED"
                             break
 
-                        if exc.kind == "fatal":
-                            if current_account and hasattr(self, "account_pool") and self.account_pool and "authentication" in str(exc).casefold():
+                        if exc.kind in {"fatal", "auth"}:
+                            if current_account and hasattr(self, "account_pool") and self.account_pool and exc.kind == "auth":
                                 self.account_pool.record_auth_error(current_account, str(exc))
                                 next_acc = self.account_pool.get_next_account()
                                 if next_acc:
@@ -455,7 +457,7 @@ class XCollector:
                                     current_account = next_acc
                                     continue
                             log.error("Fatal CLI error; stopping collection: %s", exc)
-                            stop_reason = "AUTH_FAILED" if "authentication" in str(exc).casefold() else "FAILED"
+                            stop_reason = "AUTH_FAILED" if exc.kind == "auth" else "FAILED"
                             failed_queries += 1
                             break
                         if circuit_open:
@@ -472,7 +474,7 @@ class XCollector:
                 self.sleeper(self.jitter(self.sleep_min, self.sleep_max))
         status = stop_reason or ("RATE_LIMITED" if cooldown.active_until() else "CIRCUIT_OPEN" if breaker.failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
         result = {"status": status, "collected": len(collected), "failures": failures,
-                  "failed_queries": failed_queries, "output": str(output_path)}
+                  "failed_queries": failed_queries, "output": str(output_path), "search_errors": search_errors}
         self._write_status(result)
         return result
 
@@ -567,7 +569,7 @@ class XCollector:
     def _write_status(self, result: dict[str, Any]) -> None:
         target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until")}
+        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until", "search_errors")}
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         payload["collected_today"] = self.state.count_today() if self.state else 0
         payload["daily_cap"] = self.daily_cap
