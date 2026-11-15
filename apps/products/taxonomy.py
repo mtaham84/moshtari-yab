@@ -5,7 +5,7 @@
   stored as global ``Category`` rows (business=None) and reused for every later seller (no second model call).
 * A seller adopts nodes of that tree into his OWN editable copy (``Category.business`` = seller, ``origin`` = system node).
   He may add/rename/delete nodes and add one extra level (max depth 4). Search always collapses to depth <= 3.
-* Every 5 new products the AI places un-categorised products into the seller's tree (creating nodes when needed).
+* Every 5 new products the AI places un-categorised products into existing nodes; it cannot create categories.
 * A *family* is the (collapsed) category of a product; queries are generated per family.
 """
 from __future__ import annotations
@@ -310,18 +310,15 @@ def get_active_leaf_categories(business: Business) -> list[Category]:
 
 
 # ------------------------------------------------------------------------------------------ AI product organiser ------
-ORGANIZE_SYSTEM = """You organise the products/services of ONE Iranian seller into his category tree (Persian).
-Input: the seller's tree (each node has an id and a path) and his products that still have no proper category.
-For every product choose the BEST existing node id. Prefer the deepest fitting node. If no node fits, propose ONE new
-node: {"parent_id": <existing node id or null for a new top node>, "name": "<1-3 Persian words>"}.
-RULES: select the deepest semantically appropriate category; do not create a node when an existing one fits; names are generic type names
-(پیراهن مردانه, جوراب, لباس زیر زنانه) — no brands, colours, sizes or adjectives; reuse one new node for several similar products.
-Return strictly JSON: {"assignments":[{"product_id":1,"category_id":12,"new_category":null},
-{"product_id":2,"category_id":null,"new_category":{"parent_id":12,"name":"شومیز زنانه"}}]}"""
-
+ORGANIZE_SYSTEM = """You organise the products/services of ONE Iranian seller into his existing category tree (Persian).
+Input: the seller's tree (each node has an id and a path) and products that still have no proper category.
+For every product choose the BEST existing node id. Prefer the deepest semantically appropriate existing node.
+Use only category IDs supplied in TREE. Never create, rename or propose categories. If no existing node fits,
+return category_id: null; a product must not cause a new taxonomy node.
+Return strictly JSON: {"assignments":[{"product_id":1,"category_id":12},{"product_id":2,"category_id":null}]}"""
 
 def organize_products(business: Business, llm: Callable | None = None) -> dict:
-    """Places products that have no tree category into the seller's tree (creating nodes if needed)."""
+    """Assign uncategorised products to existing seller categories; model output cannot create nodes."""
     if llm is None:
         from apps.core.llm import chat_json as llm
     products = list(Product.objects.filter(business=business, status="ACTIVE"))
@@ -338,24 +335,11 @@ def organize_products(business: Business, llm: Callable | None = None) -> dict:
         "\n".join(tree_lines), "\n".join(f"{p.id}: {p.name} — {(p.description or '')[:120]}" for p in todo[:40])))
     data = llm(get_system_prompt("taxonomy_organize", ORGANIZE_SYSTEM), user, purpose="organize_products", business_id=business.pk)
     by_id = {p.id: p for p in todo}
-    new_nodes: dict[tuple, Category] = {}
     for item in (data or {}).get("assignments", []) if isinstance(data, dict) else []:
         p = by_id.get(item.get("product_id"))
         if not p:
             continue
         cat = _own(business).filter(pk=item.get("category_id")).first() if item.get("category_id") else None
-        spec = item.get("new_category")
-        if not cat and isinstance(spec, dict) and spec.get("name"):
-            parent_id = spec.get("parent_id") if spec.get("parent_id") in own_ids or spec.get("parent_id") in {n.pk for n in new_nodes.values()} else None
-            key = (parent_id, _norm(_clean_name(spec["name"])))
-            if key not in new_nodes:
-                try:
-                    existing = _own(business).filter(parent_id=parent_id, normalized_name=key[1]).first()
-                    new_nodes[key] = existing or add_node(business, parent_id, spec["name"], source="ai")
-                    stats["created"] += 0 if existing else 1
-                except TaxonomyError:
-                    continue
-            cat = new_nodes[key]
         if cat:
             Product.objects.filter(pk=p.pk).update(category=cat)
             stats["placed"] += 1
