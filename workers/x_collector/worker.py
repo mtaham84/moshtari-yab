@@ -38,7 +38,7 @@ def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
     return None
 
 
-def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, Any] | None:
+def normalize_tweet(raw: dict[str, Any], query: str | None = None, stats: dict | None = None) -> dict[str, Any] | None:
     if raw.get("isRetweet") is True:
         log.info("Skipping retweet %s", raw.get("id") or "without id")
         return None
@@ -60,6 +60,8 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
         log.warning("Skipping tweet with missing required fields: %s", ", ".join(missing))
         return None
     if is_promotional_post(text):
+        if stats is not None:
+            stats["promotional_posts_dropped"] = stats.get("promotional_posts_dropped", 0) + 1
         log.info("Skipping promotional X post %s", tweet_id)
         return None
     if is_political_x_post(text):
@@ -206,6 +208,7 @@ class XCollector:
         self.sleeper, self.jitter = sleeper, jitter
         self.queries_per_cycle = int(os.getenv("X_COLLECT_QUERIES_PER_CYCLE", "12"))
         self.searches: list[dict[str, Any]] = []
+        self.filter_stats: dict[str, int] = {}
         self.account_pool = account_pool
         if self.account_pool is None:
             try:
@@ -279,6 +282,7 @@ class XCollector:
         query_products = {item["query"]: [str(x) for x in item.get("product_ids") or []] for item in scheduled}
         query_sellers = {item["query"]: [str(x) for x in item.get("business_ids") or []] for item in scheduled}
         self.searches = []
+        self.filter_stats = {"promotional_posts_dropped": 0}
         collected, failures, failed_queries = [], 0, 0
         breaker = CircuitBreaker(self.circuit_breaker)
         stop_reason = None
@@ -469,7 +473,7 @@ class XCollector:
                 self.sleeper(self.jitter(self.sleep_min, self.sleep_max))
         status = stop_reason or ("RATE_LIMITED" if cooldown.active_until() else "CIRCUIT_OPEN" if breaker.failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
         result = {"status": status, "collected": len(collected), "failures": failures,
-                  "failed_queries": failed_queries, "output": str(output_path), "search_errors": search_errors}
+                  "failed_queries": failed_queries, "output": str(output_path), "search_errors": search_errors, **self.filter_stats}
         self._write_status(result)
         return result
 
@@ -490,7 +494,7 @@ class XCollector:
     def _records_for_query(self, raw_items, query: str, query_products: dict[str, list[str]]) -> list[dict[str, Any]]:
         records = []
         for raw in raw_items[:self.max_per_query]:
-            base = normalize_tweet(raw, query=query)
+            base = normalize_tweet(raw, query=query, stats=self.filter_stats)
             if base is None:
                 continue
             for product_id in query_products.get(query) or [None]:
@@ -564,7 +568,7 @@ class XCollector:
     def _write_status(self, result: dict[str, Any]) -> None:
         target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until", "search_errors")}
+        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until", "search_errors", "promotional_posts_dropped")}
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         payload["collected_today"] = self.state.count_today() if self.state else 0
         payload["daily_cap"] = self.daily_cap
