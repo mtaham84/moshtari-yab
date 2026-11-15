@@ -186,3 +186,9 @@ leads, and an actual concurrent PostgreSQL debit that must wait for the delivery
   connectivity check, so no live X search was sent. Fix proxy connectivity before evaluating real results.
   The local engine also has `NE_X_ENABLED=false`; enable it in the intended deployment for X analysis after review.
   No production settings, account limits or deployment were changed by this follow-up.
+
+Follow-up verification (2026-11-15): the complete local PostgreSQL 16 + pgvector suite passed with
+933 tests, 57 subtests and 161 warnings, without skips. The allocation/automation regression run passed
+18 tests, including SQLite and PostgreSQL yield, deduplication, dropped-query exclusion and read-only preview.
+GitHub Actions run 381 also passed all 933 tests plus lint/baseline and commit checks. Live X result volume
+remains unverified for the proxy-connectivity reason above.
