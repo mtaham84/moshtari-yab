@@ -6,6 +6,7 @@ from typing import Any
 
 from need_engine.sources import SQLProductSource
 from need_engine.config import EngineConfig
+from .balance_gate import BalanceGate
 
 log = logging.getLogger("x_collector.queries")
 
@@ -189,21 +190,9 @@ def load_intent_queries(mode: str | None = None) -> list[dict[str, str]]:
 
 def _load_intent_queries(config, source, products, x_mode, mode):
     products_on = [p for p in products if p.x_search_enabled]
-    try:   # Always consult fresh wallet balances before generating any terms or contacting an LLM.
-        from need_engine.registry import ModelRegistry
-        blocked = ModelRegistry(config).blocked(force=True)
-    except Exception as exc:
-        log.error("Seller balances unavailable; refusing to generate X queries: %s", exc, exc_info=True)
-        return []
-    skipped = [p.product_id for p in products_on if p.business_id and str(p.business_id) in blocked]
-    if skipped:
-        log.info("X search paused for %d products (seller balance used up)", len(skipped))
-    products_on = [p for p in products_on if not (p.business_id and str(p.business_id) in blocked)]
-    # Strictly limit X collector queries to dental tenant only
-    products_on = [
-        p for p in products_on
-        if (str(p.business_id) == "4" or "دند" in str(getattr(p, "category_path", "")) or "دند" in str(getattr(p, "title", "")))
-    ]
+    with BalanceGate(config, db=source.db) as gate:
+        funded = gate.funded(p.business_id for p in products_on)
+    products_on = [p for p in products_on if str(p.business_id) in funded]
     from workers.x_collector.families import build_families, load_notes
 
     families = build_families(products_on, load_notes(source.db))
@@ -227,11 +216,17 @@ def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
             blocked: dict[int, set[str]] = {}
             for item in negatives:
                 blocked.setdefault(int(item["business_id"]), set()).add(str(item["normalized_term"]).casefold())
-            from need_engine.registry import ModelRegistry
-            blocked_ids = ModelRegistry(config, db=db).blocked(force=True)
+            products = [p for p in source.all() if p.x_search_enabled]
+            by_business = {}
+            for product in products:
+                by_business.setdefault(str(product.business_id), []).append(str(product.product_id))
+            with BalanceGate(config, db=db) as gate:
+                funded = gate.funded(by_business)
             return [{"query": row["text"], "priority": float(row["weight"] or 1),
-                     "kind": "intent" if "intent" in row["kind"] else "product"}
-                    for row in rows if str(row["business_id"]) not in blocked_ids
+                     "kind": "intent" if "intent" in row["kind"] else "product",
+                     "business_ids": [str(row["business_id"])],
+                     "product_ids": by_business[str(row["business_id"])]}
+                    for row in rows if str(row["business_id"]) in funded
                     and not any(term and term in row["text"].casefold() for term in blocked.get(int(row["business_id"]), set()))]
         finally:
             source.db.close()
