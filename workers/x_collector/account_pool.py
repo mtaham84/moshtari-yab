@@ -91,6 +91,11 @@ class TwitterAccountPool:
                     # Check if table exists
                     has_table = conn.execute("SELECT to_regclass('public.x_accounts')").fetchone()[0]
                     if has_table:
+                        day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                        conn.execute("""
+                            UPDATE public.x_accounts SET daily_action_count = 0, updated_at = now()
+                            WHERE daily_action_count <> 0 AND (last_action_at IS NULL OR last_action_at < %s)
+                        """, (day_start,))
                         rows = conn.execute("""
                             SELECT id, username, password, auth_token, ct0, proxy_url, status,
                                    cooldown_until, daily_action_count, total_action_count,
@@ -157,7 +162,7 @@ class TwitterAccountPool:
         for acc in self.accounts:
             if acc.last_action_at:
                 last_act = acc.last_action_at if acc.last_action_at.tzinfo else acc.last_action_at.replace(tzinfo=timezone.utc)
-                if last_act.date() < now.date():
+                if last_act.astimezone(timezone.utc).date() < now.date():
                     acc.daily_actions = 0
             if acc.cooldown_until:
                 cd = acc.cooldown_until if acc.cooldown_until.tzinfo else acc.cooldown_until.replace(tzinfo=timezone.utc)
@@ -214,6 +219,9 @@ class TwitterAccountPool:
 
     def record_success(self, account: TwitterAccount, posts_count: int = 0) -> None:
         now = datetime.now(timezone.utc)
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if account.last_action_at is None or account.last_action_at < day_start:
+            account.daily_actions = 0
         account.daily_actions += 1
         account.total_actions += 1
         account.posts_found += posts_count
@@ -228,7 +236,9 @@ class TwitterAccountPool:
                 with conn:
                     conn.execute("""
                         UPDATE public.x_accounts
-                        SET daily_action_count = daily_action_count + 1,
+                        SET daily_action_count = CASE
+                                WHEN last_action_at IS NULL OR last_action_at < %s THEN 1
+                                ELSE daily_action_count + 1 END,
                             total_action_count = total_action_count + 1,
                             posts_found_count = posts_found_count + %s,
                             last_action_at = %s,
@@ -237,7 +247,7 @@ class TwitterAccountPool:
                             cooldown_until = NULL,
                             updated_at = now()
                         WHERE id = %s
-                    """, (posts_count, now, account.id))
+                    """, (day_start, posts_count, now, account.id))
             except Exception as exc:
                 log.debug("Failed to persist success in DB for account %s: %s", account.id, exc, exc_info=True)
 
