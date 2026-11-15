@@ -27,7 +27,8 @@ def install_client(monkeypatch, responses):
 
 
 @pytest.mark.parametrize('message,kind', [('401 Unauthorized', 'auth'), ('session expired', 'auth'),
-                                         ('429 Too Many Requests', 'rate_limit'), ('503 unavailable', 'transient')])
+                                         ('429 Too Many Requests', 'rate_limit'), ('503 unavailable', 'transient'),
+                                         ('Twitter API network error: upstream unavailable', 'transient')])
 def test_native_errors_are_explicit_and_do_not_fall_back(monkeypatch, message, kind):
     install_client(monkeypatch, iter([RuntimeError(message)]))
     account = TwitterAccount(1, 'one', '', 'token', 'cookie', '', 'ACTIVE')
@@ -67,3 +68,40 @@ def test_worker_rotates_auth_and_rate_limited_accounts_then_handles_empty_and_go
     assert result['search_errors'] == {'auth': 1, 'rate_limit': 1}
     assert [a.status for a in pool.accounts] == ['CHALLENGED', 'COOLDOWN', 'ACTIVE']
     assert [a.total_actions for a in pool.accounts] == [0, 0, 2]
+
+
+def test_expanded_legacy_search_error_is_not_recorded_as_success(monkeypatch, tmp_path):
+    class LegacyTransport:
+        def __init__(self):
+            self.calls = 0
+        def search(self, query, limit, account=None):
+            self.calls += 1
+            if self.calls == 2:
+                raise XCliError('expired cookies', kind='auth')
+            return []
+    pool = TwitterAccountPool.__new__(TwitterAccountPool)
+    pool.accounts = [TwitterAccount(1, 'one', '', 'token', 'cookie', '', 'ACTIVE')]
+    monkeypatch.setattr(pool, '_get_pg_conn', lambda: None)
+    monkeypatch.setattr(pool, 'refresh', lambda: None)
+    monkeypatch.setenv('X_MIN_INSPECT_POSTS', '1')
+    monkeypatch.setenv('X_MIN_QUALIFYING_POSTS', '1')
+    monkeypatch.setenv('X_MAX_INSPECT_POSTS', '2')
+    client = LegacyTransport()
+    collector = XCollector(client=client, account_pool=pool, output_dir=tmp_path / 'out',
+                           state_path=tmp_path / 'state', max_per_query=1, sleeper=lambda _: None)
+    result = collector.run(['legacy'])
+    assert client.calls == 2
+    assert result['status'] == 'AUTH_FAILED'
+    assert pool.accounts[0].status == 'CHALLENGED'
+    assert pool.accounts[0].total_actions == 0
+
+
+@pytest.mark.parametrize('code,kind', [('not_authenticated', 'auth'), ('rate_limited', 'rate_limit'), ('network_error', 'transient')])
+def test_native_structured_error_code_does_not_depend_on_message(monkeypatch, code, kind):
+    class NativeError(RuntimeError):
+        error_code = code
+    install_client(monkeypatch, iter([NativeError('opaque upstream failure')]))
+    account = TwitterAccount(1, 'one', '', 'token', 'cookie', '', 'ACTIVE')
+    with pytest.raises(XCliError) as exc:
+        XCliClient().search_top_past_week('لپتاپ', account=account)
+    assert exc.value.kind == kind

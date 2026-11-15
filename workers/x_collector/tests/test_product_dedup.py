@@ -15,7 +15,7 @@ def test_ingest_deduplicates_per_product_and_preserves_legacy_hash(tmp_path, mon
     params = connection.get_connection_params()
     dsn = make_conninfo(**{k: params[k] for k in ('dbname', 'user', 'password', 'host', 'port') if params.get(k)})
     monkeypatch.setenv('NE_CRAWLER_SCHEMA', 'test_product_dedup')
-    XCrawledPost.objects.create(tweet_id='101', post_hash=XCrawledPost.compute_hash('101'))
+    XCrawledPost.objects.create(tweet_id='101', post_hash='ca50b4fe50a7be78e1bf5b355d39ae9655990b85cc57cc3d49f2728557767019')
     base = {'source': 'x', 'id': '101', 'text': 'دنبال لپتاپ هستم', 'author_id': '1',
             'author_handle': '@buyer', 'metadata': {}, 'created_at': datetime.now(timezone.utc).isoformat()}
     rows = [{**base, 'product_id': pid} for pid in ('p1', 'p2')]
@@ -54,3 +54,26 @@ def test_native_search_keeps_same_tweet_for_two_products(tmp_path, monkeypatch):
     assert result['collected'] == 2
     rows = [json.loads(line) for line in open(result['output'])]
     assert {row['product_id'] for row in rows} == {'p1', 'p2'}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_panel_insert_failure_rolls_back_record_and_keeps_neighbors(tmp_path, monkeypatch, caplog):
+    params = connection.get_connection_params()
+    dsn = make_conninfo(**{k: params[k] for k in ('dbname', 'user', 'password', 'host', 'port') if params.get(k)})
+    monkeypatch.setenv('NE_CRAWLER_SCHEMA', 'test_panel_savepoint')
+    base = {'source': 'x', 'text': 'دنبال لپتاپ هستم', 'author_id': '1', 'author_handle': '@buyer',
+            'product_id': 'p1', 'metadata': {}}
+    records = [{**base, 'id': '201'}, {**base, 'id': '202', 'author_handle': '@' + 'x' * 101}, {**base, 'id': '203'}]
+    path = tmp_path / 'posts.jsonl'
+    path.write_text('\n'.join(json.dumps(row) for row in records))
+    try:
+        assert _load(path, dsn) == (2, 1)
+        with connection.cursor() as cursor:
+            for table in ['x_posts', 'x_post_products']:
+                cursor.execute(f'SELECT tweet_id FROM test_panel_savepoint.{table} ORDER BY tweet_id')
+                assert cursor.fetchall() == [(201,), (203,)]
+        assert list(XCrawledPost.objects.order_by('tweet_id').values_list('tweet_id', flat=True)) == ['201', '203']
+        assert 'line 2' in caplog.text
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute('DROP SCHEMA IF EXISTS test_panel_savepoint CASCADE')

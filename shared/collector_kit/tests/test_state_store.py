@@ -106,3 +106,19 @@ def test_postgres_state_import_does_not_inflate_daily_counts(postgres_state_stor
     postgres_state_store.import_missing_state(state)
 
     assert postgres_state_store.count_today() == 1
+
+
+def test_read_only_schedule_does_not_register_skipped_queries(state_store):
+    queries = [{'query': 'buyer', 'kind': 'intent', 'priority': 1}]
+    assert state_store.schedule(queries, 1, persist=False) == queries
+    assert state_store.query_status() == []
+    assert state_store.schedule(queries, 1) == queries
+    assert len(state_store.query_status()) == 1
+
+
+def test_read_only_schedule_respects_daily_unique_history(state_store):
+    queries = [{'query': 'buyer', 'kind': 'intent'}]
+    state_store.schedule(queries, 1)
+    state_store.record_query('buyer', 1, 1, started_at=datetime.now(timezone.utc))
+    assert state_store.schedule(queries, 1, enforce_daily_unique=True, persist=False) == []
+    assert state_store.schedule(queries, 1, persist=False) == queries

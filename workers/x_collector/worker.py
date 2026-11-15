@@ -14,16 +14,19 @@ from typing import Any, Callable
 
 from . import cli_mapping as mapping
 from .client import XCliClient, XCliError
+from .balance_gate import BalanceGate
+from .query_files import load_query_file
+from .cycle_support import fetch_search, handle_search_error
 from .intent_queries import KIND_WEIGHTS
 from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.seen import SeenStore
 from shared.collector_kit.state_store import create_state_store
 from shared.records import SourceRecord, to_json_line
-from shared.x_dedup import compute_tweet_hash, seen_tweet_ids
+from shared.x_dedup import compute_tweet_hash
 from shared.x_filters import is_promotional_post, is_political_x_post
 from shared.collector_kit.jsonl import append_line
-from shared.collector_kit.limits import CircuitBreaker, Cooldown, DailyCap, retry_delay
+from shared.collector_kit.limits import CircuitBreaker, Cooldown, DailyCap
 from shared.collector_kit.status import write_status
 
 log = logging.getLogger("x_collector")
@@ -221,10 +224,7 @@ class XCollector:
     @staticmethod
     def load_queries(query_file: str | Path | None = None) -> list[str]:
         path = Path(query_file or os.getenv("X_COLLECT_QUERIES_FILE", "data/x_queries.txt"))
-        if not path.is_file():
-            return []
-        lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
-        return list(dict.fromkeys(line for line in lines if line and not line.startswith("#")))
+        return load_query_file(path)
 
     def run(self, queries: list[str | dict[str, Any]], dry_run: bool = False, mock_records: list[dict[str, Any]] | None = None, *, _retention_locked: bool = False) -> dict[str, Any]:
         normalized_queries = [dict(item) if isinstance(item, dict) else {"query": item, "kind": "product", "priority": 1.0} for item in queries]
@@ -254,7 +254,8 @@ class XCollector:
                               if self.state_backend == "sqlite" else self.output_dir / ".collector_state.lock")
                 with exclusive_file_lock(state_lock):
                     self.state = create_state_store(self.state_path, platform="x", sqlite_factory=SeenStore)
-                    result = self._run_locked(normalized_queries, output_path, mock_records)
+                    with BalanceGate() as balance_gate:
+                        result = self._run_locked(normalized_queries, output_path, mock_records, balance_gate)
             if result.get("status") in {"COMPLETED", "DAILY_CAP_REACHED"} and not result.get("failures"):
                 beat_ok("x", int(result.get("collected", 0)))
             else:
@@ -266,7 +267,7 @@ class XCollector:
             raise
 
     def _run_locked(self, normalized_queries: list[dict[str, Any]], output_path: Path,
-                    mock_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                    mock_records: list[dict[str, Any]] | None, balance_gate: BalanceGate) -> dict[str, Any]:
         if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
             log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
         if hasattr(self, "account_pool") and self.account_pool:
@@ -276,7 +277,8 @@ class XCollector:
                 log.debug("Account pool refresh failed: %s", pool_exc, exc_info=True)
         is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
         enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "false").lower() in {"1", "true", "yes", "on"}
-        scheduled = self.state.schedule(normalized_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily)
+        eligible_queries = balance_gate.filter_queries(normalized_queries)
+        scheduled = self.state.schedule(eligible_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily, persist=False)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
         query_products = {item["query"]: [str(x) for x in item.get("product_ids") or []] for item in scheduled}
@@ -292,11 +294,11 @@ class XCollector:
         cooldown_until = cooldown.active_until()
         if cooldown_until:
             result = {"status": "RATE_LIMITED", "collected": 0, "failures": 0,
-                      "output": str(output_path), "cooldown_until": cooldown_until}
+                      "output": str(output_path), "cooldown_until": cooldown_until, **self.filter_stats, **balance_gate.stats()}
             self._write_status(result)
             return result
         if daily_remaining == 0:
-            result = {"status": "DAILY_CAP_REACHED", "collected": 0, "output": str(output_path)}
+            result = {"status": "DAILY_CAP_REACHED", "collected": 0, "output": str(output_path), **self.filter_stats, **balance_gate.stats()}
             self._write_status(result)
             return result
 
@@ -316,6 +318,12 @@ class XCollector:
                 started_at = datetime.now(timezone.utc)
                 search_query = time_window(query, self.state.last_ok(query), started_at)
                 while retry <= self.max_retries:
+                    eligible = balance_gate.eligible_query(scheduled[query_index])
+                    if eligible is None:
+                        break
+                    query_products[query] = [str(pid) for pid in eligible.get('product_ids') or []]
+                    query_sellers[query] = balance_gate.owners(eligible)
+                    self.state.schedule([eligible], 1)
                     try:
                         if hasattr(self, "account_pool") and self.account_pool:
                             current_account = self.account_pool.get_next_account()
@@ -324,25 +332,11 @@ class XCollector:
                                 stop_reason = "ALL_ACCOUNTS_UNAVAILABLE"
                                 break
 
-                        search_stats = None
-                        if hasattr(self.client, "search_top_past_week") and mock_records is None and not is_test_client:
-                            target_limit = min(40, daily_remaining - len(collected))
-                            raw_items, search_stats = self.client.search_top_past_week(
-                                query,
-                                target_posts=target_limit,
-                                account=current_account,
-                                global_seen_ids=seen_tweet_ids(already_written, query_products.get(query) or []),
-                            )
-                            fetched_count = len(raw_items)
-                        else:
-                            fetch_limit = min(max(min_inspect, self.max_per_query), daily_remaining - len(collected)) if not is_test_client else min(self.max_per_query, daily_remaining - len(collected))
-                            raw_items = mock_records if mock_records is not None else self.client.search(
-                                search_query, fetch_limit,
-                                account=current_account)
-                            fetched_count = len(raw_items)
-                        if current_account and hasattr(self, "account_pool") and self.account_pool:
-                            self.account_pool.record_success(current_account, posts_count=fetched_count)
-                        breaker.success()
+                        raw_items, search_stats, fetch_limit = fetch_search(
+                            self, query, search_query, query_products.get(query) or [], current_account,
+                            already_written, daily_remaining - len(collected), min_inspect, mock_records, is_test_client,
+                        )
+                        fetched_count = len(raw_items)
 
                         records = self._records_for_query(raw_items, query, query_products)
                         records = filter_uncrawled_tweets(records)
@@ -375,9 +369,14 @@ class XCollector:
                                             seen_count += 1
                                             continue
                                         candidates.append(record)
+                                except XCliError:
+                                    raise
                                 except Exception as expand_exc:
                                     log.warning("Expanding search to %d failed: %s", expand_limit, expand_exc, exc_info=True)
 
+                        if current_account and self.account_pool:
+                            self.account_pool.record_success(current_account, posts_count=fetched_count)
+                        breaker.success()
                         if candidates:
                             new_before = len(collected)
                             for record in candidates:
@@ -433,47 +432,22 @@ class XCollector:
                         search_errors[exc.kind] = search_errors.get(exc.kind, 0) + 1
                         self.state.record_query(query, 0, 0, str(exc)[:300])
                         failures += 1
-                        circuit_open = breaker.failure()
-                        if exc.kind == "rate_limit":
-                            if current_account and self.account_pool:
-                                self.account_pool.record_rate_limit(current_account)
-                                next_acc = self.account_pool.get_next_account()
-                                if next_acc:
-                                    log.info("Rate limit on @%s; rotating immediately to @%s", current_account.username, next_acc.username)
-                                    current_account = next_acc
-                                    continue
-                            cooldown_until = cooldown.start()
-                            log.error("All accounts rate limited; collection paused until %s", cooldown_until)
-                            stop_reason = "RATE_LIMITED"
+                        breaker.failure()
+                        action, stop_reason, failed = handle_search_error(self, exc, current_account, breaker, cooldown, retry)
+                        failed_queries += failed
+                        if action == 'rotate':
+                            continue
+                        if action != 'retry':
                             break
-
-                        if exc.kind in {"fatal", "auth"}:
-                            if current_account and hasattr(self, "account_pool") and self.account_pool and exc.kind == "auth":
-                                self.account_pool.record_auth_error(current_account, str(exc))
-                                next_acc = self.account_pool.get_next_account()
-                                if next_acc:
-                                    log.info("Auth error on @%s; rotating to @%s", current_account.username, next_acc.username)
-                                    current_account = next_acc
-                                    continue
-                            log.error("Fatal CLI error; stopping collection: %s", exc)
-                            stop_reason = "AUTH_FAILED" if exc.kind == "auth" else "FAILED"
-                            failed_queries += 1
-                            break
-                        if circuit_open:
-                            log.error("Stopping collection after consecutive CLI failures: %s", exc)
-                            break
-                        if exc.kind != "transient" or retry >= self.max_retries:
-                            failed_queries += 1
-                            log.warning("Query failed after retries: %s", exc)
-                            break
-                        self.sleeper(retry_delay(retry, self.jitter))
                         retry += 1
+                if query in balance_gate.skipped_queries:
+                    continue
                 if stop_reason or breaker.failures >= self.circuit_breaker or query_index == len(queries) - 1:
                     break
                 self.sleeper(self.jitter(self.sleep_min, self.sleep_max))
         status = stop_reason or ("RATE_LIMITED" if cooldown.active_until() else "CIRCUIT_OPEN" if breaker.failures >= self.circuit_breaker else "PARTIAL" if failed_queries else "COMPLETED")
         result = {"status": status, "collected": len(collected), "failures": failures,
-                  "failed_queries": failed_queries, "output": str(output_path), "search_errors": search_errors, **self.filter_stats}
+                  "failed_queries": failed_queries, "output": str(output_path), "search_errors": search_errors, **self.filter_stats, **balance_gate.stats()}
         self._write_status(result)
         return result
 
@@ -568,7 +542,7 @@ class XCollector:
     def _write_status(self, result: dict[str, Any]) -> None:
         target = _within_output_root(Path(os.getenv("X_STATUS_FILE", str(self.output_dir / "status.json"))), self.output_dir)
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until", "search_errors", "promotional_posts_dropped")}
+        payload = {key: result.get(key) for key in ("status", "collected", "failures", "failed_queries", "output", "cooldown_until", "search_errors", "promotional_posts_dropped", "paused_businesses", "skipped_queries_by_balance")}
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
         payload["collected_today"] = self.state.count_today() if self.state else 0
         payload["daily_cap"] = self.daily_cap

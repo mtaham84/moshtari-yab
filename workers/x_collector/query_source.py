@@ -162,7 +162,10 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
                     hit["priority"] = max(hit["priority"], item["priority"])
                 else:
                     merged[key] = item
-    return list(merged.values())
+    ownership = {str(pid): str(fam.business_id) for fam in families
+                 for pid in getattr(fam, "member_product_ids", [fam.product_id])}
+    return [{**item, "product_business_ids": {pid: ownership[pid] for pid in item["product_ids"] if pid in ownership}}
+            for item in merged.values()]
 
 
 def targeted_queries_from_products(products: list[Any], terms: dict[str, dict] | None = None,
@@ -205,7 +208,8 @@ def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
     if override:
         from workers.x_collector.worker import XCollector
 
-        return XCollector.load_queries(override)
+        with BalanceGate() as gate:
+            return gate.filter_queries(XCollector.load_queries(override))
     if os.getenv("X_QUERY_SOURCE", "generated").casefold() == "registry":
         config = EngineConfig()
         source = SQLProductSource(config)
@@ -225,7 +229,8 @@ def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
             return [{"query": row["text"], "priority": float(row["weight"] or 1),
                      "kind": "intent" if "intent" in row["kind"] else "product",
                      "business_ids": [str(row["business_id"])],
-                     "product_ids": by_business[str(row["business_id"])]}
+                     "product_ids": by_business[str(row["business_id"])],
+                     "product_business_ids": {pid: str(row["business_id"]) for pid in by_business[str(row["business_id"])]}}
                     for row in rows if str(row["business_id"]) in funded
                     and not any(term and term in row["text"].casefold() for term in blocked.get(int(row["business_id"]), set()))]
         finally:

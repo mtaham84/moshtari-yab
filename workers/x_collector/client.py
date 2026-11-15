@@ -81,19 +81,23 @@ def parse_created_at_utc(value: Any) -> datetime | None:
 
 class XCliError(RuntimeError):
     def __init__(self, message: str, kind: str = "fatal"):
-        super().__init__(message)
+        super().__init__(mask_proxy(message))
         self.kind = kind
 
 
 def _search_error(exc: Exception) -> XCliError:
     if isinstance(exc, XCliError):
         return exc
+    code = getattr(exc, 'error_code', '')
+    known = {'not_authenticated': 'auth', 'rate_limited': 'rate_limit', 'network_error': 'transient'}
+    if code in known:
+        return XCliError(f"X search failed ({known[code]})", kind=known[code])
     detail = str(exc).casefold()
     if re.search(r"\b(?:401|403|unauthorized|authentication|session expired|login required|invalid cookies)\b", detail):
         kind = "auth"
     elif re.search(r"\b(?:429|rate limit|too many requests)\b", detail):
         kind = "rate_limit"
-    elif isinstance(exc, (TimeoutError, ConnectionError)) or re.search(r"\b(?:5\d\d|timeout|timed out|connection)\b", detail):
+    elif isinstance(exc, (TimeoutError, ConnectionError)) or re.search(r"\b(?:5\d\d|timeout|timed out|connection|network)\b", detail):
         kind = "transient"
     else:
         kind = "fatal"
@@ -198,7 +202,7 @@ class XCliClient:
                         else:
                             try:
                                 data = cl._graphql_get("SearchTimeline", variables, FEATURES)
-                            except Exception as get_exc:
+                            except (RuntimeError, OSError, ValueError) as get_exc:
                                 if "404" in str(get_exc):
                                     data = cl._graphql_post("SearchTimeline", variables, FEATURES)
                                     cl._search_use_post = True
@@ -305,7 +309,7 @@ class XCliClient:
 
                     return valid_records[:target_posts], stats
 
-            except Exception as proc_err:
+            except (RuntimeError, OSError, ValueError) as proc_err:
                 raise _search_error(proc_err) from None
 
         # Fallback via CLI runner
@@ -340,7 +344,7 @@ class XCliClient:
             stats["valid_posts"] = len(valid_records)
             stats["stop_reason"] = "TARGET_REACHED" if len(valid_records) >= target_posts else "EXHAUSTED"
             return valid_records[:target_posts], stats
-        except Exception as cli_exc:
+        except (RuntimeError, OSError, ValueError) as cli_exc:
             raise _search_error(cli_exc) from None
 
     def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:

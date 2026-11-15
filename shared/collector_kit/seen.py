@@ -240,16 +240,18 @@ class SeenStore:
                        (self.platform, key, value))
             db.commit()
 
-    def schedule(self, queries: list[dict[str, Any]], budget: int, enforce_daily_unique: bool = False) -> list[dict[str, Any]]:
+    def schedule(self, queries: list[dict[str, Any]], budget: int, enforce_daily_unique: bool = False, persist: bool = True) -> list[dict[str, Any]]:
         import random
         now = datetime.now(timezone.utc)
         with closing(sqlite3.connect(self.path)) as db:
-            for item in queries:
+            for item in queries if persist else []:
                 db.execute("INSERT INTO query_runs(query,kind,priority,platform) VALUES(?,?,?,?) ON CONFLICT(platform,query) DO UPDATE SET kind=excluded.kind,priority=excluded.priority",
                            (item["query"], item.get("kind", "product"), item.get("priority", 1.0), self.platform))
             rows = db.execute("SELECT query,kind,priority,last_run_at,runs,alpha,beta,leads_count,dropped FROM query_runs WHERE platform=? AND query IN (%s)" % ",".join("?" for _ in queries),
                               [self.platform, *[item["query"] for item in queries]]).fetchall() if queries else []
-            by_query = {row[0]: row for row in rows}
+            defaults = {item["query"]: (item["query"], item.get("kind", "product"), item.get("priority", 1),
+                                          None, 0, 1.0, 1.0, 0, 0) for item in queries}
+            by_query = {**defaults, **{row[0]: row for row in rows}}
 
             def score(item):
                 row = by_query[item["query"]]

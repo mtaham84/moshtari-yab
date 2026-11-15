@@ -50,8 +50,10 @@ default. (`public` mode treats all posts as one stream and matches them to any p
 
 Runs at the start of every cycle, so a product switched on in the panel is picked up without a restart.
 
-- **Which products.** Products with `x_search_enabled`, whose seller's wallet is not blocked. A hardcoded filter then
-  keeps only the dental seller (fix 2).
+- **Which products.** Products with `x_search_enabled`, whose seller has a positive wallet balance and is not blocked
+  by the enforced minimum balance. `X_REQUIRE_WALLET=true` also blocks missing wallet rows. An empty
+  `X_SELLER_ALLOWLIST` permits every funded seller; a populated list limits rollout to those business IDs.
+  Wallet read failures stop query generation. There is no dental-only eligibility filter.
 - **Families.** Products of one seller in the same category node (first three levels of the category path) form a
   family. Queries are written per family, not per product, and the seller's free-text `search_notes` are passed
   along. A product without a category is a family of one.
@@ -74,8 +76,21 @@ Runs at the start of every cycle, so a product switched on in the panel is picke
 - **Merge.** A query is `<phrase> lang:fa`. The same query from two families or two sellers becomes one search
   tagged with all their products. At most 150 queries per seller.
 
-`X_COLLECT_QUERIES_FILE` (a text file) or `X_QUERY_SOURCE=registry` (the `XSearchQuery` table edited in the panel)
-replace all of this with a fixed list.
+`X_COLLECT_QUERIES_FILE` (plain text, JSONL objects, or a JSON list) or `X_QUERY_SOURCE=registry` (the `XSearchQuery` table edited in the panel)
+replace phrase generation. Registry queries require an enabled X-search product and the same wallet checks.
+Static entries with `business_id` or `business_ids` use the same gate; unowned entries retain their legacy behavior
+and log a warning that balance checks are bypassed. JSON example:
+
+```json
+[{"query": "لپتاپ لنوو", "business_id": "9", "product_ids": ["91"]}]
+```
+
+The worker reads fresh wallet balances before every query attempt (TTL zero, including retries). A shared query runs
+while at least one owner remains funded, and only funded owners appear in the search billing metadata. Generated
+queries carry `product_business_ids`, so blocked owners' product IDs are removed too. There is no persistent pause
+flag: a top-up restores eligibility next cycle. Scheduling first reads history without inserting rows; only queries
+that pass the gate are registered. Balance skips create no query runs, strikes or bandit penalties. Run/status stats
+include `paused_businesses` and `skipped_queries_by_balance`.
 
 ## 2. Choosing what to search (`shared/collector_kit/seen.py`)
 
@@ -91,20 +106,30 @@ replace all of this with a fixed list.
 ## 3. Searching (`client.py`, `account_pool.py`)
 
 - **Accounts.** A pool in `x_accounts` (cookies `auth_token` and `ct0`, a proxy each). The least-used available
-  account is taken; each has a daily action limit (250) and a 15-minute rest after a rate limit.
+  account is taken; each has a daily action limit (250) and a 15-minute rest after a rate limit. The daily
+  counter resets in PostgreSQL at UTC midnight, both on refresh and on the next successful action.
 - **The search.** X's own search endpoint through the `twitter-cli` library: tab **Top**, `lang:fa`, the last
   7 days, 20 posts a page, up to 10 pages, 1.2 to 2.5 seconds between pages, until 40 valid posts. A post is valid
   when it is new in this run, inside the 7 days and really Persian. Two pages in a row with nothing valid stop the
-  search. If the library fails, a command-line fallback is tried.
+  search. The CLI transport is used when the native library or account cookies are unavailable. Native
+  search errors propagate with `auth`, `rate_limit`, `transient`, or `fatal` kinds; authentication errors challenge
+  the account and rate limits put it in cooldown. Neither is recorded as an empty success. The existing CLI 404
+  `query` kind continues to skip only that query. Cookies stay in client arguments or the subprocess environment;
+  proxy credentials are masked before logging or storing stats. `search_errors` counts failures by kind.
 - **Limits.** 2,500 new posts a day, 2 to 5 seconds between queries, stop after 4 failures in a row.
 
 ## 4. Storing (`worker.py`, `x_ingest/`)
 
-- Retweets, advertising posts, political posts and posts older than 10 days are skipped.
+- Retweets, explicit advertising posts, political posts and posts older than 10 days are skipped. Buyer phrases
+  such as «برای خرید» or «تخفیف داره؟», including links, are not hard promotional rules. Promotion drops are logged
+  and counted in `promotional_posts_dropped`; this phase does not store dropped posts.
 - A post already seen (state store, today's file, or the `XCrawledPost` table) is skipped. The seen-key is the post
-  plus the product, so the same post can be kept for two products.
+  plus the product, including database hashes, so the same post can be kept for two products. Legacy unscoped
+  hashes remain valid for unscoped searches and do not suppress a new product-specific hit.
 - New posts are appended to `output/x_collected/<date>.jsonl` and `latest.jsonl`; `x_ingest` then upserts them into
-  `crawler.x_posts` and `crawler.x_post_products`.
+  `crawler.x_posts` and `crawler.x_post_products`. A record savepoint makes database errors skip only that record
+  (counted and logged), leaving earlier and later valid records intact. Manual replay:
+  `python -m x_ingest --path data/x_collected/latest.jsonl`.
 - Each search is recorded (`crawler.x_search_runs`) for the seller's product page, and can be charged
   (`X_SEARCH_FEE_TOMAN`, default 0).
 
@@ -126,7 +151,8 @@ Needs `NE_X_ENABLED=true`. Per product chat, each run:
 - The answer is cached by post text and product, so the same text is not paid for twice for one product.
 - The cost is written to the engine's ledger with the seller's id; `sync` charges the wallet from there.
 - Every post gets an outcome in `need_engine.x_hit_results`: `customer`, `not_fit` (a buyer of something else),
-  `not_customer`, or `skipped`.
+  `not_customer` (no extracted need), or `skipped`. A default/cached `fit="no"` with no need is
+  `not_customer`; a need below the opportunity threshold is `not_fit`.
 
 ## 7 to 9. From the engine to the seller
 
@@ -170,6 +196,8 @@ the next cycle. The scores feed the ordering in step 2.
 | `NE_X_PREFILTER` | shadow | cheap filter only records, or really drops (`on`) |
 | `X_COLLECT_QUERIES_PER_CYCLE` / `X_COLLECT_INTERVAL_SECONDS` | 12 / 300 | how many searches, how often |
 | `X_COLLECT_DAILY_CAP` | 2500 | new posts per day |
+| `X_SELLER_ALLOWLIST` | empty | optional comma-separated business IDs for staged rollout |
+| `X_REQUIRE_WALLET` | true | block sellers without wallet rows |
 | `X_ACCOUNT_MAX_DAILY_ACTIONS` | 250 | searches per account per day |
 | `X_QUERY_MAX_PER_TENANT` / `X_QUERY_MAX_PER_FAMILY` | 150 / 15 | how many queries a seller and a family get |
 | `NE_X_BATCH_SIZE` / `NE_X_MAX_PER_RUN` | 8 / 200 | posts per LLM call, posts per engine run |

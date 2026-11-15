@@ -174,20 +174,26 @@ class PostgresStateStore:
         self.set_setting("rate_limit_until", value)
         return value
 
-    def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+    def schedule(self, queries: list[dict[str, Any]], budget: int, enforce_daily_unique: bool = False, persist: bool = True) -> list[dict[str, Any]]:
         now = datetime.now(timezone.utc)
         with self._connect(self.dsn) as db:
             with db.transaction():
-                for item in queries:
+                for item in queries if persist else []:
                     db.execute(f"INSERT INTO {self.schema}.collector_query_runs(platform,query,kind,priority) VALUES(%s,%s,%s,%s) ON CONFLICT(platform,query) DO UPDATE SET kind=EXCLUDED.kind,priority=EXCLUDED.priority", (self.platform, item["query"], item.get("kind", "product"), item.get("priority", 1.0)))
                 rows = db.execute(f"SELECT query,kind,priority,last_run_at,dropped FROM {self.schema}.collector_query_runs WHERE platform=%s AND query=ANY(%s)", (self.platform, [item["query"] for item in queries])).fetchall() if queries else []
-        by_query = {row[0]: row for row in rows}
+        defaults = {item["query"]: (item["query"], item.get("kind", "product"), item.get("priority", 1), None, False)
+                    for item in queries}
+        by_query = {**defaults, **{row[0]: row for row in rows}}
         def score(item):
             row = by_query[item["query"]]
             last, kind = row[3], row[1]
             stale = 1e12 if not last else max(1.0, (now - last).total_seconds())
             return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 1.0)), item["query"]
-        return sorted((item for item in queries if not by_query[item["query"]][4]), key=score)[:max(0, budget)]
+        eligible = [item for item in queries if not by_query[item["query"]][4]]
+        if enforce_daily_unique:
+            eligible = [item for item in eligible if not by_query[item["query"]][3]
+                        or by_query[item["query"]][3].date() != now.date()]
+        return sorted(eligible, key=score)[:max(0, budget)]
 
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:

@@ -11,7 +11,8 @@ from workers.x_collector.tests.test_search_errors import install_client
 
 
 @pytest.mark.parametrize('native', [True, False])
-def test_two_accounts_do_not_change_process_environment(monkeypatch, native):
+@pytest.mark.parametrize('preexisting', [True, False])
+def test_two_accounts_do_not_change_process_environment(monkeypatch, native, preexisting):
     install_client(monkeypatch, iter([[], []]))
     module = sys.modules['twitter_cli.client']
     sessions = []
@@ -41,6 +42,9 @@ def test_two_accounts_do_not_change_process_environment(monkeypatch, native):
             cookies.append((kwargs['env']['TWITTER_AUTH_TOKEN'], kwargs['env']['TWITTER_CT0']))
             return SimpleNamespace(returncode=0, stdout=json.dumps({'ok': True, 'data': []}), stderr='')
         monkeypatch.setattr('workers.x_collector.client.subprocess.run', run)
+    if not preexisting:
+        for key in ('TWITTER_AUTH_TOKEN', 'TWITTER_CT0', 'TWITTER_PROXY'):
+            monkeypatch.delenv(key, raising=False)
     before = dict(os.environ)
     for i in (1, 2):
         account = TwitterAccount(i, str(i), '', f'token-{i}', f'cookie-{i}', f'http://u:p{i}@proxy:8080', 'ACTIVE')

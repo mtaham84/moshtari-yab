@@ -6,7 +6,7 @@ import re
 PROMOTIONAL_PATTERNS = (
     r"\b(?:buy now|shop now|limited offer|order now|use code|promo code|sponsored|giveaway)\b",
     r"(?:فروش ویژه|سفارش دهید|خرید کنید|همین حالا بخرید|ارسال رایگان|فروش فوری)",
-    r"(?:سفارش (?:در|از طریق) دایرکت|ارسال به سراسر کشور|ثبت سفارش از طریق)",
+    r"(?:سفارش (?:در|از طریق) دایرکت|ارسال به سراسر کشور|ثبت سفارش از طریق|خرید از سایت ما)",
 )
 URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
 

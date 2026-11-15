@@ -30,6 +30,12 @@ green, before the next one starts. Behavior must not change unless the step says
   `apps/discovery/proxies/`). The operator panel rebuild is planned in `docs/OPS_PANEL.md`. Neither is started.
 - Open PRs and other branches are out of scope for this plan.
 
+- X Phase 1 (`taha3`, 2026-11-15): buyer outcome labels, ingest savepoints, UTC account counters, explicit search
+  errors, product-scoped dedup (migration discovery/0044), buyer-safe promotion filtering, wallet eligibility,
+  cookie isolation, proxy redaction and per-attempt credit guards. See `docs/X_COLLECTOR_FIXES.md` for the
+  per-item tests, operational assumptions and deploy checklist. Billing debit logic, prompts, account limits and
+  later-phase collection/analysis features remain out of scope.
+
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
 
 | Metric | Value |

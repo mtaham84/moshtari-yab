@@ -25,28 +25,14 @@ needs time to collect engagement before it shows up there, so a "since the last 
 
 ## Fixes, in order
 
-### 1. Errors must not look like "no results" (bug)
+### 1. Errors must not look like "no results" — fixed in Phase 1
 
-- Today: when the in-process search fails for any reason it falls back to the CLI (`client.py:295`), and when that
-  fails too the error is caught and an empty list is returned (`client.py:329`). The worker then records a success
-  for the account (`worker.py:344`). A rate limit, an expired session or missing cookies therefore looks like a
-  query with no posts: the account is not rotated, no cooldown starts, and the ops status stays green.
-- Fix: `search_top_past_week` raises `XCliError` with the right kind (`rate_limit`, `fatal` for authentication,
-  `transient`) and returns only on a real answer from X. The worker's existing handlers then do the rotation and
-  cooldown they already contain.
-- Tests first: a client whose search raises a rate limit makes the worker call `record_rate_limit` and move to the
-  next account; an authentication error calls `record_auth_error`; neither calls `record_success`.
-- Verified: read in code, not run. This is the first fix because every number below depends on it.
+See the Phase 1 delivery table below for behavior and regression tests. Auth is now its own `auth` kind.
 
-### 2. X search works for one seller only (bug, unless intended)
+### 2. X search works for one seller only — fixed in Phase 1
 
-- Today: `query_source.py:202` keeps only products of business 4 or with "دند" in the title or category path. Any
-  other seller who turns on X search gets no queries and no message. Dental discovery phrases are also hardcoded
-  (`families.py:36`, `query_source.py:132-146`).
-- Open question for the owner: was this limit on purpose (cost control while testing)?
-- Fix: remove the filter; sellers are already limited by the per-seller query cap and by their wallet balance. The
-  dental phrases move out of the code into data the seller (or an operator) owns.
-- Test first: two sellers with X search on, one of them not dental, both get queries.
+The dental-only eligibility filter is removed. Funded sellers with X search enabled are eligible, with an optional
+rollout allowlist. Built-in dental phrases remain outside this phase.
 
 ### 3. Posts seen on earlier days use up the 40-post target
 
@@ -66,11 +52,9 @@ needs time to collect engagement before it shows up there, so a "since the last 
 - Fix: run both forms on the same queries for a fixed period, compare leads per request, keep one and delete the
   other code path.
 
-### 5. Account cookies in process-wide environment variables
+### 5. Account cookies in process-wide environment variables — fixed in Phase 1
 
-- Today: `client.py:163` writes the account's `auth_token` and `ct0` into `os.environ` for every search. They stay
-  there for the next account and for any subprocess.
-- Fix: pass them to the client directly, as the code already does on the next line.
+Cookies stay in native constructor arguments or the CLI subprocess's private environment. See tests below.
 
 ### 6. One post is judged once per product of the family
 
@@ -103,3 +87,64 @@ notes).
 - The engine side of X: the pre-filter rules, the LLM batch extraction and reply drafts.
 - The query-learning code (`proqe.py`) beyond its outline.
 - The account pool's limits and cooldown values.
+
+## Phase 1 delivery (2026-11-15, branch `taha3`)
+
+Only the critical fixes and credit eligibility in this phase are implemented. There are no author/analysis tables,
+comment collection, prompt changes, changes to wallet charging, or changes to account rate limits and delays.
+
+| Item | Files changed | Behavior and regression tests |
+|---|---|---|
+| 1. Outcomes | `need_engine/engine.py`, `need_engine/tests/test_x_hit_outcomes.py` | A missing need is `not_customer`, even with a default/cached `fit="no"`. Extracted needs without an emitted opportunity are `not_fit`; emitted opportunities are `customer`. `test_product_hit_outcomes_including_cache` covers all three, `partly` below threshold, and fresh/cache paths. ProQE rewards/penalties are unchanged. |
+| 2. Ingest | `x_ingest/__main__.py`, `x_ingest/tests/test_x_ingest.py` | One savepoint per record covers all its inserts. A PostgreSQL error rolls back that record, increments the skipped count and logs the line number. `test_bad_database_record_rolls_back_only_that_record` imports valid/overflow/valid numeric IDs with a real PostgreSQL transaction; `test_panel_insert_failure_rolls_back_record_and_keeps_neighbors` verifies a late panel insert rolls back the earlier crawler inserts too. |
+| 3. Daily counters | `workers/x_collector/account_pool.py`, `tests/test_account_pool.py` in that package | Refresh persists a UTC reset; success uses a SQL date guard so the first action after midnight starts at one. `test_daily_counter_resets_in_database_at_utc_midnight` verifies availability, persistence and the next refresh. |
+| 4. Search errors | `client.py`, `worker.py`, `cycle_support.py`, `tests/test_search_errors.py`, updated collector test fixtures | Errors propagate as `XCliError`; auth challenges/rotates, rate limit cools/rotates, transient errors retry, fatal errors stop. `test_native_errors_are_explicit_and_do_not_fall_back`, `test_cli_error_is_not_an_empty_search`, `test_worker_rotates_auth_and_rate_limited_accounts_then_handles_empty_and_good`. `search_errors` distinguishes failures from genuine empty successes. |
+| 5. Dedup | `shared/x_dedup.py`, `worker.py`, `x_ingest/__main__.py`, `apps/discovery/models/x_twitter.py`, discovery migration `0044`, `tests/test_product_dedup.py` | Hashes include product ID; the model uniquely constrains `(tweet_id, product_id)`. Existing generic hashes are retained. `test_ingest_deduplicates_per_product_and_preserves_legacy_hash`, `test_native_search_keeps_same_tweet_for_two_products` cover both database and native pagination suppression. |
+| 6. Promotions | `shared/x_filters.py`, `worker.py`, `tests/test_promotional_filter.py` | Generic buying/discount/link phrases are removed from hard rules. `test_buyer_sentences_are_not_promotional` and `test_explicit_advertisements_are_promotional` each have ten cases; `test_worker_counts_dropped_promotional_posts` verifies counters. Drops are logged/counted, not stored. |
+| 7. Credit eligibility | `query_source.py`, `balance_gate.py`, `config.py`, `need_engine/registry.py`, `.env.example`, `tests/test_balance_queries.py` | All enabled products of funded sellers are eligible; no dental-only default. Tests cover funded non-dental, zero, negative, enforced minimum, failure, stale snapshot after failure and allowlist. A failed registry read invalidates wallet freshness. |
+| 8. Cookies | `client.py`, `native_session.py`, `tests/test_cookie_isolation.py` | Cookies are constructor arguments or subprocess-only environment values. The native transport is scoped under a lock, restores its previous session, and applies each account's proxy directly. `test_two_accounts_do_not_change_process_environment` covers native and CLI searches with two accounts. |
+| 9. Proxy redaction | `shared/tele_logging/formatter.py`, `client.py`, `account_pool.py`, `x_ingest/__main__.py`, `tests/test_proxy_redaction.py` | `mask_proxy` removes all userinfo; logs, pool status and nested stored search stats are redacted. Tests: `test_mask_proxy`, `test_search_logs_and_stats_hide_proxy_credentials`, `test_search_run_storage_redacts_stats`. |
+| 10. Run guard/resume | `worker.py`, `cycle_support.py`, `query_source.py`, `query_files.py`, `balance_gate.py`, `config.py`, both shared state-store schedulers | Fresh wallet reads before every attempt (TTL zero). Shared query metadata retains funded owners/products only. Read-only scheduling prevents history or penalties for balance skips. Tests in `test_balance_run.py`: exhaustion, top-up, shared owners, missing wallets on/off, mid-run failure, owned/unowned static files and direct static entries. `test_read_only_schedule_does_not_register_skipped_queries` covers SQLite and PostgreSQL. |
+
+### Assumptions and reproduction limits
+
+- The README already uses `python -m x_ingest --path ...`. There is no `DATABASE_SCHEMA.sql` in this checkout and
+  no `not_buyer`/`misfit` schema definition to update. The outcome names are documented in `docs/X_COLLECTOR.md`.
+- A need below the opportunity threshold is `not_fit`; no extracted need is `not_customer`. Cache contents do not
+  need rewriting because classification uses the extracted need rather than the truthiness of the cached fit.
+- Legacy unscoped hashes stay in the database with `product_id=""`. They do not suppress a product-specific hit;
+  an old tweet may therefore be re-collected once for an enabled product. The retention window is unchanged.
+- Static overrides accept text, JSONL objects, or JSON lists. Owned entries use the gate; unowned entries explicitly
+  bypass it with a warning. Generated and registry entries carry product-to-business ownership. Legacy custom
+  multi-owner entries without that map gate owners but retain their supplied product IDs; the engine still gates
+  each seller before analysis. Supply `product_business_ids` to filter those product IDs at collection time too.
+- X/CLI network responses are faked at the transport boundary. Native tests replace the optional twitter-cli
+  module to avoid X requests; PostgreSQL behavior, Django models/migrations, and state stores run for real on a
+  throw-away test database. No live X search, real wallet debit or production migration is part of verification.
+- Local verification uses a separate checkout with no developer `.env`, PostgreSQL 16 and pgvector. An early run
+  of existing tests in the original checkout loaded local account settings and changed local account counters or
+  statuses before isolation. Previous local values were not available to safely restore. The production server
+  was not accessed. Collector tests now require an explicit DSN before connecting the account pool.
+- Remaining work outside Phase 1: historical seen-post suppression across days, phrase quoting experiments,
+  one LLM judgment per family, funnel reporting, built-in dental phrase data, and any later collection features.
+  Items 3, 4, 6 and 7 above remain proposals, not implemented behavior. The PostgreSQL collector-state backend
+  also lacks existing X evaluation/bandit methods; this phase tests scheduling in both stores and keeps the
+  existing SQLite collector default.
+
+### Deploy checklist (requires a reviewed merge first)
+
+1. Review discovery migration `0044_xcrawledpost_product_id_alter_xcrawledpost_tweet_id_and_more.py`. It adds
+   `product_id`, removes tweet-only uniqueness, and adds `(tweet_id, product_id)` uniqueness. Stop the X writer
+   during migration and deploy its matching ingest/collector code together. No data migration rewrites old hashes.
+   A rollback to tweet-only uniqueness needs duplicate tweet rows consolidated first; do not reverse blindly.
+2. Set `X_SELLER_ALLOWLIST` for staged rollout if desired (empty/unset means every funded seller). Keep
+   `X_REQUIRE_WALLET=true` unless deliberately allowing legacy businesses without wallet rows. Check funded
+   businesses have wallet rows and that read failures generate an ops alert.
+3. Inspect existing `x_accounts` counters. The code automatically resets rows whose last action is before today
+   UTC (including null timestamps). Manually reset an already-inflated current-day daily counter if required:
+   review the affected IDs and set only `daily_action_count=0`; preserve lifetime counts and account status.
+4. Removing the dental eligibility filter increases query volume, LLM use and X account use in proportion to the
+   number of funded tenants, within existing global/per-account caps. Start with an allowlist and observe costs
+   and account health. Rate limits, daily caps, delays and anti-ban settings were not raised.
+5. Restart the X collector after the migration, then check run stats, masked proxies, funded sellers' search logs,
+   and that topping up a blocked seller resumes query eligibility on the next cycle. Do not add a paused flag.

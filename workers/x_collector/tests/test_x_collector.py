@@ -260,7 +260,11 @@ class XCollectorTests(unittest.TestCase):
                 collect_forever(collector, ["q"], 1)
         ingest.assert_called_once()
 
-    def test_product_queries_tag_posts_per_product_and_record_searches(self):
+    @patch("workers.x_collector.balance_gate.ModelRegistry")
+    def test_product_queries_tag_posts_per_product_and_record_searches(self, registry_factory):
+        from need_engine.registry import ModelRegistry
+        from need_engine.tests.test_registry import FakeDB, cfg
+        registry_factory.side_effect = lambda *a, **kw: ModelRegistry(cfg(), db=FakeDB(balances={"7": 100, "8": 100}))
         recent = dict(self.fixture[0])
         recent["createdAtISO"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         client = FakeClient([recent])
