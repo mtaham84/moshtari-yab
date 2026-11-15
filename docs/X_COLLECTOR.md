@@ -104,8 +104,15 @@ once per query. With fixed yields of 20/100 and 5/100, 100 allocations produce 8
 query kind and elapsed time do not multiply X yield; other platforms keep their existing scheduler.
 
 Smooth weighted round robin persists allocation credits across cycles/restarts. A query runs at most once per
-cycle; when the next winner already ran, it waits for the next cycle. New or zero-yield queries share 5% of
-allocations while positive-yield queries share the rest proportionally. If all yields are zero, allocation is equal.
+cycle; when the next winner already ran, it waits for the next cycle. An untried query starts at the eligible sampled queries' weighted mean yield:
+`sum(verified leads) / sum(completed searches)`. Queries with only failed requests remain untried. With no
+sampled history, the starting score is 0.5 for every fresh query. This is an allocation score, not a promise of
+50% of all searches. No artificial lead or search is inserted; after the first completed search, the query uses
+its own observed yield. For example, 20/100 and 5/100 give a new query a 12.5% starting score. Dry-run exposes
+both observed `lead_rate` and effective `score`.
+
+Sampled zero-yield queries share 5% of allocations while positive scores share the rest proportionally.
+If all scores are zero, allocation is equal.
 Existing non-buyer penalties, dropping and ten-day evaluation strikes remain in force. Only an actual eligible
 attempt consumes an allocation credit. Dry-run reads the same history and weights without changing the state.
 The continuous loop retries temporary query-loading/database failures after the existing 120-second delay;

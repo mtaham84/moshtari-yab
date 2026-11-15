@@ -54,15 +54,17 @@ def test_shared_tweet_is_one_query_lead_across_products_and_sellers(x_state):
     assert x_state.get_query_bandit_stats('topic')['leads'] == 1
 
 
-def test_new_and_zero_yield_queries_keep_an_exploration_share(x_state):
+def test_new_query_competes_at_weighted_mean_yield(x_state):
     queries = [{'query': 'good'}, {'query': 'weak'}, {'query': 'new'}]
     seed(x_state, queries)
     counts = Counter()
-    for _ in range(100):
+    for _ in range(300):
         query = x_state.schedule(queries, 1, persist=False)[0]['query']
         counts[query] += 1
         x_state.record_query_allocation(query, queries)
-    assert counts == {'good': 76, 'weak': 19, 'new': 5}
+    assert counts == {'good': 160, 'weak': 40, 'new': 100}
+    assert x_state.get_query_bandit_stats('new')['runs'] == 0
+    assert x_state.get_query_bandit_stats('new')['leads'] == 0
 
 
 def test_same_query_is_deferred_to_later_cycle_and_allocation_survives_reload(x_state):

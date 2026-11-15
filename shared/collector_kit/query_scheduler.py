@@ -1,4 +1,4 @@
-"""X allocation by verified leads per completed search, with a small exploration share."""
+"""X allocation by lead yield, with a weighted starting score for untried queries."""
 from __future__ import annotations
 
 import json
@@ -14,8 +14,18 @@ def query_stats(row=None):
             'searches': searches, 'lead_rate': leads / searches if searches else 0.0}
 
 
+def scores(queries, stats):
+    """Untried queries inherit the mean yield weighted by completed-search exposure."""
+    history = {item['query']: stats.get(item['query'], {}) for item in queries}
+    sampled = [row for row in history.values() if row.get('searches', 0) > 0]
+    searches = sum(row['searches'] for row in sampled)
+    initial = sum(row.get('leads', 0) for row in sampled) / searches if searches else 0.5
+    return {query: max(0.0, row.get('lead_rate', 0.0)) if row.get('searches', 0) > 0 else initial
+            for query, row in history.items()}
+
+
 def shares(queries, stats):
-    rates = {item['query']: max(0.0, stats.get(item['query'], {}).get('lead_rate', 0.0)) for item in queries}
+    rates = scores(queries, stats)
     if not rates:
         return {}
     total = sum(rates.values())

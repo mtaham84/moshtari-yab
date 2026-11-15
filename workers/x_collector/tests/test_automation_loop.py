@@ -99,3 +99,9 @@ def test_dry_run_uses_lead_yield_without_changing_state(monkeypatch, tmp_path):
     assert planned[0]['weight'] == pytest.approx(0.8)
     assert planned[0]['lead_rate'] == pytest.approx(0.2)
     assert path.read_bytes() == before
+    preview = collector.run([*queries, {'query': 'new'}], dry_run=True)
+    new = next(item for item in preview['planned_queries'] if item['query'] == 'new')
+    assert new['score'] == pytest.approx(.125)
+    assert new['weight'] == pytest.approx(1 / 3)
+    assert new['lead_rate'] == 0
+    assert path.read_bytes() == before

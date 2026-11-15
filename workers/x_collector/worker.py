@@ -20,6 +20,7 @@ from .query_files import load_query_file
 from .cycle_support import fetch_search, handle_search_error, preview_searches, unseen_candidates
 from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.collector_kit.heartbeat import beat_error, beat_ok
+from shared.collector_kit.query_scheduler import scores
 from shared.collector_kit.seen import SeenStore
 from shared.collector_kit.state_store import create_state_store
 from shared.records import SourceRecord, to_json_line
@@ -238,11 +239,13 @@ class XCollector:
         output_path = self.output_dir / f"{today}.jsonl"
         if dry_run:
             planned, weights, stats, collected_today = preview_searches(self, normalized_queries)
+            starting_scores = scores([item for item in normalized_queries if item["query"] in weights], stats)
             return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries,
                     "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today),
                     "planned_queries": [{**item, "weight": weights[item["query"]],
                                          "lead_rate": stats.get(item["query"], {}).get("lead_rate", 0.0),
-                                         "reason": "verified leads per completed search; exploration for zero-yield queries"}
+                                         "score": starting_scores[item["query"]],
+                                         "reason": "verified lead yield; weighted starting score for untried queries"}
                                         for item in planned], "output": str(output_path), "cli_called": False}
         self.output_dir.mkdir(parents=True, exist_ok=True)
         guard = nullcontext() if _retention_locked else exclusive_file_lock(self.output_dir / ".retention_guard.lock")

@@ -176,7 +176,8 @@ leads, and an actual concurrent PostgreSQL debit that must wait for the delivery
 - Product organization cannot create categories from `new_category` model output. Existing common taxonomy IDs
   are reused across products and sellers; category-family query generation and shared-query merging remain.
 - X allocation uses unique verified query/tweet leads divided by completed searches. Failed requests are excluded;
-  fixed 20%/5% yields allocate 80/20 in 100 attempts. A 5% exploration reserve prevents new queries starving.
+  fixed 20%/5% yields allocate 80/20 in 100 attempts. New queries start at the search-count-weighted mean yield of eligible sampled queries;
+  the 5% exploration reserve applies to sampled zero-yield queries.
   Allocation credits persist across cycles; no query is repeated within one cycle. Caps and account delays remain.
 - Dry-run uses the same weights with read-only state access. The continuous loop retries temporary reload/DB
   errors and continues after empty successful searches. PostgreSQL feedback/evaluation now matches the X API.
