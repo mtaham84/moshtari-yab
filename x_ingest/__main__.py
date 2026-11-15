@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -13,6 +12,7 @@ from pathlib import Path
 
 from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.records import RecordError, SourceRecord
+from shared.x_dedup import compute_tweet_hash
 
 log = logging.getLogger("x_ingest")
 
@@ -107,12 +107,12 @@ def _insert_record(conn, schema: str, record: dict, has_xcrawled: bool) -> None:
                          ON CONFLICT (tweet_id, product_id) DO NOTHING""",
                      (record["tweet_id"], record["product_id"], record["query"]))
     if has_xcrawled:
-        post_hash = hashlib.sha256(f"x_tweet:{record['tweet_id']}".encode("utf-8")).hexdigest()
+        post_hash = compute_tweet_hash(record["tweet_id"], record["product_id"])
         conn.execute("""
-            INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url)
-            VALUES (%s, %s, %s, %s, now(), %s)
+            INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url, product_id)
+            VALUES (%s, %s, %s, %s, now(), %s, %s)
             ON CONFLICT (post_hash) DO NOTHING
-        """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or ""))
+        """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or "", record["product_id"] or ""))
 
 
 def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:

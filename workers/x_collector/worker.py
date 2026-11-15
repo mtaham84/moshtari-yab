@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -21,6 +20,7 @@ from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.seen import SeenStore
 from shared.collector_kit.state_store import create_state_store
 from shared.records import SourceRecord, to_json_line
+from shared.x_dedup import compute_tweet_hash, seen_tweet_ids
 from shared.x_filters import is_promotional_post, is_political_x_post
 from shared.collector_kit.jsonl import append_line
 from shared.collector_kit.limits import CircuitBreaker, Cooldown, DailyCap, retry_delay
@@ -99,18 +99,13 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None) -> dict[str, 
     }).as_dict()
 
 
-def compute_tweet_hash(tweet_id: str | int) -> str:
-    clean_id = str(tweet_id).strip()
-    return hashlib.sha256(f"x_tweet:{clean_id}".encode("utf-8")).hexdigest()
-
-
 def filter_uncrawled_tweets(records: list[dict[str, Any]], dsn: str | None = None) -> list[dict[str, Any]]:
     if not records or (not dsn and os.getenv("X_DEDUP_AGAINST_DB", "true").strip().lower() in {"0", "false", "no", "off"}):
         return records
     try:
         from x_ingest.__main__ import _dsn
         import psycopg
-        hashes = {compute_tweet_hash(r["id"]): r for r in records if r.get("id")}
+        hashes = {compute_tweet_hash(r["id"], r.get("product_id")): r for r in records if r.get("id")}
         if not hashes:
             return records
         with psycopg.connect(dsn or _dsn(), connect_timeout=3) as conn:
@@ -124,7 +119,7 @@ def filter_uncrawled_tweets(records: list[dict[str, Any]], dsn: str | None = Non
             seen_hashes = {r[0] for r in rows}
             if seen_hashes:
                 log.info("Skipping %d duplicate tweet(s) already recorded in XCrawledPost", len(seen_hashes))
-            return [r for r in records if compute_tweet_hash(r["id"]) not in seen_hashes]
+            return [r for r in records if compute_tweet_hash(r["id"], r.get("product_id")) not in seen_hashes]
     except Exception as exc:
         log.debug("Database hash dedup check skipped: %s", exc, exc_info=True)
         return records
@@ -332,7 +327,7 @@ class XCollector:
                                 query,
                                 target_posts=target_limit,
                                 account=current_account,
-                                global_seen_ids={k.split('|')[0] for k in already_written},
+                                global_seen_ids=seen_tweet_ids(already_written, query_products.get(query) or []),
                             )
                             fetched_count = len(raw_items)
                         else:
