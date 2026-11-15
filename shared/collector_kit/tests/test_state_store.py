@@ -1,50 +1,6 @@
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timezone
-from uuid import uuid4
-
-import pytest
-
-from shared.collector_kit.seen import SeenStore
-from shared.collector_kit.state_store import PostgresStateStore
-
-
-@pytest.fixture(params=["sqlite", "postgres"])
-def state_store(request, tmp_path):
-    platform = "test_" + request.param
-    if request.param == "sqlite":
-        yield SeenStore(tmp_path / "state.sqlite3", platform=platform)
-        return
-    dsn = os.getenv("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL is not set")
-    yield from _postgres_state_store(dsn, platform)
-
-
-@pytest.fixture
-def postgres_state_store():
-    dsn = os.getenv("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL is not set")
-    yield from _postgres_state_store(dsn, "test_postgres")
-
-
-def _postgres_state_store(dsn, platform):
-    import psycopg
-
-    schema = "test_state_store_" + uuid4().hex
-    try:
-        with psycopg.connect(dsn):
-            pass
-    except Exception as exc:
-        pytest.skip(f"PostgreSQL is not reachable ({type(exc).__name__})")
-    store = PostgresStateStore(platform=platform, dsn=dsn, schema=schema)
-    try:
-        yield store
-    finally:
-        with psycopg.connect(dsn, autocommit=True) as db:
-            db.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
 def test_state_store_tracks_seen_ids_daily_counts_and_cooldown(state_store):

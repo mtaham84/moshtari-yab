@@ -40,7 +40,6 @@
     "need_engine/windowing.py": 1,
     "shared/collector_kit/heartbeat.py": 1,
     "shared/collector_kit/seen.py": 1,
-    "shared/collector_kit/tests/test_state_store.py": 1,
     "shared/tele_logging/formatter.py": 1,
     "shared/tele_logging/handler.py": 2,
     "shared/tele_logging/sender.py": 2,

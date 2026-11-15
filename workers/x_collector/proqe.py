@@ -374,16 +374,17 @@ def _family_map(conn) -> dict[str, str]:
 
 
 def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema: str = "crawler",
-                         engine_schema: str = "need_engine") -> dict[str, int]:
-    """Syncs LLM decisions from need_engine.x_hit_results to update Thompson Sampling bandit stats
+                         engine_schema: str = "need_engine", state_path: str | Path | None = None) -> dict[str, int]:
+    """Syncs verified outcomes into query-yield metrics and ProQE learning stats
     and extract real customer exemplars.
     Returns: {"rewarded": count, "penalized": count, "exemplars_added": count}
     """
     stats = {"rewarded": 0, "penalized": 0, "exemplars_added": 0, "negatives_added": 0}
-    if seen_store is None or not getattr(seen_store, "path", None):
+    path = state_path or getattr(seen_store, "path", None)
+    if seen_store is None or path is None:
         return stats
 
-    exemplar_store = ExemplarStore(seen_store.path)
+    exemplar_store = ExemplarStore(path)
 
     try:
         import psycopg
@@ -437,9 +438,9 @@ def sync_bandit_feedback(seen_store: Any, dsn: str | None = None, crawler_schema
                     is_proqe = any(search_query.startswith(q) for q in proqe_cache[pid])
 
                     if outcome == "customer":
-                        seen_store.record_feedback(search_query, success=True, weight=1.0)
-                        stats["rewarded"] += 1
-                        exemplar_store.record_outcome(search_query, is_proqe, True)
+                        if seen_store.record_feedback(search_query, success=True, weight=1.0, lead_id=str(message_id)):
+                            stats["rewarded"] += 1
+                            exemplar_store.record_outcome(search_query, is_proqe, True)
                         if exemplar_store.add_exemplar(
                             tweet_id=message_id, product_id=pid, tweet_text=tweet_text,
                             query=search_query, reason=reason

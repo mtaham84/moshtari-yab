@@ -13,7 +13,7 @@ behavior; that phase is about structure. Fix behavior first, with tests, then re
 1. `query_source.collector_queries` builds search queries per product family (short phrases from the product, the
    LLM-written terms and queries learned from confirmed buyers), merged across sellers and capped per seller.
 2. `SeenStore.schedule` picks 12 queries per cycle: never-run queries first, then by staleness, priority, kind and
-   a learned success rate (Thompson sampling; queries that sellers keep marking irrelevant are dropped).
+   verified leads per completed search (queries that keep producing non-buyers are dropped).
 3. `XCliClient.search_top_past_week` searches the Top tab, Persian only, last 7 days, 20 posts per page, up to 10
    pages, until 40 valid posts.
 4. The worker drops posts it has already seen, writes the rest to JSONL, and `x_ingest` loads them into the
@@ -145,9 +145,8 @@ leads, and an actual concurrent PostgreSQL debit that must wait for the delivery
   was not accessed. Collector tests now require an explicit DSN before connecting the account pool.
 - Remaining work outside Phase 1: historical seen-post suppression across days, phrase quoting experiments,
   one LLM judgment per family, funnel reporting, built-in dental phrase data, and any later collection features.
-  Items 3, 4, 6 and 7 above remain proposals, not implemented behavior. The PostgreSQL collector-state backend
-  also lacks existing X evaluation/bandit methods; this phase tests scheduling in both stores and keeps the
-  existing SQLite collector default.
+  Items 3, 4, 6 and 7 above remain proposals, not implemented behavior. The PostgreSQL collector-state backend now supports the query feedback/evaluation methods used by X;
+  the SQLite collector default is unchanged. Both backends exercise yield allocation and unique-lead credit.
 
 ### Deploy checklist (requires a reviewed merge first)
 
@@ -171,3 +170,19 @@ leads, and an actual concurrent PostgreSQL debit that must wait for the delivery
    and account health. Rate limits, daily caps, delays and anti-ban settings were not raised.
 5. Restart the X collector after the migration, then check run stats, masked proxies, funded sellers' search logs,
    and that topping up a blocked seller resumes query eligibility on the next cycle. Do not add a paused flag.
+
+### Category and continuous-allocation follow-up
+
+- Product organization cannot create categories from `new_category` model output. Existing common taxonomy IDs
+  are reused across products and sellers; category-family query generation and shared-query merging remain.
+- X allocation uses unique verified query/tweet leads divided by completed searches. Failed requests are excluded;
+  fixed 20%/5% yields allocate 80/20 in 100 attempts. A 5% exploration reserve prevents new queries starving.
+  Allocation credits persist across cycles; no query is repeated within one cycle. Caps and account delays remain.
+- Dry-run uses the same weights with read-only state access. The continuous loop retries temporary reload/DB
+  errors and continues after empty successful searches. PostgreSQL feedback/evaluation now matches the X API.
+- Existing lead counters are preserved, so historically duplicated rewards can initially bias weights. The new
+  per-query/tweet ledger prevents future duplication; no blind historical reset is performed.
+- Live X return volume has not been verified: all seven locally configured eligible account proxies failed the
+  connectivity check, so no live X search was sent. Fix proxy connectivity before evaluating real results.
+  The local engine also has `NE_X_ENABLED=false`; enable it in the intended deployment for X analysis after review.
+  No production settings, account limits or deployment were changed by this follow-up.

@@ -54,6 +54,9 @@ Runs at the start of every cycle, so a product switched on in the panel is picke
   by the enforced minimum balance. `X_REQUIRE_WALLET=true` also blocks missing wallet rows. An empty
   `X_SELLER_ALLOWLIST` permits every funded seller; a populated list limits rollout to those business IDs.
   Wallet read failures stop query generation. There is no dental-only eligibility filter.
+- **Taxonomy.** Luna assigns products only to existing IDs in the common business-type tree. Per-product
+  responses cannot create or rename categories. Initial shared-tree generation remains bounded to three levels
+  with at most ten children per generated parent. Manual categories remain supported.
 - **Families.** Products of one seller in the same category node (first three levels of the category path) form a
   family. Queries are written per family, not per product, and the seller's free-text `search_notes` are passed
   along. A product without a category is a family of one.
@@ -94,14 +97,24 @@ include `paused_businesses` and `skipped_queries_by_balance`.
 
 ## 2. Choosing what to search (`shared/collector_kit/seen.py`)
 
-12 queries per cycle (`X_COLLECT_QUERIES_PER_CYCLE`), one cycle every 5 minutes. The order:
+At most 12 queries per cycle (`X_COLLECT_QUERIES_PER_CYCLE`), one cycle every 5 minutes. X uses
+`verified unique leads / completed searches` as its weight. A successful empty response counts as a search;
+authentication, rate-limit and transport errors do not. One tweet found for several products or sellers counts
+once per query. With fixed yields of 20/100 and 5/100, 100 allocations produce 80 and 20 searches. Priority,
+query kind and elapsed time do not multiply X yield; other platforms keep their existing scheduler.
 
-- a query that never ran goes first;
-- otherwise: time since its last run × priority × kind weight × a learned success rate. Kind weights favor buying
-  intent (1.0) over problems (0.8), alternatives (0.7), complaints (0.6) and plain product names (0.4);
-- the success rate is drawn at random from the query's history (Thompson sampling), so good queries run more often
-  and new ones still get tried;
-- a query that keeps producing non-buyers is dropped, and one that found no lead for 10 days gets a strike.
+Smooth weighted round robin persists allocation credits across cycles/restarts. A query runs at most once per
+cycle; when the next winner already ran, it waits for the next cycle. New or zero-yield queries share 5% of
+allocations while positive-yield queries share the rest proportionally. If all yields are zero, allocation is equal.
+Existing non-buyer penalties, dropping and ten-day evaluation strikes remain in force. Only an actual eligible
+attempt consumes an allocation credit. Dry-run reads the same history and weights without changing the state.
+The continuous loop retries temporary query-loading/database failures after the existing 120-second delay;
+a successful empty search proceeds to the next normal cycle. Account rotation, caps and pacing are unchanged.
+
+Collector SQLite/PostgreSQL state adds `error_runs` and a per-query/tweet lead ledger automatically. Existing
+historical lead counters are retained; old duplicate rewards and past errors cannot be reconstructed reliably.
+The new ledger prevents duplicate credit on newly synced decisions. Review historical counters before relying
+on their initial weights; no destructive reset is performed automatically.
 
 ## 3. Searching (`client.py`, `account_pool.py`)
 

@@ -6,6 +6,7 @@ import os
 import re
 import random
 import sqlite3
+import psycopg
 import time
 from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
@@ -16,8 +17,7 @@ from . import cli_mapping as mapping
 from .client import XCliClient, XCliError
 from .balance_gate import BalanceGate
 from .query_files import load_query_file
-from .cycle_support import fetch_search, handle_search_error
-from .intent_queries import KIND_WEIGHTS
+from .cycle_support import fetch_search, handle_search_error, preview_searches, unseen_candidates
 from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.collector_kit.heartbeat import beat_error, beat_ok
 from shared.collector_kit.seen import SeenStore
@@ -237,15 +237,13 @@ class XCollector:
         today = date.today().isoformat()
         output_path = self.output_dir / f"{today}.jsonl"
         if dry_run:
-            collected_today = 0
-            if self.state_backend == "sqlite" and self.state_path.is_file():
-                try:
-                    dry_state = SeenStore(self.state_path, platform="x")
-                    collected_today = dry_state.count_today()
-                except (sqlite3.Error, OSError):
-                    pass
-            planned = sorted(normalized_queries, key=lambda item: (-(item.get("priority", 1) * KIND_WEIGHTS.get(item.get("kind"), 1.0)), item["query"]))[:self.queries_per_cycle]
-            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries, "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today), "planned_queries": [{**item, "weight": item.get("priority", 1.0) * KIND_WEIGHTS.get(item.get("kind"), 1.0), "reason": "priority; stale history is considered on live runs"} for item in planned], "output": str(output_path), "cli_called": False}
+            planned, weights, stats, collected_today = preview_searches(self, normalized_queries)
+            return {"status": "DRY_RUN", "queries": queries, "skipped_queries": invalid_queries,
+                    "limit_per_query": self.max_per_query, "daily_remaining": max(0, self.daily_cap - collected_today),
+                    "planned_queries": [{**item, "weight": weights[item["query"]],
+                                         "lead_rate": stats.get(item["query"], {}).get("lead_rate", 0.0),
+                                         "reason": "verified leads per completed search; exploration for zero-yield queries"}
+                                        for item in planned], "output": str(output_path), "cli_called": False}
         self.output_dir.mkdir(parents=True, exist_ok=True)
         guard = nullcontext() if _retention_locked else exclusive_file_lock(self.output_dir / ".retention_guard.lock")
         try:
@@ -332,6 +330,8 @@ class XCollector:
                                 stop_reason = "ALL_ACCOUNTS_UNAVAILABLE"
                                 break
 
+                        if not self.state.record_query_allocation(query, balance_gate.filter_queries(eligible_queries)):
+                            break
                         raw_items, search_stats, fetch_limit = fetch_search(
                             self, query, search_query, query_products.get(query) or [], current_account,
                             already_written, daily_remaining - len(collected), min_inspect, mock_records, is_test_client,
@@ -341,14 +341,7 @@ class XCollector:
                         records = self._records_for_query(raw_items, query, query_products)
                         records = filter_uncrawled_tweets(records)
 
-                        candidates = []
-                        seen_count = 0
-                        for record in records:
-                            key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
-                            if key in already_written or self.state.has_seen(record):
-                                seen_count += 1
-                                continue
-                            candidates.append(record)
+                        candidates, seen_count = unseen_candidates(records, already_written, self.state)
 
                         # If fewer than min_qualifying tweets found, expand inspection up to max_inspect (only for legacy client)
                         if len(candidates) < min_qualifying and mock_records is None and not is_test_client and fetched_count < max_inspect and search_stats is None:
@@ -361,14 +354,7 @@ class XCollector:
                                     fetched_count = len(raw_items)
                                     records = self._records_for_query(raw_items, query, query_products)
                                     records = filter_uncrawled_tweets(records)
-                                    candidates = []
-                                    seen_count = 0
-                                    for record in records:
-                                        key = record["id"] + (f"|{record['product_id']}" if record.get("product_id") else "")
-                                        if key in already_written or self.state.has_seen(record):
-                                            seen_count += 1
-                                            continue
-                                        candidates.append(record)
+                                    candidates, seen_count = unseen_candidates(records, already_written, self.state)
                                 except XCliError:
                                     raise
                                 except Exception as expand_exc:
@@ -646,23 +632,28 @@ def record_searches(searches: list[dict[str, Any]], dsn: str | None = None) -> i
 
 def collect_forever(collector: XCollector, queries: list[str] | Callable[[], list[str]], interval: float, mock_records: list[dict[str, Any]] | None = None) -> None:
     while True:
-        current_queries = queries() if callable(queries) else queries
-        guard = collector.output_dir / ".retention_guard.lock"
-        with exclusive_file_lock(guard):
-            offset = latest_offset(collector)
-            result = collector.run(current_queries, mock_records=mock_records, _retention_locked=True)
-            log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
-            if mock_records is None and auto_ingest_enabled():
-                ingest_new(collector, offset, _retention_locked=True)
-            if mock_records is None:
-                charge_searches(getattr(collector, "searches", []))
-                record_searches(getattr(collector, "searches", []))
-                try:
-                    from workers.x_collector.proqe import sync_bandit_feedback
-                    if collector.state:
-                        sync_bandit_feedback(collector.state)
-                except Exception as exc:
-                    log.error("Bandit feedback sync failed: %s", exc, exc_info=True)
+        try:
+            current_queries = queries() if callable(queries) else queries
+            guard = collector.output_dir / ".retention_guard.lock"
+            with exclusive_file_lock(guard):
+                offset = latest_offset(collector)
+                result = collector.run(current_queries, mock_records=mock_records, _retention_locked=True)
+                log.info("Collection cycle finished: status=%s collected=%s", result["status"], result.get("collected", 0))
+                if mock_records is None and auto_ingest_enabled():
+                    ingest_new(collector, offset, _retention_locked=True)
+                if mock_records is None:
+                    charge_searches(getattr(collector, "searches", []))
+                    record_searches(getattr(collector, "searches", []))
+                    try:
+                        from workers.x_collector.proqe import sync_bandit_feedback
+                        if collector.state:
+                            sync_bandit_feedback(collector.state, state_path=collector.state_path)
+                    except Exception as exc:
+                        log.error("Bandit feedback sync failed: %s", exc, exc_info=True)
+        except (RuntimeError, OSError, sqlite3.Error, psycopg.Error):
+            log.warning("Collection cycle failed; retrying in 2 minutes", exc_info=True)
+            time.sleep(120)
+            continue
         if result["status"] == "RATE_LIMITED":
             log.warning("X rate limited; sleeping for 15 minutes before retry...")
             time.sleep(900)

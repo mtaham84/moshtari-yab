@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .query_scheduler import CREDIT_KEY, allocated, plan, query_stats
+
 
 class SeenStore:
     def __init__(self, path: str | Path, platform: str | None = None):
@@ -19,25 +21,7 @@ class SeenStore:
             db.execute("CREATE TABLE IF NOT EXISTS daily_counts (platform TEXT NOT NULL, day TEXT NOT NULL, collected INTEGER NOT NULL, PRIMARY KEY(platform,day))")
             db.execute("CREATE TABLE IF NOT EXISTS collector_settings (platform TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(platform,key))")
             db.execute("CREATE TABLE IF NOT EXISTS query_runs (query TEXT NOT NULL, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, platform TEXT NOT NULL DEFAULT 'x', PRIMARY KEY(platform,query))")
-            q_cols = {row[1] for row in db.execute("PRAGMA table_info(query_runs)")}
-            if "last_ok_at" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN last_ok_at TEXT")
-            if "alpha" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN alpha REAL NOT NULL DEFAULT 1.0")
-            if "beta" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN beta REAL NOT NULL DEFAULT 1.0")
-            if "leads_count" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN leads_count INTEGER NOT NULL DEFAULT 0")
-            if "empty_runs" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN empty_runs INTEGER NOT NULL DEFAULT 0")
-            if "dropped" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN dropped INTEGER NOT NULL DEFAULT 0")
-            if "strikes" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0")
-            if "last_lead_at" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN last_lead_at TEXT")
-            if "eval_fetched" not in q_cols:
-                db.execute("ALTER TABLE query_runs ADD COLUMN eval_fetched INTEGER NOT NULL DEFAULT 0")
+            self._upgrade_query_counters(db)
             db.execute("CREATE TABLE IF NOT EXISTS thread_fetches (root_tweet_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0, last_fetched_at TEXT, next_due_at TEXT, status TEXT NOT NULL DEFAULT 'pending', new_replies INTEGER NOT NULL DEFAULT 0)")
             db.execute("CREATE TABLE IF NOT EXISTS seed_progress (seed TEXT NOT NULL, last_seen_at TEXT, updated_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,seed))")
             db.execute("CREATE TABLE IF NOT EXISTS comments_fetched (post_shortcode TEXT NOT NULL, fetched_at TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'instagram', PRIMARY KEY(platform,post_shortcode))")
@@ -58,10 +42,23 @@ class SeenStore:
             query_columns = {row[1] for row in db.execute("PRAGMA table_info(query_runs)")}
             if "platform" not in query_columns:
                 db.execute("ALTER TABLE query_runs RENAME TO query_runs_legacy")
-                db.execute("CREATE TABLE query_runs (query TEXT NOT NULL, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_ok_at TEXT, alpha REAL NOT NULL DEFAULT 1.0, beta REAL NOT NULL DEFAULT 1.0, leads_count INTEGER NOT NULL DEFAULT 0, empty_runs INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0, platform TEXT NOT NULL DEFAULT 'x', PRIMARY KEY(platform,query))")
+                db.execute("CREATE TABLE query_runs (query TEXT NOT NULL, kind TEXT NOT NULL, priority REAL NOT NULL DEFAULT 1, last_run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, fetched INTEGER NOT NULL DEFAULT 0, new_posts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_ok_at TEXT, alpha REAL NOT NULL DEFAULT 1.0, beta REAL NOT NULL DEFAULT 1.0, leads_count INTEGER NOT NULL DEFAULT 0, error_runs INTEGER NOT NULL DEFAULT 0, empty_runs INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0, platform TEXT NOT NULL DEFAULT 'x', PRIMARY KEY(platform,query))")
                 db.execute("INSERT INTO query_runs(query,kind,priority,last_run_at,runs,fetched,new_posts,last_error,last_ok_at,alpha,beta,leads_count,empty_runs,dropped,platform) SELECT query,kind,priority,last_run_at,runs,fetched,new_posts,last_error,last_ok_at,alpha,beta,leads_count,empty_runs,dropped,'x' FROM query_runs_legacy")
                 db.execute("DROP TABLE query_runs_legacy")
+            self._upgrade_query_counters(db)
             db.commit()
+
+    @staticmethod
+    def _upgrade_query_counters(db) -> None:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(query_runs)")}
+        additions = {"last_ok_at": "TEXT", "alpha": "REAL NOT NULL DEFAULT 1.0", "beta": "REAL NOT NULL DEFAULT 1.0",
+                     "leads_count": "INTEGER NOT NULL DEFAULT 0", "error_runs": "INTEGER NOT NULL DEFAULT 0",
+                     "empty_runs": "INTEGER NOT NULL DEFAULT 0", "dropped": "INTEGER NOT NULL DEFAULT 0",
+                     "strikes": "INTEGER NOT NULL DEFAULT 0", "last_lead_at": "TEXT", "eval_fetched": "INTEGER NOT NULL DEFAULT 0"}
+        for name, definition in additions.items():
+            if name not in columns:
+                db.execute(f"ALTER TABLE query_runs ADD COLUMN {name} {definition}")
+        db.execute("CREATE TABLE IF NOT EXISTS query_leads (platform TEXT NOT NULL, query TEXT NOT NULL, lead_id TEXT NOT NULL, PRIMARY KEY(platform,query,lead_id))")
 
     def _existing_platform(self) -> str:
         if not self.path.is_file():
@@ -275,15 +272,26 @@ class SeenStore:
                     if not by_query[item["query"]][3]
                     or datetime.fromisoformat(by_query[item["query"]][3]).date() != today_date
                 ]
-            selected = sorted(eligible, key=score)[:max(0, budget)]
+            if self.platform == "x":
+                rows = db.execute("SELECT query,alpha,beta,leads_count,runs,fetched,error_runs FROM query_runs WHERE platform=?", (self.platform,)).fetchall()
+                stats = {row[0]: query_stats(row[1:]) for row in rows}
+                selected = plan(eligible, budget, stats, self.get_setting(CREDIT_KEY))
+            else:
+                selected = sorted(eligible, key=score)[:max(0, budget)]
             db.commit()
             return selected
 
-    def record_feedback(self, query: str, success: bool, weight: float = 1.0) -> None:
+    def record_feedback(self, query: str, success: bool, weight: float = 1.0, *, lead_id: str | None = None) -> bool:
         """Reward real buyers and suppress phrases repeatedly judged irrelevant by sellers."""
         with closing(sqlite3.connect(self.path)) as db:
             db.execute("INSERT INTO query_runs(platform, query, kind, alpha, beta, leads_count) VALUES(?, ?, 'product', 1.0, 1.0, 0) ON CONFLICT(platform, query) DO NOTHING",
                        (self.platform, query))
+            if success and lead_id is not None:
+                inserted = db.execute("INSERT OR IGNORE INTO query_leads(platform,query,lead_id) VALUES(?,?,?)",
+                                      (self.platform, query, str(lead_id))).rowcount
+                if not inserted:
+                    db.commit()
+                    return False
             if success:
                 db.execute("UPDATE query_runs SET alpha = alpha + ?, leads_count = leads_count + 1, dropped = 0 WHERE platform=? AND query=?",
                            (weight, self.platform, query))
@@ -296,20 +304,33 @@ class SeenStore:
                 db.execute("UPDATE query_runs SET beta=?, dropped=CASE WHEN ?=1 THEN 1 ELSE dropped END WHERE platform=? AND query=?",
                            (beta, dropped, self.platform, query))
             db.commit()
+        return True
 
     def get_query_bandit_stats(self, query: str) -> dict[str, Any]:
         with closing(sqlite3.connect(self.path)) as db:
-            row = db.execute("SELECT alpha, beta, leads_count, runs, fetched FROM query_runs WHERE platform=? AND query=?",
+            row = db.execute("SELECT alpha,beta,leads_count,runs,fetched,error_runs FROM query_runs WHERE platform=? AND query=?",
                              (self.platform, query)).fetchone()
-            if row:
-                return {"alpha": row[0], "beta": row[1], "leads": row[2], "runs": row[3], "fetched": row[4]}
-            return {"alpha": 1.0, "beta": 1.0, "leads": 0, "runs": 0, "fetched": 0}
+        return query_stats(row)
+
+    def record_query_allocation(self, query: str, candidates: list[dict]) -> bool:
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute("SELECT query,alpha,beta,leads_count,runs,fetched,error_runs,dropped FROM query_runs WHERE platform=?", (self.platform,)).fetchall()
+            stats = {row[0]: {**query_stats(row[1:7]), "dropped": bool(row[7])} for row in rows}
+            saved = db.execute("SELECT value FROM collector_settings WHERE platform=? AND key=?", (self.platform, CREDIT_KEY)).fetchone()
+            value = allocated(candidates, stats, saved[0] if saved else None, query)
+            if value is None:
+                return False
+            db.execute("INSERT INTO collector_settings(platform,key,value) VALUES(?,?,?) ON CONFLICT(platform,key) DO UPDATE SET value=excluded.value",
+                       (self.platform, CREDIT_KEY, value))
+            db.commit()
+        return True
 
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:
         with closing(sqlite3.connect(self.path)) as db:
-            db.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=?,eval_fetched=eval_fetched+? WHERE platform=? AND query=?",
-                       (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, fetched, self.platform, query))
+            db.execute("UPDATE query_runs SET last_run_at=?,runs=runs+1,fetched=fetched+?,new_posts=new_posts+?,last_error=?,eval_fetched=eval_fetched+?,error_runs=error_runs+? WHERE platform=? AND query=?",
+                       (datetime.now(timezone.utc).isoformat(), fetched, new_posts, error, fetched, int(error is not None), self.platform, query))
             if error is None and started_at is not None:
                 db.execute("UPDATE query_runs SET last_ok_at=? WHERE platform=? AND query=?", (started_at.isoformat(), self.platform, query))
             if error is None and fetched == 0:
