@@ -11,6 +11,7 @@ from typing import Any
 
 from . import cli_mapping as mapping
 from .native_session import native_session
+from .debug_capture import capture_first_page
 from shared.tele_logging.formatter import mask_proxy
 
 log = logging.getLogger("x_collector.client")
@@ -209,6 +210,8 @@ class XCliClient:
                                 else:
                                     raise
 
+                        if page_idx == 1:
+                            capture_first_page(data)
                         new_tweets, next_cursor = parse_timeline_response(
                             data,
                             lambda d: _deep_get(d, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions"),
