@@ -51,3 +51,37 @@ def test_identical_queries_of_two_sellers_are_one_search():
 def test_only_x_enabled_products_are_searched():
     out = targeted_queries_from_products([prod(1, 7, "جوراب", "پوشاک > جوراب", x=False)], terms={})
     assert out == []
+
+
+def test_dental_family_cannot_bypass_six_short_queries(monkeypatch):
+    monkeypatch.setenv('X_QUERY_MAX_PER_FAMILY', '99')
+    families = build_families([prod(1, 7, 'ایمپلنت دندان', 'خدمات > دندانپزشکی > ایمپلنت')])
+    queries = targeted_queries_from_families(families)
+    assert queries
+    assert len(queries) <= 6
+    for item in queries:
+        phrase = item['query'].removesuffix(' lang:fa').strip('"')
+        assert 2 <= len(phrase.split()) <= 3
+
+
+def test_shared_child_has_six_queries_total_with_all_owners(monkeypatch):
+    families = build_families([prod(1, 7, 'سرم صورت', 'زیبایی > پوست > سرم'),
+                               prod(2, 8, 'سرم صورت', 'زیبایی > پوست > سرم')])
+    def candidates(family, **kwargs):
+        return [{'query': f'سرم {family.business_id} {i}', 'kind': 'problem', 'priority': 1,
+                 'product_ids': family.member_product_ids, 'business_ids': [family.business_id]}
+                for i in range(6)]
+    monkeypatch.setattr('workers.x_collector.intent_queries.product_queries', candidates)
+    rows = targeted_queries_from_families(families)
+    assert len(rows) == 6
+    assert all(row['business_ids'] == ['7', '8'] and row['product_ids'] == ['1', '2'] for row in rows)
+    assert all(row['product_business_ids'] == {'1': '7', '2': '8'} for row in rows)
+
+
+def test_tenant_cap_does_not_starve_later_tenants(monkeypatch):
+    monkeypatch.setenv('X_QUERY_MAX_PER_TENANT', '1')
+    families = build_families([prod(1, 7, 'پیراهن مردانه', 'پوشاک > مردانه > پیراهن'),
+                               prod(2, 8, 'شومیز زنانه', 'پوشاک > زنانه > شومیز')])
+    rows = targeted_queries_from_families(families)
+    assert len(rows) == 2
+    assert {owner for row in rows for owner in row['business_ids']} == {'7', '8'}

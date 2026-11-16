@@ -108,6 +108,9 @@ services:
   engine:
     <<: *app
     command: ["engine"]
+    environment:
+      <<: *app-env
+      NE_X_THREAD_REPLIES: ${NE_X_THREAD_REPLIES:-true}
     depends_on:
       web:
         condition: service_healthy
@@ -124,6 +127,9 @@ services:
   x:
     <<: *app
     command: ["x"]
+    environment:
+      <<: *app-env
+      X_THREAD_COLLECT: ${X_THREAD_COLLECT:-true}
     profiles: ["x"]
     depends_on:
       web:

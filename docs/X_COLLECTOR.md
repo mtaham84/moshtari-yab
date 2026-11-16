@@ -26,6 +26,14 @@ seller turns X search on for a product
         └──► 10. LEARN: outcomes go back to step 1 and 2 (better queries, better order)
 ```
 
+Compose enables accepted-lead reply discovery by default (`NE_X_THREAD_REPLIES`, `X_THREAD_COLLECT`;
+either can be explicitly disabled in `.env`). Accepted, recent root posts queue a `conversation_id:<id>`
+search. These searches use the same Top/week transport, weighted scheduler, wallet gates, account
+rotation, pacing and daily cap. Only replies whose raw parent/conversation IDs link them to the requested
+root are stored as replies; missing identifiers never imply a reply. The product-mode engine judges
+these replies against the accepted products through its existing Luna analysis. No outbound X message
+is sent. New searches wait when the daily cap is reached.
+
 The three services only talk through the database and files: the collector never imports the engine's decisions, it
 reads them from tables.
 
@@ -60,22 +68,24 @@ Runs at the start of every cycle, so a product switched on in the panel is picke
 - **Families.** Products of one seller in the same category node (first three levels of the category path) form a
   family. Queries are written per family, not per product, and the seller's free-text `search_notes` are passed
   along. A product without a category is a family of one.
-- **Phrases.** Short Persian phrases (1 to 6 words) a buyer would type, of five kinds:
+- **Phrases.** Short Persian phrases (2 to 3 words) a buyer would type, of five kinds:
 
   | Kind | Example |
   |---|---|
   | A. buying intent, and product names | «خرید پیراهن مردانه» |
-  | B. asking for advice | «لپ تاپ چی بگیرم» |
-  | C. a problem or pain, without naming the product | «دندون درد شدید شبانه» |
+  | B. asking for advice | «لپتاپ چی بگیرم» |
+  | C. a problem or pain, without naming the product | «دندون درد شدید» |
   | D. price and budget | «قیمت ایمپلنت دندان» |
-  | E. experience and comparison | «تجربه خرید لپ تاپ استوک» |
+  | E. experience and comparison | «تجربه لپتاپ استوک» |
 
   They come from four places: the product itself (type, category, title words, aliases from its engine card), an
   LLM call per family (`x_query_terms` prompt, cached until the family's content changes), built-in lists for
   dental and clothing, and phrases learned from confirmed buyers (step 10).
 - **Checks.** A phrase is dropped when it is too broad (a lone «لباس»), too long, a weak word, or belongs to a
   sibling family of the same seller (a shirt query must not drift to trousers).
-- **Balance.** Up to 3 phrases per kind and 15 per family, chosen to differ from each other (MMR).
+- **Balance.** At most six phrases per shared category child, chosen to differ from each other (MMR).
+  Candidate lists from sellers sharing the child are interleaved and deduplicated, then searched once
+  with each participating product's ownership. Each seller's query cap is applied separately.
 - **Merge.** A query is `<phrase> lang:fa`. The same query from two families or two sellers becomes one search
   tagged with all their products. At most 150 queries per seller.
 
@@ -227,7 +237,7 @@ the next cycle. The scores feed the ordering in step 2.
 | `X_SELLER_ALLOWLIST` | empty | optional comma-separated business IDs for staged rollout |
 | `X_REQUIRE_WALLET` | true | block sellers without wallet rows |
 | `X_ACCOUNT_MAX_DAILY_ACTIONS` | 250 | searches per account per day |
-| `X_QUERY_MAX_PER_TENANT` / `X_QUERY_MAX_PER_FAMILY` | 150 / 15 | how many queries a seller and a family get |
+| `X_QUERY_MAX_PER_TENANT` / `X_QUERY_MAX_PER_FAMILY` | 150 / 6 | family candidates are capped at six; sellers sharing a child share six queries total |
 | `NE_X_BATCH_SIZE` / `NE_X_MAX_PER_RUN` | 8 / 200 | posts per LLM call, posts per engine run |
 
 Changing the collector's limits changes how often accounts talk to X; see `AGENTS.md`, Domain notes.

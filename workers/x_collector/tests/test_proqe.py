@@ -204,7 +204,7 @@ def test_product_queries_cover_three_formats_with_sane_count():
     product = SimpleNamespace(product_id="s1", business_id="b", title="سنگ نما", category_path="مصالح / سنگ",
                               category_keywords=["سنگ"], discovery_priority=1, x_search_enabled=True)
     qs = product_queries(product, terms=terms)
-    assert 9 <= len(qs) <= 10
+    assert len(qs) == 6
     assert {"problem", "alternative", "solution"} <= {q["kind"] for q in qs}
     assert all(positive_word_count(q["query"]) <= 3 and " OR " not in q["query"] for q in qs)
 
