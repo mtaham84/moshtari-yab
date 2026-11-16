@@ -261,7 +261,7 @@ class XCollector:
                               if self.state_backend == "sqlite" else self.output_dir / ".collector_state.lock")
                 with exclusive_file_lock(state_lock):
                     self.state = create_state_store(self.state_path, platform="x", sqlite_factory=SeenStore)
-                    with BalanceGate() as balance_gate:
+                    with BalanceGate(allow_unowned=mock_records is not None) as balance_gate:
                         result = self._run_locked(normalized_queries, output_path, mock_records, balance_gate)
             if result.get("status") in {"COMPLETED", "DAILY_CAP_REACHED"} and not result.get("failures"):
                 beat_ok("x", int(result.get("collected", 0)))

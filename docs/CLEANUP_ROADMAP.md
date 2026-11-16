@@ -42,6 +42,15 @@ green, before the next one starts. Behavior must not change unless the step says
   shares candidate filtering and read-only preview helpers. Temporary cycle failures retry with existing pacing.
   Historical counter bias and unavailable local proxies remain operational limitations; see `docs/X_COLLECTOR.md`.
 
+- X pipeline step 1 (`fix/x-access-guards`, 2026-11-16): image actions validate return URLs against the request
+  host and HTTPS requirement. Live X searches reject unowned queries at both static loading and per-attempt
+  wallet gates; only explicit offline fixture runs allow unowned queries. Existing transport tests now supply
+  a funded owner through the registry DB boundary rather than relying on the removed bypass. All storefronts
+  remain eligible; education, digital services/subscriptions and beauty are quality priorities for later steps.
+  Later steps will store and show Luna's explanation for accepted leads; do not generate or add explanations
+  for rejected candidates. Category assignment, six-query limits, lead scoring, reply collection and storage
+  history are pending.
+
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
 
 | Metric | Value |

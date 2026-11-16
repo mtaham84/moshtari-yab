@@ -16,6 +16,11 @@ from workers.x_collector.worker import SeenStore, XCollector, normalize_tweet, c
 from workers.x_collector.query_source import queries_from_products
 from workers.x_collector.__main__ import main
 
+from workers.x_collector.tests.helpers import owned_queries
+import pytest
+
+pytestmark = pytest.mark.usefixtures("funded_x_seller")
+
 
 def load_file(path):
     return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -74,7 +79,7 @@ class XCollectorTests(unittest.TestCase):
 
     def test_jsonl_records_are_x_messages(self):
         client = FakeClient(self.fixture[:1])
-        result = self.collector(client).run(["اسپرسوساز"])
+        result = self.collector(client).run(owned_queries(["اسپرسوساز"]))
         records = load_file(result["output"])
         latest = load_file(self.root / "collected" / "latest.jsonl")
         self.assertEqual(len(records), 1)
@@ -90,22 +95,22 @@ class XCollectorTests(unittest.TestCase):
         timestamp_values = [now.isoformat().replace("+00:00", "Z"), int(now.timestamp()), int(now.timestamp() * 1000),
                             now.strftime("%a %b %d %H:%M:%S +0000 %Y")]
         records = [{**self.fixture[0], "id": str(index), "created_at": value} for index, value in enumerate(timestamp_values)]
-        result = self.collector(client=FakeClient(records)).run(["q"])
+        result = self.collector(client=FakeClient(records)).run(owned_queries(["q"]))
         rows = load_file(result["output"])
         self.assertEqual(result["collected"], len(timestamp_values))
         self.assertTrue(all(r["created_at"].endswith("+00:00") for r in rows))
 
     def test_dedup_and_daily_cap(self):
         collector = self.collector(daily_cap=1)
-        first = collector.run(["q"])
+        first = collector.run(owned_queries(["q"]))
         self.assertEqual(first["collected"], 1)
-        second = collector.run(["q"])
+        second = collector.run(owned_queries(["q"]))
         self.assertEqual(second["status"], "DAILY_CAP_REACHED")
 
     def test_deduplicates_records_on_later_run(self):
         collector = self.collector()
-        first = collector.run(["q"])
-        second = collector.run(["q"])
+        first = collector.run(owned_queries(["q"]))
+        second = collector.run(owned_queries(["q"]))
         self.assertEqual(first["collected"], 2)
         self.assertEqual(second["collected"], 0)
 
@@ -129,12 +134,12 @@ class XCollectorTests(unittest.TestCase):
         state = SeenStore(self.root / "state.sqlite3")
         with patch("workers.x_collector.worker.SeenStore", return_value=state), patch.object(state, "add", side_effect=sqlite3.OperationalError("simulated interruption")):
             with self.assertRaises(sqlite3.OperationalError):
-                collector.run(["q"])
+                collector.run(owned_queries(["q"]))
         output_path = self.root / "collected" / f"{__import__('datetime').date.today().isoformat()}.jsonl"
         lines = output_path.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(lines), 1)
         json.loads(lines[0])
-        resumed = self.collector().run(["q"])
+        resumed = self.collector().run(owned_queries(["q"]))
         self.assertEqual(resumed["collected"], 1)
 
     def test_mock_mode_does_not_need_cli(self):
@@ -150,14 +155,14 @@ class XCollectorTests(unittest.TestCase):
         sleeps = []
         client = FakeClient(self.fixture[:1], failures=2)
         collector = XCollector(client=client, output_dir=self.root / "out", state_path=self.root / "state.sqlite3", sleep_min=0, sleep_max=0, max_retries=3, sleeper=sleeps.append, jitter=lambda low, high: 0)
-        result = collector.run(["query"])
+        result = collector.run(owned_queries(["query"]))
         self.assertEqual(result["collected"], 1)
         self.assertEqual(sleeps[:2], [1.0, 2.0])
 
     def test_circuit_breaker_stops_after_consecutive_failures(self):
         client = FakeClient(failures=20)
         collector = XCollector(client=client, output_dir=self.root / "out", state_path=self.root / "state.sqlite3", max_retries=0, circuit_breaker=2, sleep_min=0, sleep_max=0, sleeper=lambda _: None, jitter=lambda low, high: 0)
-        result = collector.run(["q1", "q2", "q3"])
+        result = collector.run(owned_queries(["q1", "q2", "q3"]))
         self.assertEqual(result["status"], "CIRCUIT_OPEN")
         self.assertEqual(len(client.calls), 2)
 
@@ -168,20 +173,20 @@ class XCollectorTests(unittest.TestCase):
             raise XCliError("rate limit", kind="rate_limit")
         client.search = rate_limited
         collector = self.collector(client, max_retries=3)
-        first = collector.run(["q"])
+        first = collector.run(owned_queries(["q"]))
         self.assertEqual(first["status"], "RATE_LIMITED")
-        second = collector.run(["q"])
+        second = collector.run(owned_queries(["q"]))
         self.assertEqual(second["status"], "RATE_LIMITED")
         self.assertEqual(len(client.calls), 1)
 
     def test_partial_status_when_a_query_fails(self):
         client = FakeClient(self.fixture[:1], failures=1)
         collector = self.collector(client, max_retries=0)
-        result = collector.run(["bad", "good"])
+        result = collector.run(owned_queries(["bad", "good"]))
         self.assertEqual(result["status"], "PARTIAL")
 
     def test_latest_jsonl_is_written(self):
-        result = self.collector().run(["q"])
+        result = self.collector().run(owned_queries(["q"]))
         latest = self.root / "collected" / "latest.jsonl"
         self.assertEqual(len(load_file(latest)), result["collected"])
 
@@ -209,7 +214,7 @@ class XCollectorTests(unittest.TestCase):
         query_file.write_text("-query فارسی\ncoffee\n", encoding="utf-8")
         output = io.StringIO()
         with patch.dict("os.environ", {"TWITTER_AUTH_TOKEN": "private", "TWITTER_CT0": "private-cookie"}), \
-                patch("workers.x_collector.__main__.XCollector.load_queries", return_value=["--bad", "coffee"]), \
+                patch("workers.x_collector.__main__.XCollector.load_queries", return_value=owned_queries(["--bad", "coffee"])), \
                 contextlib.redirect_stderr(output), contextlib.redirect_stdout(io.StringIO()):
             result = main(["--dry-run", "--queries", str(query_file)])
         self.assertEqual(result, 0)
@@ -270,7 +275,7 @@ class XCollectorTests(unittest.TestCase):
         client = FakeClient([recent])
         collector = self.collector(client)
         q = {"query": "notion (اکانت) lang:fa", "kind": "intent", "product_ids": ["1", "2"], "business_ids": ["7", "8"]}
-        result = collector.run([q])
+        result = collector.run(owned_queries([q]))
         self.assertEqual(result["collected"], 2)                       # one post, two products → two records
         records = load_file(self.root / "collected" / "latest.jsonl")
         self.assertEqual(sorted(r["product_id"] for r in records), ["1", "2"])
@@ -279,7 +284,7 @@ class XCollectorTests(unittest.TestCase):
                           for s in collector.searches],
                          [{"query": q["query"], "product_ids": ["1", "2"], "business_ids": ["7", "8"], "fetched": 1,
                            "new_by_product": {"1": 1, "2": 1}}])
-        again = self.collector(FakeClient([recent])).run([q])
+        again = self.collector(FakeClient([recent])).run(owned_queries([q]))
         self.assertEqual(again["collected"], 0)                        # same post × product is not collected twice
 
     def test_search_fee_bills_every_seller_in_full(self):
@@ -304,7 +309,7 @@ class XCollectorTests(unittest.TestCase):
 
     def test_flag_like_query_is_skipped_but_following_query_runs(self):
         client = FakeClient(self.fixture[:1])
-        result = self.collector(client).run(["--help", "coffee"])
+        result = self.collector(client).run(owned_queries(["--help", "coffee"]))
         self.assertEqual(result["status"], "COMPLETED")
         self.assertEqual(len(client.calls), 1)
         self.assertRegex(client.calls[0][0], r"^coffee since_time:\d+$")
@@ -401,5 +406,5 @@ def test_not_found_skips_only_that_query(tmp_path):
 
     client = Client()
     result = XCollector(client=client, output_dir=tmp_path / "o", state_path=tmp_path / "s.sqlite3", sleep_min=0, sleep_max=0,
-                        sleeper=lambda _: None, jitter=lambda a, b: 0).run(["bad one", "good one"])
+                        sleeper=lambda _: None, jitter=lambda a, b: 0).run(owned_queries(["bad one", "good one"]))
     assert result["status"] == "PARTIAL" and len(client.calls) == 2

@@ -11,10 +11,11 @@ log = logging.getLogger('x_collector.queries')
 
 
 class BalanceGate:
-    def __init__(self, config=None, db=None, registry=None):
+    def __init__(self, config=None, db=None, registry=None, *, allow_unowned=False):
         self.registry = registry if registry is not None else ModelRegistry(config or EngineConfig(), db=db)
         self.allowlist = seller_allowlist()
         self.require_wallet = require_wallet()
+        self.allow_unowned = allow_unowned
         self.skipped_queries: set[str] = set()
         self._warned_unowned = False
         self.paused_businesses: set[str] = set()
@@ -57,10 +58,13 @@ class BalanceGate:
     def _allow(self, item, funded):
         owners = self.owners(item)
         if not owners:
+            if self.allow_unowned:
+                return item
             if not self._warned_unowned:
-                log.warning('Unowned X query override bypasses balance checks')
+                log.warning('Unowned X query blocked; provide business_id or business_ids')
                 self._warned_unowned = True
-            return item
+            self.skipped_queries.add(item['query'] if isinstance(item, dict) else item)
+            return None
         eligible = sorted(set(owners) & funded)
         if not eligible:
             self.skipped_queries.add(item['query'])

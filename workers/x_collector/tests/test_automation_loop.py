@@ -8,6 +8,10 @@ import pytest
 from shared.collector_kit.seen import SeenStore
 from workers.x_collector.worker import XCollector, collect_forever
 
+from workers.x_collector.tests.helpers import owned_queries
+
+pytestmark = pytest.mark.usefixtures("funded_x_seller")
+
 
 def raw_post(identifier):
     return {'id': str(identifier), 'author_id': 'buyer', 'username': 'buyer',
@@ -33,7 +37,7 @@ def test_worker_executes_yield_weighted_searches_across_cycles(monkeypatch, tmp_
     collector = XCollector(client=FakeClient(), output_dir=tmp_path / 'out', state_path=path, sleeper=lambda _: None)
     for _ in range(100):
         before = dict(counts)
-        collector.run(queries)
+        collector.run(owned_queries(queries))
         query = next(name for name in counts if counts[name] > before.get(name, 0))
         every = 5 if query == 'good' else 20
         if counts[query] % every == 0:

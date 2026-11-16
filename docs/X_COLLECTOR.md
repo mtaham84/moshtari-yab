@@ -81,8 +81,9 @@ Runs at the start of every cycle, so a product switched on in the panel is picke
 
 `X_COLLECT_QUERIES_FILE` (plain text, JSONL objects, or a JSON list) or `X_QUERY_SOURCE=registry` (the `XSearchQuery` table edited in the panel)
 replace phrase generation. Registry queries require an enabled X-search product and the same wallet checks.
-Static entries with `business_id` or `business_ids` use the same gate; unowned entries retain their legacy behavior
-and log a warning that balance checks are bypassed. JSON example:
+Static entries with `business_id` or `business_ids` use the same gate. Unowned entries, including plain-text
+overrides, are rejected before any live search; use JSON or JSONL with ownership instead. Explicit `--mock`
+runs can still use unowned fixture queries without contacting X. JSON example:
 
 ```json
 [{"query": "لپتاپ لنوو", "business_id": "9", "product_ids": ["91"]}]

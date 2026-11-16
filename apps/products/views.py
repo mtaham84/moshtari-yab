@@ -8,6 +8,7 @@ from django.http import HttpResponseRedirect, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from apps.businesses.models import Business
 from apps.businesses.services import ensure_business
 from apps.core.http import allow_user_rate
@@ -425,7 +426,9 @@ def set_main_image_view(request, pk, image_pk):
 
     # Redirect to where the request came from, or edit page
     referer = request.META.get("HTTP_REFERER")
-    if referer and ("edit" in referer or "detail" in referer):
+    if referer and url_has_allowed_host_and_scheme(
+        referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
         return redirect(referer)
     return redirect("products:edit", pk=product.pk)
 
@@ -440,7 +443,9 @@ def delete_image_view(request, pk, image_pk):
         messages.success(request, "تصویر با موفقیت حذف گردید.")
 
     referer = request.META.get("HTTP_REFERER")
-    if referer and ("edit" in referer or "detail" in referer):
+    if referer and url_has_allowed_host_and_scheme(
+        referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
         return redirect(referer)
     return redirect("products:edit", pk=product.pk)
 

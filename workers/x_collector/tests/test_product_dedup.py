@@ -9,6 +9,10 @@ from apps.discovery.models import XCrawledPost
 from workers.x_collector.worker import filter_uncrawled_tweets
 from x_ingest.__main__ import _load
 
+from workers.x_collector.tests.helpers import owned_queries
+
+pytestmark = pytest.mark.usefixtures("funded_x_seller")
+
 
 @pytest.mark.django_db(transaction=True)
 def test_ingest_deduplicates_per_product_and_preserves_legacy_hash(tmp_path, monkeypatch):
@@ -50,7 +54,7 @@ def test_native_search_keeps_same_tweet_for_two_products(tmp_path, monkeypatch):
     monkeypatch.setattr(pool, 'refresh', lambda: None)
     collector = XCollector(client=XCliClient(), account_pool=pool, output_dir=tmp_path / 'out',
                            state_path=tmp_path / 'state', sleeper=lambda _: None)
-    result = collector.run([{'query': 'one', 'product_ids': ['p1']}, {'query': 'two', 'product_ids': ['p2']}])
+    result = collector.run(owned_queries([{'query': 'one', 'product_ids': ['p1']}, {'query': 'two', 'product_ids': ['p2']}]))
     assert result['collected'] == 2
     rows = [json.loads(line) for line in open(result['output'])]
     assert {row['product_id'] for row in rows} == {'p1', 'p2'}
