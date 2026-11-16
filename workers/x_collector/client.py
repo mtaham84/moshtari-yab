@@ -11,6 +11,8 @@ from typing import Any
 
 from . import cli_mapping as mapping
 from .native_session import native_session
+from .debug_capture import capture_first_page
+from .observations import cli_observation, native_observations
 from shared.tele_logging.formatter import mask_proxy
 
 log = logging.getLogger("x_collector.client")
@@ -209,11 +211,14 @@ class XCliClient:
                                 else:
                                     raise
 
+                        if page_idx == 1:
+                            capture_first_page(data)
                         new_tweets, next_cursor = parse_timeline_response(
                             data,
                             lambda d: _deep_get(d, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions"),
                         )
 
+                        details = native_observations(data, stats)
                         stats["raw_posts_received"] += len(new_tweets)
                         new_valid_this_page = 0
 
@@ -258,7 +263,7 @@ class XCliClient:
                                 "author_name": getattr(author, "name", None) if author else None,
                                 "author_id": str(getattr(author, "id", "")) if author else None,
                                 "author_verified": getattr(author, "verified", False) if author else False,
-                                "lang": lang_meta or "fa",
+                                "lang": lang_meta or None,
                                 "isRetweet": getattr(tw, "is_retweet", False),
                                 "author": {
                                     "screenName": handle,
@@ -269,6 +274,8 @@ class XCliClient:
                                     "description": getattr(author, "bio", "") if author else "",
                                 } if author else {},
                             }
+                            raw_dict["author_bio"] = raw_dict["author"].get("description", "")
+                            raw_dict.update(details.get(tid, {}))
                             valid_records.append(raw_dict)
                             if len(valid_records) >= target_posts:
                                 break
@@ -337,7 +344,13 @@ class XCliClient:
                     continue
 
                 seen_in_job.add(tid)
-                valid_records.append(item)
+                legacy_author = item.get("author") if isinstance(item.get("author"), dict) else {}
+                valid_records.append({
+                    **item,
+                    "author_verified": bool(legacy_author.get("verified") or legacy_author.get("isVerified") or item.get("author_verified")),
+                    "author_bio": str(legacy_author.get("description") or legacy_author.get("bio") or "")[:500],
+                    **cli_observation(item, stats),
+                })
                 if len(valid_records) >= target_posts:
                     break
 

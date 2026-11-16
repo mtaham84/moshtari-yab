@@ -63,6 +63,9 @@ class SourceRecord:
             raise RecordError("metadata must be an object")
         standard_fields = {"id", "source", "kind", "text", "author_handle", "author_id", "created_at", "url", "metadata", "meta"}
         extra = {key: value for key, value in data.items() if key not in standard_fields}
+        if source == "x":
+            from .x_record_data import optional_data
+            extra.update(optional_data(data))
         return cls(
             id=record_id, source=source, kind=kind, text=text, author_handle=author_handle,
             author_id=str(author_id) if author_id is not None else None, created_at=created_at,
