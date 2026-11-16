@@ -268,6 +268,13 @@ def extract_x_batch(messages: list, llm: LLMClient, cfg: EngineConfig, now: date
 _FIT_RANK = {"yes": 2, "partly": 1, "no": 0}
 
 
+def _x_product_text_hash(message) -> str:
+    text = norm(message.text)
+    if message.kind in {'reply', 'quote'}:
+        text += '\n' + message.kind + '\n' + norm(message.reply_to_text or '')
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LLMClient, cfg: EngineConfig, now: datetime,
                             payer: str | None = None, report=None) -> tuple[list[NeedCard], float, dict[int, tuple[str, str]]]:
     """Per-product mode: posts that ONE product's search found, judged against that product only.
@@ -283,7 +290,7 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
     uncached: list = []
 
     for m in messages:
-        norm_hash = hashlib.sha256(norm(m.text).encode()).hexdigest()
+        norm_hash = _x_product_text_hash(m)
         key = f"x_llm:prod:{pid}:{norm_hash}" if pid else None
         hit = store.cache_get(key) if (store and key) else None
         if isinstance(hit, dict) and "needs" in hit:
@@ -330,7 +337,7 @@ def extract_x_product_batch(messages: list, chat_id: str, product: dict, llm: LL
             cached_needs[message.message_id] = relevant
             cached_fits[message.message_id] = best_f
             if store and pid:
-                norm_hash = hashlib.sha256(norm(message.text).encode()).hexdigest()
+                norm_hash = _x_product_text_hash(message)
                 store.cache_put(f"x_llm:prod:{pid}:{norm_hash}", {"needs": relevant, "fit": best_f})
 
     cards = []

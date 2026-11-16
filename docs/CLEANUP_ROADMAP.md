@@ -62,7 +62,8 @@ X query/reply follow-up (2026-11-16): sellers sharing a category child share at 
 two- or three-word queries. The uncapped dental injection is removed and tenant caps no longer
 starve later tenants. Accepted leads queue conversation searches through the existing capped,
 wallet-gated account rotation. Replies retain raw conversation, parent tweet and parent author IDs,
-and product-mode Luna analysis evaluates them. Compose enables this with overridable X-specific flags.
+and product-mode Luna analysis evaluates them. Reply cache keys include the parent context.
+Compose enables this with overridable X-specific flags.
 Three test sellers have fixed category paths and synthetic products, with Instagram discovery disabled.
 Live trial results remain pending while the existing daily collection cap is reached. Instagram code
 and services are unchanged. Local verification uses an isolated PostgreSQL 16/pgvector cluster.

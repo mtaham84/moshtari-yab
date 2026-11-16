@@ -40,3 +40,18 @@ def test_product_hit_outcomes_including_cache(cached, fit, has_need, emitted, ou
     engine.store = store
     engine._record_x_hits([message], {101: cards[0]} if cards else {}, fits)
     assert [row[2] for row in rows] == [outcome]
+
+
+def test_reply_analysis_cache_is_scoped_to_parent_context(monkeypatch):
+    monkeypatch.setattr('need_engine.extract.get_system_prompt', lambda key, default: default)
+    cache = {}
+    store = SimpleNamespace(cache_get=cache.get, cache_put=lambda k, v: cache.update({k: v}))
+    llm = SimpleNamespace(store=store, complete_json=lambda *a, **kw: ({'needs': []}, {'toman': 10}))
+    now = datetime.now(timezone.utc)
+    reply = ChatMessage(chat_id='x:p:p1', message_id=101, author_id='buyer', text='از کجا بخرم؟',
+                        date=now, platform='x', kind='reply', reply_to_text='کلاس کنکور خوب میخوام')
+    args = (reply.chat_id, {'product_id': 'p1'}, llm, EngineConfig(), now)
+    assert extract_x_product_batch([reply], *args)[1] == 10
+    other_parent = reply.model_copy(update={'reply_to_text': 'برای دوچرخه لاستیک میخوام'})
+    assert extract_x_product_batch([other_parent], *args)[1] == 10
+    assert extract_x_product_batch([other_parent], *args)[1] == 0

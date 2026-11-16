@@ -33,6 +33,8 @@ rotation, pacing and daily cap. Only replies whose raw parent/conversation IDs l
 root are stored as replies; missing identifiers never imply a reply. The product-mode engine judges
 these replies against the accepted products through its existing Luna analysis. No outbound X message
 is sent. New searches wait when the daily cap is reached.
+Reply analysis cache keys include the parent text, so identical replies under different posts cannot
+reuse a judgment from the wrong context. Ordinary post cache keys are unchanged.
 
 The three services only talk through the database and files: the collector never imports the engine's decisions, it
 reads them from tables.
