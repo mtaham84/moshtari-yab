@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .seen import SeenStore as SQLiteStateStore
+from .query_scheduler import CREDIT_KEY, allocated, plan, query_stats
 
 
 class StateStore(Protocol):
@@ -19,7 +20,8 @@ class StateStore(Protocol):
     def increment_today(self, amount: int, day: date | None = None) -> None: ...
     def cooldown_until(self, now: datetime | None = None) -> str | None: ...
     def start_cooldown(self, seconds: int = 900, now: datetime | None = None) -> str: ...
-    def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]: ...
+    def schedule(self, queries: list[dict[str, Any]], budget: int, enforce_daily_unique: bool = False, persist: bool = True) -> list[dict[str, Any]]: ...
+    def record_query_allocation(self, query: str, candidates: list[dict]) -> bool: ...
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None: ...
     def dropped_queries(self, limit: int = 50) -> list[str]: ...
@@ -82,6 +84,11 @@ class PostgresStateStore:
             db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS beta DOUBLE PRECISION NOT NULL DEFAULT 1.0")
             db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS empty_runs INTEGER NOT NULL DEFAULT 0")
             db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS dropped BOOLEAN NOT NULL DEFAULT FALSE")
+            for name, definition in {"alpha": "DOUBLE PRECISION NOT NULL DEFAULT 1.0", "leads_count": "INTEGER NOT NULL DEFAULT 0",
+                                     "error_runs": "INTEGER NOT NULL DEFAULT 0", "strikes": "INTEGER NOT NULL DEFAULT 0",
+                                     "last_lead_at": "TIMESTAMPTZ", "eval_fetched": "INTEGER NOT NULL DEFAULT 0"}.items():
+                db.execute(f"ALTER TABLE {self.schema}.collector_query_runs ADD COLUMN IF NOT EXISTS {name} {definition}")
+            db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_query_leads (platform TEXT NOT NULL, query TEXT NOT NULL, lead_id TEXT NOT NULL, PRIMARY KEY(platform,query,lead_id))")
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_seed_progress (platform TEXT NOT NULL, seed TEXT NOT NULL, last_seen_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY(platform,seed))")
             db.execute(f"CREATE TABLE IF NOT EXISTS {self.schema}.collector_comments_fetched (platform TEXT NOT NULL, post_shortcode TEXT NOT NULL, fetched_at TIMESTAMPTZ NOT NULL, PRIMARY KEY(platform,post_shortcode))")
 
@@ -174,26 +181,83 @@ class PostgresStateStore:
         self.set_setting("rate_limit_until", value)
         return value
 
-    def schedule(self, queries: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+    def schedule(self, queries: list[dict[str, Any]], budget: int, enforce_daily_unique: bool = False, persist: bool = True) -> list[dict[str, Any]]:
         now = datetime.now(timezone.utc)
         with self._connect(self.dsn) as db:
             with db.transaction():
-                for item in queries:
+                for item in queries if persist else []:
                     db.execute(f"INSERT INTO {self.schema}.collector_query_runs(platform,query,kind,priority) VALUES(%s,%s,%s,%s) ON CONFLICT(platform,query) DO UPDATE SET kind=EXCLUDED.kind,priority=EXCLUDED.priority", (self.platform, item["query"], item.get("kind", "product"), item.get("priority", 1.0)))
                 rows = db.execute(f"SELECT query,kind,priority,last_run_at,dropped FROM {self.schema}.collector_query_runs WHERE platform=%s AND query=ANY(%s)", (self.platform, [item["query"] for item in queries])).fetchall() if queries else []
-        by_query = {row[0]: row for row in rows}
+        defaults = {item["query"]: (item["query"], item.get("kind", "product"), item.get("priority", 1), None, False)
+                    for item in queries}
+        by_query = {**defaults, **{row[0]: row for row in rows}}
         def score(item):
             row = by_query[item["query"]]
             last, kind = row[3], row[1]
             stale = 1e12 if not last else max(1.0, (now - last).total_seconds())
             return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 1.0)), item["query"]
-        return sorted((item for item in queries if not by_query[item["query"]][4]), key=score)[:max(0, budget)]
+        eligible = [item for item in queries if not by_query[item["query"]][4]]
+        if enforce_daily_unique:
+            eligible = [item for item in eligible if not by_query[item["query"]][3]
+                        or by_query[item["query"]][3].date() != now.date()]
+        if self.platform == 'x':
+            stats = self._query_stats()
+            return plan(eligible, budget, stats, self.get_setting(CREDIT_KEY))
+        return sorted(eligible, key=score)[:max(0, budget)]
+
+    def _query_stats(self, db=None) -> dict:
+        if db is None:
+            with self._connect(self.dsn) as conn:
+                return self._query_stats(conn)
+        rows = db.execute(f"SELECT query,alpha,beta,leads_count,runs,fetched,error_runs,dropped FROM {self.schema}.collector_query_runs WHERE platform=%s", (self.platform,)).fetchall()
+        return {row[0]: {**query_stats(row[1:7]), "dropped": bool(row[7])} for row in rows}
+
+    def get_query_bandit_stats(self, query: str) -> dict:
+        return self._query_stats().get(query, query_stats())
+
+    def record_query_allocation(self, query: str, candidates: list[dict]) -> bool:
+        with self._connect(self.dsn) as db:
+            db.execute(f"INSERT INTO {self.schema}.collector_settings(platform,key,value) VALUES(%s,%s,'{{}}') ON CONFLICT DO NOTHING", (self.platform, CREDIT_KEY))
+            saved = db.execute(f"SELECT value FROM {self.schema}.collector_settings WHERE platform=%s AND key=%s FOR UPDATE", (self.platform, CREDIT_KEY)).fetchone()[0]
+            value = allocated(candidates, self._query_stats(db), saved, query)
+            if value is None:
+                return False
+            db.execute(f"UPDATE {self.schema}.collector_settings SET value=%s WHERE platform=%s AND key=%s", (value, self.platform, CREDIT_KEY))
+        return True
+
+    def record_feedback(self, query: str, success: bool, weight: float = 1.0, *, lead_id: str | None = None) -> bool:
+        with self._connect(self.dsn) as db:
+            db.execute(f"INSERT INTO {self.schema}.collector_query_runs(platform,query,kind) VALUES(%s,%s,'product') ON CONFLICT DO NOTHING", (self.platform, query))
+            if success and lead_id is not None:
+                inserted = db.execute(f"INSERT INTO {self.schema}.collector_query_leads(platform,query,lead_id) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING", (self.platform, query, str(lead_id))).rowcount
+                if not inserted:
+                    return False
+            if success:
+                db.execute(f"UPDATE {self.schema}.collector_query_runs SET alpha=alpha+%s,leads_count=leads_count+1,dropped=FALSE WHERE platform=%s AND query=%s", (weight, self.platform, query))
+            else:
+                db.execute(f"UPDATE {self.schema}.collector_query_runs SET beta=beta+%s,dropped=CASE WHEN beta+%s>=3 AND beta+%s>=2*alpha THEN TRUE ELSE dropped END WHERE platform=%s AND query=%s", (weight, weight, weight, self.platform, query))
+        return True
+
+    def last_lead_time(self, query: str):
+        with self._connect(self.dsn) as db:
+            row = db.execute(f"SELECT COALESCE(last_lead_at,last_ok_at) FROM {self.schema}.collector_query_runs WHERE platform=%s AND query=%s", (self.platform, query)).fetchone()
+        return row[0] if row else None
+
+    def get_query_eval_stats(self, query: str) -> dict:
+        with self._connect(self.dsn) as db:
+            row = db.execute(f"SELECT last_lead_at,last_ok_at,strikes,eval_fetched,runs,alpha,beta,dropped FROM {self.schema}.collector_query_runs WHERE platform=%s AND query=%s", (self.platform, query)).fetchone()
+        return dict(zip(('last_lead_at','last_ok_at','strikes','eval_fetched','runs','alpha','beta','dropped'), row)) if row else {}
+
+    def record_evaluation_failure(self, query: str, heavy_beta: float = 3.0) -> int:
+        with self._connect(self.dsn) as db:
+            row = db.execute(f"UPDATE {self.schema}.collector_query_runs SET strikes=strikes+1,beta=beta+%s,dropped=CASE WHEN strikes+1>=2 THEN TRUE ELSE dropped END,eval_fetched=0 WHERE platform=%s AND query=%s RETURNING strikes", (heavy_beta, self.platform, query)).fetchone()
+        return row[0] if row else 0
 
     def record_query(self, query: str, fetched: int, new_posts: int, error: str | None = None,
                      started_at: datetime | None = None) -> None:
         with self._connect(self.dsn) as db:
-                db.execute(f"UPDATE {self.schema}.collector_query_runs SET last_run_at=now(),runs=runs+1,fetched=fetched+%s,new_posts=new_posts+%s,last_error=%s,last_ok_at=COALESCE(%s,last_ok_at), beta=CASE WHEN %s::text IS NULL AND %s=0 THEN beta+0.5 ELSE beta END, empty_runs=CASE WHEN %s::text IS NOT NULL THEN empty_runs WHEN %s=0 THEN empty_runs+1 ELSE 0 END, dropped=CASE WHEN %s::text IS NULL AND %s=0 AND empty_runs+1>=6 THEN TRUE ELSE dropped END WHERE platform=%s AND query=%s",
-                           (fetched, new_posts, error, started_at, error, fetched, error, fetched, error, fetched, self.platform, query))
+                db.execute(f"UPDATE {self.schema}.collector_query_runs SET last_run_at=now(),runs=runs+1,error_runs=error_runs+%s,eval_fetched=eval_fetched+%s,fetched=fetched+%s,new_posts=new_posts+%s,last_error=%s,last_ok_at=COALESCE(%s,last_ok_at), beta=CASE WHEN %s::text IS NULL AND %s=0 THEN beta+0.5 ELSE beta END, empty_runs=CASE WHEN %s::text IS NOT NULL THEN empty_runs WHEN %s=0 THEN empty_runs+1 ELSE 0 END, dropped=CASE WHEN %s::text IS NULL AND %s=0 AND empty_runs+1>=6 THEN TRUE ELSE dropped END WHERE platform=%s AND query=%s",
+                           (int(error is not None), fetched, fetched, new_posts, error, started_at, error, fetched, error, fetched, error, fetched, self.platform, query))
 
     def dropped_queries(self, limit: int = 50) -> list[str]:
         with self._connect(self.dsn) as db:

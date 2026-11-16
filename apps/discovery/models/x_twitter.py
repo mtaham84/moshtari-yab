@@ -1,4 +1,4 @@
-import hashlib
+from shared.x_dedup import compute_tweet_hash
 from datetime import timedelta
 from django.db import models
 from django.utils import timezone as dj_timezone
@@ -95,7 +95,8 @@ class XCrawledPost(models.Model):
     Has a 10-day TTL (tweets older than 10 days are excluded and pruned).
     """
     post_hash = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="هش شناسه توییت")
-    tweet_id = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="شناسه توییت X")
+    tweet_id = models.CharField(max_length=64, db_index=True, verbose_name="شناسه توییت X")
+    product_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
     author_handle = models.CharField(max_length=100, blank=True, verbose_name="اکانت توییت")
     posted_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="زمان انتشار توییت")
     crawled_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="زمان ثبت کرول")
@@ -104,6 +105,7 @@ class XCrawledPost(models.Model):
     class Meta:
         verbose_name = "توییت کرول‌شده X"
         verbose_name_plural = "توییت‌های کرول‌شده X"
+        constraints = [models.UniqueConstraint(fields=["tweet_id", "product_id"], name="uniq_x_tweet_product")]
         indexes = [
             models.Index(fields=["crawled_at"], name="ix_x_crawled_at"),
             models.Index(fields=["posted_at"], name="ix_x_posted_at"),
@@ -115,15 +117,12 @@ class XCrawledPost(models.Model):
         return f"Tweet {self.tweet_id} by @{self.author_handle} ({self.post_hash[:8]})"
 
     @classmethod
-    def compute_hash(cls, tweet_id: str | int) -> str:
-        clean_id = str(tweet_id).strip()
-        # Strictly isolated namespace prefix 'x_tweet:'
-        return hashlib.sha256(f"x_tweet:{clean_id}".encode("utf-8")).hexdigest()
+    def compute_hash(cls, tweet_id: str | int, product_id: str | int | None = None) -> str:
+        return compute_tweet_hash(tweet_id, product_id)
 
     @classmethod
-    def is_crawled(cls, tweet_id: str | int) -> bool:
-        phash = cls.compute_hash(tweet_id)
-        return cls.objects.filter(post_hash=phash).exists()
+    def is_crawled(cls, tweet_id: str | int, product_id: str | int | None = None) -> bool:
+        return cls.objects.filter(post_hash=cls.compute_hash(tweet_id, product_id)).exists()
 
     @classmethod
     def purge_older_than_10_days(cls) -> int:

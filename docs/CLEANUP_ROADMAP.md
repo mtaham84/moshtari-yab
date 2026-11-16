@@ -30,6 +30,18 @@ green, before the next one starts. Behavior must not change unless the step says
   `apps/discovery/proxies/`). The operator panel rebuild is planned in `docs/OPS_PANEL.md`. Neither is started.
 - Open PRs and other branches are out of scope for this plan.
 
+- X Phase 1 (`taha3`, 2026-11-15): buyer outcome labels, ingest savepoints, UTC account counters, explicit search
+  errors, product-scoped dedup (migration discovery/0044), buyer-safe promotion filtering, wallet eligibility,
+  cookie isolation, proxy redaction and per-attempt credit guards. See `docs/X_COLLECTOR_FIXES.md` for the
+  per-item tests, operational assumptions and deploy checklist. Billing debit logic, prompts, account limits and
+  later-phase collection/analysis features remain out of scope.
+
+- X follow-up (`taha3`, 2026-11-15): product organization now reuses shared taxonomy IDs without inventing nodes.
+  X scheduling uses persistent lead-yield allocation in both state backends, with unique query/tweet reward credit
+  and completed-search counters. Shared storage-test fixtures and SQLite counter upgrades are reused; the worker
+  shares candidate filtering and read-only preview helpers. Temporary cycle failures retry with existing pacing.
+  Historical counter bias and unavailable local proxies remain operational limitations; see `docs/X_COLLECTOR.md`.
+
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
 
 | Metric | Value |

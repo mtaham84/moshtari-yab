@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -13,6 +12,8 @@ from pathlib import Path
 
 from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.records import RecordError, SourceRecord
+from shared.x_dedup import compute_tweet_hash
+from shared.tele_logging.formatter import redact_proxy_stats
 
 log = logging.getLogger("x_ingest")
 
@@ -87,10 +88,36 @@ def validate_record(record: object) -> dict:
             "product_id": str(record["product_id"]) if record.get("product_id") else None, "raw": record}
 
 
-def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
-    import psycopg
+def _insert_record(conn, schema: str, record: dict, has_xcrawled: bool) -> None:
     from psycopg.types.json import Jsonb
 
+    conn.execute(f"""INSERT INTO {schema}.x_posts
+        (tweet_id, author_id, author_handle, author_name, text, created_at, lang, url, query, author_verified, author_bio, raw, kind, conversation_id, in_reply_to_tweet_id, in_reply_to_author_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (tweet_id) DO UPDATE SET author_id=EXCLUDED.author_id, author_handle=EXCLUDED.author_handle,
+        author_name=EXCLUDED.author_name, text=EXCLUDED.text, created_at=EXCLUDED.created_at,
+        lang=EXCLUDED.lang, url=EXCLUDED.url, query=EXCLUDED.query, author_verified=EXCLUDED.author_verified,
+        author_bio=EXCLUDED.author_bio, raw=EXCLUDED.raw, kind=EXCLUDED.kind, conversation_id=EXCLUDED.conversation_id,
+        in_reply_to_tweet_id=EXCLUDED.in_reply_to_tweet_id, in_reply_to_author_id=EXCLUDED.in_reply_to_author_id""",
+        (record["tweet_id"], record["author_id"], record["author_handle"], record["author_name"],
+         record["text"], record["created_at"], record["lang"], record["url"], record["query"],
+         bool(record.get("author_verified")), record.get("author_bio"), Jsonb(record["raw"]), record["kind"],
+         record["conversation_id"], record["in_reply_to_tweet_id"], record["in_reply_to_author_id"]))
+    if record["product_id"]:
+        conn.execute(f"""INSERT INTO {schema}.x_post_products (tweet_id, product_id, query) VALUES (%s,%s,%s)
+                         ON CONFLICT (tweet_id, product_id) DO NOTHING""",
+                     (record["tweet_id"], record["product_id"], record["query"]))
+    if has_xcrawled:
+        post_hash = compute_tweet_hash(record["tweet_id"], record["product_id"])
+        conn.execute("""
+            INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url, product_id)
+            VALUES (%s, %s, %s, %s, now(), %s, %s)
+            ON CONFLICT (post_hash) DO NOTHING
+        """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or "", record["product_id"] or ""))
+
+
+def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
+    import psycopg
     schema = os.environ.get("NE_CRAWLER_SCHEMA", "crawler")
     if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
         raise ValueError("NE_CRAWLER_SCHEMA must be a simple SQL schema name")
@@ -126,32 +153,13 @@ def _load(path: str | Path, dsn: str | None = None) -> tuple[int, int]:
                     reason = exc.reason if isinstance(exc, RecordError) else str(exc)
                     log.warning("Skipping %s line %d: %s", path, line_no, reason)
                     continue
-                conn.execute(f"""INSERT INTO {schema}.x_posts
-                    (tweet_id, author_id, author_handle, author_name, text, created_at, lang, url, query, author_verified, author_bio, raw, kind, conversation_id, in_reply_to_tweet_id, in_reply_to_author_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (tweet_id) DO UPDATE SET author_id=EXCLUDED.author_id, author_handle=EXCLUDED.author_handle,
-                    author_name=EXCLUDED.author_name, text=EXCLUDED.text, created_at=EXCLUDED.created_at,
-                    lang=EXCLUDED.lang, url=EXCLUDED.url, query=EXCLUDED.query, author_verified=EXCLUDED.author_verified,
-                    author_bio=EXCLUDED.author_bio, raw=EXCLUDED.raw, kind=EXCLUDED.kind, conversation_id=EXCLUDED.conversation_id,
-                    in_reply_to_tweet_id=EXCLUDED.in_reply_to_tweet_id, in_reply_to_author_id=EXCLUDED.in_reply_to_author_id""",
-                    (record["tweet_id"], record["author_id"], record["author_handle"], record["author_name"],
-                     record["text"], record["created_at"], record["lang"], record["url"], record["query"],
-                     bool(record.get("author_verified")), record.get("author_bio"), Jsonb(record["raw"]), record["kind"],
-                     record["conversation_id"], record["in_reply_to_tweet_id"], record["in_reply_to_author_id"]))
-                if record["product_id"]:
-                    conn.execute(f"""INSERT INTO {schema}.x_post_products (tweet_id, product_id, query) VALUES (%s,%s,%s)
-                                     ON CONFLICT (tweet_id, product_id) DO NOTHING""",
-                                 (record["tweet_id"], record["product_id"], record["query"]))
-                if has_xcrawled:
-                    try:
-                        post_hash = hashlib.sha256(f"x_tweet:{record['tweet_id']}".encode("utf-8")).hexdigest()
-                        conn.execute("""
-                            INSERT INTO discovery_xcrawledpost (post_hash, tweet_id, author_handle, posted_at, crawled_at, tweet_url)
-                            VALUES (%s, %s, %s, %s, now(), %s)
-                            ON CONFLICT (post_hash) DO NOTHING
-                        """, (post_hash, str(record["tweet_id"]), record["author_handle"], record["created_at"], record.get("url") or ""))
-                    except Exception as exc:
-                        log.debug("Skipped discovery_xcrawledpost recording: %s", exc, exc_info=True)
+                try:
+                    with conn.transaction():
+                        _insert_record(conn, schema, record, has_xcrawled)
+                except psycopg.Error as exc:
+                    invalid_count += 1
+                    log.warning("Skipping %s line %d: database error (%s)", path, line_no, type(exc).__name__, exc_info=True)
+                    continue
                 count += 1
     if invalid_count:
         log.info("Skipped %s invalid X record(s) from %s", invalid_count, path)
@@ -181,7 +189,7 @@ def record_search_runs(searches: list[dict], dsn: str | None = None) -> int:
         raise ValueError("NE_CRAWLER_SCHEMA must be a simple SQL schema name")
     rows = [(s.get("ran_at") or datetime.now().astimezone().isoformat(), str(pid), str(s.get("query") or "")[:500],
              int(s.get("fetched") or 0), int((s.get("new_by_product") or {}).get(str(pid), 0)),
-             Jsonb(s.get("stats")) if s.get("stats") else None)
+             Jsonb(redact_proxy_stats(s.get("stats"))) if s.get("stats") else None)
             for s in searches for pid in s.get("product_ids") or []]
     if not rows:
         return 0

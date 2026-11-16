@@ -572,10 +572,10 @@ class NeedEngine:
         rows = []
         for m in messages:
             n = need_of.get(m.message_id)
-            fit, reason = fits.get(m.message_id, ("", ""))
+            _, reason = fits.get(m.message_id, ("", ""))
             if n is not None and self.store.emitted(n.need_id):
                 rows.append((m.chat_id, m.message_id, "customer", reason, n.need_id))
-            elif n is not None or fit:
+            elif n is not None:
                 rows.append((m.chat_id, m.message_id, "not_fit", reason or "دنبال چیز دیگری است", n.need_id if n else None))
             else:
                 rows.append((m.chat_id, m.message_id, "not_customer", "", None))

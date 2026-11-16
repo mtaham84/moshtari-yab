@@ -125,6 +125,9 @@ services:
     <<: *app
     command: ["x"]
     profiles: ["x"]
+    depends_on:
+      web:
+        condition: service_healthy   # web runs migrations before serving requests
     volumes:
       - appdata:/app/data
       - ./backups:/app/backups

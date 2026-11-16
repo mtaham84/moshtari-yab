@@ -39,6 +39,22 @@ ROOT_CAUSE_ANALYSIS_MAP: dict[str, str] = {
 }
 
 
+def mask_proxy(url: str | None) -> str | None:
+    """Remove the complete userinfo from proxy URLs, including encoded credentials."""
+    if url is None:
+        return None
+    return re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^/\s]*@", r"\1***@", url)
+
+
+def redact_proxy_stats(value):
+    """Copy JSON-compatible stats, redacting proxy URLs even in nested diagnostic fields."""
+    if isinstance(value, dict):
+        return {key: redact_proxy_stats(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_proxy_stats(item) for item in value]
+    return mask_proxy(value) if isinstance(value, str) else value
+
+
 def sanitize_text(text: str) -> str:
     """Masks credentials, passwords, and tokens from text."""
     if not text:

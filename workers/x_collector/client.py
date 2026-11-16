@@ -10,6 +10,8 @@ import time
 from typing import Any
 
 from . import cli_mapping as mapping
+from .native_session import native_session
+from shared.tele_logging.formatter import mask_proxy
 
 log = logging.getLogger("x_collector.client")
 
@@ -79,8 +81,28 @@ def parse_created_at_utc(value: Any) -> datetime | None:
 
 class XCliError(RuntimeError):
     def __init__(self, message: str, kind: str = "fatal"):
-        super().__init__(message)
+        super().__init__(mask_proxy(message))
         self.kind = kind
+
+
+def _search_error(exc: Exception) -> XCliError:
+    if isinstance(exc, XCliError):
+        return exc
+    code = getattr(exc, 'error_code', '')
+    known = {'not_authenticated': 'auth', 'rate_limited': 'rate_limit', 'network_error': 'transient'}
+    if code in known:
+        return XCliError(f"X search failed ({known[code]})", kind=known[code])
+    detail = str(exc).casefold()
+    if re.search(r"\b(?:401|403|unauthorized|authentication|session expired|login required|invalid cookies)\b", detail):
+        kind = "auth"
+    elif re.search(r"\b(?:429|rate limit|too many requests)\b", detail):
+        kind = "rate_limit"
+    elif isinstance(exc, (TimeoutError, ConnectionError)) or re.search(r"\b(?:5\d\d|timeout|timed out|connection|network)\b", detail):
+        kind = "transient"
+    else:
+        kind = "fatal"
+    # Native exceptions can contain cookies and proxy credentials.
+    return XCliError(f"X search failed ({kind})", kind=kind)
 
 
 class XCliClient:
@@ -130,7 +152,7 @@ class XCliClient:
             "target_posts": target_posts,
             "account_id": acc_id,
             "account_username": acc_user,
-            "proxy_url": proxy,
+            "proxy_url": mask_proxy(proxy),
             "pages_fetched": 0,
             "raw_posts_received": 0,
             "valid_posts": 0,
@@ -147,7 +169,7 @@ class XCliClient:
 
         log.info(
             "Starting X Top search for '%s' [Account: @%s, Proxy: %s, Cutoff: %s]",
-            full_query, acc_user, proxy, cutoff_utc.isoformat(),
+            full_query, acc_user, mask_proxy(proxy), cutoff_utc.isoformat(),
         )
 
         use_in_process = False
@@ -160,139 +182,135 @@ class XCliClient:
 
         if use_in_process and account and getattr(account, "auth_token", None) and getattr(account, "ct0", None):
             try:
-                os.environ["TWITTER_AUTH_TOKEN"] = str(account.auth_token)
-                os.environ["TWITTER_CT0"] = str(account.ct0)
-                if proxy:
-                    os.environ["TWITTER_PROXY"] = str(proxy)
-                client_mod._cffi_session = None
-                cl = TwitterClient(auth_token=account.auth_token, ct0=account.ct0)
+                with native_session(client_mod, proxy):
+                    cl = TwitterClient(auth_token=account.auth_token, ct0=account.ct0)
 
-                for page_idx in range(1, max_p + 1):
-                    stats["pages_fetched"] += 1
-                    variables: dict[str, Any] = {
-                        "rawQuery": full_query,
-                        "count": 20,
-                        "querySource": "typed_query",
-                        "product": "Top",
-                    }
-                    if cursor:
-                        variables["cursor"] = cursor
-
-                    _sm = os.environ.get("TWITTER_SEARCH_METHOD", "auto").strip().lower()
-                    if _sm == "post" or getattr(cl, "_search_use_post", False):
-                        data = cl._graphql_post("SearchTimeline", variables, FEATURES)
-                    else:
-                        try:
-                            data = cl._graphql_get("SearchTimeline", variables, FEATURES)
-                        except Exception as get_exc:
-                            if "404" in str(get_exc):
-                                data = cl._graphql_post("SearchTimeline", variables, FEATURES)
-                                cl._search_use_post = True
-                            else:
-                                raise
-
-                    new_tweets, next_cursor = parse_timeline_response(
-                        data,
-                        lambda d: _deep_get(d, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions"),
-                    )
-
-                    stats["raw_posts_received"] += len(new_tweets)
-                    new_valid_this_page = 0
-
-                    for tw in new_tweets:
-                        tid = str(getattr(tw, "id", "")).strip()
-                        if not tid:
-                            continue
-                        text = getattr(tw, "text", "") or ""
-                        lang_meta = getattr(tw, "lang", None)
-
-                        # Check 1: Deduplication
-                        if tid in seen_in_job:
-                            stats["duplicate_posts"] += 1
-                            continue
-
-                        # Check 2: Date within fixed 7-day cutoff
-                        created_dt = parse_created_at_utc(getattr(tw, "created_at", None))
-                        if not created_dt or created_dt < cutoff_utc:
-                            stats["out_of_range_posts"] += 1
-                            continue
-
-                        # Check 3: Multi-layer Persian language
-                        is_fa, _ = validate_persian_post(text, lang_meta)
-                        if not is_fa:
-                            stats["non_persian_posts"] += 1
-                            continue
-
-                        # Valid unique post
-                        seen_in_job.add(tid)
-                        new_valid_this_page += 1
-                        author = getattr(tw, "author", None)
-                        handle = (getattr(author, "screen_name", None) or getattr(author, "username", None) or getattr(author, "handle", None)) if author else None
-                        raw_dict = {
-                            "id": tid,
-                            "text": text,
-                            "created_at": getattr(tw, "created_at", None),
-                            "createdAtISO": getattr(tw, "created_at", None),
-                            "author_handle": handle,
-                            "handle": handle,
-                            "username": handle,
-                            "screen_name": handle,
-                            "author_name": getattr(author, "name", None) if author else None,
-                            "author_id": str(getattr(author, "id", "")) if author else None,
-                            "author_verified": getattr(author, "verified", False) if author else False,
-                            "lang": lang_meta or "fa",
-                            "isRetweet": getattr(tw, "is_retweet", False),
-                            "author": {
-                                "screenName": handle,
-                                "username": handle,
-                                "name": getattr(author, "name", None) if author else None,
-                                "id": getattr(author, "id", None) if author else None,
-                                "verified": getattr(author, "verified", False) if author else False,
-                                "description": getattr(author, "bio", "") if author else "",
-                            } if author else {},
+                    for page_idx in range(1, max_p + 1):
+                        stats["pages_fetched"] += 1
+                        variables: dict[str, Any] = {
+                            "rawQuery": full_query,
+                            "count": 20,
+                            "querySource": "typed_query",
+                            "product": "Top",
                         }
-                        valid_records.append(raw_dict)
+                        if cursor:
+                            variables["cursor"] = cursor
+
+                        _sm = os.environ.get("TWITTER_SEARCH_METHOD", "auto").strip().lower()
+                        if _sm == "post" or getattr(cl, "_search_use_post", False):
+                            data = cl._graphql_post("SearchTimeline", variables, FEATURES)
+                        else:
+                            try:
+                                data = cl._graphql_get("SearchTimeline", variables, FEATURES)
+                            except (RuntimeError, OSError, ValueError) as get_exc:
+                                if "404" in str(get_exc):
+                                    data = cl._graphql_post("SearchTimeline", variables, FEATURES)
+                                    cl._search_use_post = True
+                                else:
+                                    raise
+
+                        new_tweets, next_cursor = parse_timeline_response(
+                            data,
+                            lambda d: _deep_get(d, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions"),
+                        )
+
+                        stats["raw_posts_received"] += len(new_tweets)
+                        new_valid_this_page = 0
+
+                        for tw in new_tweets:
+                            tid = str(getattr(tw, "id", "")).strip()
+                            if not tid:
+                                continue
+                            text = getattr(tw, "text", "") or ""
+                            lang_meta = getattr(tw, "lang", None)
+
+                            # Check 1: Deduplication
+                            if tid in seen_in_job:
+                                stats["duplicate_posts"] += 1
+                                continue
+
+                            # Check 2: Date within fixed 7-day cutoff
+                            created_dt = parse_created_at_utc(getattr(tw, "created_at", None))
+                            if not created_dt or created_dt < cutoff_utc:
+                                stats["out_of_range_posts"] += 1
+                                continue
+
+                            # Check 3: Multi-layer Persian language
+                            is_fa, _ = validate_persian_post(text, lang_meta)
+                            if not is_fa:
+                                stats["non_persian_posts"] += 1
+                                continue
+
+                            # Valid unique post
+                            seen_in_job.add(tid)
+                            new_valid_this_page += 1
+                            author = getattr(tw, "author", None)
+                            handle = (getattr(author, "screen_name", None) or getattr(author, "username", None) or getattr(author, "handle", None)) if author else None
+                            raw_dict = {
+                                "id": tid,
+                                "text": text,
+                                "created_at": getattr(tw, "created_at", None),
+                                "createdAtISO": getattr(tw, "created_at", None),
+                                "author_handle": handle,
+                                "handle": handle,
+                                "username": handle,
+                                "screen_name": handle,
+                                "author_name": getattr(author, "name", None) if author else None,
+                                "author_id": str(getattr(author, "id", "")) if author else None,
+                                "author_verified": getattr(author, "verified", False) if author else False,
+                                "lang": lang_meta or "fa",
+                                "isRetweet": getattr(tw, "is_retweet", False),
+                                "author": {
+                                    "screenName": handle,
+                                    "username": handle,
+                                    "name": getattr(author, "name", None) if author else None,
+                                    "id": getattr(author, "id", None) if author else None,
+                                    "verified": getattr(author, "verified", False) if author else False,
+                                    "description": getattr(author, "bio", "") if author else "",
+                                } if author else {},
+                            }
+                            valid_records.append(raw_dict)
+                            if len(valid_records) >= target_posts:
+                                break
+
+                        stats["valid_posts"] = len(valid_records)
+
+                        # Early stopping condition 1: Target reached
                         if len(valid_records) >= target_posts:
+                            stats["stop_reason"] = "TARGET_REACHED"
+                            log.info("Query '%s' reached target %d valid posts", query, target_posts)
                             break
 
-                    stats["valid_posts"] = len(valid_records)
+                        # Early stopping condition 4: Two consecutive pages produce zero NEW valid posts
+                        if new_valid_this_page == 0:
+                            consecutive_zero_pages += 1
+                            if consecutive_zero_pages >= 2:
+                                stats["stop_reason"] = "CONSECUTIVE_EMPTY_PAGES"
+                                log.info("Query '%s' stopped: 2 consecutive pages produced zero new valid posts", query)
+                                break
+                        else:
+                            consecutive_zero_pages = 0
 
-                    # Early stopping condition 1: Target reached
-                    if len(valid_records) >= target_posts:
-                        stats["stop_reason"] = "TARGET_REACHED"
-                        log.info("Query '%s' reached target %d valid posts", query, target_posts)
-                        break
-
-                    # Early stopping condition 4: Two consecutive pages produce zero NEW valid posts
-                    if new_valid_this_page == 0:
-                        consecutive_zero_pages += 1
-                        if consecutive_zero_pages >= 2:
-                            stats["stop_reason"] = "CONSECUTIVE_EMPTY_PAGES"
-                            log.info("Query '%s' stopped: 2 consecutive pages produced zero new valid posts", query)
+                        # Early stopping condition 2 & 3: Cursor missing or repeated
+                        if not next_cursor:
+                            stats["stop_reason"] = "EXHAUSTED"
+                            log.info("Query '%s' exhausted: no next cursor returned", query)
                             break
-                    else:
-                        consecutive_zero_pages = 0
+                        if next_cursor == cursor:
+                            stats["stop_reason"] = "CURSOR_REPEATED"
+                            log.info("Query '%s' stopped: cursor did not advance", query)
+                            break
 
-                    # Early stopping condition 2 & 3: Cursor missing or repeated
-                    if not next_cursor:
-                        stats["stop_reason"] = "EXHAUSTED"
-                        log.info("Query '%s' exhausted: no next cursor returned", query)
-                        break
-                    if next_cursor == cursor:
-                        stats["stop_reason"] = "CURSOR_REPEATED"
-                        log.info("Query '%s' stopped: cursor did not advance", query)
-                        break
+                        cursor = next_cursor
+                        if page_idx == max_p:
+                            stats["stop_reason"] = "PAGINATION_LIMIT"
 
-                    cursor = next_cursor
-                    if page_idx == max_p:
-                        stats["stop_reason"] = "PAGINATION_LIMIT"
+                        time.sleep(random.uniform(1.2, 2.5))
 
-                    time.sleep(random.uniform(1.2, 2.5))
+                    return valid_records[:target_posts], stats
 
-                return valid_records[:target_posts], stats
-
-            except Exception as proc_err:
-                log.warning("In-process SearchTimeline failed, falling back to CLI: %s", proc_err, exc_info=True)
+            except (RuntimeError, OSError, ValueError) as proc_err:
+                raise _search_error(proc_err) from None
 
         # Fallback via CLI runner
         try:
@@ -326,10 +344,8 @@ class XCliClient:
             stats["valid_posts"] = len(valid_records)
             stats["stop_reason"] = "TARGET_REACHED" if len(valid_records) >= target_posts else "EXHAUSTED"
             return valid_records[:target_posts], stats
-        except Exception as cli_exc:
-            stats["stop_reason"] = f"SEARCH_FAILED: {cli_exc}"
-            log.warning("X search fallback failed for query '%s': %s", query, cli_exc, exc_info=True)
-            return valid_records[:target_posts], stats
+        except (RuntimeError, OSError, ValueError) as cli_exc:
+            raise _search_error(cli_exc) from None
 
     def search(self, query: str, limit: int, account: Any | None = None) -> list[dict[str, Any]]:
         if query.lstrip().startswith("-"):
@@ -339,14 +355,11 @@ class XCliClient:
             raise XCliError(f"CLI '{self.command}' was not found. Install/diagnose Agent Reach, then run 'agent-reach doctor'.")
         sub_env = os.environ.copy()
         if account is not None:
-            if getattr(account, "auth_token", None):
-                sub_env["TWITTER_AUTH_TOKEN"] = str(account.auth_token)
-            if getattr(account, "ct0", None):
-                sub_env["TWITTER_CT0"] = str(account.ct0)
-            if getattr(account, "proxy_url", None):
-                sub_env["TWITTER_PROXY"] = str(account.proxy_url)
+            sub_env["TWITTER_AUTH_TOKEN"] = str(getattr(account, "auth_token", "") or "")
+            sub_env["TWITTER_CT0"] = str(getattr(account, "ct0", "") or "")
+            sub_env["TWITTER_PROXY"] = str(getattr(account, "proxy_url", "") or "")
         if not sub_env.get("TWITTER_AUTH_TOKEN") or not sub_env.get("TWITTER_CT0"):
-            raise XCliError("X session cookies are missing. Configure TWITTER_AUTH_TOKEN and TWITTER_CT0 securely, then run 'agent-reach doctor'.")
+            raise XCliError("X session cookies are missing. Configure TWITTER_AUTH_TOKEN and TWITTER_CT0 securely, then run 'agent-reach doctor'.", kind="auth")
         args = [executable, mapping.CLI_SEARCH_SUBCOMMAND, query, "-t", mapping.CLI_TIME_FILTER,
                 mapping.CLI_EXCLUDE_RETWEETS_FLAG, mapping.CLI_EXCLUDE_RETWEETS_VALUE,
                 mapping.CLI_LIMIT_FLAG, str(limit), mapping.CLI_OUTPUT_FLAG]
@@ -368,7 +381,7 @@ class XCliClient:
             if code == "not_found":   # stale query id / endpoint for this search: skip the query, not the whole cycle
                 raise XCliError("X CLI search endpoint returned 404 (twitter-cli query id may be stale)", kind="query")
             if code == "not_authenticated":
-                raise XCliError("X CLI authentication failed; verify the session and run 'agent-reach doctor'")
+                raise XCliError("X CLI authentication failed; verify the session and run 'agent-reach doctor'", kind="auth")
             if code in {"timeout", "timed_out", "server_error", "internal_error", "bad_gateway", "service_unavailable"} or re.fullmatch(r"5\d\d", code):
                 raise XCliError(f"X CLI transient server error ({code})", kind="transient")
             raise XCliError(f"X CLI failed with error code: {code}")
@@ -377,12 +390,12 @@ class XCliClient:
             for secret in (sub_env.get("TWITTER_AUTH_TOKEN"), sub_env.get("TWITTER_CT0")):
                 if secret:
                     detail = detail.replace(secret, "[REDACTED]")
-            detail = detail[:500]
+            detail = mask_proxy(detail)[:500]
             lowered = detail.casefold()
             if re.search(r"\b(?:429|rate limit|too many requests)\b", lowered):
                 raise XCliError("X CLI rate limit detected", kind="rate_limit")
             if re.search(r"\b(?:unauthorized|authentication failed|invalid credentials|session expired|login required)\b", lowered):
-                raise XCliError("X CLI authentication failed; verify cookies and run 'agent-reach doctor'")
+                raise XCliError("X CLI authentication failed; verify cookies and run 'agent-reach doctor'", kind="auth")
             if re.search(r"\b5\d\d\b", lowered):
                 raise XCliError(f"X CLI transient server error (exit {completed.returncode})", kind="transient")
             raise XCliError(f"X CLI failed (exit {completed.returncode}): {detail}")

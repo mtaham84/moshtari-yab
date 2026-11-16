@@ -10,3 +10,14 @@ import pytest
 def _code_default_query_settings(monkeypatch):
     for name in [n for n in os.environ if n.startswith("X_QUERY_")]:
         monkeypatch.delenv(name)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_account_pool(monkeypatch):
+    """Tests must opt into PostgreSQL with a DSN; never mutate accounts from a developer's .env."""
+    from workers.x_collector.account_pool import TwitterAccountPool
+
+    connect = TwitterAccountPool._get_pg_conn
+    monkeypatch.setattr(TwitterAccountPool, '_get_pg_conn', lambda self: connect(self) if self.dsn else None)
+    for key in ('TWITTER_AUTH_TOKEN', 'TWITTER_CT0', 'TWITTER_PROXY', 'TWITTER_USERNAME'):
+        monkeypatch.delenv(key, raising=False)

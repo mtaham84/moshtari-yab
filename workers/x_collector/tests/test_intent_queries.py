@@ -219,7 +219,7 @@ def test_three_formats_kinds_are_generated_from_llm_terms():
     assert {"problem", "alternative", "solution"} <= {q["kind"] for q in gen}
 
 
-def test_kind_weights_across_schedulers_and_worker():
+def test_kind_weights_are_preserved_for_non_x_scheduler():
     import tempfile
     from pathlib import Path
     from shared.collector_kit.seen import SeenStore
@@ -236,7 +236,7 @@ def test_kind_weights_across_schedulers_and_worker():
     # Verify scheduler orders by weight when freshness is equal
     with tempfile.TemporaryDirectory() as td:
         db_path = Path(td) / "test_seen.sqlite3"
-        seen = SeenStore(db_path, platform="x")
+        seen = SeenStore(db_path, platform="instagram")
         queries = [
             {"query": "q_prod", "kind": "product", "priority": 1.0},
             {"query": "q_intent", "kind": "intent", "priority": 1.0},

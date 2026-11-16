@@ -106,6 +106,7 @@ class ModelRegistry:
                 with self._lock:
                     if force or time.time() - self._loaded_at >= self.cfg.registry_ttl:
                         self._loaded_at = time.time()
+                        self._snap.wallets_loaded = False
                         try:
                             self._load_billing(self._snap)
                         except Exception as e:
@@ -115,6 +116,7 @@ class ModelRegistry:
             if not force and time.time() - self._loaded_at < self.cfg.registry_ttl:
                 return self._snap
             self._loaded_at = time.time()
+            self._snap.wallets_loaded = False
             try:
                 self._snap = self._load()
             except Exception as e:   # never stop the engine because of the panel

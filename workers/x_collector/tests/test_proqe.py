@@ -70,7 +70,7 @@ def test_legacy_product_state_purge_is_dry_run_safe_and_keeps_family_rows(tmp_pa
     assert len(store.get_expanded_queries("f17-a1b2c3d4")) == 1
 
 
-def test_thompson_sampling_feedback_and_scoring(tmp_path):
+def test_feedback_updates_learning_and_yield_drives_scheduling(tmp_path):
     state_file = tmp_path / "bandit.sqlite3"
     seen = SeenStore(state_file, platform="x")
 
@@ -93,17 +93,19 @@ def test_thompson_sampling_feedback_and_scoring(tmp_path):
     stats_bad = seen.get_query_bandit_stats(q_bad)
     assert stats_bad["beta"] == 4.0
 
-    # Test scheduling draws from Beta distribution
+    # Scheduling uses the verified lead yield; alpha/beta still retain ProQE feedback.
     queries = [{"query": q_good, "kind": "problem", "priority": 1.0},
                {"query": q_bad, "kind": "product", "priority": 1.0}]
-    # Mark them as already run once so Thompson Sampling is active
+    # Both queries have one completed search.
     seen.record_query(q_good, fetched=5, new_posts=2)
     seen.record_query(q_bad, fetched=5, new_posts=0)
 
-    # Over 10 schedules, q_good (alpha=3, beta=1) should be chosen first most of the time compared to q_bad (alpha=1, beta=4)
+    # Positive-yield queries get most slots; unproven queries retain exploration.
     good_first = 0
     for _ in range(10):
         sched = seen.schedule(queries, budget=1)
+        if sched:
+            seen.record_query_allocation(sched[0]["query"], queries)
         if sched and sched[0]["query"] == q_good:
             good_first += 1
     assert good_first >= 7

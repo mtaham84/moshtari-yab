@@ -1,50 +1,6 @@
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timezone
-from uuid import uuid4
-
-import pytest
-
-from shared.collector_kit.seen import SeenStore
-from shared.collector_kit.state_store import PostgresStateStore
-
-
-@pytest.fixture(params=["sqlite", "postgres"])
-def state_store(request, tmp_path):
-    platform = "test_" + request.param
-    if request.param == "sqlite":
-        yield SeenStore(tmp_path / "state.sqlite3", platform=platform)
-        return
-    dsn = os.getenv("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL is not set")
-    yield from _postgres_state_store(dsn, platform)
-
-
-@pytest.fixture
-def postgres_state_store():
-    dsn = os.getenv("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL is not set")
-    yield from _postgres_state_store(dsn, "test_postgres")
-
-
-def _postgres_state_store(dsn, platform):
-    import psycopg
-
-    schema = "test_state_store_" + uuid4().hex
-    try:
-        with psycopg.connect(dsn):
-            pass
-    except Exception as exc:
-        pytest.skip(f"PostgreSQL is not reachable ({type(exc).__name__})")
-    store = PostgresStateStore(platform=platform, dsn=dsn, schema=schema)
-    try:
-        yield store
-    finally:
-        with psycopg.connect(dsn, autocommit=True) as db:
-            db.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
 def test_state_store_tracks_seen_ids_daily_counts_and_cooldown(state_store):
@@ -106,3 +62,19 @@ def test_postgres_state_import_does_not_inflate_daily_counts(postgres_state_stor
     postgres_state_store.import_missing_state(state)
 
     assert postgres_state_store.count_today() == 1
+
+
+def test_read_only_schedule_does_not_register_skipped_queries(state_store):
+    queries = [{'query': 'buyer', 'kind': 'intent', 'priority': 1}]
+    assert state_store.schedule(queries, 1, persist=False) == queries
+    assert state_store.query_status() == []
+    assert state_store.schedule(queries, 1) == queries
+    assert len(state_store.query_status()) == 1
+
+
+def test_read_only_schedule_respects_daily_unique_history(state_store):
+    queries = [{'query': 'buyer', 'kind': 'intent'}]
+    state_store.schedule(queries, 1)
+    state_store.record_query('buyer', 1, 1, started_at=datetime.now(timezone.utc))
+    assert state_store.schedule(queries, 1, enforce_daily_unique=True, persist=False) == []
+    assert state_store.schedule(queries, 1, persist=False) == queries

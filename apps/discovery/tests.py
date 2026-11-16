@@ -120,6 +120,8 @@ class EngineImportTests(EngineSchemaMixin, TestCase):
         self.assertEqual(Opportunity.objects.get(business=self.other).product_matches.get().product, self.q1)
 
     def test_x_opportunity_keeps_x_customer_and_evidence_links(self):
+        from apps.billing.models import Wallet
+        Wallet.objects.filter(business=self.biz).update(balance_toman=100)
         payload = engine_payload("need_x_000001", [self.p1.id])
         payload["candidate"].update(external_user_id="81001", username="buyer", profile_url="https://x.com/buyer")
         payload["source"].update(platform="x", chat_id="x:public", evidence=[
