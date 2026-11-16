@@ -14,6 +14,7 @@ from shared.collector_kit.file_lock import exclusive_file_lock
 from shared.records import RecordError, SourceRecord
 from shared.x_dedup import compute_tweet_hash
 from shared.tele_logging.formatter import redact_proxy_stats
+from shared.x_record_data import optional_data, sanitize
 
 log = logging.getLogger("x_ingest")
 
@@ -85,7 +86,8 @@ def validate_record(record: object) -> dict:
             "query": metadata.get("query"), "author_verified": bool(record.get("author_verified")),
             "author_bio": str(record.get("author_bio") or "")[:500], "kind": kind,
             **thread_ids, "in_reply_to_author_id": str(record.get("in_reply_to_author_id") or "") or None,
-            "product_id": str(record["product_id"]) if record.get("product_id") else None, "raw": record}
+            "product_id": str(record["product_id"]) if record.get("product_id") else None,
+            **optional_data(record), "raw": sanitize(parsed.as_dict())}
 
 
 def _insert_record(conn, schema: str, record: dict, has_xcrawled: bool) -> None:
