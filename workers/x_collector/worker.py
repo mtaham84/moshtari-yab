@@ -43,7 +43,8 @@ def _first(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
     return None
 
 
-def normalize_tweet(raw: dict[str, Any], query: str | None = None, stats: dict | None = None) -> dict[str, Any] | None:
+def normalize_tweet(raw: dict[str, Any], query: str | None = None, stats: dict | None = None,
+                    thread_root_id: str | None = None) -> dict[str, Any] | None:
     if raw.get("isRetweet") is True:
         log.info("Skipping retweet %s", raw.get("id") or "without id")
         return None
@@ -92,12 +93,24 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None, stats: dict |
             pass
 
     details = optional_data(raw)
+    kind, thread = 'post', {}
+    if thread_root_id is not None:
+        parent = details.get('parent', {})
+        reply_to, conversation = parent.get('in_reply_to_tweet_id'), parent.get('conversation_id')
+        if (not reply_to or not reply_to.isascii() or not reply_to.isdecimal()
+                or clean_id == str(thread_root_id)
+                or str(thread_root_id) not in {reply_to, conversation}):
+            return None
+        kind = 'reply'
+        thread = {'conversation_id': conversation, 'in_reply_to_tweet_id': reply_to,
+                  'in_reply_to_author_id': parent.get('in_reply_to_user_id')}
     if 'parent' in details:
-        details['parent']['kind'] = 'post'
+        details['parent']['kind'] = kind
     return SourceRecord.from_dict({
         "id": clean_id,
         "source": "x",
-        "kind": "post",
+        "kind": kind,
+        **thread,
         "text": text.strip(),
         "author_handle": f"@{handle}" if handle else None,
         "author_name": _first(raw, mapping.OUTPUT_NAME_KEYS) or author.get("name"),
@@ -275,8 +288,6 @@ class XCollector:
 
     def _run_locked(self, normalized_queries: list[dict[str, Any]], output_path: Path,
                     mock_records: list[dict[str, Any]] | None, balance_gate: BalanceGate) -> dict[str, Any]:
-        if os.getenv("X_THREAD_COLLECT", "false").lower() in {"1", "true", "yes", "on"}:
-            log.warning("X thread collection is enabled but the CLI thread contract is UNVERIFIED; no thread command is run by this worker yet")
         if hasattr(self, "account_pool") and self.account_pool:
             try:
                 self.account_pool.refresh()
@@ -347,7 +358,7 @@ class XCollector:
                         )
                         fetched_count = len(raw_items)
 
-                        records = self._records_for_query(raw_items, query, query_products)
+                        records = self._records_for_query(raw_items, query, query_products, eligible.get('thread_root_id'))
                         records = filter_uncrawled_tweets(records)
 
                         candidates, seen_count = unseen_candidates(records, already_written, self.state)
@@ -361,7 +372,7 @@ class XCollector:
                                 try:
                                     raw_items = self.client.search(search_query, expand_limit, account=current_account)
                                     fetched_count = len(raw_items)
-                                    records = self._records_for_query(raw_items, query, query_products)
+                                    records = self._records_for_query(raw_items, query, query_products, eligible.get('thread_root_id'))
                                     records = filter_uncrawled_tweets(records)
                                     candidates, seen_count = unseen_candidates(records, already_written, self.state)
                                 except XCliError:
@@ -460,10 +471,11 @@ class XCollector:
                         keys.add(str(row["id"]) + (f"|{row['product_id']}" if row.get("product_id") else ""))
         return keys
 
-    def _records_for_query(self, raw_items, query: str, query_products: dict[str, list[str]]) -> list[dict[str, Any]]:
+    def _records_for_query(self, raw_items, query: str, query_products: dict[str, list[str]],
+                           thread_root_id: str | None = None) -> list[dict[str, Any]]:
         records = []
         for raw in raw_items[:self.max_per_query]:
-            base = normalize_tweet(raw, query=query, stats=self.filter_stats)
+            base = normalize_tweet(raw, query=query, stats=self.filter_stats, thread_root_id=thread_root_id)
             if base is None:
                 continue
             for product_id in query_products.get(query) or [None]:

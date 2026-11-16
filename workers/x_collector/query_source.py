@@ -107,9 +107,7 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
                                    cards: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Queries per family, interleaved per seller up to ``X_QUERY_MAX_PER_TENANT``, exact duplicates merged (one search,
     tagged with every product/seller it belongs to)."""
-    from workers.x_collector.intent_queries import product_queries, _quote
-    from workers.x_collector.families import _DENTAL_ROOTS, _DENTAL_DISCOVERY_TERMS
-    from need_engine.text import norm
+    from workers.x_collector.intent_queries import product_queries
 
     terms, cards = terms or {}, cards or {}
     from workers.x_collector.families import family_cards, family_topic_contexts
@@ -120,40 +118,43 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
     for family in families:
         contexts[str(family.product_id)]["family"] = family
     cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "150"))
-    by_business: dict[str, list[list[dict[str, Any]]]] = {}
-    for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.title).casefold())):
+    from need_engine.text import norm
+    categories: dict[str, list[tuple[Any, list[dict]]]] = {}
+    for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.product_id))):
         if not getattr(fam, "x_search_enabled", False):
             continue
         fid = str(fam.product_id)
         items = product_queries(fam, terms=terms.get(fid), card=cards.get(fid), topic_context=contexts.get(fid))
-        if items:
-            by_business.setdefault(str(fam.business_id), []).append(items)
-    merged: dict[str, dict[str, Any]] = {}
-    ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
-
-    for biz, lists in by_business.items():
-        # Inject universal high-intent discovery terms for dental tenants so broad queries are always covered
-        biz_fams = [f for f in families if str(f.business_id) == str(biz)]
-        all_text = " ".join(f"{getattr(f, 'title', '')} {getattr(f, 'category_path', '')}" for f in biz_fams)
-        if any(root in norm(all_text) for root in _DENTAL_ROOTS):
-            all_pids = sorted({str(pid) for f in biz_fams for pid in getattr(f, "member_product_ids", [f.product_id])})
-            for phrase in _DENTAL_DISCOVERY_TERMS:
-                query = f"{_quote(phrase)} {ops}".strip()
-                key = query.casefold()
-                if key not in merged:
-                    merged[key] = {
-                        "query": query,
-                        "kind": "problem" if any(x in phrase for x in ("درد", "خراب", "لق", "پوسیدگی", "عفونت")) else "intent",
-                        "product_ids": all_pids,
-                        "business_ids": [str(biz)],
-                        "priority": 1.5,
-                    }
-
-        for rank in range(max((len(x) for x in lists), default=0)):     # round robin: no family starves the others
-            for items in lists:
-                if rank >= len(items) or len(merged) >= cap:
+        key = norm(getattr(fam, "category_path", "")) or fid
+        categories.setdefault(key, []).append((fam, items))
+    by_business: dict[str, list[list[dict[str, Any]]]] = {}
+    for group in categories.values():
+        selected, seen = [], set()
+        owners = sorted({str(f.business_id) for f, _ in group})
+        products = sorted({str(pid) for f, _ in group for pid in f.member_product_ids})
+        for rank in range(max((len(items) for _, items in group), default=0)):
+            for _, items in group:
+                if rank >= len(items) or len(selected) >= 6:
                     continue
                 item = items[rank]
+                key = norm(item['query'])
+                if key not in seen:
+                    selected.append({**item, 'business_ids': owners, 'product_ids': products})
+                    seen.add(key)
+        for owner in owners:
+            by_business.setdefault(owner, []).append(selected)
+    ownership = {str(pid): str(fam.business_id) for fam in families
+                 for pid in getattr(fam, "member_product_ids", [fam.product_id])}
+    merged: dict[str, dict[str, Any]] = {}
+    for biz, lists in by_business.items():
+        count = 0
+        for rank in range(max((len(x) for x in lists), default=0)):     # round robin: no family starves the others
+            for items in lists:
+                if rank >= len(items) or count >= cap:
+                    continue
+                item = {**items[rank], 'business_ids': [biz],
+                        'product_ids': [pid for pid in items[rank]['product_ids'] if ownership.get(pid) == biz]}
+                count += 1
                 key = item["query"].casefold()
                 if key in merged:
                     hit = merged[key]
@@ -162,8 +163,6 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
                     hit["priority"] = max(hit["priority"], item["priority"])
                 else:
                     merged[key] = item
-    ownership = {str(pid): str(fam.business_id) for fam in families
-                 for pid in getattr(fam, "member_product_ids", [fam.product_id])}
     return [{**item, "product_business_ids": {pid: ownership[pid] for pid in item["product_ids"] if pid in ownership}}
             for item in merged.values()]
 
@@ -203,7 +202,7 @@ def _load_intent_queries(config, source, products, x_mode, mode):
     return targeted_queries_from_families(families, terms=terms, cards=cards)
 
 
-def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
+def _collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
     override = path or os.getenv("X_COLLECT_QUERIES_FILE")
     if override:
         from workers.x_collector.worker import XCollector
@@ -239,3 +238,20 @@ def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
         return load_intent_queries()
     except Exception as exc:
         raise RuntimeError("Could not load active seller products for X search. Set X_COLLECT_QUERIES_FILE for a static override.") from exc
+
+
+def collector_queries(path: str | None = None) -> list[str | dict[str, str]]:
+    queries = _collector_queries(path)
+    from .config import thread_collection_enabled
+    if not thread_collection_enabled():
+        return queries
+    from .thread_queries import load_thread_queries
+    config = EngineConfig()
+    source = SQLProductSource(config)
+    try:
+        products = [p for p in source.all() if p.x_search_enabled]
+        with BalanceGate(config, db=source.db) as gate:
+            threads = gate.filter_queries(load_thread_queries(config, source.db, products))
+        return [*queries, *threads]
+    finally:
+        source.close()

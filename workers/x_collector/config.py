@@ -12,3 +12,7 @@ def require_wallet() -> bool:
 
 def debug_capture_path() -> str | None:
     return os.getenv('X_DEBUG_CAPTURE_PATH') or None
+
+
+def thread_collection_enabled() -> bool:
+    return os.getenv('X_THREAD_COLLECT', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}

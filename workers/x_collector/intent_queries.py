@@ -377,7 +377,7 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     Each query carries the product and its seller (the collector tags every post it finds with them)."""
     terms = terms or {}
     max_chars = int(os.getenv("X_QUERY_MAX_CHARS", "400"))
-    max_count = min(15, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "15")))))
+    max_count = min(6, max(1, int(os.getenv("X_QUERY_MAX_PER_FAMILY", os.getenv("X_QUERY_MAX_PER_PRODUCT_TARGETED", "6")))))
     per_format = min(10, max(1, int(os.getenv("X_QUERY_PER_FORMAT", "3"))))
     ops = os.getenv("X_QUERY_OPERATORS", "lang:fa").strip()
     # Seller-ad exclusions can hide real buyer posts mentioning shipping or discounts.
@@ -402,7 +402,9 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     raw_candidates, seen = [], set()
     for phrase, kind in values:
         phrase = " ".join(phrase.split())
-        if is_too_broad(phrase.split()) or any(norm(w) in WEAK_QUERY_WORDS for w in phrase.split()):
+        if len(phrase.split()) == 1 and norm(phrase) not in GENERIC_SINGLE:
+            phrase += ' خوبه'
+        if not 2 <= len(phrase.split()) <= 3 or is_too_broad(phrase.split()) or any(norm(w) in WEAK_QUERY_WORDS for w in phrase.split()):
             continue
         if topic_context:
             from workers.x_collector.families import family_phrase_allowed
@@ -423,4 +425,4 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
 
     # Keep enough pain, style/use-case and direct-topic phrases; MMR removes near-duplicates before the hard family cap.
     target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
-    return balanced_pick(raw_candidates, target_ref, min(15, max(1, max_count)), per_format)
+    return balanced_pick(raw_candidates, target_ref, min(6, max(1, max_count)), per_format)
