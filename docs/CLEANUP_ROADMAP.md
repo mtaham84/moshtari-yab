@@ -51,6 +51,11 @@ green, before the next one starts. Behavior must not change unless the step says
   for rejected candidates. Category assignment, six-query limits, lead scoring, reply collection and storage
   history are pending.
 
+- X deployment follow-up (`fix/x-status-counts`, 2026-11-16): reaching the daily cap reports zero failures in
+  both the run result and status JSON. Previously the omitted counter became null, so the panel rejected an
+  otherwise valid daily-cap status. The regression exercises collection followed by the capped run and checks
+  the persisted JSON; collection limits and account pacing are unchanged.
+
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
 
 | Metric | Value |

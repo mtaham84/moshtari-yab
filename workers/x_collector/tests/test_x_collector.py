@@ -106,6 +106,11 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(first["collected"], 1)
         second = collector.run(owned_queries(["q"]))
         self.assertEqual(second["status"], "DAILY_CAP_REACHED")
+        status = json.loads((collector.output_dir / "status.json").read_text())
+        self.assertEqual(status["failures"], 0)
+        self.assertEqual(second.get("failures"), 0)
+        self.assertEqual(status["collected_today"], 1)
+        self.assertEqual(status["daily_cap"], 1)
 
     def test_deduplicates_records_on_later_run(self):
         collector = self.collector()
