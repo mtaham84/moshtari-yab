@@ -8,6 +8,10 @@ from workers.x_collector.account_pool import TwitterAccount, TwitterAccountPool
 from workers.x_collector.client import XCliClient, XCliError
 from workers.x_collector.worker import XCollector
 
+from workers.x_collector.tests.helpers import owned_queries
+
+pytestmark = pytest.mark.usefixtures("funded_x_seller")
+
 
 def install_client(monkeypatch, responses):
     for key in ('TWITTER_AUTH_TOKEN', 'TWITTER_CT0', 'TWITTER_PROXY'):
@@ -62,7 +66,7 @@ def test_worker_rotates_auth_and_rate_limited_accounts_then_handles_empty_and_go
     collector = XCollector(client=XCliClient(), account_pool=pool, output_dir=tmp_path / 'out',
                            state_path=tmp_path / 'state', max_retries=3, circuit_breaker=10,
                            sleeper=lambda _: None, sleep_min=0, sleep_max=0)
-    result = collector.run(['empty', 'good'])
+    result = collector.run(owned_queries(['empty', 'good']))
     assert result['collected'] == 1
     assert result['failures'] == 2
     assert result['search_errors'] == {'auth': 1, 'rate_limit': 1}
@@ -89,7 +93,7 @@ def test_expanded_legacy_search_error_is_not_recorded_as_success(monkeypatch, tm
     client = LegacyTransport()
     collector = XCollector(client=client, account_pool=pool, output_dir=tmp_path / 'out',
                            state_path=tmp_path / 'state', max_per_query=1, sleeper=lambda _: None)
-    result = collector.run(['legacy'])
+    result = collector.run(owned_queries(['legacy']))
     assert client.calls == 2
     assert result['status'] == 'AUTH_FAILED'
     assert pool.accounts[0].status == 'CHALLENGED'

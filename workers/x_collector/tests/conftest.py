@@ -6,6 +6,17 @@ import os
 import pytest
 
 
+@pytest.fixture
+def funded_x_seller(monkeypatch):
+    """Provide a funded owner through the registry DB boundary; retain the real wallet gate."""
+    from need_engine.registry import ModelRegistry
+    from need_engine.tests.test_registry import FakeDB, cfg
+
+    db = FakeDB(balances={'9': 100})
+    monkeypatch.setattr('workers.x_collector.balance_gate.ModelRegistry',
+                        lambda *args, **kwargs: ModelRegistry(cfg(), db=db))
+
+
 @pytest.fixture(autouse=True)
 def _code_default_query_settings(monkeypatch):
     for name in [n for n in os.environ if n.startswith("X_QUERY_")]:

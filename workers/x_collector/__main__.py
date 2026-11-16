@@ -43,8 +43,8 @@ def main(argv: list[str] | None = None) -> int:
         # per-product mode with no product switched on yet: keep running, products are re-read every cycle
         logging.warning("No X search queries yet (no product has «جستجوی مشتری در X» on); waiting for products")
     elif not queries:
-        parser.error(f"No queries found. Turn X search on for a product in the seller panel, or add UTF-8 queries "
-                     f"(one per line) to {args.queries}.")
+        parser.error(f"No eligible queries found. Turn X search on for a product in the seller panel, or add JSON/JSONL "
+                     f"queries with business_id or business_ids to {args.queries}.")
     if args.print_queries:
         grouped = {}
         for item in queries:

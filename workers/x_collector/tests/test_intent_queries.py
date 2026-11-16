@@ -3,6 +3,11 @@ from types import SimpleNamespace
 from need_engine.schemas import Product
 from workers.x_collector.intent_queries import core_terms, generate_queries, model_term
 
+from workers.x_collector.tests.helpers import owned_queries
+import pytest
+
+pytestmark = pytest.mark.usefixtures("funded_x_seller")
+
 
 def test_core_terms_avoid_long_marketing_titles_and_codes():
     product = Product(product_id="1", title="فوق العاده بهترین مدل X9000 دستکش گرم موتور سواری", category_path="پوشاک / دستکش موتور")
@@ -158,9 +163,9 @@ def test_collector_advances_window_only_after_success(tmp_path):
     client = Client()
     collector = XCollector(client=client, output_dir=tmp_path / "o", state_path=tmp_path / "s.sqlite3", sleep_min=0, sleep_max=0,
                            sleeper=lambda _: None, jitter=lambda a, b: 0)
-    collector.run(["coffee"])
+    collector.run(owned_queries(["coffee"]))
     assert SeenStore(tmp_path / "s.sqlite3").last_ok("coffee") is not None
-    collector.run(["coffee"])
+    collector.run(owned_queries(["coffee"]))
     first, second = (int(c.rsplit(":", 1)[1]) for c in client.calls)
     assert second > first
 

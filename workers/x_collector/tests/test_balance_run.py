@@ -105,11 +105,26 @@ def test_static_override_with_owner_is_gated(setup_run, tmp_path):
     assert result[0]['business_ids'] == ['9']
 
 
-def test_unowned_static_override_is_preserved_with_warning(setup_run, tmp_path, caplog):
+def test_unowned_static_override_is_blocked_with_warning(setup_run, tmp_path, caplog):
     path = tmp_path / 'queries.txt'
     path.write_text('legacy query\n')
-    assert query_source.collector_queries(str(path)) == ['legacy query']
-    assert 'bypass' in caplog.text.lower()
+    assert query_source.collector_queries(str(path)) == []
+    assert 'unowned' in caplog.text.lower()
+
+
+def test_direct_unowned_query_never_calls_search(setup_run):
+    _, client, collector = setup_run
+    result = collector.run(['unowned'])
+    assert client.calls == []
+    assert saved_queries(collector) == []
+    assert result['skipped_queries_by_balance'] == 1
+
+
+def test_explicit_mock_records_need_no_wallet_owner(setup_run):
+    _, client, collector = setup_run
+    result = collector.run(['offline'], mock_records=[])
+    assert client.calls == []
+    assert result['status'] == 'COMPLETED'
 
 
 def test_direct_static_owner_is_checked_by_worker(setup_run):
