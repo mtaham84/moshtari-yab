@@ -305,7 +305,7 @@ class XCollector:
             self._write_status(result)
             return result
         if daily_remaining == 0:
-            result = {"status": "DAILY_CAP_REACHED", "collected": 0, "output": str(output_path), **self.filter_stats, **balance_gate.stats()}
+            result = {"status": "DAILY_CAP_REACHED", "collected": 0, "failures": 0, "output": str(output_path), **self.filter_stats, **balance_gate.stats()}
             self._write_status(result)
             return result
 
