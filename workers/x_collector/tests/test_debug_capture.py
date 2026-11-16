@@ -60,6 +60,7 @@ def native(monkeypatch):
     monkeypatch.setattr('workers.x_collector.client.native_session', lambda *_: nullcontext())
     monkeypatch.setattr('workers.x_collector.client.time.sleep', lambda _: None)
     monkeypatch.setattr('workers.x_collector.client.datetime', Clock)
+    monkeypatch.setattr('workers.x_collector.observations.now', lambda: Clock.now(timezone.utc))
     calls = []
     pages = []
 
@@ -179,3 +180,57 @@ def test_capture_does_not_overwrite_existing_file(native, page, monkeypatch, tmp
     path.unlink()
     native.client.search_top_past_week('PRIVATE_QUERY', target_posts=1, account=native.account)
     assert not path.exists()
+
+
+def test_native_empty_language_is_not_stored_as_observed_fa(native, page, monkeypatch):
+    result = page['data']['search_by_raw_query']['search_timeline']['timeline']['instructions'][0]['entries'][0]['content']['itemContent']['tweet_results']['result']
+    result['legacy']['lang'] = ''
+    native.pages.append(page)
+    records, stats = native.client.search_top_past_week('PRIVATE_QUERY', target_posts=1, account=native.account)
+    assert len(records) == 1
+    assert records[0]['lang'] is None
+    assert records[0]['metrics_source'] == 'native_raw'
+    assert records[0]['metrics']['quotes'] is None
+    monkeypatch.setattr('workers.x_collector.worker.is_political_x_post', lambda _: False)
+    from workers.x_collector.worker import normalize_tweet
+    normalized = normalize_tweet(records[0])
+    assert normalized['metadata']['lang'] is None
+    assert normalized['kind'] == 'post'
+    assert normalized['parent']['kind'] == 'post'
+    assert normalized['metrics_source'] == 'native_raw'
+
+
+def test_cli_provenance_keeps_legacy_analysis_fields(native, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, 'twitter_cli.client', None)
+    cli = {'id': '101', 'text': 'دنبال لپتاپ هستم', 'lang': 'fa',
+           'createdAtISO': '2026-11-14T12:00:00+00:00',
+           'author': {'id': '801', 'screenName': 'buyer', 'verified': True, 'description': 'original bio'},
+           'metrics': {'likes': 0, 'views': 0}}
+    monkeypatch.setattr(native.client, 'search', lambda *args, **kwargs: [deepcopy(cli)])
+    records, stats = native.client.search_top_past_week('PRIVATE_QUERY', target_posts=1, account=native.account)
+    assert len(records) == 1
+    assert records[0]['metrics_source'] == 'cli_parsed'
+    assert records[0]['author_verified'] is True
+    assert records[0]['author_bio'] == 'original bio'
+    assert records[0]['author']['verified'] is None
+    assert records[0]['author']['blue_verified'] is None
+    monkeypatch.setattr('workers.x_collector.worker.is_political_x_post', lambda _: False)
+    from workers.x_collector.worker import normalize_tweet
+    normalized = normalize_tweet(records[0])
+    assert normalized['author_verified'] is True
+    assert normalized['author_bio'] == 'original bio'
+    assert normalized['kind'] == 'post'
+    assert normalized['metrics_source'] == 'cli_parsed'
+
+
+def test_capture_keeps_missing_raw_author_type(native, page, monkeypatch, tmp_path):
+    result = page['data']['search_by_raw_query']['search_timeline']['timeline']['instructions'][0]['entries'][0]['content']['itemContent']['tweet_results']['result']
+    result['core'] = {}
+    native.pages.append(page)
+    path = tmp_path / 'capture.json'
+    monkeypatch.setenv('X_DEBUG_CAPTURE_PATH', str(path))
+    native.client.search_top_past_week('PRIVATE_QUERY', target_posts=1, account=native.account)
+    sample = json.loads(path.read_text())['results'][0]
+    assert sample['U'] == {'$NoneType': True}
+    assert sample['paths']['U.legacy.followers_count'] == {'present': False}

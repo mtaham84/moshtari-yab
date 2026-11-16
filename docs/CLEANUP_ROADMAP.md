@@ -477,3 +477,6 @@ docker compose run --rm -T --user root -v "$PWD":/app web sh -c "pip install -q 
     account pages (`ig_accounts_views.py`) because the dashboard JS calls them; both use the same services.
   - Splitting files in parallel PRs makes `scripts/guardrail_baseline.json` conflict; merge one at a time and re-run
     `check_baseline.py --update`.
+
+X storage Phase 2 reuses one GraphQL traversal in `workers/x_collector/payload.py` for diagnostic capture
+and observation extraction. No transport, account pacing or engine selection logic is moved or changed.

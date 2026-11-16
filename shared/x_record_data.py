@@ -62,6 +62,8 @@ def optional_data(record, warnings=None):
         if not isinstance(version, int) or isinstance(version, bool) or version < 1:
             raise ValueError('schema_version must be a positive integer')
         result['schema_version'] = version
+    if 'metrics_source' in record:
+        result['metrics_source'] = scalar(record['metrics_source'], str, 'metrics_source')
     if 'observed_at' in record:
         result['observed_at'] = scalar(record['observed_at'], 'date', 'observed_at')
     specs = {

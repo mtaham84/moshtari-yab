@@ -24,6 +24,7 @@ from shared.collector_kit.query_scheduler import scores
 from shared.collector_kit.seen import SeenStore
 from shared.collector_kit.state_store import create_state_store
 from shared.records import SourceRecord, to_json_line
+from shared.x_record_data import optional_data, sanitize
 from shared.x_dedup import compute_tweet_hash
 from shared.x_filters import is_promotional_post, is_political_x_post
 from shared.collector_kit.jsonl import append_line
@@ -49,7 +50,7 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None, stats: dict |
     author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
     tweet_id = _first(raw, mapping.OUTPUT_ID_KEYS)
     text = _first(raw, mapping.OUTPUT_TEXT_KEYS)
-    handle = _first(raw, mapping.OUTPUT_HANDLE_KEYS) or author.get("screenName")
+    handle = _first(raw, mapping.OUTPUT_HANDLE_KEYS) or author.get("screenName") or author.get("handle")
     author_id = _first(raw, mapping.OUTPUT_AUTHOR_ID_KEYS) or author.get("id")
     if not tweet_id or not author_id or not handle or not isinstance(text, str) or not text.strip():
         missing = []
@@ -90,18 +91,23 @@ def normalize_tweet(raw: dict[str, Any], query: str | None = None, stats: dict |
         except (TypeError, ValueError):   # unparseable date or setting: keep the post
             pass
 
+    details = optional_data(raw)
+    if 'parent' in details:
+        details['parent']['kind'] = 'post'
     return SourceRecord.from_dict({
         "id": clean_id,
         "source": "x",
+        "kind": "post",
         "text": text.strip(),
         "author_handle": f"@{handle}" if handle else None,
         "author_name": _first(raw, mapping.OUTPUT_NAME_KEYS) or author.get("name"),
         "author_id": str(author_id),
         "author_verified": bool(author.get("verified") or author.get("isVerified") or raw.get("author_verified")),
-        "author_bio": str(author.get("description") or author.get("bio") or "")[:500],
+        "author_bio": str(raw.get("author_bio") if "author_bio" in raw else author.get("description") or author.get("bio") or "")[:500],
         "created_at": str(created_at) if created_at else None,
         "url": tweet_url,
-        "metadata": {"collector": "agent-reach-cli", "raw_cli": raw, "lang": _first(raw, mapping.OUTPUT_LANG_KEYS), "query": query},
+        **details,
+        "metadata": {"collector": "agent-reach-cli", "raw_cli": sanitize(raw), "lang": _first(raw, mapping.OUTPUT_LANG_KEYS), "query": query},
     }).as_dict()
 
 
