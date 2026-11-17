@@ -99,13 +99,18 @@ class XCollectorTests(unittest.TestCase):
     def test_status_publishes_real_queue_weights_and_excludes_dropped(self):
         collector = self.collector()
         collector.run([])
-        collector.state.record_feedback('q', 0, 10)
+        collector.state.schedule([{'query': 'q'}], 1)
+        collector.state.record_query('q', 10, 4)
+        for index in range(4):
+            collector.state.record_feedback('q', True, lead_id=str(index))
+        collector.state.record_feedback('q', False, 100)
         result = collector.run(owned_queries(['q']))
         status = json.loads((collector.output_dir / 'status.json').read_text())
         self.assertEqual(result['status'], 'NO_ELIGIBLE_QUERIES')
         row = next(r for r in status['generated_queries'] if r['query'] == 'q')
         self.assertFalse(row['eligible'])
         self.assertEqual(row['weight'], 0)
+        self.assertEqual(row['score'], 4)
 
     def test_supported_timestamps_are_normalised_to_utc(self):
         now = datetime.now(timezone.utc).replace(microsecond=0)

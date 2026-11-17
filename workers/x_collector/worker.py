@@ -566,7 +566,8 @@ class XCollector:
             payload["queries"] = self.state.query_status()
             active = getattr(self, 'active_queries', [])
             _, weights, stats, _ = preview_searches(self, active)
-            effective = scores([item for item in active if item['query'] in weights], stats)
+            effective = {query: row['lead_rate'] for query, row in stats.items() if row.get('searches', 0) > 0}
+            effective.update(scores([item for item in active if item['query'] in weights], stats))
             payload['generated_queries'] = [
                 {'query': item['query'], 'business_ids': item.get('business_ids', []),
                  'score': effective.get(item['query']), 'weight': weights.get(item['query'], 0.0),
