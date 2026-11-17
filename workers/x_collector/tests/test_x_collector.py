@@ -90,6 +90,23 @@ class XCollectorTests(unittest.TestCase):
         self.assertEqual(latest, records)
         self.assertEqual(len(client.calls), 1)
 
+    def test_empty_schedule_reports_reason_instead_of_success(self):
+        collector = self.collector()
+        result = collector.run([])
+        self.assertEqual(result['status'], 'NO_ELIGIBLE_QUERIES')
+        self.assertEqual(collector.client.calls, [])
+
+    def test_status_publishes_real_queue_weights_and_excludes_dropped(self):
+        collector = self.collector()
+        collector.run([])
+        collector.state.record_feedback('q', 0, 10)
+        result = collector.run(owned_queries(['q']))
+        status = json.loads((collector.output_dir / 'status.json').read_text())
+        self.assertEqual(result['status'], 'NO_ELIGIBLE_QUERIES')
+        row = next(r for r in status['generated_queries'] if r['query'] == 'q')
+        self.assertFalse(row['eligible'])
+        self.assertEqual(row['weight'], 0)
+
     def test_supported_timestamps_are_normalised_to_utc(self):
         now = datetime.now(timezone.utc).replace(microsecond=0)
         timestamp_values = [now.isoformat().replace("+00:00", "Z"), int(now.timestamp()), int(now.timestamp() * 1000),

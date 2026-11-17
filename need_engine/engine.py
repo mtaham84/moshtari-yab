@@ -289,8 +289,8 @@ class NeedEngine:
 
     def _opportunity(self, n: NeedCard, matches: list[MatchedProduct]) -> Opportunity:
         ev = evidence_messages(n, self.store)
-        platform = next((m.platform for m in ev if m.platform), "telegram")
         source_platform = for_chat_id(n.chat_id)
+        platform = source_platform.key
         title = next((m.chat_title for m in ev if m.chat_title), None)
         x_source = source_platform.key == X.key
         if x_source:

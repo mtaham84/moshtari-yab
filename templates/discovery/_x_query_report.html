@@ -1,0 +1,22 @@
+<section class="p-card xs-card">
+  <h2>کوئری‌ها، امتیاز و سهم جست‌وجو</h2>
+  <p class="xs-muted">آخرین گزارش صف مشترک: {{ query_report.queue_updated|default:"در دسترس نیست" }}. مجاز بودن کوئری در صف مشترک، به معنای مجاز بودن دریافت لید برای فروشگاه بدون اعتبار نیست.</p>
+  {% if query_report.available %}
+  <p class="xs-muted">هفت روز اخیر · پست یکتای دریافت‌شده: {{ query_report.unique_posts|default:0 }} · پست یکتای بررسی‌شده: {{ query_report.reviewed_posts|default:0 }} از ۳۰۰۰</p>
+  {% else %}<p class="xs-muted">گزارش آمار هفتگی فعلاً در دسترس نیست؛ وضعیت بررسی پایگاه داده به اپراتور گزارش شده است.</p>{% endif %}
+  <p class="xs-muted">امتیاز هفت‌روزه، فرصت‌های ثبت‌شده با برچسب X تقسیم بر جست‌وجوهای موفق است. امتیاز صف و سهم مشترک از وضعیت واقعی جمع‌آور خوانده می‌شوند؛ خط تیره یعنی داده در دسترس نیست. اگر یک جست‌وجو برای چند محصول همین فروشگاه انجام شده باشد، یک بار شمرده می‌شود.</p>
+  {% if query_report.available and not query_report.replacement_ready %}<p class="xs-muted">هنوز حداقل دادهٔ لازم برای تصمیم جایگزینی کوئری‌ها فراهم نشده است. این گزارش به‌تنهایی هیچ کوئری‌ای را حذف نمی‌کند.</p>{% endif %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead><tr><th>کوئری</th><th>نوع جست‌وجو</th><th>جست‌وجوی موفق</th><th>نتیجهٔ دریافت‌شده</th><th>فرصت ثبت‌شده</th><th>بازده هفت‌روزه</th><th>امتیاز آخرین گزارش صف</th><th>سهم صف مشترک</th><th>وضعیت صف مشترک</th></tr></thead>
+      <tbody>
+      {% for r in query_report.rows %}
+        <tr><td>{{ r.query }}</td><td>{% if r.is_thread %}پاسخ‌های زیر پست{% else %}موضوعی{% endif %}</td><td>{{ r.runs }}</td><td>{{ r.seen }}</td><td>{{ r.leads }}</td>
+          <td>{{ r.weekly_score|floatformat:3|default:"—" }}</td><td>{{ r.score|floatformat:3|default:"—" }}</td>
+          <td>{% if r.weight_percent != None %}{{ r.weight_percent|floatformat:1 }}٪{% else %}—{% endif %}</td>
+          <td>{% if r.eligible == True %}مجاز{% elif r.eligible == False %}فعلاً غیرفعال{% else %}در صف فعلی گزارش نشده{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="9">هنوز دادهٔ کوئری برای این فروشگاه ثبت نشده یا گزارش در دسترس نیست.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

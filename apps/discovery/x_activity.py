@@ -235,6 +235,17 @@ def collector_line() -> dict:
     interval = float(os.getenv("X_COLLECT_INTERVAL_SECONDS", "300") or 300)
     if not st or st.get("age") is None:
         return {"ok": False, "text": "جستجوگر X هنوز راه‌اندازی نشده است؛ به‌محض فعال شدن، جستجو خودکار شروع می‌شود."}
+    reasons = {
+        'DAILY_CAP_REACHED': 'جستجو موقتاً متوقف است: سقف روزانهٔ جمع‌آوری پر شده است.',
+        'ALL_ACCOUNTS_UNAVAILABLE': 'جستجو موقتاً متوقف است: هیچ حساب قابل استفاده‌ای در چرخه نیست.',
+        'NO_ELIGIBLE_QUERIES': 'جستجو موقتاً متوقف است: هیچ کوئری مجاز و فعال برای جستجو باقی نمانده است.',
+        'RATE_LIMITED': 'جستجو موقتاً متوقف است: محدودیت نرخ درخواست؛ حساب‌ها در استراحت هستند.',
+        'AUTH_FAILED': 'جستجو متوقف است: نشست حساب نیازمند بررسی و احراز هویت است.',
+        'CIRCUIT_OPEN': 'جستجو موقتاً متوقف است: خطاهای پیاپی در دریافت نتایج.',
+        'FAILED': 'جستجو متوقف است: خطای دریافت نتایج؛ نیازمند بررسی اپراتور.',
+    }
+    if st.get('status') in reasons:
+        return {'ok': False, 'text': reasons[st['status']]}
     if st.get("status") in {"AUTH_FAILED", "FAILED", "CIRCUIT_OPEN", "RATE_LIMITED"} or st["age"] > interval * 6:
         return {"ok": False, "text": f"جستجوگر X موقتاً متوقف است (آخرین دور {st['updated']}). به‌زودی ادامه می‌دهد؛ "
                                      "در این مدت هزینه‌ای کسر نمی‌شود."}
