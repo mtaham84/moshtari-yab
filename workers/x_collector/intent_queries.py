@@ -384,6 +384,9 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
     tail_ops = ops
 
     values: list[tuple[str, str]] = [(p, kind) for p, kind in phrase_candidates(product, terms, card)]
+    from .subscription_names import subscription_names
+    required = subscription_names(product)
+    values = [(phrase, 'product') for phrase in required] + values
     if topic_context and topic_context.get("family") is not None:
         from workers.x_collector.families import family_discovery_terms
         values.extend(family_discovery_terms(topic_context["family"]))
@@ -404,9 +407,9 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
         phrase = " ".join(phrase.split())
         if len(phrase.split()) == 1 and norm(phrase) not in GENERIC_SINGLE:
             phrase += ' خوبه'
-        if not 2 <= len(phrase.split()) <= 3 or is_too_broad(phrase.split()) or any(norm(w) in WEAK_QUERY_WORDS for w in phrase.split()):
+        if phrase not in required and (not 2 <= len(phrase.split()) <= 3 or is_too_broad(phrase.split()) or any(norm(w) in WEAK_QUERY_WORDS for w in phrase.split())):
             continue
-        if topic_context:
+        if topic_context and phrase not in required:
             from workers.x_collector.families import family_phrase_allowed
             if not family_phrase_allowed(phrase, topic_context.get("anchor_tokens", set()),
                                          topic_context.get("other_family_nouns", set()),
@@ -420,9 +423,11 @@ def product_queries(product: Any, terms: dict[str, Any] | None = None, card: Any
         raw_candidates.append({
             "query": query, "kind": kind, "product_ids": [str(x) for x in (getattr(product, "member_product_ids", None) or [pid])],
             "business_ids": [str(bid)] if bid else [],
-            "priority": float(getattr(product, "discovery_priority", 1) or 1)
+            "priority": float(getattr(product, "discovery_priority", 1) or 1), "required": phrase in required,
         })
 
     # Keep enough pain, style/use-case and direct-topic phrases; MMR removes near-duplicates before the hard family cap.
     target_ref = f"{getattr(product, 'title', '')} {getattr(product, 'category_path', '')}"
-    return balanced_pick(raw_candidates, target_ref, min(6, max(1, max_count)), per_format)
+    mandatory = [q for q in raw_candidates if q['required']][:max_count]
+    other = [q for q in raw_candidates if not q['required']]
+    return mandatory + balanced_pick(other, target_ref, max(0, max_count - len(mandatory)), per_format)

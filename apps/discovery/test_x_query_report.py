@@ -44,18 +44,18 @@ class QueryReportDatabaseTests(TestCase):
             cursor.execute(f'CREATE SCHEMA {schema}')
             cursor.execute(f'CREATE TABLE {schema}.x_search_runs (product_id text, query text, fetched int, ran_at timestamptz)')
             cursor.execute(f'CREATE TABLE {schema}.x_posts (tweet_id bigint, created_at timestamptz)')
-            cursor.execute(f'CREATE TABLE {schema}.x_post_products (tweet_id bigint, product_id text, found_at timestamptz)')
+            cursor.execute(f'CREATE TABLE {schema}.x_post_products (tweet_id bigint, product_id text, found_at timestamptz, query text)')
             cursor.execute(f'CREATE TABLE {schema}.x_hit_results (message_id bigint, chat_id text, decided_at timestamptz, outcome text)')
             for tweet_id, date in [(1, now), (2, old)]:
                 cursor.execute(f'INSERT INTO {schema}.x_posts VALUES (%s,%s)', [tweet_id, date])
             for product in products:
                 cursor.execute(f'INSERT INTO {schema}.x_search_runs VALUES (%s,%s,20,%s)', [str(product.pk), 'کنکور', now])
                 for tweet_id in [1, 2]:
-                    cursor.execute(f'INSERT INTO {schema}.x_post_products VALUES (%s,%s,%s)', [tweet_id, str(product.pk), now])
+                    cursor.execute(f'INSERT INTO {schema}.x_post_products VALUES (%s,%s,%s,%s)', [tweet_id, str(product.pk), now, 'کنکور'])
                     cursor.execute(f'INSERT INTO {schema}.x_hit_results VALUES (%s,%s,%s,%s)',
                                    [tweet_id, f'x:p:{product.pk}', now, 'customer'])
         with patch('apps.discovery.x_query_report._crawler_schema', return_value=schema), \
-                patch('apps.discovery.x_activity._engine_schema', return_value=schema), \
+                patch('apps.discovery.x_query_report._engine_schema', return_value=schema), \
                 patch('apps.discovery.x_query_report.x_collector_status', return_value=None):
             report = query_report(business)
         self.assertTrue(report['available'])

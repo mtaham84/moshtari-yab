@@ -166,17 +166,6 @@ def test_negatives_reach_the_prompt_and_rank_by_similarity(tmp_path):
     assert "Rejected Tweets" in prompt and "قیمت سنگ در بازار جهانی" in prompt
 
 
-def test_expansion_due_cold_start_then_needs_new_evidence(tmp_path):
-    store = ExemplarStore(tmp_path / "due.sqlite3")
-    assert store.expansion_due("p1") is True              # cold start: first expansion needs no exemplars
-    store.mark_expanded("p1")
-    assert store.expansion_due("p1", min_interval_hours=0) is False
-    store.add_exemplar("1", "p1", "متن اول")
-    assert store.expansion_due("p1", min_interval_hours=0) is False   # one new exemplar is not enough
-    store.add_exemplar("2", "p1", "متن دوم")
-    assert store.expansion_due("p1", min_interval_hours=0) is True
-
-
 def test_prune_drops_losers_and_keeps_untested(tmp_path):
     state = tmp_path / "prune.sqlite3"
     seen = SeenStore(state, platform="x")

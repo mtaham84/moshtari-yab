@@ -126,10 +126,27 @@ both observed `lead_rate` and effective `score`.
 
 Sampled zero-yield queries share 5% of allocations while positive scores share the rest proportionally.
 If all scores are zero, allocation is equal.
-Existing non-buyer penalties, dropping and ten-day evaluation strikes remain in force. Only an actual eligible
+Generated topic portfolios now use seller-scoped rolling-seven-day evidence from the shared metrics reader.
+The first discovery of a post receives its seller's unique confirmed-lead credit, across that seller's products.
+Portfolio queries ignore lifetime non-buyer suppression and ten-day strikes. Manual overrides and reply searches
+retain the legacy rules. Only an actual eligible
 attempt consumes an allocation credit. Dry-run reads the same history and weights without changing the state.
 The continuous loop retries temporary query-loading/database failures after the existing 120-second delay;
 a successful empty search proceeds to the next normal cycle. Account rotation, caps and pacing are unchanged.
+
+Portfolios persist in the existing `XSearchQuery` and `XQueryScore` tables. Evaluation requires 3,000 distinct
+reviewed, recent posts for the seller and at least five successful searches for any replaceable query. It runs
+at most daily, with a new analysis watermark. Up to 20% of the active portfolio (at least one slot) can be replaced
+per evaluation; all replacements must validate before an atomic, count-preserving change. Old rows are archived,
+not erased. Winners from all of the seller's category children guide word counts, topical vocabulary and the
+product/service type. Each seller/category family retains at most six queries; identical text across sellers is
+still one X search. New queries inherit the seller's search-weighted mean yield, and required subscription names
+are protected. `اشتراک جی پی تی` is an explicit four-word brand-name exception to the normal two/three-word rule.
+Unfunded sellers retain a deterministic query catalog, but do not enter collection or paid expansion.
+
+The seller X table links to paginated stored results for the selected query. These reads make no X request,
+deduplicate shared product hits, enforce ownership and the wallet gate, and restrict post dates to seven days.
+Accepted leads display Luna's reason; rejected posts display a status without a rejection explanation.
 
 Collector SQLite/PostgreSQL state adds `error_runs` and a per-query/tweet lead ledger automatically. Existing
 historical lead counters are retained; old duplicate rewards and past errors cannot be reconstructed reliably.

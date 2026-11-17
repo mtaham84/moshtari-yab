@@ -1,0 +1,14 @@
+<li class="xs-ev {{ e.tone }}">
+  <div class="head">
+    <span class="xs-tag {{ e.tone }}">{{ e.label }}</span>
+    <span dir="ltr">@{{ e.handle }}</span>
+    {% if e.is_reply %}<span class="xs-faint">(پاسخ زیر یک پست)</span>{% endif %}
+    {% if e.posted_at %}<time datetime="{{ e.posted_at|date:'c' }}">{{ e.posted_at|date:"Y-m-d H:i:s O" }}</time>{% endif %}
+  </div>
+  <div class="xs-post" dir="rtl">{{ e.text }}</div>
+  <div class="xs-why">{% if e.outcome == 'customer' and e.reason %}<b>چرا لید شد:</b> {{ e.reason }}{% else %}{{ e.help }}{% endif %}</div>
+  <div class="xs-links">
+    {% if e.opportunity_id %}<a href="{% url 'discovery:opportunity_detail' e.opportunity_id %}">مشاهده فرصت و متن پاسخ ←</a>{% endif %}
+    {% if e.url %}<a href="{{ e.url }}" target="_blank" rel="noopener noreferrer">دیدن در X</a>{% endif %}
+  </div>
+</li>

@@ -58,11 +58,18 @@ green, before the next one starts. Behavior must not change unless the step says
 
 - X visibility audit (2026-11-17): the seller X page now reports seven-day query runs, results and panel
   opportunities, plus the collector's published global allocation weights. Shared product searches and reviewed
-  posts are deduplicated within each seller. The 3,000 reviewed-post threshold is informational; tenant-wide
-  weekly query replacement is not implemented. Lifetime suppression can currently remove productive queries
-  before that threshold; keep this limitation visible until portfolio evaluation is implemented. New opportunities
+  posts are deduplicated within each seller. The audit found lifetime suppression could remove productive queries
+  before adequate evidence. New opportunities
   derive their platform from the source chat even when evidence is absent; historical mislabelled rows are not
   rewritten by this change. Empty schedules now publish an explicit stopped reason.
+
+- X weekly portfolios (2026-11-17): generated seller/category queries persist in the existing XSearchQuery table;
+  XQueryScore records rolling-seven-day, seller-scoped evidence. At least 3,000 unique reviewed posts and five
+  successful searches per replaceable query are required. With fresh evidence, evaluation runs at most daily,
+  replacing at most 20% (at least one slot), atomically and only when every replacement validates. Required AI
+  subscription names and untried queries are protected. Managed topics ignore the old lifetime suppression flags;
+  reply searches and manually configured overrides retain their existing behavior. The X page links each query
+  to paginated, owner-scoped stored results and enforces the wallet gate. Instagram and account limits are unchanged.
 
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
 

@@ -1,0 +1,14 @@
+<section class="p-card xs-card" id="query-results">
+  <h2>نتایج جست‌وجوی «{{ selected_query }}»</h2>
+  <p class="xs-muted">پست‌ها و پاسخ‌های ذخیره‌شدهٔ هفت روز اخیر برای همین فروشگاه؛ باز کردن این صفحه جست‌وجوی جدیدی در X انجام نمی‌دهد.</p>
+  {% if wallet_empty %}
+    <p class="xs-muted">برای مشاهدهٔ نتایج جست‌وجو، اعتبار کیف پول را شارژ کنید. فرصت‌های قبلاً دریافت‌شده در بخش فرصت‌ها در دسترس هستند.</p>
+  {% else %}
+    <ul class="xs-log">{% for e in query_results %}{% include "discovery/_x_post.html" %}{% empty %}<li class="xs-empty">نتیجه‌ای برای این عبارت در این صفحه ثبت نشده است.</li>{% endfor %}</ul>
+    <nav class="xs-tabs">
+      {% if query_page > 1 %}<a class="xs-tab" href="?query={{ selected_query|urlencode }}&amp;query_page={{ query_previous }}#query-results">صفحهٔ قبل</a>{% endif %}
+      <span class="xs-tab">صفحهٔ {{ query_page }}</span>
+      {% if query_has_next %}<a class="xs-tab" href="?query={{ selected_query|urlencode }}&amp;query_page={{ query_next }}#query-results">صفحهٔ بعد</a>{% endif %}
+    </nav>
+  {% endif %}
+</section>

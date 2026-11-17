@@ -84,7 +84,7 @@ def _x_seller_business(request):
 
 def _x_wallet_empty(business) -> bool:
     wallet = getattr(business, "wallet", None)
-    return wallet is not None and wallet.balance_toman <= 0
+    return wallet is None or wallet.balance_toman <= 0
 
 
 @login_required
@@ -102,10 +102,21 @@ def x_search_view(request):
     on = [r for r in rows if r["product"].x_search_enabled]
     totals = {k: sum(r["st"].get(k, 0) for r in rows) for k in ("found", "reviewed", "customers", "rejected", "cost_toman", "seen")}
     from apps.discovery.x_query_report import query_report
+    selected_query = request.GET.get('query', '').strip()
+    if len(selected_query) > 400:
+        return HttpResponse(status=400)
+    try:
+        query_page = min(1000000, max(1, int(request.GET.get('query_page', '1'))))
+    except ValueError:
+        query_page = 1
+    results = x_activity.timeline(None, business, limit=26, query=selected_query, offset=(query_page - 1) * 25) \
+        if selected_query and not _x_wallet_empty(business) else []
     return render(request, "discovery/x_search.html", {
         "rows": rows, "on_count": len(on), "totals": totals, "collector": x_activity.collector_line(),
         "wallet_empty": _x_wallet_empty(business), "x_mode": os.getenv("NE_X_MODE", "product").strip().lower() or "product",
         "query_report": query_report(business),
+        'selected_query': selected_query, 'query_results': results[:25], 'query_page': query_page,
+        'query_has_next': len(results) > 25, 'query_previous': query_page - 1, 'query_next': query_page + 1,
     })
 
 
@@ -121,7 +132,8 @@ def x_product_view(request, pk):
     st = x_activity.product_stats(business, [product]).get(str(product.pk), {})
     return render(request, "discovery/x_product.html", {
         "product": product, "st": st, "eligible": product.status == "ACTIVE" and product.is_discovery_active,
-        "phrases": x_activity.search_phrases(product), "events": x_activity.timeline(product, business, show),
+        "phrases": x_activity.search_phrases(product),
+        "events": x_activity.timeline(product, business, show) if not _x_wallet_empty(business) else [],
         "show": show, "filters": x_activity.FILTERS, "collector": x_activity.collector_line(),
         "wallet_empty": _x_wallet_empty(business),
     })

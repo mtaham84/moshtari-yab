@@ -72,28 +72,11 @@ def _terms_and_cards(config: EngineConfig, products: list[Any]) -> tuple[dict, d
         try:
             from need_engine.llm import LLMClient
             from workers.x_collector.llm_terms import llm_terms
-            from workers.x_collector.proqe import expand_queries_with_proqe, ExemplarStore
 
             llm_inst = LLMClient(config, store)
             terms = llm_terms(products, cards, store, llm_inst, config.extract_model,
                               batch_size=int(os.getenv("X_QUERY_LLM_BATCH", "6")))
 
-            state_file = os.getenv("X_COLLECT_STATE_FILE", "output/x_collector_state.sqlite3")
-            exemplar_store = ExemplarStore(state_file)
-            from shared.collector_kit.seen import SeenStore
-            try:
-                dropped_queries = SeenStore(state_file, platform="x").dropped_queries()
-            except Exception as drop_exc:
-                log.debug("Could not read weak X phrases: %s", drop_exc, exc_info=True)
-                dropped_queries = []
-            for product in products:
-                pid = str(getattr(product, "product_id", ""))
-                if exemplar_store.expansion_due(pid):
-                    try:
-                        expand_queries_with_proqe(product, exemplar_store, llm=llm_inst, model=config.extract_model,
-                                                  dropped_queries=dropped_queries)
-                    except Exception as p_exc:
-                        log.debug("ProQE expansion skipped for product %s: %s", pid, p_exc, exc_info=True)
         except Exception as exc:
             log.warning("LLM X query terms unavailable, using deterministic queries: %s", exc, exc_info=True)
     try:
@@ -117,7 +100,8 @@ def targeted_queries_from_families(families: list[Any], terms: dict[str, dict] |
     contexts = family_topic_contexts(families, cards)
     for family in families:
         contexts[str(family.product_id)]["family"] = family
-    cap = int(os.getenv("X_QUERY_MAX_PER_TENANT", "150"))
+    from .config import query_limit
+    cap = query_limit()
     from need_engine.text import norm
     categories: dict[str, list[tuple[Any, list[dict]]]] = {}
     for fam in sorted(families, key=lambda f: (-int(getattr(f, "discovery_priority", 1)), str(f.product_id))):
@@ -194,12 +178,15 @@ def _load_intent_queries(config, source, products, x_mode, mode):
     products_on = [p for p in products if p.x_search_enabled]
     with BalanceGate(config, db=source.db) as gate:
         funded = gate.funded(p.business_id for p in products_on)
-    products_on = [p for p in products_on if str(p.business_id) in funded]
     from workers.x_collector.families import build_families, load_notes
+    from .portfolio import manage_portfolio
 
     families = build_families(products_on, load_notes(source.db))
-    terms, cards = _terms_and_cards(config, families) if families else ({}, {})
-    return targeted_queries_from_families(families, terms=terms, cards=cards)
+    paid_families = [f for f in families if str(f.business_id) in funded]
+    terms, cards = _terms_and_cards(config, paid_families) if paid_families else ({}, {})
+    candidates = targeted_queries_from_families(families, terms=terms, cards=cards)
+    portfolio = manage_portfolio(config, families, candidates, enabled_businesses=funded)
+    return [item for item in portfolio if set(item['business_ids']) & funded]
 
 
 def _collector_queries(path: str | None = None) -> list[str | dict[str, str]]:

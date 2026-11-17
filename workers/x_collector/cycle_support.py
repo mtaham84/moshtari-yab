@@ -95,5 +95,6 @@ def preview_searches(collector, queries):
     except (sqlite3.Error, psycopg.Error, OSError):
         log.warning('Could not read search preview history; using equal exploration weights', exc_info=True)
         stats, saved, count, dropped = {}, None, 0, set()
-    eligible = [item for item in queries if item['query'] not in dropped]
+    stats.update({item['query']: item['weekly_stats'] for item in queries if 'weekly_stats' in item})
+    eligible = [item for item in queries if item.get('portfolio_managed') or item['query'] not in dropped]
     return plan(eligible, collector.queries_per_cycle, stats, saved), shares(eligible, stats), stats, count
