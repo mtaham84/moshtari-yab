@@ -18,6 +18,7 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 import logging
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -240,22 +241,6 @@ class ExemplarStore:
         return [r[0] for r in rows]
 
     # --- expansion scheduling -------------------------------------------------
-    def expansion_due(self, product_id: str, min_new: int = 2, min_interval_hours: float = 6.0) -> bool:
-        """True when there is evidence and either no expansion ever ran, or enough new exemplars arrived since."""
-        count = self.count_exemplars(product_id)
-        with closing(sqlite3.connect(self.path)) as db:
-            row = db.execute("SELECT last_at, exemplar_count FROM proqe_expansion_state WHERE product_id = ?",
-                             (str(product_id),)).fetchone()
-        if not row:
-            return True      # cold start: the very first expansion works from the product alone, exemplars refine it later
-        if count == 0:
-            return False
-        try:
-            age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(row[0])).total_seconds() / 3600
-        except ValueError:
-            return True
-        return age_h >= min_interval_hours and count - int(row[1]) >= min_new
-
     def mark_expanded(self, product_id: str) -> None:
         count = self.count_exemplars(product_id)
         with closing(sqlite3.connect(self.path)) as db:
@@ -481,6 +466,7 @@ def expand_queries_with_proqe(
     model: str | None = None,
     existing_queries: list[str] | None = None,
     dropped_queries: list[str] | None = None,
+    weekly_context: dict | None = None,
 ) -> list[dict[str, str]]:
     """Generates progressive query expansions using LLM + RAG customer exemplars."""
     if isinstance(store_or_path, (str, Path)):
@@ -499,11 +485,16 @@ def expand_queries_with_proqe(
     exemplars = exemplar_store.get_exemplars(product_id=pid, category=cat, limit=5, context=context)
     negatives = exemplar_store.get_negatives(product_id=pid, category=cat, limit=3, context=context)
     winners = exemplar_store.winning_queries(pid)
+    if weekly_context is not None:
+        winners = [row['query'] for row in weekly_context.get('tenant_winners', [])]
 
     if llm is None:
         return exemplar_store.get_expanded_queries(pid)
 
     user_prompt = _format_expansion_prompt(title, cat, existing, exemplars, negatives, winners, dropped_queries)
+    if weekly_context is not None:
+        user_prompt += '\nTenant-wide rolling-seven-day evidence (binding):\n' + json.dumps(weekly_context, ensure_ascii=False)
+        user_prompt += '\nUse successful word counts, close topic vocabulary and this product/service type. Return only 2-3 word phrases for this category.'
     primary_model = model or "gpt-6-luna"
     data = None
     try:
@@ -514,7 +505,8 @@ def expand_queries_with_proqe(
             user_prompt,
             max_tokens=2048,
             temperature=0.3,
-            ref=f"proqe:{pid}"
+            ref=f"proqe:{pid}",
+            **({'businesses': [str(product.business_id)]} if weekly_context is not None else {}),
         )
     except Exception as exc:
         log.warning("ProQE expansion with %s failed for product %s: %s", primary_model, pid, exc, exc_info=True)

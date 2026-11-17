@@ -80,4 +80,8 @@ def test_blocked_tenant_is_removed_before_x_terms_or_llm(monkeypatch):
     registry = ModelRegistry(config, db=db)
     monkeypatch.setattr("workers.x_collector.balance_gate.ModelRegistry", lambda *a, **kw: registry)
     monkeypatch.setattr(query_source, "_terms_and_cards", lambda *_: (_ for _ in ()).throw(AssertionError("LLM called")))
+    def unpaid_catalog(config, families, candidates, **kwargs):
+        assert kwargs['enabled_businesses'] == set()
+        return []
+    monkeypatch.setattr('workers.x_collector.portfolio.manage_portfolio', unpaid_catalog)
     assert query_source._load_intent_queries(config, source, [product], "intent", None) == []

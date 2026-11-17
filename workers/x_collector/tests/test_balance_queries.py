@@ -15,6 +15,7 @@ def query_setup(monkeypatch):
     registry = ModelRegistry(config, db=db)
     monkeypatch.setattr('workers.x_collector.balance_gate.ModelRegistry', lambda *a, **kw: registry)
     monkeypatch.setattr(query_source, '_terms_and_cards', lambda *a: ({}, {}))
+    monkeypatch.setattr('workers.x_collector.portfolio.manage_portfolio', lambda config, families, items, **kw: items)
     monkeypatch.setattr('workers.x_collector.families.load_notes', lambda _: {})
     monkeypatch.delenv('X_SELLER_ALLOWLIST', raising=False)
     product = Product(product_id='91', business_id='9', title='لپتاپ لنوو', category_path='کالای دیجیتال / لپتاپ',

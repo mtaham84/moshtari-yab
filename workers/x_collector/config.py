@@ -16,3 +16,7 @@ def debug_capture_path() -> str | None:
 
 def thread_collection_enabled() -> bool:
     return os.getenv('X_THREAD_COLLECT', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def query_limit() -> int:
+    return max(1, int(os.getenv('X_QUERY_MAX_PER_TENANT', '150')))

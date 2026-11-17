@@ -17,6 +17,7 @@
 
 <div class="xs-wrap">
   {% include "discovery/_x_query_report.html" %}
+  {% if selected_query %}{% include "discovery/_x_query_results.html" %}{% endif %}
   {% if wallet_empty and on_count %}
   <div class="alert alert-warning">اعتبار کیف پول شما تمام شده است. پست‌های پیدا شده نگه داشته می‌شوند و بعد از <a href="{% url 'accounts:settings' %}">شارژ کیف پول</a> بررسی می‌شوند.</div>
   {% endif %}

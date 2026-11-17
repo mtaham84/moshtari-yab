@@ -85,26 +85,14 @@
           <div class="xs-why">با {{ e.phrases }} عبارت جستجو شد؛ {{ e.seen }} پست دیده شد و {% if e.new %}<b>{{ e.new }} پست تازه</b> برای بررسی آمد{% else %}پست تازه‌ای نبود (بقیه را قبلاً دیده بودیم){% endif %}.</div>
         </li>
         {% else %}
-        <li class="xs-ev {{ e.tone }}">
-          <div class="head">
-            <span class="xs-tag {{ e.tone }}">{{ e.label }}</span>
-            <a href="{{ e.url }}" target="_blank" rel="noopener" style="color:var(--panel-text-main);text-decoration:none" dir="ltr">@{{ e.handle }}</a>
-            {% if e.is_reply %}<span class="xs-faint">(پاسخ زیر یک پست)</span>{% endif %}
-            <span>پیدا شد {{ e.at|ago }}</span>
-          </div>
-          <div class="xs-post" dir="rtl">{{ e.text|truncatechars:400 }}</div>
-          <div class="xs-why">{% if e.reason %}<b>چرا:</b> {{ e.reason }}{% else %}{{ e.help }}{% endif %}</div>
-          <div class="xs-links">
-            {% if e.opportunity_id %}<a href="{% url 'discovery:opportunity_detail' e.opportunity_id %}">مشاهده فرصت و متن پاسخ ←</a>{% endif %}
-            {% if e.url %}<a href="{{ e.url }}" target="_blank" rel="noopener">دیدن در X</a>{% endif %}
-          </div>
-        </li>
+        {% include "discovery/_x_post.html" %}
         {% endif %}
       {% endfor %}
     </ul>
     {% else %}
     <div class="xs-empty">
-      {% if show != "all" %}موردی در این دسته نیست.
+      {% if wallet_empty %}برای مشاهدهٔ نتایج جست‌وجو، اعتبار کیف پول را شارژ کنید.
+      {% elif show != "all" %}موردی در این دسته نیست.
       {% elif product.x_search_enabled %}هنوز چیزی ثبت نشده. اولین جستجو چند دقیقه بعد از روشن کردن انجام می‌شود و نتیجه‌ها همین‌جا می‌آید.
       {% else %}جستجو برای این محصول خاموش است؛ با روشن کردن کلید بالا، فعالیت‌ها اینجا نمایش داده می‌شود.{% endif %}
     </div>

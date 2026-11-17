@@ -165,21 +165,34 @@ def search_phrases(product, days: float = 30, limit: int = 12) -> list[dict]:
     return [{**r, **humanize_query(r["query"])} for r in rows]
 
 
-def timeline(product, business, show: str = "all", limit: int = 60) -> list[dict]:
+def timeline(product, business, show: str = "all", limit: int = 60, *, query: str | None = None, offset: int = 0) -> list[dict]:
     """Newest first: posts the product's search found (with the AI's decision) and grouped search rounds."""
     cs, es = _crawler_schema(), _engine_schema()
-    pid = str(product.pk)
+    pid = str(product.pk) if product is not None else None
+    pids = [pid] if pid is not None else [str(v) for v in business.products.values_list('pk', flat=True)]
     events: list[dict] = []
     try:
         if show != "searches" and _exists(cs, "x_post_products") and _exists(cs, "x_posts"):
-            hits = _all(f"""SELECT h.tweet_id, h.query, h.found_at, p.author_handle, p.author_name, p.text, p.url,
+            if query is not None:
+                since = timezone.now() - timedelta(days=7)
+                hits = _all(f'''SELECT * FROM (SELECT DISTINCT ON (h.tweet_id)
+                    h.tweet_id,h.query,h.found_at,p.author_handle,p.author_name,p.text,p.url,p.created_at,p.kind
+                    FROM {cs}.x_post_products h JOIN {cs}.x_posts p USING(tweet_id)
+                    WHERE h.product_id=ANY(%s) AND h.query=%s AND h.found_at >= %s AND p.created_at >= %s
+                    ORDER BY h.tweet_id,h.found_at DESC,h.hit_id DESC) own_hits
+                    ORDER BY found_at DESC,tweet_id DESC LIMIT %s OFFSET %s''',
+                            (pids, query, since, since, limit, offset))
+            else:
+                hits = _all(f"""SELECT h.tweet_id, h.query, h.found_at, p.author_handle, p.author_name, p.text, p.url,
                                    p.created_at, p.kind FROM {cs}.x_post_products h JOIN {cs}.x_posts p USING (tweet_id)
                             WHERE h.product_id = %s ORDER BY h.found_at DESC, h.hit_id DESC LIMIT 300""", (pid,))
             results = {}
             if hits and _exists(es, "x_hit_results"):
                 results = {r["message_id"]: r for r in _all(
                     f"""SELECT message_id, outcome, reason, need_id, decided_at FROM {es}.x_hit_results
-                        WHERE chat_id = %s AND message_id = ANY(%s)""", (PREFIX + pid, [h["tweet_id"] for h in hits]))}
+                        WHERE chat_id = ANY(%s) AND message_id = ANY(%s)
+                        ORDER BY CASE WHEN outcome='customer' THEN 1 ELSE 0 END,decided_at""",
+                    ([PREFIX + p for p in pids], [h["tweet_id"] for h in hits]))}
             from .models import Opportunity
 
             need_ids = [r["need_id"] for r in results.values() if r.get("need_id") and r["outcome"] == "customer"]
@@ -187,7 +200,7 @@ def timeline(product, business, show: str = "all", limit: int = 60) -> list[dict
                 business=business, engine_opportunity_id__in=need_ids)} if need_ids else {}
             for h in hits:
                 res = results.get(h["tweet_id"])
-                outcome = res["outcome"] if res else ("queued" if product.x_search_enabled else "off")
+                outcome = res["outcome"] if res else ("queued" if product is None or product.x_search_enabled else "off")
                 reason = (res or {}).get("reason") or ""
                 if outcome == "skipped":
                     reason = SKIP_REASONS.get(reason, "")
@@ -195,13 +208,16 @@ def timeline(product, business, show: str = "all", limit: int = 60) -> list[dict
                     else "queued" if outcome == "queued" else "other"
                 if show not in {"all", group}:
                     continue
-                label, help_text, tone = OUTCOMES[outcome]
+                label, help_text, tone = OUTCOMES.get(outcome, OUTCOMES['queued'])
+                if query is not None:
+                    from urllib.parse import quote
+                    h['url'] = f"https://x.com/{quote(h['author_handle'] or 'i', safe='')}/status/{h['tweet_id']}"
                 events.append({"type": "post", "at": h["found_at"], "outcome": outcome, "label": label, "help": help_text,
                                "tone": tone, "reason": reason, "text": h["text"], "handle": h["author_handle"],
                                "name": h["author_name"] or h["author_handle"], "url": h["url"], "posted_at": h["created_at"],
                                "is_reply": h["kind"] in {"reply", "quote"}, "decided_at": (res or {}).get("decided_at"),
                                "opportunity_id": opps.get((res or {}).get("need_id"))})
-        if show in {"all", "searches"} and _exists(cs, "x_search_runs"):
+        if query is None and show in {"all", "searches"} and _exists(cs, "x_search_runs"):
             runs = _all(f"""SELECT ran_at, query, fetched, new_posts FROM {cs}.x_search_runs WHERE product_id = %s
                             ORDER BY ran_at DESC LIMIT 200""", (pid,))
             for g in _group_runs(runs):

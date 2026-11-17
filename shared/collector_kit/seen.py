@@ -264,7 +264,7 @@ class SeenStore:
                 theta = random.betavariate(alpha, beta)
                 return -(stale * priority * kind_wt * (0.2 + 0.8 * theta)), item["query"]
 
-            eligible = [item for item in queries if not by_query[item["query"]][8]]
+            eligible = [item for item in queries if (self.platform == 'x' and item.get('portfolio_managed')) or not by_query[item["query"]][8]]
             if enforce_daily_unique:
                 today_date = now.date()
                 eligible = [

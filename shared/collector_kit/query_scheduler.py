@@ -16,11 +16,11 @@ def query_stats(row=None):
 
 def scores(queries, stats):
     """Untried queries inherit the mean yield weighted by completed-search exposure."""
-    history = {item['query']: stats.get(item['query'], {}) for item in queries}
+    history = {item['query']: item.get('weekly_stats', stats.get(item['query'], {})) for item in queries}
     sampled = [row for row in history.values() if row.get('searches', 0) > 0]
     searches = sum(row['searches'] for row in sampled)
     initial = sum(row.get('leads', 0) for row in sampled) / searches if searches else 0.5
-    return {query: max(0.0, row.get('lead_rate', 0.0)) if row.get('searches', 0) > 0 else initial
+    return {query: max(0.0, row.get('lead_rate', 0.0)) if row.get('searches', 0) > 0 else row.get('starting_score', initial)
             for query, row in history.items()}
 
 
@@ -65,6 +65,6 @@ def plan(queries, budget, stats, saved_credits=None):
 
 
 def allocated(queries, stats, saved_credits, selected):
-    queries = [item for item in queries if not stats.get(item['query'], {}).get('dropped', False)]
+    queries = [item for item in queries if item.get('portfolio_managed') or not stats.get(item['query'], {}).get('dropped', False)]
     chosen, credits = advance(json.loads(saved_credits or '{}'), shares(queries, stats), selected)
     return json.dumps(credits, ensure_ascii=False, sort_keys=True) if chosen else None

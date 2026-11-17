@@ -35,6 +35,21 @@ def test_lead_yield_controls_100_allocations_despite_priority_and_kind(x_state):
     assert counts == {'good': 80, 'weak': 20}
 
 
+def test_managed_portfolio_uses_weekly_yield_and_ignores_legacy_suppression(x_state):
+    queries = [{'query': 'good', 'portfolio_managed': True,
+                'weekly_stats': {'searches': 10, 'leads': 20, 'lead_rate': 2}},
+               {'query': 'weak', 'portfolio_managed': True,
+                'weekly_stats': {'searches': 10, 'leads': 5, 'lead_rate': .5}}]
+    seed(x_state, queries)
+    x_state.record_feedback('good', False, weight=1000)
+    counts = Counter()
+    for _ in range(100):
+        chosen = x_state.schedule(queries, 1, persist=False)[0]['query']
+        counts[chosen] += 1
+        assert x_state.record_query_allocation(chosen, queries)
+    assert counts == {'good': 80, 'weak': 20}
+
+
 def test_error_attempts_do_not_lower_leads_per_completed_search(x_state):
     x_state.schedule([{'query': 'topic'}], 1)
     for _ in range(3):

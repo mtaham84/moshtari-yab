@@ -196,7 +196,7 @@ class PostgresStateStore:
             last, kind = row[3], row[1]
             stale = 1e12 if not last else max(1.0, (now - last).total_seconds())
             return -(stale * float(row[2]) * {"intent": 1.0, "problem": 0.8, "alternative": 0.7, "complaint": 0.6, "product": 0.4}.get(kind, 1.0)), item["query"]
-        eligible = [item for item in queries if not by_query[item["query"]][4]]
+        eligible = [item for item in queries if (self.platform == 'x' and item.get('portfolio_managed')) or not by_query[item["query"]][4]]
         if enforce_daily_unique:
             eligible = [item for item in eligible if not by_query[item["query"]][3]
                         or by_query[item["query"]][3].date() != now.date()]

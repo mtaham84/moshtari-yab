@@ -573,6 +573,7 @@ class XCollector:
                  'score': effective.get(item['query']), 'weight': weights.get(item['query'], 0.0),
                  'searches': stats.get(item['query'], {}).get('searches', 0),
                  'leads': stats.get(item['query'], {}).get('leads', 0),
+                 'tenant_scores': item.get('tenant_scores', {}),
                  'eligible': item['query'] in weights}
                 for item in getattr(self, 'report_queries', active)]
         write_status(target, payload)
