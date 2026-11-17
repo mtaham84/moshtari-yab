@@ -101,9 +101,11 @@ def x_search_view(request):
         rows.append({"product": p, "st": st, "eligible": p.status == "ACTIVE" and p.is_discovery_active})
     on = [r for r in rows if r["product"].x_search_enabled]
     totals = {k: sum(r["st"].get(k, 0) for r in rows) for k in ("found", "reviewed", "customers", "rejected", "cost_toman", "seen")}
+    from apps.discovery.x_query_report import query_report
     return render(request, "discovery/x_search.html", {
         "rows": rows, "on_count": len(on), "totals": totals, "collector": x_activity.collector_line(),
         "wallet_empty": _x_wallet_empty(business), "x_mode": os.getenv("NE_X_MODE", "product").strip().lower() or "product",
+        "query_report": query_report(business),
     })
 
 

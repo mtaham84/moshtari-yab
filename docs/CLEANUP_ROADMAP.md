@@ -56,6 +56,14 @@ green, before the next one starts. Behavior must not change unless the step says
   otherwise valid daily-cap status. The regression exercises collection followed by the capped run and checks
   the persisted JSON; collection limits and account pacing are unchanged.
 
+- X visibility audit (2026-11-17): the seller X page now reports seven-day query runs, results and panel
+  opportunities, plus the collector's published global allocation weights. Shared product searches and reviewed
+  posts are deduplicated within each seller. The 3,000 reviewed-post threshold is informational; tenant-wide
+  weekly query replacement is not implemented. Lifetime suppression can currently remove productive queries
+  before that threshold; keep this limitation visible until portfolio evaluation is implemented. New opportunities
+  derive their platform from the source chat even when evidence is absent; historical mislabelled rows are not
+  rewritten by this change. Empty schedules now publish an explicit stopped reason.
+
 ## Baseline (main @ ada0d7f, 2026-11-08) - measure progress against this
 
 X query/reply follow-up (2026-11-16): sellers sharing a category child share at most six

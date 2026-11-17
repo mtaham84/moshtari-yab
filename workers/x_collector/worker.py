@@ -296,6 +296,8 @@ class XCollector:
         is_test_client = mock_records is not None or "FakeClient" in type(self.client).__name__ or type(self.client).__name__ == "Client"
         enforce_daily = not is_test_client and os.getenv("X_ENFORCE_DAILY_UNIQUE", "false").lower() in {"1", "true", "yes", "on"}
         eligible_queries = balance_gate.filter_queries(normalized_queries)
+        self.active_queries = eligible_queries
+        self.report_queries = normalized_queries
         scheduled = self.state.schedule(eligible_queries, self.queries_per_cycle, enforce_daily_unique=enforce_daily, persist=False)
         queries = [item["query"] for item in scheduled]
         query_kinds = {item["query"]: item.get("kind", "product") for item in scheduled}
@@ -317,6 +319,12 @@ class XCollector:
             return result
         if daily_remaining == 0:
             result = {"status": "DAILY_CAP_REACHED", "collected": 0, "failures": 0, "output": str(output_path), **self.filter_stats, **balance_gate.stats()}
+            self._write_status(result)
+            return result
+
+        if not queries:
+            result = {'status': 'NO_ELIGIBLE_QUERIES', 'collected': 0, 'failures': 0,
+                      'output': str(output_path), **self.filter_stats, **balance_gate.stats()}
             self._write_status(result)
             return result
 
@@ -556,6 +564,17 @@ class XCollector:
         payload["last_cycle_at"] = payload["updated_at"]
         if self.state:
             payload["queries"] = self.state.query_status()
+            active = getattr(self, 'active_queries', [])
+            _, weights, stats, _ = preview_searches(self, active)
+            effective = {query: row['lead_rate'] for query, row in stats.items() if row.get('searches', 0) > 0}
+            effective.update(scores([item for item in active if item['query'] in weights], stats))
+            payload['generated_queries'] = [
+                {'query': item['query'], 'business_ids': item.get('business_ids', []),
+                 'score': effective.get(item['query']), 'weight': weights.get(item['query'], 0.0),
+                 'searches': stats.get(item['query'], {}).get('searches', 0),
+                 'leads': stats.get(item['query'], {}).get('leads', 0),
+                 'eligible': item['query'] in weights}
+                for item in getattr(self, 'report_queries', active)]
         write_status(target, payload)
 
 
