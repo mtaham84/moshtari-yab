@@ -564,9 +564,11 @@ class XSellerPagesTests(EngineSchemaMixin, TestCase):
         import os
         from unittest.mock import patch
 
+        from apps.billing.models import Wallet
         from x_ingest.__main__ import load, record_search_runs
 
         user, biz = seller("xs1@x.com", "فروشگاه نوشن")
+        Wallet.objects.update_or_create(business=biz, defaults={"balance_toman": 100})
         other_user, _ = seller("xs2@x.com", "دیگری")
         prod = Product.objects.create(business=biz, name="اکانت نوشن پلاس", description="x", price=100, x_search_enabled=True)
         idle = Product.objects.create(business=biz, name="هندزفری", description="x", price=100)
