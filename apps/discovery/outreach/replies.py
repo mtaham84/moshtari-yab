@@ -1,6 +1,7 @@
 """Conversation threads and syncing incoming replies from Instagram."""
 from datetime import timedelta
 import logging
+import math
 from typing import Any, Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -15,82 +16,59 @@ TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
 def _reply_sync_spacing() -> timedelta:
-    return timedelta(seconds=max(60, int(getattr(settings, "INSTAGRAM_REPLY_SYNC_MIN_SECONDS", 300))))
+    return timedelta(seconds=settings.INSTAGRAM_REPLY_SYNC_MIN_SECONDS)
 
 
-def _next_shift_label(now, shift_reason: str, wait_seconds: int) -> tuple[str, str]:
-    if wait_seconds and wait_seconds > 0:
-        next_tehran = (now + timedelta(seconds=wait_seconds)).astimezone(TEHRAN_TZ).strftime("%H:%M")
-        return next_tehran, f"حدود ساعت {next_tehran}"
-    return "", shift_reason or "شروع شیفت بعدی"
+def _locked_profile(tenant_id: str):
+    """The tenant's outreach profile, created if missing and locked until the surrounding transaction ends."""
+    from apps.discovery.models import OutreachTenantProfile
+
+    OutreachTenantProfile.objects.get_or_create(tenant_id=tenant_id)
+    return OutreachTenantProfile.objects.select_for_update().get(tenant_id=tenant_id)
+
+
+def _seconds_until_next_sync(profile, now) -> int:
+    """Seconds until this tenant's inbox may be checked again (0 = it may be checked now)."""
+    if not profile.last_reply_sync_at:
+        return 0
+    left = _reply_sync_spacing() - (now - profile.last_reply_sync_at)
+    return max(0, math.ceil(left.total_seconds()))
+
+
+def _tehran_clock(moment) -> str:
+    return moment.astimezone(TEHRAN_TZ).strftime("%H:%M")
 
 
 def request_reply_sync(tenant_id: str, *, now=None) -> Dict[str, Any]:
-    """Queue an inbox reply check for the outreach dispatcher without hitting Instagram from the web process."""
-    from apps.discovery.models import OutreachTenantProfile
+    """Queue an inbox reply check for the outreach dispatcher without hitting Instagram from the web process.
+
+    Returns data only (the view words it for the seller): ``status`` is ``throttled`` (checked less than the spacing
+    ago, not queued), ``outside_shift`` (queued, runs when the shift opens), ``already_queued`` or ``queued``;
+    ``next_run_at`` is a Tehran ``HH:MM`` or "", ``reason`` the shift planner's reason outside the shift.
+    """
     from apps.discovery.outreach_engine import reply_sync_window
     from apps.discovery.tenants import canonical_tenant
 
     now = now or timezone.now()
-    tid = canonical_tenant(tenant_id)
-    spacing = _reply_sync_spacing()
-    allowed, shift_reason, wait_seconds = reply_sync_window()
+    allowed, shift_reason, shift_wait = reply_sync_window()
 
-    OutreachTenantProfile.objects.get_or_create(tenant_id=tid)
     with transaction.atomic():
-        profile = OutreachTenantProfile.objects.select_for_update().get(tenant_id=tid)
-        if profile.last_reply_sync_at and (now - profile.last_reply_sync_at) < spacing:
-            remaining = max(1, int((spacing - (now - profile.last_reply_sync_at)).total_seconds()))
-            next_tehran = (profile.last_reply_sync_at + spacing).astimezone(TEHRAN_TZ).strftime("%H:%M")
-            mins = max(1, (remaining + 59) // 60)
-            return {
-                "status": "throttled",
-                "queued": False,
-                "allowed": allowed,
-                "wait_seconds": remaining,
-                "next_run_at": next_tehran,
-                "message": f"صندوق پیام‌ها به‌تازگی بررسی شده است؛ بررسی بعدی حدود {mins} دقیقه دیگر (ساعت {next_tehran}) مجاز است.",
-            }
-
+        profile = _locked_profile(canonical_tenant(tenant_id))
+        wait = _seconds_until_next_sync(profile, now)
+        if wait:
+            return {"status": "throttled", "queued": False, "allowed": allowed, "wait_seconds": wait,
+                    "next_run_at": _tehran_clock(profile.last_reply_sync_at + _reply_sync_spacing())}
         already_queued = profile.reply_sync_requested_at is not None
         if not already_queued:
             profile.reply_sync_requested_at = now
             profile.save(update_fields=["reply_sync_requested_at", "updated_at"])
 
     if not allowed:
-        next_tehran, when_label = _next_shift_label(now, shift_reason, wait_seconds)
-        prefix = "درخواست بررسی صندوق از قبل ثبت شده است" if already_queued else "درخواست بررسی صندوق ثبت شد"
-        return {
-            "status": "outside_shift",
-            "queued": True,
-            "allowed": False,
-            "wait_seconds": wait_seconds,
-            "next_run_at": next_tehran,
-            "reason": shift_reason,
-            "message": (
-                f"{prefix}؛ ربات خارج از ساعت کاری است و "
-                f"بررسی در شروع شیفت بعدی ({when_label} — {shift_reason}) انجام می‌شود."
-            ),
-        }
-
-    if already_queued:
-        return {
-            "status": "already_queued",
-            "queued": True,
-            "allowed": True,
-            "wait_seconds": 0,
-            "next_run_at": "",
-            "message": "درخواست بررسی صندوق از قبل در صف ربات پیام‌رسان است و در چرخه جاری انجام می‌شود.",
-        }
-
-    return {
-        "status": "queued",
-        "queued": True,
-        "allowed": True,
-        "wait_seconds": 0,
-        "next_run_at": "",
-        "message": "درخواست بررسی صندوق پیام‌ها برای ربات پیام‌رسان ثبت شد و در چرخه جاری (با رعایت فاصله ایمنی) انجام می‌شود.",
-    }
+        return {"status": "outside_shift", "queued": True, "allowed": False, "wait_seconds": shift_wait,
+                "next_run_at": _tehran_clock(now + timedelta(seconds=shift_wait)) if shift_wait > 0 else "",
+                "reason": shift_reason, "already_queued": already_queued}
+    return {"status": "already_queued" if already_queued else "queued", "queued": True, "allowed": True,
+            "wait_seconds": 0, "next_run_at": ""}
 
 
 def has_pending_reply_sync_requests(tenant_ids: List[str]) -> bool:
@@ -114,7 +92,6 @@ def serve_reply_syncs(
     now=None,
 ) -> List[Dict[str, Any]]:
     """Run reply sync for due tenant groups inside shift hours and per-tenant spacing."""
-    from apps.discovery.models import OutreachTenantProfile
     from apps.discovery.outreach_engine import reply_sync_window
     from apps.discovery.tenants import canonical_tenant
 
@@ -122,23 +99,16 @@ def serve_reply_syncs(
         return []
 
     now = now or timezone.now()
-    spacing = _reply_sync_spacing()
     runner = sync_fn or check_and_sync_lead_replies
     results: List[Dict[str, Any]] = []
 
     for group in tenant_groups:
         if not group:
             continue
-        tid = canonical_tenant(group[0])
-        OutreachTenantProfile.objects.get_or_create(tenant_id=tid)
         with transaction.atomic():
-            profile = OutreachTenantProfile.objects.select_for_update().get(tenant_id=tid)
-            should_run = True
-            if requested_only and profile.reply_sync_requested_at is None:
-                should_run = False
-            elif profile.last_reply_sync_at and (now - profile.last_reply_sync_at) < spacing:
-                should_run = False
-
+            profile = _locked_profile(canonical_tenant(group[0]))
+            not_requested = requested_only and profile.reply_sync_requested_at is None
+            should_run = not not_requested and not _seconds_until_next_sync(profile, now)
             if should_run:
                 profile.last_reply_sync_at = now
                 profile.reply_sync_requested_at = None

@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from config.celery import app as celery_app
 from apps.discovery.tasks import (
+    check_and_sync_lead_replies,
     task_dispatch_instagram_outreach,
     task_sync_lead_replies,
     task_sync_telegram_channel_configs,
@@ -37,29 +38,30 @@ class CeleryTaskQueueTestCase(SimpleTestCase):
 
     @patch("apps.discovery.tasks.random.random", return_value=0.9)
     @patch("apps.discovery.tasks.reply_sync_allowed", return_value=(True, ""))
-    @patch("apps.discovery.tasks.check_and_sync_lead_replies")
-    def test_task_sync_lead_replies_executes(self, mock_sync, _shift, _rand):
-        """Verify reply polling task calls underlying sync engine."""
-        mock_sync.return_value = {"success": True, "replies_found": 3, "details": []}
+    @patch("apps.discovery.tasks.serve_reply_syncs")
+    def test_task_sync_lead_replies_executes(self, mock_serve, _shift, _rand):
+        """Given tenants go through the same per-tenant spacing as the beat's own list."""
+        mock_serve.return_value = [{"success": True, "replies_found": 3, "details": []}]
         res = task_sync_lead_replies(tenant_ids=["tenant_4"])
         self.assertTrue(res["success"])
         self.assertEqual(res["replies_found"], 3)
-        mock_sync.assert_called_once_with(["tenant_4"])
+        mock_serve.assert_called_once_with([["tenant_4"]], requested_only=False, sync_fn=check_and_sync_lead_replies)
 
     @patch("apps.discovery.tasks.reply_sync_allowed", return_value=(False, "استراحت شبانه"))
-    @patch("apps.discovery.tasks.check_and_sync_lead_replies")
-    def test_task_sync_lead_replies_sleeps_outside_shift(self, mock_sync, _shift):
+    @patch("apps.discovery.tasks.serve_reply_syncs")
+    def test_task_sync_lead_replies_sleeps_outside_shift(self, mock_serve, _shift):
         res = task_sync_lead_replies(tenant_ids=["tenant_4"])
         self.assertTrue(res["skipped"])
-        mock_sync.assert_not_called()
+        mock_serve.assert_not_called()
 
     @patch("apps.discovery.tasks.random.random", return_value=0.1)
     @patch("apps.discovery.tasks.reply_sync_allowed", return_value=(True, ""))
-    @patch("apps.discovery.tasks.check_and_sync_lead_replies")
-    def test_task_sync_lead_replies_skips_some_ticks(self, mock_sync, _shift, _rand):
+    @patch("apps.discovery.tasks.has_pending_reply_sync_requests", return_value=False)
+    @patch("apps.discovery.tasks.serve_reply_syncs")
+    def test_task_sync_lead_replies_skips_some_ticks(self, mock_serve, _pending, _shift, _rand):
         res = task_sync_lead_replies(tenant_ids=["tenant_4"])
         self.assertEqual(res["reason"], "random_skip")
-        mock_sync.assert_not_called()
+        mock_serve.assert_not_called()
 
     def test_reply_sync_beat_is_not_a_two_minute_poll(self):
         from django.conf import settings

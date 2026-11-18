@@ -302,6 +302,23 @@ def generate_pitches_ajax_view(request):
     return JsonResponse({"success": True, "pitches": pitches})
 
 
+def _reply_sync_message(res: dict) -> str:
+    """The seller's text for a ``request_reply_sync`` result."""
+    status = res.get("status")
+    if status == "throttled":
+        minutes = max(1, (int(res.get("wait_seconds") or 0) + 59) // 60)
+        return (f"صندوق پیام‌ها به‌تازگی بررسی شده است؛ بررسی بعدی حدود {minutes} دقیقه دیگر "
+                f"(ساعت {res.get('next_run_at')}) مجاز است.")
+    if status == "outside_shift":
+        prefix = "درخواست بررسی صندوق از قبل ثبت شده است" if res.get("already_queued") else "درخواست بررسی صندوق ثبت شد"
+        reason = res.get("reason") or ""
+        when = f"حدود ساعت {res['next_run_at']}" if res.get("next_run_at") else (reason or "شروع شیفت بعدی")
+        return f"{prefix}؛ ربات خارج از ساعت کاری است و بررسی در شروع شیفت بعدی ({when} — {reason}) انجام می‌شود."
+    if status == "already_queued":
+        return "درخواست بررسی صندوق از قبل در صف ربات پیام‌رسان است و در چرخه جاری انجام می‌شود."
+    return "درخواست بررسی صندوق پیام‌ها برای ربات پیام‌رسان ثبت شد و در چرخه جاری (با رعایت فاصله ایمنی) انجام می‌شود."
+
+
 @login_required
 @require_POST
 def sync_replies_view(request):
@@ -322,11 +339,11 @@ def sync_replies_view(request):
         return redirect("accounts:dashboard")
 
     res = request_reply_sync(tenants.tenant_key(business))
+    msg = _reply_sync_message(res)
     status_code = 429 if res.get("status") == "throttled" else 200
     if wants_json(request):
-        return JsonResponse({"success": res.get("status") != "throttled", **res}, status=status_code)
+        return JsonResponse({"success": res.get("status") != "throttled", **res, "message": msg}, status=status_code)
 
-    msg = res.get("message") or "درخواست همگام‌سازی صندوق ثبت شد."
     if res.get("status") == "throttled":
         messages.warning(request, msg)
     elif res.get("status") == "outside_shift":

@@ -102,22 +102,9 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
     if not allowed:
         return {"success": True, "skipped": True, "reason": reason, "replies_found": 0}
 
-    if tenant_ids:
-        if random.random() < REPLY_SYNC_SKIP_CHANCE:
-            return {"success": True, "skipped": True, "reason": "random_skip", "replies_found": 0}
-        try:
-            res = check_and_sync_lead_replies(tenant_ids)
-            replies_count = res.get("replies_found", 0)
-            if replies_count > 0:
-                logger.info("🎉 [Celery Fast Replies] %d new customer replies synced!", replies_count)
-            return res
-        except Exception as exc:
-            logger.warning("Error syncing lead replies in Celery task: %s", exc, exc_info=True)
-            return {"success": False, "error": str(exc), "replies_found": 0}
-
     from apps.discovery.tenants import canonical_tenant, outreach_tenants, tenant_ids as ig_tenant_ids
 
-    groups = [ig_tenant_ids(t) for t in outreach_tenants()]
+    groups = [list(tenant_ids)] if tenant_ids else [ig_tenant_ids(t) for t in outreach_tenants()]
     if not groups:
         return {"success": True, "skipped": True, "reason": "no_outreach_tenants", "replies_found": 0}
 
@@ -129,14 +116,13 @@ def task_sync_lead_replies(tenant_ids: Optional[List[str]] = None) -> Dict[str, 
 
     try:
         results = serve_reply_syncs(groups, requested_only=requested_only, sync_fn=check_and_sync_lead_replies)
-        replies_count = sum(r.get("replies_found", 0) for r in results)
-        details = [d for r in results for d in r.get("details", [])]
-        if replies_count > 0:
-            logger.info("🎉 [Celery Fast Replies] %d new customer replies synced!", replies_count)
-        return {"status": "success", "success": True, "replies_found": replies_count, "details": details}
     except Exception as exc:
         logger.warning("Error syncing lead replies in Celery task: %s", exc, exc_info=True)
         return {"success": False, "error": str(exc), "replies_found": 0}
+    replies_count = sum(r.get("replies_found", 0) for r in results)
+    if replies_count > 0:
+        logger.info("🎉 [Celery Fast Replies] %d new customer replies synced!", replies_count)
+    return {"success": True, "replies_found": replies_count, "details": [d for r in results for d in r.get("details", [])]}
 
 
 @shared_task(
